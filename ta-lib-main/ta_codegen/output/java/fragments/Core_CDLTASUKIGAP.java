@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#CDLTASUKIGAP} consumes before it
+    * Number of leading input bars {@link Core#cdltasukigap} consumes before it
     * can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,42 +21,42 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int CDLTASUKIGAP_Lookback( )
+   public int cdltasukigapLookback( )
    {
-      int Near_rangeType = this.candleSettings[CandleSettingType.Near.ordinal()].rangeType.ordinal();
-      int Near_avgPeriod = this.candleSettings[CandleSettingType.Near.ordinal()].avgPeriod;
-      double Near_factor = this.candleSettings[CandleSettingType.Near.ordinal()].factor;
+      int Near_rangeType = this.candleSettings[CandleSettingType.NEAR.ordinal()].rangeType.ordinal();
+      int Near_avgPeriod = this.candleSettings[CandleSettingType.NEAR.ordinal()].avgPeriod;
+      double Near_factor = this.candleSettings[CandleSettingType.NEAR.ordinal()].factor;
       return Near_avgPeriod + 2 ;
 
    }
-   RetCode CDLTASUKIGAP_Impl( int startIdx,
-                              int endIdx,
-                              double inOpen[],
-                              double inHigh[],
-                              double inLow[],
-                              double inClose[],
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              int outInteger[] )
+   RetCode cdltasukigapImpl( int startIdx,
+                             int endIdx,
+                             double inOpen[],
+                             double inHigh[],
+                             double inLow[],
+                             double inClose[],
+                             MInteger outBegIdx,
+                             MInteger outNBElement,
+                             int outInteger[] )
    {
       double NearPeriodTotal = 0;
       int i = 0;
       int outIdx = 0;
       int NearTrailingIdx = 0;
       int lookbackTotal = 0;
-      int Near_rangeType = this.candleSettings[CandleSettingType.Near.ordinal()].rangeType.ordinal();
-      int Near_avgPeriod = this.candleSettings[CandleSettingType.Near.ordinal()].avgPeriod;
-      double Near_factor = this.candleSettings[CandleSettingType.Near.ordinal()].factor;
+      int Near_rangeType = this.candleSettings[CandleSettingType.NEAR.ordinal()].rangeType.ordinal();
+      int Near_avgPeriod = this.candleSettings[CandleSettingType.NEAR.ordinal()].avgPeriod;
+      double Near_factor = this.candleSettings[CandleSettingType.NEAR.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLTASUKIGAP_Lookback();
+      lookbackTotal = cdltasukigapLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -67,7 +67,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -124,40 +124,40 @@
       /* All done. Indicate the output limits and return. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode CDLTASUKIGAP_Impl( int startIdx,
-                              int endIdx,
-                              float inOpen[],
-                              float inHigh[],
-                              float inLow[],
-                              float inClose[],
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              int outInteger[] )
+   RetCode cdltasukigapImpl( int startIdx,
+                             int endIdx,
+                             float inOpen[],
+                             float inHigh[],
+                             float inLow[],
+                             float inClose[],
+                             MInteger outBegIdx,
+                             MInteger outNBElement,
+                             int outInteger[] )
    {
       double NearPeriodTotal = 0;
       int i = 0;
       int outIdx = 0;
       int NearTrailingIdx = 0;
       int lookbackTotal = 0;
-      int Near_rangeType = this.candleSettings[CandleSettingType.Near.ordinal()].rangeType.ordinal();
-      int Near_avgPeriod = this.candleSettings[CandleSettingType.Near.ordinal()].avgPeriod;
-      double Near_factor = this.candleSettings[CandleSettingType.Near.ordinal()].factor;
+      int Near_rangeType = this.candleSettings[CandleSettingType.NEAR.ordinal()].rangeType.ordinal();
+      int Near_avgPeriod = this.candleSettings[CandleSettingType.NEAR.ordinal()].avgPeriod;
+      double Near_factor = this.candleSettings[CandleSettingType.NEAR.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
-      lookbackTotal = CDLTASUKIGAP_Lookback();
+      lookbackTotal = cdltasukigapLookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       NearPeriodTotal = 0;
       NearTrailingIdx = startIdx - Near_avgPeriod;
@@ -180,7 +180,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * A three-candle pattern: a real-body-gapping candle followed by an
@@ -197,8 +197,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLTASUKIGAP_Lookback} is a
-    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#cdltasukigapLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -224,10 +224,10 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLGAPSIDESIDEWHITE
-    * @see Core#CDLXSIDEGAP3METHODS
+    * @see Core#cdlgapsidesidewhite
+    * @see Core#cdlxsidegap3methods
     */
-   public OutRange CDLTASUKIGAP( int startIdx,
+   public OutRange cdltasukigap( int startIdx,
                                  int endIdx,
                                  double inOpen[],
                                  double inHigh[],
@@ -236,7 +236,7 @@
                                  int outInteger[] )
    {
       requireIndexRange("CDLTASUKIGAP", startIdx, endIdx);
-      int guardStart = clampedStart("CDLTASUKIGAP", startIdx, CDLTASUKIGAP_Lookback());
+      int guardStart = clampedStart("CDLTASUKIGAP", startIdx, cdltasukigapLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLTASUKIGAP", "inOpen", inOpen, guardInLen);
@@ -246,8 +246,8 @@
       requireLength("CDLTASUKIGAP", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLTASUKIGAP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdltasukigapImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLTASUKIGAP", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -270,8 +270,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLTASUKIGAP_Lookback} is a
-    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#cdltasukigapLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -297,10 +297,10 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLGAPSIDESIDEWHITE
-    * @see Core#CDLXSIDEGAP3METHODS
+    * @see Core#cdlgapsidesidewhite
+    * @see Core#cdlxsidegap3methods
     */
-   public OutRange CDLTASUKIGAP( int startIdx,
+   public OutRange cdltasukigap( int startIdx,
                                  int endIdx,
                                  float inOpen[],
                                  float inHigh[],
@@ -309,7 +309,7 @@
                                  int outInteger[] )
    {
       requireIndexRange("CDLTASUKIGAP", startIdx, endIdx);
-      int guardStart = clampedStart("CDLTASUKIGAP", startIdx, CDLTASUKIGAP_Lookback());
+      int guardStart = clampedStart("CDLTASUKIGAP", startIdx, cdltasukigapLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLTASUKIGAP", "inOpen", inOpen, guardInLen);
@@ -319,8 +319,8 @@
       requireLength("CDLTASUKIGAP", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLTASUKIGAP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdltasukigapImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLTASUKIGAP", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -329,7 +329,7 @@
 
    /**
     * A live CDLTASUKIGAP stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#CDLTASUKIGAP} over the same series.
+    * closed bar, bit-identical to {@link Core#cdltasukigap} over the same series.
     * Open with {@link Core#cdltasukigapOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -366,7 +366,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#CDLTASUKIGAP} reports over the same bars: the
+       * <p>It is what {@link Core#cdltasukigap} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -393,7 +393,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLTASUKIGAP advance", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLTASUKIGAP advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -438,9 +438,9 @@
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLTASUKIGAP update", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLTASUKIGAP update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLTASUKIGAP update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLTASUKIGAP update: BAD_PARAM", RetCode.BAD_PARAM);
          core.cdltasukigapStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -458,7 +458,7 @@
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLTASUKIGAP peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLTASUKIGAP peek: BAD_PARAM", RetCode.BAD_PARAM);
          CdltasukigapStream sp = this;
          int cur_outInteger = 0;
          int Near_rangeType = sp.cs_Near_rangeType;
@@ -566,26 +566,26 @@
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      int Near_rangeType = this.candleSettings[CandleSettingType.Near.ordinal()].rangeType.ordinal();
-      int Near_avgPeriod = this.candleSettings[CandleSettingType.Near.ordinal()].avgPeriod;
-      double Near_factor = this.candleSettings[CandleSettingType.Near.ordinal()].factor;
+      int Near_rangeType = this.candleSettings[CandleSettingType.NEAR.ordinal()].rangeType.ordinal();
+      int Near_avgPeriod = this.candleSettings[CandleSettingType.NEAR.ordinal()].avgPeriod;
+      double Near_factor = this.candleSettings[CandleSettingType.NEAR.ordinal()].factor;
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLTASUKIGAP_Lookback();
+      lookbackTotal = cdltasukigapLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -596,7 +596,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -657,7 +657,7 @@
       int capLag_NearTrailingIdx = i - NearTrailingIdx;
       int cap_NearTrailingIdx = capLag_NearTrailingIdx + 2;
       if( capLag_NearTrailingIdx < 0 || cap_NearTrailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_NearTrailingIdx = (cap_NearTrailingIdx > 0)? cap_NearTrailingIdx : 1;
       double[] capRing_NearTrailingIdx_derived = new double[allocN_NearTrailingIdx];
@@ -679,7 +679,7 @@
       sp.cs_Near_avgPeriod = Near_avgPeriod;
       sp.cs_Near_factor = Near_factor;
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* cdltasukigapOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CdltasukigapStream cdltasukigapOpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
@@ -688,16 +688,16 @@
       RetCode retCode = cdltasukigapOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLTASUKIGAP openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLTASUKIGAP openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLTASUKIGAP openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLTASUKIGAP openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("CDLTASUKIGAP openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind cdltasukigapOpen (composition seam). */
    CdltasukigapStream cdltasukigapOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -709,22 +709,22 @@
       RetCode retCode = cdltasukigapOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLTASUKIGAP open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLTASUKIGAP open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLTASUKIGAP open: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLTASUKIGAP open: " + retCode, retCode);
+      throw new TALibArgumentException("CDLTASUKIGAP open: " + retCode, retCode);
    }
    /**
     * Open a live CDLTASUKIGAP stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#CDLTASUKIGAP} at that bar.
-    * <p>The history must hold at least {@code CDLTASUKIGAP_Lookback(...) + 1} bars
+    * to {@link Core#cdltasukigap} at that bar.
+    * <p>The history must hold at least {@code cdltasukigapLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -745,7 +745,7 @@
    }
    /**
     * {@link Core#cdltasukigapOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#CDLTASUKIGAP} over the whole history in the same single pass
+    * to {@link Core#cdltasukigap} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -761,13 +761,13 @@
       requireArgument("CDLTASUKIGAP openAndFill", "inHigh", inHigh);
       requireArgument("CDLTASUKIGAP openAndFill", "inLow", inLow);
       requireArgument("CDLTASUKIGAP openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("CDLTASUKIGAP openAndFill", inOpen.length, CDLTASUKIGAP_Lookback());
+      int guardOutLen = openFillCount("CDLTASUKIGAP openAndFill", inOpen.length, cdltasukigapLookback());
       requireHistoryLength("CDLTASUKIGAP openAndFill", "inHigh", inHigh.length, inOpen.length);
       requireHistoryLength("CDLTASUKIGAP openAndFill", "inLow", inLow.length, inOpen.length);
       requireHistoryLength("CDLTASUKIGAP openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("CDLTASUKIGAP openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
-         throw new TaLibArgumentException("CDLTASUKIGAP openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("CDLTASUKIGAP openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

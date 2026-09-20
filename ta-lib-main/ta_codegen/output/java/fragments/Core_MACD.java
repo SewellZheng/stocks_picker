@@ -20,7 +20,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#MACD} consumes before it can
+    * Number of leading input bars {@link Core#macd} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -34,7 +34,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int MACD_Lookback( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
+   public int macdLookback( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
    {
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
@@ -66,20 +66,20 @@
          optInSlowPeriod = optInFastPeriod;
          optInFastPeriod = tempInteger;
       }
-      return EMA_Lookback(optInSlowPeriod) + EMA_Lookback(optInSignalPeriod) ;
+      return emaLookback(optInSlowPeriod) + emaLookback(optInSignalPeriod) ;
 
    }
-   RetCode MACD_Impl( int startIdx,
-                      int endIdx,
-                      double inReal[],
-                      int optInFastPeriod,
-                      int optInSlowPeriod,
-                      int optInSignalPeriod,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outMACD[],
-                      double outMACDSignal[],
-                      double outMACDHist[] )
+   RetCode macdImpl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     int optInFastPeriod,
+                     int optInSlowPeriod,
+                     int optInSignalPeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outMACD[],
+                     double outMACDSignal[],
+                     double outMACDHist[] )
    {
       double prevFast = 0;
       double prevSlow = 0;
@@ -96,28 +96,28 @@
       int lookbackTotal = 0;
       int lookbackSignal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSignalPeriod == Integer.MIN_VALUE ) {
          optInSignalPeriod = 9;
       } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outMACD == outMACDSignal || outMACD == outMACDHist || outMACDSignal == outMACDHist ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       /* Make sure slow is really slower than
        * the fast period! if not, swap...
@@ -153,12 +153,12 @@
        * window on ordinary data; hence the explicit arm at each step.
        */
       signalK = 2.0 / (double)(optInSignalPeriod + 1);
-      lookbackSignal = EMA_Lookback(optInSignalPeriod);
+      lookbackSignal = emaLookback(optInSignalPeriod);
       /* Move up the start index if there is not
        * enough initial data.
        */
       lookbackTotal = lookbackSignal;
-      lookbackTotal += EMA_Lookback(optInSlowPeriod);
+      lookbackTotal += emaLookback(optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -166,7 +166,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Everything is computed in a single lockstep pass: each bar
        * advances the fast and slow EMA (two independent recursions),
@@ -268,19 +268,19 @@
       /* All done! Indicate the output limits and return success. */
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode MACD_Impl( int startIdx,
-                      int endIdx,
-                      float inReal[],
-                      int optInFastPeriod,
-                      int optInSlowPeriod,
-                      int optInSignalPeriod,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outMACD[],
-                      double outMACDSignal[],
-                      double outMACDHist[] )
+   RetCode macdImpl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     int optInFastPeriod,
+                     int optInSlowPeriod,
+                     int optInSignalPeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outMACD[],
+                     double outMACDSignal[],
+                     double outMACDHist[] )
    {
       double prevFast = 0;
       double prevSlow = 0;
@@ -297,28 +297,28 @@
       int lookbackTotal = 0;
       int lookbackSignal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSignalPeriod == Integer.MIN_VALUE ) {
          optInSignalPeriod = 9;
       } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outMACD == outMACDSignal || outMACD == outMACDHist || outMACDSignal == outMACDHist ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       if( optInSlowPeriod < optInFastPeriod ) {
          tempInteger = optInSlowPeriod;
@@ -338,16 +338,16 @@
          fastK = 2.0 / (double)(optInFastPeriod + 1);
       }
       signalK = 2.0 / (double)(optInSignalPeriod + 1);
-      lookbackSignal = EMA_Lookback(optInSignalPeriod);
+      lookbackSignal = emaLookback(optInSignalPeriod);
       lookbackTotal = lookbackSignal;
-      lookbackTotal += EMA_Lookback(optInSlowPeriod);
+      lookbackTotal += emaLookback(optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       today = startIdx - lookbackTotal;
       tempReal = 0.0;
@@ -412,7 +412,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Moving Average Convergence/Divergence: the difference between a fast and a
@@ -429,8 +429,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#MACD_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#macdLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -461,12 +461,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MACDEXT
-    * @see Core#MACDFIX
-    * @see Core#EMA
-    * @see Core#APO
+    * @see Core#macdext
+    * @see Core#macdfix
+    * @see Core#ema
+    * @see Core#apo
     */
-   public OutRange MACD( int startIdx,
+   public OutRange macd( int startIdx,
                          int endIdx,
                          double inReal[],
                          int optInFastPeriod,
@@ -477,7 +477,7 @@
                          double outMACDHist[] )
    {
       requireIndexRange("MACD", startIdx, endIdx);
-      int guardStart = clampedStart("MACD", startIdx, MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardStart = clampedStart("MACD", startIdx, macdLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MACD", "inReal", inReal, guardInLen);
@@ -486,8 +486,8 @@
       requireLength("MACD", "outMACDHist", outMACDHist, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MACD_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = macdImpl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("MACD", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -510,8 +510,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#MACD_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#macdLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -542,12 +542,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MACDEXT
-    * @see Core#MACDFIX
-    * @see Core#EMA
-    * @see Core#APO
+    * @see Core#macdext
+    * @see Core#macdfix
+    * @see Core#ema
+    * @see Core#apo
     */
-   public OutRange MACD( int startIdx,
+   public OutRange macd( int startIdx,
                          int endIdx,
                          float inReal[],
                          int optInFastPeriod,
@@ -558,7 +558,7 @@
                          double outMACDHist[] )
    {
       requireIndexRange("MACD", startIdx, endIdx);
-      int guardStart = clampedStart("MACD", startIdx, MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardStart = clampedStart("MACD", startIdx, macdLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MACD", "inReal", inReal, guardInLen);
@@ -567,8 +567,8 @@
       requireLength("MACD", "outMACDHist", outMACDHist, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MACD_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = macdImpl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("MACD", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -577,7 +577,7 @@
 
    /**
     * A live MACD stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#MACD} over the same series.
+    * closed bar, bit-identical to {@link Core#macd} over the same series.
     * Open with {@link Core#macdOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -611,7 +611,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#MACD} reports over the same bars: the
+       * <p>It is what {@link Core#macd} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -638,7 +638,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("MACD advance", RetCode.OutOfRangeEndIndex);
+            throw failure("MACD advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -680,10 +680,10 @@
        */
       public void update( double inReal, MacdOut out ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("MACD update", RetCode.OutOfRangeEndIndex);
+            throw failure("MACD update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("MACD update", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("MACD update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("MACD update: BAD_PARAM", RetCode.BAD_PARAM);
          core.macdStepImpl(this, inReal);
          this.outRangeCount++;
          out.macd = this.cur_outMACD;
@@ -704,7 +704,7 @@
       public void peek( double inReal, MacdOut out ) {
          requireArgument("MACD peek", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("MACD peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("MACD peek: BAD_PARAM", RetCode.BAD_PARAM);
          MacdStream sp = this;
          double macdValue = 0.0;
          double tempReal = 0.0;
@@ -820,30 +820,30 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSignalPeriod == Integer.MIN_VALUE ) {
          optInSignalPeriod = 9;
       } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* Make sure slow is really slower than
        * the fast period! if not, swap...
@@ -879,12 +879,12 @@
        * window on ordinary data; hence the explicit arm at each step.
        */
       signalK = 2.0 / (double)(optInSignalPeriod + 1);
-      lookbackSignal = EMA_Lookback(optInSignalPeriod);
+      lookbackSignal = emaLookback(optInSignalPeriod);
       /* Move up the start index if there is not
        * enough initial data.
        */
       lookbackTotal = lookbackSignal;
-      lookbackTotal += EMA_Lookback(optInSlowPeriod);
+      lookbackTotal += emaLookback(optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -892,7 +892,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Everything is computed in a single lockstep pass: each bar
        * advances the fast and slow EMA (two independent recursions),
@@ -1007,7 +1007,7 @@
       sp.cur_outMACD = outMACD[(outNBElement.value - 1) * outStride];
       sp.cur_outMACDSignal = outMACDSignal[(outNBElement.value - 1) * outStride];
       sp.cur_outMACDHist = outMACDHist[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* macdOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MacdStream macdOpenAndFillInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outMACD[], double outMACDSignal[], double outMACDHist[] )
@@ -1016,16 +1016,16 @@
       RetCode retCode = macdOpenImpl(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("MACD openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MACD openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("MACD openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("MACD openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("MACD openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind macdOpen (composition seam). */
    MacdStream macdOpenInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
@@ -1039,22 +1039,22 @@
       RetCode retCode = macdOpenImpl(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, sink_outMACD, sink_outMACDSignal, sink_outMACDHist, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("MACD open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MACD open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("MACD open: internal error", retCode);
       }
-      throw new TaLibArgumentException("MACD open: " + retCode, retCode);
+      throw new TALibArgumentException("MACD open: " + retCode, retCode);
    }
    /**
     * Open a live MACD stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#MACD} at that bar.
-    * <p>The history must hold at least {@code MACD_Lookback(...) + 1} bars
+    * to {@link Core#macd} at that bar.
+    * <p>The history must hold at least {@code macdLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -1071,7 +1071,7 @@
    }
    /**
     * {@link Core#macdOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#MACD} over the whole history in the same single pass
+    * to {@link Core#macd} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1084,12 +1084,12 @@
    {
       requireArgument("MACD openAndFill", "inReal", inReal);
       requireHistory("MACD openAndFill", inReal.length);
-      int guardOutLen = openFillCount("MACD openAndFill", inReal.length, MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardOutLen = openFillCount("MACD openAndFill", inReal.length, macdLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       requireLength("MACD openAndFill", "outMACD", outMACD, guardOutLen);
       requireLength("MACD openAndFill", "outMACDSignal", outMACDSignal, guardOutLen);
       requireLength("MACD openAndFill", "outMACDHist", outMACDHist, guardOutLen);
       if( (Object)outMACD == (Object)inReal || (Object)outMACDSignal == (Object)inReal || (Object)outMACDHist == (Object)inReal || (Object)outMACD == (Object)outMACDSignal || (Object)outMACD == (Object)outMACDHist || (Object)outMACDSignal == (Object)outMACDHist ) {
-         throw new TaLibArgumentException("MACD openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("MACD openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

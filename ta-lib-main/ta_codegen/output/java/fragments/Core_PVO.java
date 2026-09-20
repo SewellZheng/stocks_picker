@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#PVO} consumes before it can
+    * Number of leading input bars {@link Core#pvo} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -29,7 +29,7 @@
     *        {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int PVO_Lookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   public int pvoLookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
@@ -45,18 +45,18 @@
          optInMAType = MAType.EMA;
       }
       /* Lookback is driven by the slowest MA. */
-      return MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
+      return maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
 
    }
-   RetCode PVO_Impl( int startIdx,
-                     int endIdx,
-                     double inVolume[],
-                     int optInFastPeriod,
-                     int optInSlowPeriod,
-                     MAType optInMAType,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode pvoImpl( int startIdx,
+                    int endIdx,
+                    double inVolume[],
+                    int optInFastPeriod,
+                    int optInSlowPeriod,
+                    MAType optInMAType,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -67,20 +67,20 @@
       int offset = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
@@ -97,10 +97,10 @@
        * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
        * probe over every guarded core.
        */
-      if( MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+      if( maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Allocate an intermediate buffer. */
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
@@ -114,15 +114,15 @@
          optInFastPeriod = tempInteger;
       }
       /* Calculate the fast MA into the tempBuffer. */
-      OutRange _xr0 = MA(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, tempBuffer);
+      OutRange _xr0 = ma(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, tempBuffer);
       fastBeg.value = _xr0.begIdx();
       fastNb.value = _xr0.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       /* Calculate the slow MA into the output. */
-      OutRange _xr1 = MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outReal);
+      OutRange _xr1 = ma(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outReal);
       outBegIdx.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       /* fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
        * many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
        * outReal[i], with a non-negative index. An empty slow MA skips the loop.
@@ -137,17 +137,17 @@
             outReal[i] = 0.0;
          }
       }
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode PVO_Impl( int startIdx,
-                     int endIdx,
-                     float inVolume[],
-                     int optInFastPeriod,
-                     int optInSlowPeriod,
-                     MAType optInMAType,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode pvoImpl( int startIdx,
+                    int endIdx,
+                    float inVolume[],
+                    int optInFastPeriod,
+                    int optInSlowPeriod,
+                    MAType optInMAType,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -158,28 +158,28 @@
       int offset = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
       }
-      if( MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+      if( maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
       if( optInSlowPeriod < optInFastPeriod ) {
@@ -187,14 +187,14 @@
          optInSlowPeriod = optInFastPeriod;
          optInFastPeriod = tempInteger;
       }
-      OutRange _xr0 = MA(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, tempBuffer);
+      OutRange _xr0 = ma(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, tempBuffer);
       fastBeg.value = _xr0.begIdx();
       fastNb.value = _xr0.count();
-      retCode = RetCode.Success;
-      OutRange _xr1 = MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outReal);
+      retCode = RetCode.SUCCESS;
+      OutRange _xr1 = ma(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outReal);
       outBegIdx.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       offset = fastNb.value - outNBElement.value;
       for( i = 0; i < (int)outNBElement.value; i += 1 ) {
          tempReal = outReal[i];
@@ -204,7 +204,7 @@
             outReal[i] = 0.0;
          }
       }
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Percentage Volume Oscillator: a variation of the <a
@@ -223,7 +223,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#PVO_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#pvoLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -253,11 +253,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#PPO
-    * @see Core#OBV
-    * @see Core#MACD
+    * @see Core#ppo
+    * @see Core#obv
+    * @see Core#macd
     */
-   public OutRange PVO( int startIdx,
+   public OutRange pvo( int startIdx,
                         int endIdx,
                         double inVolume[],
                         int optInFastPeriod,
@@ -267,15 +267,15 @@
    {
       requireIndexRange("PVO", startIdx, endIdx);
       requireArgument("PVO", "optInMAType", optInMAType);
-      int guardStart = clampedStart("PVO", startIdx, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardStart = clampedStart("PVO", startIdx, pvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PVO", "inVolume", inVolume, guardInLen);
       requireLength("PVO", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PVO_Impl(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = pvoImpl(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("PVO", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -300,7 +300,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#PVO_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#pvoLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -330,11 +330,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#PPO
-    * @see Core#OBV
-    * @see Core#MACD
+    * @see Core#ppo
+    * @see Core#obv
+    * @see Core#macd
     */
-   public OutRange PVO( int startIdx,
+   public OutRange pvo( int startIdx,
                         int endIdx,
                         float inVolume[],
                         int optInFastPeriod,
@@ -344,15 +344,15 @@
    {
       requireIndexRange("PVO", startIdx, endIdx);
       requireArgument("PVO", "optInMAType", optInMAType);
-      int guardStart = clampedStart("PVO", startIdx, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardStart = clampedStart("PVO", startIdx, pvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PVO", "inVolume", inVolume, guardInLen);
       requireLength("PVO", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PVO_Impl(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = pvoImpl(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("PVO", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -361,7 +361,7 @@
 
    /**
     * A live PVO stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#PVO} over the same series.
+    * closed bar, bit-identical to {@link Core#pvo} over the same series.
     * Open with {@link Core#pvoOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -389,7 +389,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#PVO} reports over the same bars: the
+       * <p>It is what {@link Core#pvo} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -416,7 +416,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("PVO advance", RetCode.OutOfRangeEndIndex);
+            throw failure("PVO advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -452,9 +452,9 @@
        */
       public double update( double inVolume ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("PVO update", RetCode.OutOfRangeEndIndex);
+            throw failure("PVO update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("PVO update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("PVO update: BAD_PARAM", RetCode.BAD_PARAM);
          core.pvoStepImpl(this, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -472,7 +472,7 @@
        */
       public double peek( double inVolume ) {
          if( !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("PVO peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("PVO peek: BAD_PARAM", RetCode.BAD_PARAM);
          PvoStream sp = this;
          double tempReal = 0.0;
          double cur_tempBuffer = 0.0;
@@ -546,20 +546,20 @@
       int historyLen = inVolume.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 12;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 26;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
@@ -567,10 +567,10 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      if( historyLen < PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) + 1 ) {
-         return RetCode.InsufficientHistory;
+      if( historyLen < pvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType) + 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       double[] sc_outReal = outStride == 1 ? outReal : new double[historyLen];
       /* Nothing to produce: the range is shorter than the lookback. Return before
@@ -585,10 +585,10 @@
        * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
        * probe over every guarded core.
        */
-      if( MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+      if( maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Allocate an intermediate buffer. */
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
@@ -605,12 +605,12 @@
       /* Sub-stream 0: ma over `inVolume`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MaStream sub0 = maOpenAndFillInternal(inVolume, startIdx, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       /* Calculate the slow MA into the output. */
       /* Sub-stream 1: ma over `inVolume`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MaStream sub1 = maOpenAndFillInternal(inVolume, startIdx, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       /* fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
        * many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
        * outReal[i], with a non-negative index. An empty slow MA skips the loop.
@@ -627,7 +627,7 @@
       }
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       sp.optInFastPeriod = optInFastPeriod;
       sp.optInSlowPeriod = optInSlowPeriod;
@@ -635,7 +635,7 @@
       sp.sub0 = sub0;
       sp.sub1 = sub1;
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* pvoOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    PvoStream pvoOpenAndFillInternal( double inVolume[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -644,16 +644,16 @@
       RetCode retCode = pvoOpenImpl(sp, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("PVO openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("PVO openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("PVO openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("PVO openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("PVO openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind pvoOpen (composition seam). */
    PvoStream pvoOpenInternal( double inVolume[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
@@ -665,22 +665,22 @@
       RetCode retCode = pvoOpenImpl(sp, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("PVO open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("PVO open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("PVO open: internal error", retCode);
       }
-      throw new TaLibArgumentException("PVO open: " + retCode, retCode);
+      throw new TALibArgumentException("PVO open: " + retCode, retCode);
    }
    /**
     * Open a live PVO stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#PVO} at that bar.
-    * <p>The history must hold at least {@code PVO_Lookback(...) + 1} bars
+    * to {@link Core#pvo} at that bar.
+    * <p>The history must hold at least {@code pvoLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} and {@link MAType#DEFAULT} select a
@@ -698,7 +698,7 @@
    }
    /**
     * {@link Core#pvoOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#PVO} over the whole history in the same single pass
+    * to {@link Core#pvo} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -712,10 +712,10 @@
       requireArgument("PVO openAndFill", "inVolume", inVolume);
       requireHistory("PVO openAndFill", inVolume.length);
       requireArgument("PVO openAndFill", "optInMAType", optInMAType);
-      int guardOutLen = openFillCount("PVO openAndFill", inVolume.length, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardOutLen = openFillCount("PVO openAndFill", inVolume.length, pvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       requireLength("PVO openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inVolume ) {
-         throw new TaLibArgumentException("PVO openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("PVO openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

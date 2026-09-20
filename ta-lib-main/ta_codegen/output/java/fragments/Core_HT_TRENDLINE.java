@@ -25,7 +25,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#HT_TRENDLINE} consumes before it
+    * Number of leading input bars {@link Core#htTrendline} consumes before it
     * can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -36,7 +36,7 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int HT_TRENDLINE_Lookback( )
+   public int htTrendlineLookback( )
    {
       /* 31 input are skip
        * +32 output are skip to account for misc lookback
@@ -49,12 +49,12 @@
       return 63 + this.unstablePeriod[FuncUnstId.HT_TRENDLINE.ordinal()] ;
 
    }
-   RetCode HT_TRENDLINE_Impl( int startIdx,
-                              int endIdx,
-                              double inReal[],
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              double outReal[] )
+   RetCode htTrendlineImpl( int startIdx,
+                            int endIdx,
+                            double inReal[],
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -120,10 +120,10 @@
       int DCPeriodInt = 0;
       double DCPeriod = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       a = 0.0962;
       b = 0.5769;
@@ -152,7 +152,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -427,14 +427,14 @@
          today += 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode HT_TRENDLINE_Impl( int startIdx,
-                              int endIdx,
-                              float inReal[],
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              double outReal[] )
+   RetCode htTrendlineImpl( int startIdx,
+                            int endIdx,
+                            float inReal[],
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -500,10 +500,10 @@
       int DCPeriodInt = 0;
       double DCPeriod = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       a = 0.0962;
       b = 0.5769;
@@ -519,7 +519,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       trailingWMAIdx = startIdx - lookbackTotal;
@@ -739,7 +739,7 @@
          today += 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Ehlers' Hilbert Transform Instantaneous Trendline: a smoothed, low-lag
@@ -750,8 +750,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#HT_TRENDLINE_Lookback} is a
-    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#htTrendlineLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -772,26 +772,26 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#HT_DCPERIOD
-    * @see Core#HT_PHASOR
-    * @see Core#MAMA
-    * @see Core#WMA
+    * @see Core#htDcperiod
+    * @see Core#htPhasor
+    * @see Core#mama
+    * @see Core#wma
     */
-   public OutRange HT_TRENDLINE( int startIdx,
-                                 int endIdx,
-                                 double inReal[],
-                                 double outReal[] )
+   public OutRange htTrendline( int startIdx,
+                                int endIdx,
+                                double inReal[],
+                                double outReal[] )
    {
       requireIndexRange("HT_TRENDLINE", startIdx, endIdx);
-      int guardStart = clampedStart("HT_TRENDLINE", startIdx, HT_TRENDLINE_Lookback());
+      int guardStart = clampedStart("HT_TRENDLINE", startIdx, htTrendlineLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("HT_TRENDLINE", "inReal", inReal, guardInLen);
       requireLength("HT_TRENDLINE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_TRENDLINE_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = htTrendlineImpl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("HT_TRENDLINE", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -808,8 +808,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#HT_TRENDLINE_Lookback} is a
-    * <b>success with no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#htTrendlineLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -830,26 +830,26 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#HT_DCPERIOD
-    * @see Core#HT_PHASOR
-    * @see Core#MAMA
-    * @see Core#WMA
+    * @see Core#htDcperiod
+    * @see Core#htPhasor
+    * @see Core#mama
+    * @see Core#wma
     */
-   public OutRange HT_TRENDLINE( int startIdx,
-                                 int endIdx,
-                                 float inReal[],
-                                 double outReal[] )
+   public OutRange htTrendline( int startIdx,
+                                int endIdx,
+                                float inReal[],
+                                double outReal[] )
    {
       requireIndexRange("HT_TRENDLINE", startIdx, endIdx);
-      int guardStart = clampedStart("HT_TRENDLINE", startIdx, HT_TRENDLINE_Lookback());
+      int guardStart = clampedStart("HT_TRENDLINE", startIdx, htTrendlineLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("HT_TRENDLINE", "inReal", inReal, guardInLen);
       requireLength("HT_TRENDLINE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_TRENDLINE_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = htTrendlineImpl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("HT_TRENDLINE", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -858,7 +858,7 @@
 
    /**
     * A live HT_TRENDLINE stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#HT_TRENDLINE} over the same series.
+    * closed bar, bit-identical to {@link Core#htTrendline} over the same series.
     * Open with {@link Core#htTrendlineOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -932,7 +932,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#HT_TRENDLINE} reports over the same bars: the
+       * <p>It is what {@link Core#htTrendline} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -959,7 +959,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("HT_TRENDLINE advance", RetCode.OutOfRangeEndIndex);
+            throw failure("HT_TRENDLINE advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -1041,9 +1041,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("HT_TRENDLINE update", RetCode.OutOfRangeEndIndex);
+            throw failure("HT_TRENDLINE update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("HT_TRENDLINE update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("HT_TRENDLINE update: BAD_PARAM", RetCode.BAD_PARAM);
          core.htTrendlineStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -1061,7 +1061,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("HT_TRENDLINE peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("HT_TRENDLINE peek: BAD_PARAM", RetCode.BAD_PARAM);
          HtTrendlineStream sp = this;
          int i = 0;
          double tempReal = 0.0;
@@ -1566,15 +1566,15 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       a = 0.0962;
       b = 0.5769;
@@ -1603,7 +1603,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       outBegIdx.value = startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -1881,14 +1881,14 @@
       /* Capture the live batch state into the handle. */
       int cap_trailingWMAIdx = today - trailingWMAIdx;
       if( cap_trailingWMAIdx < 0 || cap_trailingWMAIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingWMAIdx = (cap_trailingWMAIdx > 0)? cap_trailingWMAIdx : 1;
       double[] capRing_trailingWMAIdx_inReal = new double[allocN_trailingWMAIdx];
       System.arraycopy(inReal, historyLen - cap_trailingWMAIdx, capRing_trailingWMAIdx_inReal, 0, cap_trailingWMAIdx);
       int cap_i = (int)(50);
       if( cap_i < 1 || cap_i > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       double[] capWin_i_inReal = new double[cap_i];
       System.arraycopy(inReal, historyLen - cap_i, capWin_i_inReal, 0, cap_i);
@@ -1944,7 +1944,7 @@
       sp.winCap_i = cap_i;
       sp.win_i_inReal = capWin_i_inReal;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* htTrendlineOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    HtTrendlineStream htTrendlineOpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -1953,16 +1953,16 @@
       RetCode retCode = htTrendlineOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("HT_TRENDLINE openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("HT_TRENDLINE openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("HT_TRENDLINE openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("HT_TRENDLINE openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("HT_TRENDLINE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind htTrendlineOpen (composition seam). */
    HtTrendlineStream htTrendlineOpenInternal( double inReal[], int startIdx )
@@ -1974,22 +1974,22 @@
       RetCode retCode = htTrendlineOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("HT_TRENDLINE open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("HT_TRENDLINE open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("HT_TRENDLINE open: internal error", retCode);
       }
-      throw new TaLibArgumentException("HT_TRENDLINE open: " + retCode, retCode);
+      throw new TALibArgumentException("HT_TRENDLINE open: " + retCode, retCode);
    }
    /**
     * Open a live HT_TRENDLINE stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#HT_TRENDLINE} at that bar.
-    * <p>The history must hold at least {@code HT_TRENDLINE_Lookback(...) + 1} bars
+    * to {@link Core#htTrendline} at that bar.
+    * <p>The history must hold at least {@code htTrendlineLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -2004,7 +2004,7 @@
    }
    /**
     * {@link Core#htTrendlineOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#HT_TRENDLINE} over the whole history in the same single pass
+    * to {@link Core#htTrendline} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -2017,10 +2017,10 @@
    {
       requireArgument("HT_TRENDLINE openAndFill", "inReal", inReal);
       requireHistory("HT_TRENDLINE openAndFill", inReal.length);
-      int guardOutLen = openFillCount("HT_TRENDLINE openAndFill", inReal.length, HT_TRENDLINE_Lookback());
+      int guardOutLen = openFillCount("HT_TRENDLINE openAndFill", inReal.length, htTrendlineLookback());
       requireLength("HT_TRENDLINE openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("HT_TRENDLINE openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("HT_TRENDLINE openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

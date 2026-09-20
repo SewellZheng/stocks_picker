@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#CDLRISEFALL3METHODS} consumes
+    * Number of leading input bars {@link Core#cdlrisefall3methods} consumes
     * before it can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,26 +21,26 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int CDLRISEFALL3METHODS_Lookback( )
+   public int cdlrisefall3methodsLookback( )
    {
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
-      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
-      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
-      double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
+      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
+      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
+      double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
       return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 4 ;
 
    }
-   RetCode CDLRISEFALL3METHODS_Impl( int startIdx,
-                                     int endIdx,
-                                     double inOpen[],
-                                     double inHigh[],
-                                     double inLow[],
-                                     double inClose[],
-                                     MInteger outBegIdx,
-                                     MInteger outNBElement,
-                                     int outInteger[] )
+   RetCode cdlrisefall3methodsImpl( int startIdx,
+                                    int endIdx,
+                                    double inOpen[],
+                                    double inHigh[],
+                                    double inLow[],
+                                    double inClose[],
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    int outInteger[] )
    {
       double[] BodyPeriodTotal = new double[5];
       int i = 0;
@@ -49,22 +49,22 @@
       int BodyShortTrailingIdx = 0;
       int BodyLongTrailingIdx = 0;
       int lookbackTotal = 0;
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
-      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
-      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
-      double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
+      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
+      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
+      double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLRISEFALL3METHODS_Lookback();
+      lookbackTotal = cdlrisefall3methodsLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -75,7 +75,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -152,17 +152,17 @@
       /* All done. Indicate the output limits and return. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode CDLRISEFALL3METHODS_Impl( int startIdx,
-                                     int endIdx,
-                                     float inOpen[],
-                                     float inHigh[],
-                                     float inLow[],
-                                     float inClose[],
-                                     MInteger outBegIdx,
-                                     MInteger outNBElement,
-                                     int outInteger[] )
+   RetCode cdlrisefall3methodsImpl( int startIdx,
+                                    int endIdx,
+                                    float inOpen[],
+                                    float inHigh[],
+                                    float inLow[],
+                                    float inClose[],
+                                    MInteger outBegIdx,
+                                    MInteger outNBElement,
+                                    int outInteger[] )
    {
       double[] BodyPeriodTotal = new double[5];
       int i = 0;
@@ -171,26 +171,26 @@
       int BodyShortTrailingIdx = 0;
       int BodyLongTrailingIdx = 0;
       int lookbackTotal = 0;
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
-      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
-      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
-      double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
+      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
+      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
+      double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
-      lookbackTotal = CDLRISEFALL3METHODS_Lookback();
+      lookbackTotal = cdlrisefall3methodsLookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       BodyPeriodTotal[4] = 0;
       BodyPeriodTotal[3] = 0;
@@ -231,7 +231,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * A five-candle continuation pattern: a long candle, three small
@@ -250,7 +250,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLRISEFALL3METHODS_Lookback} is a
+    * valid range shorter than {@link Core#cdlrisefall3methodsLookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -277,11 +277,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLXSIDEGAP3METHODS
-    * @see Core#CDL3INSIDE
-    * @see Core#CDL3OUTSIDE
+    * @see Core#cdlxsidegap3methods
+    * @see Core#cdl3inside
+    * @see Core#cdl3outside
     */
-   public OutRange CDLRISEFALL3METHODS( int startIdx,
+   public OutRange cdlrisefall3methods( int startIdx,
                                         int endIdx,
                                         double inOpen[],
                                         double inHigh[],
@@ -290,7 +290,7 @@
                                         int outInteger[] )
    {
       requireIndexRange("CDLRISEFALL3METHODS", startIdx, endIdx);
-      int guardStart = clampedStart("CDLRISEFALL3METHODS", startIdx, CDLRISEFALL3METHODS_Lookback());
+      int guardStart = clampedStart("CDLRISEFALL3METHODS", startIdx, cdlrisefall3methodsLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLRISEFALL3METHODS", "inOpen", inOpen, guardInLen);
@@ -300,8 +300,8 @@
       requireLength("CDLRISEFALL3METHODS", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLRISEFALL3METHODS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdlrisefall3methodsImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLRISEFALL3METHODS", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -326,7 +326,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLRISEFALL3METHODS_Lookback} is a
+    * valid range shorter than {@link Core#cdlrisefall3methodsLookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -353,11 +353,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLXSIDEGAP3METHODS
-    * @see Core#CDL3INSIDE
-    * @see Core#CDL3OUTSIDE
+    * @see Core#cdlxsidegap3methods
+    * @see Core#cdl3inside
+    * @see Core#cdl3outside
     */
-   public OutRange CDLRISEFALL3METHODS( int startIdx,
+   public OutRange cdlrisefall3methods( int startIdx,
                                         int endIdx,
                                         float inOpen[],
                                         float inHigh[],
@@ -366,7 +366,7 @@
                                         int outInteger[] )
    {
       requireIndexRange("CDLRISEFALL3METHODS", startIdx, endIdx);
-      int guardStart = clampedStart("CDLRISEFALL3METHODS", startIdx, CDLRISEFALL3METHODS_Lookback());
+      int guardStart = clampedStart("CDLRISEFALL3METHODS", startIdx, cdlrisefall3methodsLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLRISEFALL3METHODS", "inOpen", inOpen, guardInLen);
@@ -376,8 +376,8 @@
       requireLength("CDLRISEFALL3METHODS", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLRISEFALL3METHODS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdlrisefall3methodsImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLRISEFALL3METHODS", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -386,7 +386,7 @@
 
    /**
     * A live CDLRISEFALL3METHODS stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#CDLRISEFALL3METHODS} over the same series.
+    * closed bar, bit-identical to {@link Core#cdlrisefall3methods} over the same series.
     * Open with {@link Core#cdlrisefall3methodsOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -440,7 +440,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#CDLRISEFALL3METHODS} reports over the same bars: the
+       * <p>It is what {@link Core#cdlrisefall3methods} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -467,7 +467,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLRISEFALL3METHODS advance", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLRISEFALL3METHODS advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -529,9 +529,9 @@
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLRISEFALL3METHODS update", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLRISEFALL3METHODS update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLRISEFALL3METHODS update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLRISEFALL3METHODS update: BAD_PARAM", RetCode.BAD_PARAM);
          core.cdlrisefall3methodsStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -549,7 +549,7 @@
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLRISEFALL3METHODS peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLRISEFALL3METHODS peek: BAD_PARAM", RetCode.BAD_PARAM);
          Cdlrisefall3methodsStream sp = this;
          int cur_outInteger = 0;
          int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
@@ -691,29 +691,29 @@
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
-      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
-      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
-      double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
+      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
+      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
+      double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLRISEFALL3METHODS_Lookback();
+      lookbackTotal = cdlrisefall3methodsLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -724,7 +724,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -805,7 +805,7 @@
       int capLag_BodyLongTrailingIdx = i - BodyLongTrailingIdx;
       int cap_BodyLongTrailingIdx = capLag_BodyLongTrailingIdx + 5;
       if( capLag_BodyLongTrailingIdx < 0 || cap_BodyLongTrailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_BodyLongTrailingIdx = (cap_BodyLongTrailingIdx > 0)? cap_BodyLongTrailingIdx : 1;
       double[] capRing_BodyLongTrailingIdx_derived = new double[allocN_BodyLongTrailingIdx];
@@ -815,7 +815,7 @@
       int capLag_BodyShortTrailingIdx = i - BodyShortTrailingIdx;
       int cap_BodyShortTrailingIdx = capLag_BodyShortTrailingIdx + 4;
       if( capLag_BodyShortTrailingIdx < 0 || cap_BodyShortTrailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_BodyShortTrailingIdx = (cap_BodyShortTrailingIdx > 0)? cap_BodyShortTrailingIdx : 1;
       double[] capRing_BodyShortTrailingIdx_derived = new double[allocN_BodyShortTrailingIdx];
@@ -854,7 +854,7 @@
       sp.cs_BodyShort_avgPeriod = BodyShort_avgPeriod;
       sp.cs_BodyShort_factor = BodyShort_factor;
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* cdlrisefall3methodsOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    Cdlrisefall3methodsStream cdlrisefall3methodsOpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
@@ -863,16 +863,16 @@
       RetCode retCode = cdlrisefall3methodsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLRISEFALL3METHODS openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLRISEFALL3METHODS openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLRISEFALL3METHODS openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLRISEFALL3METHODS openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("CDLRISEFALL3METHODS openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind cdlrisefall3methodsOpen (composition seam). */
    Cdlrisefall3methodsStream cdlrisefall3methodsOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -884,22 +884,22 @@
       RetCode retCode = cdlrisefall3methodsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLRISEFALL3METHODS open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLRISEFALL3METHODS open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLRISEFALL3METHODS open: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLRISEFALL3METHODS open: " + retCode, retCode);
+      throw new TALibArgumentException("CDLRISEFALL3METHODS open: " + retCode, retCode);
    }
    /**
     * Open a live CDLRISEFALL3METHODS stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#CDLRISEFALL3METHODS} at that bar.
-    * <p>The history must hold at least {@code CDLRISEFALL3METHODS_Lookback(...) + 1} bars
+    * to {@link Core#cdlrisefall3methods} at that bar.
+    * <p>The history must hold at least {@code cdlrisefall3methodsLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -920,7 +920,7 @@
    }
    /**
     * {@link Core#cdlrisefall3methodsOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#CDLRISEFALL3METHODS} over the whole history in the same single pass
+    * to {@link Core#cdlrisefall3methods} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -936,13 +936,13 @@
       requireArgument("CDLRISEFALL3METHODS openAndFill", "inHigh", inHigh);
       requireArgument("CDLRISEFALL3METHODS openAndFill", "inLow", inLow);
       requireArgument("CDLRISEFALL3METHODS openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("CDLRISEFALL3METHODS openAndFill", inOpen.length, CDLRISEFALL3METHODS_Lookback());
+      int guardOutLen = openFillCount("CDLRISEFALL3METHODS openAndFill", inOpen.length, cdlrisefall3methodsLookback());
       requireHistoryLength("CDLRISEFALL3METHODS openAndFill", "inHigh", inHigh.length, inOpen.length);
       requireHistoryLength("CDLRISEFALL3METHODS openAndFill", "inLow", inLow.length, inOpen.length);
       requireHistoryLength("CDLRISEFALL3METHODS openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("CDLRISEFALL3METHODS openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
-         throw new TaLibArgumentException("CDLRISEFALL3METHODS openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("CDLRISEFALL3METHODS openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

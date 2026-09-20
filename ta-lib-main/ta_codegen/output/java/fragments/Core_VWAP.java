@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#VWAP} consumes before it can
+    * Number of leading input bars {@link Core#vwap} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,7 +21,7 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int VWAP_Lookback( )
+   public int vwapLookback( )
    {
       /* Cumulative from the first bar of the requested range, so the very
        * first bar already has a complete answer and nothing is consumed
@@ -30,15 +30,15 @@
       return 0 ;
 
    }
-   RetCode VWAP_Impl( int startIdx,
-                      int endIdx,
-                      double inHigh[],
-                      double inLow[],
-                      double inClose[],
-                      double inVolume[],
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outReal[] )
+   RetCode vwapImpl( int startIdx,
+                     int endIdx,
+                     double inHigh[],
+                     double inLow[],
+                     double inClose[],
+                     double inVolume[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -49,10 +49,10 @@
       int outIdx = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Volume Weighted Average Price: the average typical price paid per
        * unit of volume, accumulated from the first bar of the range.
@@ -159,17 +159,17 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode VWAP_Impl( int startIdx,
-                      int endIdx,
-                      float inHigh[],
-                      float inLow[],
-                      float inClose[],
-                      float inVolume[],
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outReal[] )
+   RetCode vwapImpl( int startIdx,
+                     int endIdx,
+                     float inHigh[],
+                     float inLow[],
+                     float inClose[],
+                     float inVolume[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -180,10 +180,10 @@
       int outIdx = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       sumPV = 0.0;
       sumV = 0.0;
@@ -204,7 +204,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Volume Weighted Average Price: the average price paid per unit of volume
@@ -230,8 +230,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#VWAP_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#vwapLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -255,12 +255,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#AD
-    * @see Core#OBV
-    * @see Core#TYPPRICE
-    * @see Core#VWMA
+    * @see Core#ad
+    * @see Core#obv
+    * @see Core#typprice
+    * @see Core#vwma
     */
-   public OutRange VWAP( int startIdx,
+   public OutRange vwap( int startIdx,
                          int endIdx,
                          double inHigh[],
                          double inLow[],
@@ -269,7 +269,7 @@
                          double outReal[] )
    {
       requireIndexRange("VWAP", startIdx, endIdx);
-      int guardStart = clampedStart("VWAP", startIdx, VWAP_Lookback());
+      int guardStart = clampedStart("VWAP", startIdx, vwapLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("VWAP", "inHigh", inHigh, guardInLen);
@@ -279,8 +279,8 @@
       requireLength("VWAP", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VWAP_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = vwapImpl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("VWAP", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -312,8 +312,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#VWAP_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#vwapLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -337,12 +337,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#AD
-    * @see Core#OBV
-    * @see Core#TYPPRICE
-    * @see Core#VWMA
+    * @see Core#ad
+    * @see Core#obv
+    * @see Core#typprice
+    * @see Core#vwma
     */
-   public OutRange VWAP( int startIdx,
+   public OutRange vwap( int startIdx,
                          int endIdx,
                          float inHigh[],
                          float inLow[],
@@ -351,7 +351,7 @@
                          double outReal[] )
    {
       requireIndexRange("VWAP", startIdx, endIdx);
-      int guardStart = clampedStart("VWAP", startIdx, VWAP_Lookback());
+      int guardStart = clampedStart("VWAP", startIdx, vwapLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("VWAP", "inHigh", inHigh, guardInLen);
@@ -361,8 +361,8 @@
       requireLength("VWAP", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VWAP_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = vwapImpl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("VWAP", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -371,7 +371,7 @@
 
    /**
     * A live VWAP stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#VWAP} over the same series.
+    * closed bar, bit-identical to {@link Core#vwap} over the same series.
     * Open with {@link Core#vwapOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -397,7 +397,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#VWAP} reports over the same bars: the
+       * <p>It is what {@link Core#vwap} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -424,7 +424,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("VWAP advance", RetCode.OutOfRangeEndIndex);
+            throw failure("VWAP advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -458,9 +458,9 @@
        */
       public double update( double inHigh, double inLow, double inClose, double inVolume ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("VWAP update", RetCode.OutOfRangeEndIndex);
+            throw failure("VWAP update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("VWAP update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("VWAP update: BAD_PARAM", RetCode.BAD_PARAM);
          core.vwapStepImpl(this, inHigh, inLow, inClose, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -478,7 +478,7 @@
        */
       public double peek( double inHigh, double inLow, double inClose, double inVolume ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("VWAP peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("VWAP peek: BAD_PARAM", RetCode.BAD_PARAM);
          VwapStream sp = this;
          double typPrice = 0.0;
          double volume = 0.0;
@@ -705,18 +705,18 @@
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* Volume Weighted Average Price: the average typical price paid per
        * unit of volume, accumulated from the first bar of the range.
@@ -828,7 +828,7 @@
       sp.sumV = sumV;
       sp.vwap = vwap;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* vwapOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    VwapStream vwapOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -837,16 +837,16 @@
       RetCode retCode = vwapOpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("VWAP openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("VWAP openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("VWAP openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("VWAP openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("VWAP openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind vwapOpen (composition seam). */
    VwapStream vwapOpenInternal( double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx )
@@ -858,22 +858,22 @@
       RetCode retCode = vwapOpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("VWAP open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("VWAP open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("VWAP open: internal error", retCode);
       }
-      throw new TaLibArgumentException("VWAP open: " + retCode, retCode);
+      throw new TALibArgumentException("VWAP open: " + retCode, retCode);
    }
    /**
     * Open a live VWAP stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#VWAP} at that bar.
-    * <p>The history must hold at least {@code VWAP_Lookback(...) + 1} bars
+    * to {@link Core#vwap} at that bar.
+    * <p>The history must hold at least {@code vwapLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -894,7 +894,7 @@
    }
    /**
     * {@link Core#vwapOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#VWAP} over the whole history in the same single pass
+    * to {@link Core#vwap} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -910,13 +910,13 @@
       requireArgument("VWAP openAndFill", "inLow", inLow);
       requireArgument("VWAP openAndFill", "inClose", inClose);
       requireArgument("VWAP openAndFill", "inVolume", inVolume);
-      int guardOutLen = openFillCount("VWAP openAndFill", inHigh.length, VWAP_Lookback());
+      int guardOutLen = openFillCount("VWAP openAndFill", inHigh.length, vwapLookback());
       requireHistoryLength("VWAP openAndFill", "inLow", inLow.length, inHigh.length);
       requireHistoryLength("VWAP openAndFill", "inClose", inClose.length, inHigh.length);
       requireHistoryLength("VWAP openAndFill", "inVolume", inVolume.length, inHigh.length);
       requireLength("VWAP openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
-         throw new TaLibArgumentException("VWAP openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("VWAP openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

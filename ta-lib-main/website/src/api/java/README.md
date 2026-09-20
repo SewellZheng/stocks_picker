@@ -4,10 +4,6 @@ description: "io.github.talib: a native Java port with no JNI, indicators as met
 toc: false
 ---
 
-::: warning Not yet released
-The Java API is not yet released. Estimated release: **Q1 2027**.
-:::
-
 <p><a href="#intro">1.0 Introduction</a></p>
 
 <p><a href="#build">2.0 Add it to your project</a></p>
@@ -58,6 +54,8 @@ There is no initialization step and nothing to shut down. Where C requires `TA_I
 </dependency>
 ```
 
+Every released version is listed on [Maven Central](https://central.sonatype.com/artifact/io.github.ta-lib/ta-lib).
+
 ## 3.0 Calling into TA-Lib {#ta_func}
 
 Every indicator is exposed as a method on `Core`, taking the same startIdx/endIdx/inputs/optional-parameters/outputs shape as the C function it mirrors.
@@ -70,7 +68,7 @@ A function never writes more elements than you request, so the output array only
 
 As an example, let's walk through `SMA`, a method to calculate a moving average.
 
-<pre>public OutRange SMA( <span class="ta-arg-range">int      startIdx,</span>
+<pre>public OutRange sma( <span class="ta-arg-range">int      startIdx,</span>
                      <span class="ta-arg-range">int      endIdx,</span>
                      <span class="ta-arg-in">double[] inReal,</span>
                      <span class="ta-arg-opt">int      optInTimePeriod,</span>
@@ -96,7 +94,7 @@ import io.github.talib.OutRange;
 double[] close = /* ...your closing prices... */;
 double[] out   = new double[close.length];
 
-OutRange r = Core.DEFAULT.SMA(
+OutRange r = Core.DEFAULT.sma(
     <span class="ta-arg-range">0</span>, <span class="ta-arg-range">close.length - 1</span>,
     <span class="ta-arg-in">close</span>,
     <span class="ta-arg-opt">30</span>,
@@ -121,10 +119,10 @@ Every indicator is overloaded for `float[]` inputs as well as `double[]` — see
 An output is written only where the indicator is defined — a 30-period SMA has no value until the 30th bar. `begIdx()` is the first valid bar and `count()` is the number written; the rest of the array is left untouched, never padded with NaN. Size the output array to at least `endIdx - startIdx + 1`, or exactly with the lookback:
 
 ```java
-int lookback = Core.DEFAULT.SMA_Lookback(30);    // 29 for a 30-period SMA
+int lookback = Core.DEFAULT.smaLookback(30);    // 29 for a 30-period SMA
 ```
 
-Each TA method has a matching `<NAME>_Lookback` method, taking the same optional parameters as the method itself. The lookback is how many inputs are consumed before the first output.
+Each TA method has a matching `<name>Lookback` method, taking the same optional parameters as the method itself. The lookback is how many inputs are consumed before the first output.
 
 **Too little data is a success, not an error.** A valid range shorter than the lookback simply produces no values: `count()` is 0 and `isEmpty()` is true. No exception is thrown — this matches the C library's `TA_SUCCESS` with `outNBElement == 0`. Nothing is written, so the output array's length is not checked on such a call — it may even be zero-length. The input is still checked, though: an `endIdx` past the end of the series you passed is a mistake worth hearing about in any range, and an empty range would otherwise hide it behind a "no data yet" result.
 
@@ -134,11 +132,15 @@ Misuse throws rather than returning a return code:
 
 | Mistake | Exception |
 |---|---|
-| `startIdx`/`endIdx` out of range, or `endIdx < startIdx` | `IndexOutOfBoundsException` |
-| Optional parameter outside its documented range | `IllegalArgumentException` |
-| Two outputs sharing one array | `IllegalArgumentException` |
-| An array too short for the range requested | `IllegalArgumentException` |
-| A null input or output array | `IllegalArgumentException` |
+| `startIdx`/`endIdx` negative, above `Core.MAX_INDEX`, or `endIdx < startIdx` | `TALibIndexException` |
+| Optional parameter outside its documented range | `TALibArgumentException` |
+| Two outputs sharing one array | `TALibArgumentException` |
+| An array too short for the range requested, including an `endIdx` past the end of the input | `TALibArgumentException` |
+| A null input or output array | `TALibArgumentException` |
+
+Each extends the platform type you would reach for — `TALibIndexException` an
+`IndexOutOfBoundsException`, the rest an `IllegalArgumentException` — so catching
+either shape works, and every one carries its `RetCode`.
 
 Array lengths are checked before anything is written, so a rejected call leaves every buffer untouched. An input must reach `endIdx`; an output must hold the values actually produced, `endIdx - max(startIdx, lookback) + 1`. The message names the array and both sizes — `SMA: outReal has length 3, needs 191`.
 
@@ -149,10 +151,10 @@ Array lengths are checked before anything is written, so a rejected call leaves 
 The `io.github.talib.metadata` package describes every function at run time and calls it without naming it at compile time — the Java equivalent of C's [abstraction layer](/api/#abstract). Useful for a UI, a scripting bridge, or anything that enumerates indicators.
 
 ```java
-import io.github.talib.metadata.FunctionInfo;
+import io.github.talib.metadata.FuncInfo;
 import io.github.talib.metadata.Functions;
 
-FunctionInfo f = Functions.byName("SMA");
+FuncInfo f = Functions.byName("SMA");
 
 f.name();       // "SMA"
 f.group();      // "Overlap Studies"
@@ -164,10 +166,10 @@ f.outputs();    // List<OutputInfo>   -- one entry per output
 Functions.all().forEach(fi -> System.out.println(fi.name() + " (" + fi.group() + ")"));
 ```
 
-Binding arguments at run time goes through a `ParamHolder`, obtained from `FunctionInfo#newCall()`:
+Binding arguments at run time goes through a `ParamHolder`, obtained from `FuncInfo#newCall()`:
 
 ```java
-FunctionInfo f = Functions.byName("SMA");
+FuncInfo f = Functions.byName("SMA");
 OutRange r = f.newCall()
     .setInput(0, close)
     .setOptInput(0, 30)
@@ -175,9 +177,9 @@ OutRange r = f.newCall()
     .call(0, close.length - 1);
 ```
 
-Everything is validated against the `FunctionInfo` row: an index out of bounds, a type that does not match the declared parameter, or an unset parameter at `call()` time throws `IllegalArgumentException`. The call itself then behaves exactly like the typed method, including throwing on misuse and returning an empty `OutRange` when the range is shorter than the lookback. A `ParamHolder` is not thread-safe: confine one to one thread, or build one per call.
+Everything is validated against the `FuncInfo` row: an index out of bounds, a type that does not match the declared parameter, or an unset parameter at `call()` time throws `IllegalArgumentException`. The call itself then behaves exactly like the typed method, including throwing on misuse and returning an empty `OutRange` when the range is shorter than the lookback. A `ParamHolder` is not thread-safe: confine one to one thread, or build one per call.
 
-Streamable functions carry the `FuncFlags.STREAMING` bit in `FunctionInfo#flags()` — check it with `f.hasFlags(FuncFlags.STREAMING)`.
+Streamable functions carry the `FuncFlags.STREAMING` bit in `FuncInfo#flags()` — check it with `f.hasFlags(FuncFlags.STREAMING)`.
 
 ### 4.2 Numerical Stability {#numerical_stability}
 
@@ -197,11 +199,11 @@ import io.github.talib.Core;
 import io.github.talib.RangeType;
 
 Core core = Core.builder()
-    .candleSetting(CandleSettingType.BodyLong, RangeType.RealBody, 10, 1.0)
+    .candleSetting(CandleSettingType.BODY_LONG, RangeType.REAL_BODY, 10, 1.0)
     .build();
 ```
 
-Each setter throws immediately (`IllegalArgumentException`) if an argument is out of range; unlike Rust and C#, a Java builder has no `build()`-time rejection to defer to.
+Each setter throws immediately (`IllegalArgumentException`) if an argument is out of range, so the rejection names the call that caused it, and `build()` cannot fail. C# behaves the same way; Rust is the one backend that defers, because a setter there cannot throw.
 
 ### 4.4 Input Type: float vs. double {#input_type}
 
@@ -221,4 +223,4 @@ Use `Core.DEFAULT` for the all-defaults instance. There are no setters: to chang
 
 ## 5.0 Documentation {#docs}
 
-Every function's Javadoc is rendered from the same canonical description as every other backend's docs. Browse it with `mvn javadoc:javadoc`, or, once published, on javadoc.io.
+Every function's Javadoc is rendered from the same canonical description as every other backend's docs. Browse it on javadoc.io once published, or build it with `./mvnw clean javadoc:javadoc` in `ta_codegen/output/java/library`.

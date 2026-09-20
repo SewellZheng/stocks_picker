@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#FRACTAL} consumes before it can
+    * Number of leading input bars {@link Core#fractal} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -27,7 +27,7 @@
     *        {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int FRACTAL_Lookback( int optInLeftBars, int optInRightBars )
+   public int fractalLookback( int optInLeftBars, int optInRightBars )
    {
       if( optInLeftBars == Integer.MIN_VALUE ) {
          optInLeftBars = 2;
@@ -42,16 +42,16 @@
       return optInLeftBars + optInRightBars ;
 
    }
-   RetCode FRACTAL_Impl( int startIdx,
-                         int endIdx,
-                         double inHigh[],
-                         double inLow[],
-                         int optInLeftBars,
-                         int optInRightBars,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         int outSwingHigh[],
-                         int outSwingLow[] )
+   RetCode fractalImpl( int startIdx,
+                        int endIdx,
+                        double inHigh[],
+                        double inLow[],
+                        int optInLeftBars,
+                        int optInRightBars,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        int outSwingHigh[],
+                        int outSwingLow[] )
    {
       int today = 0;
       int outIdx = 0;
@@ -64,33 +64,33 @@
       double tempHigh = 0;
       double tempLow = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInLeftBars == Integer.MIN_VALUE ) {
          optInLeftBars = 2;
       } else if( optInLeftBars < 1 || optInLeftBars > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInRightBars == Integer.MIN_VALUE ) {
          optInRightBars = 2;
       } else if( optInRightBars < 1 || optInRightBars > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outSwingHigh == outSwingLow ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       outBegIdx.value = 0;
       outNBElement.value = 0;
-      lookbackTotal = FRACTAL_Lookback(optInLeftBars, optInRightBars);
+      lookbackTotal = fractalLookback(optInLeftBars, optInRightBars);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       /* Make sure there is still something to evaluate. */
       if( startIdx > endIdx ) {
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outIdx = 0;
       today = startIdx;
@@ -135,18 +135,18 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode FRACTAL_Impl( int startIdx,
-                         int endIdx,
-                         float inHigh[],
-                         float inLow[],
-                         int optInLeftBars,
-                         int optInRightBars,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         int outSwingHigh[],
-                         int outSwingLow[] )
+   RetCode fractalImpl( int startIdx,
+                        int endIdx,
+                        float inHigh[],
+                        float inLow[],
+                        int optInLeftBars,
+                        int optInRightBars,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        int outSwingHigh[],
+                        int outSwingLow[] )
    {
       int today = 0;
       int outIdx = 0;
@@ -159,32 +159,32 @@
       double tempHigh = 0;
       double tempLow = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInLeftBars == Integer.MIN_VALUE ) {
          optInLeftBars = 2;
       } else if( optInLeftBars < 1 || optInLeftBars > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInRightBars == Integer.MIN_VALUE ) {
          optInRightBars = 2;
       } else if( optInRightBars < 1 || optInRightBars > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outSwingHigh == outSwingLow ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       outBegIdx.value = 0;
       outNBElement.value = 0;
-      lookbackTotal = FRACTAL_Lookback(optInLeftBars, optInRightBars);
+      lookbackTotal = fractalLookback(optInLeftBars, optInRightBars);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outIdx = 0;
       today = startIdx;
@@ -226,7 +226,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Williams Fractal: a causal swing-pivot detector. A bar is a swing high
@@ -252,8 +252,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#FRACTAL_Lookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#fractalLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -285,12 +285,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#AROON
-    * @see Core#MAXINDEX
-    * @see Core#MININDEX
-    * @see Core#MINMAXINDEX
+    * @see Core#aroon
+    * @see Core#maxindex
+    * @see Core#minindex
+    * @see Core#minmaxindex
     */
-   public OutRange FRACTAL( int startIdx,
+   public OutRange fractal( int startIdx,
                             int endIdx,
                             double inHigh[],
                             double inLow[],
@@ -300,7 +300,7 @@
                             int outSwingLow[] )
    {
       requireIndexRange("FRACTAL", startIdx, endIdx);
-      int guardStart = clampedStart("FRACTAL", startIdx, FRACTAL_Lookback(optInLeftBars, optInRightBars));
+      int guardStart = clampedStart("FRACTAL", startIdx, fractalLookback(optInLeftBars, optInRightBars));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("FRACTAL", "inHigh", inHigh, guardInLen);
@@ -309,8 +309,8 @@
       requireLength("FRACTAL", "outSwingLow", outSwingLow, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = FRACTAL_Impl(startIdx, endIdx, inHigh, inLow, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = fractalImpl(startIdx, endIdx, inHigh, inLow, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("FRACTAL", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -342,8 +342,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#FRACTAL_Lookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#fractalLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -375,12 +375,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#AROON
-    * @see Core#MAXINDEX
-    * @see Core#MININDEX
-    * @see Core#MINMAXINDEX
+    * @see Core#aroon
+    * @see Core#maxindex
+    * @see Core#minindex
+    * @see Core#minmaxindex
     */
-   public OutRange FRACTAL( int startIdx,
+   public OutRange fractal( int startIdx,
                             int endIdx,
                             float inHigh[],
                             float inLow[],
@@ -390,7 +390,7 @@
                             int outSwingLow[] )
    {
       requireIndexRange("FRACTAL", startIdx, endIdx);
-      int guardStart = clampedStart("FRACTAL", startIdx, FRACTAL_Lookback(optInLeftBars, optInRightBars));
+      int guardStart = clampedStart("FRACTAL", startIdx, fractalLookback(optInLeftBars, optInRightBars));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("FRACTAL", "inHigh", inHigh, guardInLen);
@@ -399,8 +399,8 @@
       requireLength("FRACTAL", "outSwingLow", outSwingLow, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = FRACTAL_Impl(startIdx, endIdx, inHigh, inLow, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = fractalImpl(startIdx, endIdx, inHigh, inLow, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("FRACTAL", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -409,7 +409,7 @@
 
    /**
     * A live FRACTAL stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#FRACTAL} over the same series.
+    * closed bar, bit-identical to {@link Core#fractal} over the same series.
     * Open with {@link Core#fractalOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -439,7 +439,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#FRACTAL} reports over the same bars: the
+       * <p>It is what {@link Core#fractal} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -466,7 +466,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("FRACTAL advance", RetCode.OutOfRangeEndIndex);
+            throw failure("FRACTAL advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -504,10 +504,10 @@
        */
       public void update( double inHigh, double inLow, FractalOut out ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("FRACTAL update", RetCode.OutOfRangeEndIndex);
+            throw failure("FRACTAL update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("FRACTAL update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TaLibArgumentException("FRACTAL update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("FRACTAL update: BAD_PARAM", RetCode.BAD_PARAM);
          core.fractalStepImpl(this, inHigh, inLow);
          this.outRangeCount++;
          out.swingHigh = this.cur_outSwingHigh;
@@ -527,7 +527,7 @@
       public void peek( double inHigh, double inLow, FractalOut out ) {
          requireArgument("FRACTAL peek", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TaLibArgumentException("FRACTAL peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("FRACTAL peek: BAD_PARAM", RetCode.BAD_PARAM);
          FractalStream sp = this;
          int i = 0;
          double pivotHigh = 0.0;
@@ -701,38 +701,38 @@
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInLeftBars == Integer.MIN_VALUE ) {
          optInLeftBars = 2;
       } else if( optInLeftBars < 1 || optInLeftBars > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInRightBars == Integer.MIN_VALUE ) {
          optInRightBars = 2;
       } else if( optInRightBars < 1 || optInRightBars > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       outBegIdx.value = 0;
       outNBElement.value = 0;
-      lookbackTotal = FRACTAL_Lookback(optInLeftBars, optInRightBars);
+      lookbackTotal = fractalLookback(optInLeftBars, optInRightBars);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       /* Make sure there is still something to evaluate. */
       if( startIdx > endIdx ) {
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       outIdx = 0;
       today = startIdx;
@@ -780,7 +780,7 @@
       /* Capture the live batch state into the handle. */
       int cap_i = (int)(optInLeftBars + optInRightBars + 1);
       if( cap_i < 1 || cap_i > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       double[] capWin_i_inHigh = new double[cap_i];
       System.arraycopy(inHigh, historyLen - cap_i, capWin_i_inHigh, 0, cap_i);
@@ -794,7 +794,7 @@
       sp.win_i_inLow = capWin_i_inLow;
       sp.cur_outSwingHigh = outSwingHigh[(outNBElement.value - 1) * outStride];
       sp.cur_outSwingLow = outSwingLow[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* fractalOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    FractalStream fractalOpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInLeftBars, int optInRightBars, MInteger outBegIdx, MInteger outNBElement, int outSwingHigh[], int outSwingLow[] )
@@ -803,16 +803,16 @@
       RetCode retCode = fractalOpenImpl(sp, inHigh, inLow, startIdx, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("FRACTAL openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("FRACTAL openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("FRACTAL openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("FRACTAL openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("FRACTAL openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind fractalOpen (composition seam). */
    FractalStream fractalOpenInternal( double inHigh[], double inLow[], int startIdx, int optInLeftBars, int optInRightBars )
@@ -825,22 +825,22 @@
       RetCode retCode = fractalOpenImpl(sp, inHigh, inLow, startIdx, optInLeftBars, optInRightBars, outBegIdx, outNBElement, sink_outSwingHigh, sink_outSwingLow, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("FRACTAL open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("FRACTAL open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("FRACTAL open: internal error", retCode);
       }
-      throw new TaLibArgumentException("FRACTAL open: " + retCode, retCode);
+      throw new TALibArgumentException("FRACTAL open: " + retCode, retCode);
    }
    /**
     * Open a live FRACTAL stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#FRACTAL} at that bar.
-    * <p>The history must hold at least {@code FRACTAL_Lookback(...) + 1} bars
+    * to {@link Core#fractal} at that bar.
+    * <p>The history must hold at least {@code fractalLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -859,7 +859,7 @@
    }
    /**
     * {@link Core#fractalOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#FRACTAL} over the whole history in the same single pass
+    * to {@link Core#fractal} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -873,12 +873,12 @@
       requireArgument("FRACTAL openAndFill", "inHigh", inHigh);
       requireHistory("FRACTAL openAndFill", inHigh.length);
       requireArgument("FRACTAL openAndFill", "inLow", inLow);
-      int guardOutLen = openFillCount("FRACTAL openAndFill", inHigh.length, FRACTAL_Lookback(optInLeftBars, optInRightBars));
+      int guardOutLen = openFillCount("FRACTAL openAndFill", inHigh.length, fractalLookback(optInLeftBars, optInRightBars));
       requireHistoryLength("FRACTAL openAndFill", "inLow", inLow.length, inHigh.length);
       requireLength("FRACTAL openAndFill", "outSwingHigh", outSwingHigh, guardOutLen);
       requireLength("FRACTAL openAndFill", "outSwingLow", outSwingLow, guardOutLen);
       if( (Object)outSwingHigh == (Object)inHigh || (Object)outSwingHigh == (Object)inLow || (Object)outSwingLow == (Object)inHigh || (Object)outSwingLow == (Object)inLow || (Object)outSwingHigh == (Object)outSwingLow ) {
-         throw new TaLibArgumentException("FRACTAL openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("FRACTAL openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

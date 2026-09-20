@@ -71,12 +71,9 @@ pub fn emits_stream(func: &FuncDef, lookup: &dyn streaming::CalleeLookup) -> boo
     streaming::validate_streamable(&func.resolved_for(crate::ir::Lang::Java), lookup).is_ok()
 }
 
-/// The base every Java *batch-tier* identifier for this function is spelled
-/// from: the YAML `name:` verbatim (`SMA`, `MA`, `CDL2CROWS`). The streaming
-/// family below is idiomatic Java instead (camelCase methods, PascalCase
-/// types — issue #278), so this stays reserved for batch cross-references
-/// (`Core#{base}`, `{base}_Lookback`) that must keep resolving to the
-/// unchanged batch symbol.
+/// The YAML `name:` for this function (`SMA`, `MA`, `CDL2CROWS`). Every Java
+/// identifier folds from it; callers that want an identifier pass it through
+/// `camel_words`/`pascal_words` themselves.
 fn base_name(func: &FuncDef) -> String {
     func.name.clone()
 }
@@ -235,7 +232,7 @@ fn field_type_and_default(ty: &VarType) -> (String, String) {
     match ty {
         VarType::Real => ("double".into(), "0.0".into()),
         VarType::Integer | VarType::Index => ("int".into(), "0".into()),
-        VarType::RetCodeType => ("RetCode".into(), "RetCode.Success".into()),
+        VarType::RetCodeType => ("RetCode".into(), "RetCode.SUCCESS".into()),
         VarType::RealPointer => ("double[]".into(), "new double[1]".into()),
         VarType::IntPointer => ("int[]".into(), "new int[1]".into()),
         VarType::RealArray(size) => ("double[]".into(), format!("new double[{size}]")),
@@ -667,7 +664,6 @@ fn emit_handle_class_with_members(
     frame: Option<&PeekFrame>,
 ) {
     let class = stream_class_name(func);
-    let base = base_name(func);
     let jbase = method_base(func);
     let n = func.name.to_uppercase();
 
@@ -675,7 +671,7 @@ fn emit_handle_class_with_members(
         o,
         "   /**\n\
          \x20   * A live {n} stream (unrelated to {{@code java.util.stream}}): one value per\n\
-         \x20   * closed bar, bit-identical to {{@link Core#{base}}} over the same series.\n\
+         \x20   * closed bar, bit-identical to {{@link Core#{jbase}}} over the same series.\n\
          \x20   * Open with {{@link Core#{jbase}Open}}; there is no close — the handle is\n\
          \x20   * ordinary heap state, unreferenced handles are simply garbage-collected.\n\
          \x20   * <p>Concurrency: a handle is single-writer — {{@code update}}, {{@code peek}},\n\
@@ -706,7 +702,7 @@ fn emit_handle_class_with_members(
         "\n      /**\n\
          \x20      * The bars this stream has an output for, in the input series'\n\
          \x20      * coordinates: {{@code [begIdx, begIdx + count)}}.\n\
-         \x20      * <p>It is what {{@link Core#{base}}} reports over the same bars: the\n\
+         \x20      * <p>It is what {{@link Core#{jbase}}} reports over the same bars: the\n\
          \x20      * opener sets it to {{@code (lookback, historyLen - lookback)}}, every\n\
          \x20      * accepted {{@code update}} adds one to the count — a rejected one\n\
          \x20      * changes nothing, and neither does {{@code peek}} — and\n\
@@ -718,7 +714,7 @@ fn emit_handle_class_with_members(
          \x20      * {{@link IndexOutOfBoundsException}}.\n\
          \x20      */\n\
          \x20     public OutRange outRange() {{ return new OutRange(outRangeBegIdx, outRangeCount); }}",
-        base = base_name(func)
+        jbase = method_base(func)
     );
     let _ = writeln!(
         o,
@@ -894,7 +890,7 @@ fn assert_single_output(func: &FuncDef, site: &str) {
 fn out_range_ceiling_guard(func: &FuncDef, indent: &str, verb: &str) -> String {
     format!(
         "{indent}if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )\n\
-         {indent}   throw failure(\"{} {verb}\", RetCode.OutOfRangeEndIndex);\n",
+         {indent}   throw failure(\"{} {verb}\", RetCode.OUT_OF_RANGE_END_INDEX);\n",
         func.name
     )
 }
@@ -929,7 +925,7 @@ fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
     let conds: Vec<String> = bars.iter().map(|b| format!("!Double.isFinite({b})")).collect();
     let cond = conds.join(" || ");
     let throw =
-        format!("throw new TaLibArgumentException(\"{n} {what}: BadParam\", RetCode.BadParam);");
+        format!("throw new TALibArgumentException(\"{n} {what}: BAD_PARAM\", RetCode.BAD_PARAM);");
     format!("{indent}if( {cond} )\n{indent}   {throw}\n")
 }
 
@@ -1568,7 +1564,7 @@ fn map_open_return(v: &str) -> String {
 /// Transcribe a batch body region for the Java open: output-array writes to
 /// `lastValue_*` scalars (Scalar) or kept (Fill), previous-output feedback
 /// reads to `lastValue_*` (Scalar), early-success returns mapped, the final
-/// top-level return dropped (capture + `return RetCode.Success` replace it),
+/// top-level return dropped (capture + `return RetCode.SUCCESS` replace it),
 /// and the body's own dead identity branch deleted (its whole-range copies
 /// reference output arrays that do not exist in Scalar mode).
 fn build_open_body_java(model: &StreamModel, body: &[Statement]) -> Vec<Statement> {
@@ -1644,7 +1640,7 @@ fn emit_open_body(
     emit_capture(
         o, func, model, &model.state, step_settings, registry, helpers, stream_fma, counter, Some(cur_source), "",
     );
-    let _ = writeln!(o, "      return RetCode.Success;");
+    let _ = writeln!(o, "      return RetCode.SUCCESS;");
     let _ = writeln!(o, "   }}");
 }
 
@@ -1735,7 +1731,7 @@ fn emit_anchor_guard(o: &mut String) {
     let _ = writeln!(o, "      if( startIdx > endIdx ) {{");
     let _ = writeln!(o, "         outBegIdx.value = 0;");
     let _ = writeln!(o, "         outNBElement.value = 0;");
-    let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
+    let _ = writeln!(o, "         return RetCode.INSUFFICIENT_HISTORY;");
     let _ = writeln!(o, "      }}");
 }
 
@@ -1813,14 +1809,14 @@ fn emit_open_validation(o: &mut String, func: &FuncDef, mode: OutMode, enums: &H
     // is the FIRST input's length, so a later input of a different length is an
     // argument disagreement, not an empty history.
     let _ = writeln!(o, "      if( historyLen < 1 ) {{");
-    let _ = writeln!(o, "         return RetCode.OutOfRangeStartIndex;");
+    let _ = writeln!(o, "         return RetCode.OUT_OF_RANGE_START_INDEX;");
     let _ = writeln!(o, "      }}");
     // The fill covers bars 0..historyLen-1, so its last bar is an index like any
     // other and MAX_INDEX bounds it too (#180). Without this the streaming
     // entry points would compute over exactly the ranges the batch call refuses,
     // and the two are required to agree bit for bit.
     let _ = writeln!(o, "      if( historyLen > MAX_INDEX + 1 ) {{");
-    let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
+    let _ = writeln!(o, "         return RetCode.OUT_OF_RANGE_END_INDEX;");
     let _ = writeln!(o, "      }}");
     let mismatches: Vec<String> = inputs[1..]
         .iter()
@@ -1828,10 +1824,10 @@ fn emit_open_validation(o: &mut String, func: &FuncDef, mode: OutMode, enums: &H
         .collect();
     if !mismatches.is_empty() {
         let _ = writeln!(o, "      if( {} ) {{", mismatches.join(" || "));
-        let _ = writeln!(o, "         return RetCode.BadParam;");
+        let _ = writeln!(o, "         return RetCode.BAD_PARAM;");
         let _ = writeln!(o, "      }}");
     }
-    o.push_str(&emit_opt_param_validation(func, "RetCode.BadParam", enums));
+    o.push_str(&emit_opt_param_validation(func, "RetCode.BAD_PARAM", enums));
     if mode == OutMode::Fill {
         // FILL ONLY, and exempt tiers only: a merged tier carries this guard in
         // its public `OpenAndFill`, which throws directly rather than answering
@@ -1839,7 +1835,7 @@ fn emit_open_validation(o: &mut String, func: &FuncDef, mode: OutMode, enums: &H
         // RetCode-returning fill body, so theirs stays here.
         if let Some(cond) = alias_condition(func) {
             let _ = writeln!(o, "      if( {cond} ) {{");
-            let _ = writeln!(o, "         return RetCode.BadParam;");
+            let _ = writeln!(o, "         return RetCode.BAD_PARAM;");
             let _ = writeln!(o, "      }}");
         }
     }
@@ -1987,12 +1983,11 @@ fn emit_identity_fast_path(
     counter: &Cell<usize>,
 ) {
     let Some(idp) = &model.identity else { return };
-    let base = base_name(func);
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
     let cond = render_expr(&idp.condition, &ctx, registry, helpers);
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let lb_call = format!("{base}_Lookback({})", lb_args.join(", "));
+    let lb_call = format!("{}Lookback({})", method_base(func), lb_args.join(", "));
     let _ = writeln!(o, "      if( {cond} ) {{");
     // batch( startIdx, .. ) begins at max(startIdx, lookback), and the anchored
     // `Open*Internal` variants are the batch call over that same range. The
@@ -2001,7 +1996,7 @@ fn emit_identity_fast_path(
     let _ = writeln!(o, "         int fillLb = {lb_call};");
     let _ = writeln!(o, "         if( startIdx > fillLb ) fillLb = startIdx;");
     let _ = writeln!(o, "         if( historyLen < fillLb + 1 ) {{");
-    let _ = writeln!(o, "            return RetCode.InsufficientHistory;");
+    let _ = writeln!(o, "            return RetCode.INSUFFICIENT_HISTORY;");
     let _ = writeln!(o, "         }}");
     // Identity state: params captured, everything else deterministic defaults
     // (1-slot buffers keep the transition's cap-0 guard well-defined).
@@ -2035,7 +2030,7 @@ fn emit_identity_fast_path(
     for (out, _inp) in &idp.pairs {
         let _ = writeln!(o, "         sp.cur_{out} = {out}[(outNBElement.value - 1) * outStride];");
     }
-    let _ = writeln!(o, "         return RetCode.Success;");
+    let _ = writeln!(o, "         return RetCode.SUCCESS;");
     let _ = writeln!(o, "      }}");
 }
 
@@ -2090,12 +2085,12 @@ fn emit_capture(
                 "      if( capLag_{v} < {fwd} || cap_{v} > historyLen ) {{",
                 fwd = ring.fwd
             );
-            let _ = writeln!(o, "         return RetCode.InternalError;");
+            let _ = writeln!(o, "         return RetCode.INTERNAL_ERROR;");
             let _ = writeln!(o, "      }}");
         } else {
             let _ = writeln!(o, "      int cap_{v} = {c} - {v};");
             let _ = writeln!(o, "      if( cap_{v} < 0 || cap_{v} > historyLen ) {{");
-            let _ = writeln!(o, "         return RetCode.InternalError;");
+            let _ = writeln!(o, "         return RetCode.INTERNAL_ERROR;");
             let _ = writeln!(o, "      }}");
         }
         let _ = writeln!(o, "      int allocN_{v} = (cap_{v} > 0)? cap_{v} : 1;");
@@ -2144,7 +2139,7 @@ fn emit_capture(
         let cap = render_expr(&win.cap, &ctx, registry, helpers);
         let _ = writeln!(o, "      int cap_{v} = (int)({cap});");
         let _ = writeln!(o, "      if( cap_{v} < 1 || cap_{v} > historyLen ) {{");
-        let _ = writeln!(o, "         return RetCode.InternalError;");
+        let _ = writeln!(o, "         return RetCode.INTERNAL_ERROR;");
         let _ = writeln!(o, "      }}");
         for arr in &win.arrays {
             let _ = writeln!(o, "      double[] capWin_{v}_{arr} = new double[cap_{v}];");
@@ -2159,7 +2154,7 @@ fn emit_capture(
         let t = &ex.trailing;
         let _ = writeln!(o, "      int capX = {c} - {t} + 1;");
         let _ = writeln!(o, "      if( capX < 1 || capX > historyLen ) {{");
-        let _ = writeln!(o, "         return RetCode.InternalError;");
+        let _ = writeln!(o, "         return RetCode.INTERNAL_ERROR;");
         let _ = writeln!(o, "      }}");
         // The slot map is a mask, so the ring is allocated at the next power of
         // two at or above the logical capacity: `idx & xMask` then equals
@@ -2183,7 +2178,7 @@ fn emit_capture(
         let id = &circ.id;
         let _ = writeln!(o, "      int capCb_{id} = maxIdx_{id} + 1;");
         let _ = writeln!(o, "      if( capCb_{id} > historyLen + 1 ) {{");
-        let _ = writeln!(o, "         return RetCode.InternalError;");
+        let _ = writeln!(o, "         return RetCode.INTERNAL_ERROR;");
         let _ = writeln!(o, "      }}");
     }
 
@@ -2310,22 +2305,22 @@ fn emit_cur_capture(o: &mut String, func: &FuncDef, outputs: &[String], source: 
 /// invariants, IllegalArgument for everything else.
 fn emit_reject_conversion(o: &mut String, func: &FuncDef, what: &str) {
     let n = func.name.to_uppercase();
-    let _ = writeln!(o, "      if( retCode == RetCode.Success ) {{");
+    let _ = writeln!(o, "      if( retCode == RetCode.SUCCESS ) {{");
     let _ = writeln!(o, "         return sp;");
     let _ = writeln!(o, "      }}");
-    let _ = writeln!(o, "      if( retCode == RetCode.InsufficientHistory ) {{");
+    let _ = writeln!(o, "      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {{");
     let _ = writeln!(
         o,
         "         throw new InsufficientHistoryException(\"{n} {what}: history shorter than lookback + 1\");"
     );
     let _ = writeln!(o, "      }}");
-    let _ = writeln!(o, "      if( retCode == RetCode.InternalError ) {{");
-    let _ = writeln!(o, "         throw new TaLibStateException(\"{n} {what}: internal error\", retCode);");
+    let _ = writeln!(o, "      if( retCode == RetCode.INTERNAL_ERROR ) {{");
+    let _ = writeln!(o, "         throw new TALibStateException(\"{n} {what}: internal error\", retCode);");
     let _ = writeln!(o, "      }}");
     // Carrying, like every other failure the library raises: the code has to be
     // recoverable from the thrown object on THIS ladder too, or "total" is a
     // claim about the batch tier wearing the name of the whole library (#236).
-    let _ = writeln!(o, "      throw new TaLibArgumentException(\"{n} {what}: \" + retCode, retCode);");
+    let _ = writeln!(o, "      throw new TALibArgumentException(\"{n} {what}: \" + retCode, retCode);");
 }
 
 /// `<base>OpenInternal`: the `startIdx`-anchored plain open, package-private.
@@ -2437,8 +2432,9 @@ fn emit_public_open_guards(o: &mut String, func: &FuncDef, verb: &str, with_outp
         let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
         let _ = writeln!(
             o,
-            "      int guardOutLen = openFillCount(\"{n} {verb}\", {}.length, {n}_Lookback({}));",
+            "      int guardOutLen = openFillCount(\"{n} {verb}\", {}.length, {}Lookback({}));",
             history,
+            method_base(func),
             lb_args.join(", ")
         );
         // Rule S5, input half before output half — B5 states the two as one
@@ -2520,7 +2516,7 @@ fn emit_public_open_doc(
          \x20   * Open a live {n} stream over the warm-up history; the handle's\n\
          \x20   * {{@code value()}} starts at the last history bar's value — bit-identical\n\
          \x20   * to {{@link Core#{base}}} at that bar.\n\
-         \x20   * <p>The history must hold at least {{@code {base}_Lookback(...) + 1}} bars\n\
+         \x20   * <p>The history must hold at least {{@code {base}Lookback(...) + 1}} bars\n\
          \x20   * (unstable-period aware), or {{@link InsufficientHistoryException}} is\n\
          \x20   * thrown.{params} An EMPTY history throws\n\
          \x20   * {{@link IndexOutOfBoundsException}} — its implied {{@code startIdx}} of 0\n\
@@ -2600,7 +2596,6 @@ fn emit_open_wrappers(
     merged: bool,
     enums: &HashMap<String, EnumDef>,
 ) {
-    let base = base_name(func);
     let jbase = method_base(func);
     let class = stream_class_name(func);
     let n = func.name.to_uppercase();
@@ -2622,7 +2617,7 @@ fn emit_open_wrappers(
 
     emit_open_internal_seam(o, func, merged, &in_sig, &in_fwd, &opt_sig_str, &opt_fwd_str);
 
-    emit_public_open_doc(o, func, enums, &n, &base);
+    emit_public_open_doc(o, func, enums, &n, &jbase);
     let _ = writeln!(
         o,
         "   public {class} {jbase}Open( {}{opt_sig_str} )\n   {{",
@@ -2657,7 +2652,7 @@ fn emit_open_wrappers(
         o,
         "   /**\n\
          \x20   * {{@link Core#{jbase}Open}} that also fills the output array(s) bit-identically\n\
-         \x20   * to {{@link Core#{base}}} over the whole history in the same single pass\n\
+         \x20   * to {{@link Core#{jbase}}} over the whole history in the same single pass\n\
          \x20   * (no separate batch call needed for the warm-up plot). Output arrays must\n\
          \x20   * not alias the inputs or each other, and must hold\n\
          \x20   * {{@code historyLen - lookback}} values — both checked before anything is\n\
@@ -2684,7 +2679,7 @@ fn emit_open_wrappers(
             let _ = writeln!(o, "      if( {cond} ) {{");
             let _ = writeln!(
                 o,
-                "         throw new TaLibArgumentException(\"{n} openAndFill: \" + RetCode.BadParam, RetCode.BadParam);"
+                "         throw new TALibArgumentException(\"{n} openAndFill: \" + RetCode.BAD_PARAM, RetCode.BAD_PARAM);"
             );
             let _ = writeln!(o, "      }}");
         }
@@ -2922,7 +2917,7 @@ fn emit_dual_mode(
                 &mut s, func, arm, &union_scalars, &step_settings, registry, helpers,
                 stream_fma, counter, Some(cur_source), &complement,
             );
-            let _ = writeln!(s, "      return RetCode.Success;");
+            let _ = writeln!(s, "      return RetCode.SUCCESS;");
             o.push_str(&indent_block(&s, 3));
         }
         let _ = writeln!(o, "      }}");
@@ -2989,14 +2984,13 @@ fn emit_dispatch(
     let outputs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
     let inputs = streaming::input_array_names(func);
     let bar_args = inputs.join(", ");
-    let base = base_name(func);
     let empty = HashSet::new();
     let mut ctx = stream_ctx(&empty, counter, stream_fma);
     // The dispatch identity guard can compare `optInMAType == TA_MAType_*`
     // (TA_MAType_DISABLED, #93); resolve those to their constant like batch.
     ctx.matype_map = build_matype_map(enums);
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let lb_call = format!("{base}_Lookback({})", lb_args.join(", "));
+    let lb_call = format!("{}Lookback({})", method_base(func), lb_args.join(", "));
 
     // --- handle class -------------------------------------------------------
     let fields = base_fields(func);
@@ -3114,14 +3108,14 @@ fn emit_dispatch(
         // — the documented stable "<NAME> open:" contract requires the reject
         // to carry this function's name.
         let _ = writeln!(o, "      if( historyLen < {lb_call} + 1 ) {{");
-        let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
+        let _ = writeln!(o, "         return RetCode.INSUFFICIENT_HISTORY;");
         let _ = writeln!(o, "      }}");
         if let Some(idp) = &dp.identity {
             // The identity path FIRST (batch order — it applies to every arm).
             let cond = render_predicate(&idp.condition, &ctx, registry, helpers);
             let _ = writeln!(o, "      if( {cond} ) {{");
             let _ = writeln!(o, "         if( historyLen < {lb_call} + 1 ) {{");
-            let _ = writeln!(o, "            return RetCode.InsufficientHistory;");
+            let _ = writeln!(o, "            return RetCode.INSUFFICIENT_HISTORY;");
             let _ = writeln!(o, "         }}");
             for p in &func.optional_inputs {
                 let _ = writeln!(o, "         sp.{0} = {0};", p.name);
@@ -3143,7 +3137,7 @@ fn emit_dispatch(
                     let _ = writeln!(o, "         int fillLb = {lb_call};");
                     let _ = writeln!(o, "         if( startIdx > fillLb ) fillLb = startIdx;");
                     let _ = writeln!(o, "         if( historyLen < fillLb + 1 ) {{");
-                    let _ = writeln!(o, "            return RetCode.InsufficientHistory;");
+                    let _ = writeln!(o, "            return RetCode.INSUFFICIENT_HISTORY;");
                     let _ = writeln!(o, "         }}");
                     let _ = writeln!(o, "         sp.outRangeBegIdx = fillLb;");
                     let _ = writeln!(o, "         sp.outRangeCount = historyLen - fillLb;");
@@ -3154,7 +3148,7 @@ fn emit_dispatch(
                         // batch( startIdx, .. ) begins at max(startIdx, lookback).
                         let _ = writeln!(o, "         if( startIdx > fillLb ) fillLb = startIdx;");
                         let _ = writeln!(o, "         if( historyLen < fillLb + 1 ) {{");
-                        let _ = writeln!(o, "            return RetCode.InsufficientHistory;");
+                        let _ = writeln!(o, "            return RetCode.INSUFFICIENT_HISTORY;");
                         let _ = writeln!(o, "         }}");
                     }
                     let _ = writeln!(o, "         outBegIdx.value = fillLb;");
@@ -3172,7 +3166,7 @@ fn emit_dispatch(
                     }
                 }
             }
-            let _ = writeln!(o, "         return RetCode.Success;");
+            let _ = writeln!(o, "         return RetCode.SUCCESS;");
             let _ = writeln!(o, "      }}");
         }
         let _ = writeln!(o, "      switch( {} )", dp.param);
@@ -3258,16 +3252,16 @@ fn emit_dispatch(
             } else {
                 let what = if arm.callee.is_empty() { "delegation" } else { arm.callee.as_str() };
                 let _ = writeln!(o, "      case {label}:");
-                let _ = writeln!(o, "         return RetCode.BadParam; /* no {what} stream */");
+                let _ = writeln!(o, "         return RetCode.BAD_PARAM; /* no {what} stream */");
             }
         }
         let _ = writeln!(o, "      default:");
-        let _ = writeln!(o, "         return RetCode.BadParam;");
+        let _ = writeln!(o, "         return RetCode.BAD_PARAM;");
         let _ = writeln!(o, "      }}");
         for p in &func.optional_inputs {
             let _ = writeln!(o, "      sp.{0} = {0};", p.name);
         }
-        let _ = writeln!(o, "      return RetCode.Success;");
+        let _ = writeln!(o, "      return RetCode.SUCCESS;");
         let _ = writeln!(o, "   }}");
     }
 
@@ -3367,20 +3361,19 @@ fn emit_period_bank(
 
     // --- open body (Scalar) -------------------------------------------------
     let own_lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let base = base_name(func);
-    let own_lb_call = format!("{base}_Lookback({})", own_lb_args.join(", "));
+    let own_lb_call = format!("{}Lookback({})", method_base(func), own_lb_args.join(", "));
     emit_open_body_sig(o, func, OutMode::Scalar);
     let _ = writeln!(o, "      int historyLen = {price}.length;");
     emit_open_validation(o, func, OutMode::Scalar, enums);
     let _ = writeln!(o, "      /* An inverted [min, max] period window is invalid (batch rejects). */");
     let _ = writeln!(o, "      if( {min} > {max} ) {{");
-    let _ = writeln!(o, "         return RetCode.BadParam;");
+    let _ = writeln!(o, "         return RetCode.BAD_PARAM;");
     let _ = writeln!(o, "      }}");
     // Own-lookback precheck BEFORE opening the bank: a bank sub's reject would
     // carry the callee's message prefix, not this function's (stable-prefix
     // contract; the Fill body below has the equivalent check).
     let _ = writeln!(o, "      if( historyLen < {own_lb_call} + 1 ) {{");
-    let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
+    let _ = writeln!(o, "         return RetCode.INSUFFICIENT_HISTORY;");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(
         o,
@@ -3390,11 +3383,11 @@ fn emit_period_bank(
          \x20      * (smaller) lookback would seed the recurrence from a different bar and\n\
          \x20      * diverge for every period < maxPeriod. */"
     );
-    let _ = writeln!(o, "      int lookbackTotal = {callee_base}_Lookback({lb_args});");
+    let _ = writeln!(o, "      int lookbackTotal = {callee_camel}Lookback({lb_args});");
     let _ = writeln!(o, "      int subStart = (startIdx < lookbackTotal)? lookbackTotal : startIdx;");
     // The bank is opened at `subStart`, so the history has to reach it.
     let _ = writeln!(o, "      if( historyLen < subStart + 1 ) {{");
-    let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
+    let _ = writeln!(o, "         return RetCode.INSUFFICIENT_HISTORY;");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      int nBank = {max} - {min} + 1;");
     let _ = writeln!(o, "      {subty}[] bank = new {subty}[nBank];");
@@ -3416,7 +3409,7 @@ fn emit_period_bank(
     // opened at, which is the range's start by definition (issue #241).
     let _ = writeln!(o, "      sp.outRangeBegIdx = subStart;");
     let _ = writeln!(o, "      sp.outRangeCount = historyLen - subStart;");
-    let _ = writeln!(o, "      return RetCode.Success;");
+    let _ = writeln!(o, "      return RetCode.SUCCESS;");
     let _ = writeln!(o, "   }}");
 
     // --- open body (Fill): no per-bar array exists to un-discard (the bank
@@ -3428,11 +3421,11 @@ fn emit_period_bank(
     emit_open_validation(o, func, OutMode::Fill, enums);
     let _ = writeln!(o, "      /* An inverted [min, max] period window is invalid (batch rejects). */");
     let _ = writeln!(o, "      if( {min} > {max} ) {{");
-    let _ = writeln!(o, "         return RetCode.BadParam;");
+    let _ = writeln!(o, "         return RetCode.BAD_PARAM;");
     let _ = writeln!(o, "      }}");
-    let _ = writeln!(o, "      int lookbackTotal = {callee_base}_Lookback({lb_args});");
+    let _ = writeln!(o, "      int lookbackTotal = {callee_camel}Lookback({lb_args});");
     let _ = writeln!(o, "      if( historyLen < lookbackTotal + 1 ) {{");
-    let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
+    let _ = writeln!(o, "         return RetCode.INSUFFICIENT_HISTORY;");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      int nBank = {max} - {min} + 1;");
     let _ = writeln!(o, "      /* Seed each sub at the first output bar (lookbackTotal), NOT the last. */");
@@ -3474,7 +3467,7 @@ fn emit_period_bank(
     }
     let _ = writeln!(o, "      sp.bank = bank;");
     let _ = writeln!(o, "      sp.cur_{out} = {out}[outNBElement.value - 1];");
-    let _ = writeln!(o, "      return RetCode.Success;");
+    let _ = writeln!(o, "      return RetCode.SUCCESS;");
     let _ = writeln!(o, "   }}");
 
     emit_open_wrappers(o, func, false, enums);
@@ -3950,9 +3943,9 @@ fn emit_composed_open(
     {
         let lb_args: Vec<String> =
             func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-        let lb_call = format!("{}_Lookback({})", base_name(func), lb_args.join(", "));
+        let lb_call = format!("{}Lookback({})", method_base(func), lb_args.join(", "));
         let _ = writeln!(o, "      if( historyLen < {lb_call} + 1 ) {{");
-        let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
+        let _ = writeln!(o, "         return RetCode.INSUFFICIENT_HISTORY;");
         let _ = writeln!(o, "      }}");
     }
     emit_extras_and_candle(o, func, &combined, registry, helpers, counter, stream_fma);
@@ -4081,7 +4074,7 @@ fn emit_composed_open(
             if let Statement::Assign { target, .. } = &tail_stmts[sub.tail_idx] {
                 let _ = writeln!(
                     t,
-                    "      {} = RetCode.Success;",
+                    "      {} = RetCode.SUCCESS;",
                     render_expr(&sc_rewrite(target), &ins_ctx, registry, helpers)
                 );
             }
@@ -4101,7 +4094,7 @@ fn emit_composed_open(
     // --- capture ------------------------------------------------------------
     let _ = writeln!(o, "      /* Capture the live producer state + sub handles. */");
     let _ = writeln!(o, "      if( outNBElement.value < 1 ) {{");
-    let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
+    let _ = writeln!(o, "         return RetCode.INSUFFICIENT_HISTORY;");
     let _ = writeln!(o, "      }}");
     // Lag rings: seed from the tail of the still-live intermediate array (its
     // batch `free()` renders as a no-op in Java, so no withheld-free dance).
@@ -4154,7 +4147,7 @@ fn emit_composed_open(
             );
         }
     }
-    let _ = writeln!(o, "      return RetCode.Success;");
+    let _ = writeln!(o, "      return RetCode.SUCCESS;");
     let _ = writeln!(o, "   }}");
 }
 

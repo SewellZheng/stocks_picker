@@ -17,7 +17,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#STOCHRSI} consumes before it can
+    * Number of leading input bars {@link Core#stochrsi} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -36,7 +36,7 @@
     *        {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int STOCHRSI_Lookback( int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
+   public int stochrsiLookback( int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -57,21 +57,21 @@
          optInFastD_MAType = MAType.SMA;
       }
       int retValue;
-      retValue = RSI_Lookback(optInTimePeriod) + STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+      retValue = rsiLookback(optInTimePeriod) + stochfLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
       return retValue ;
 
    }
-   RetCode STOCHRSI_Impl( int startIdx,
-                          int endIdx,
-                          double inReal[],
-                          int optInTimePeriod,
-                          int optInFastK_Period,
-                          int optInFastD_Period,
-                          MAType optInFastD_MAType,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outFastK[],
-                          double outFastD[] )
+   RetCode stochrsiImpl( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         int optInTimePeriod,
+                         int optInFastK_Period,
+                         int optInFastD_Period,
+                         MAType optInFastD_MAType,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outFastK[],
+                         double outFastD[] )
    {
       double[] tempRSIBuffer;
       RetCode retCode;
@@ -82,31 +82,31 @@
       MInteger outBegIdx2 = new MInteger();
       MInteger outNbElement1 = new MInteger();
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastK_Period == Integer.MIN_VALUE ) {
          optInFastK_Period = 5;
       } else if( optInFastK_Period < 1 || optInFastK_Period > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastD_Period == Integer.MIN_VALUE ) {
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastD_MAType == MAType.DEFAULT ) {
          optInFastD_MAType = MAType.SMA;
       }
       if( outFastK == outFastD ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       /* Stochastic RSI
        *
@@ -135,8 +135,8 @@
       outBegIdx.value = 0;
       outNBElement.value = 0;
       /* Adjust startIdx to account for the lookback period. */
-      lookbackSTOCHF = STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
-      lookbackTotal = RSI_Lookback(optInTimePeriod) + lookbackSTOCHF;
+      lookbackSTOCHF = stochfLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+      lookbackTotal = rsiLookback(optInTimePeriod) + lookbackSTOCHF;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -144,42 +144,42 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       tempArraySize = endIdx - startIdx + 1 + lookbackSTOCHF;
       tempRSIBuffer = new double[(int)(tempArraySize * 1)];
-      OutRange _xr0 = RSI(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, tempRSIBuffer);
+      OutRange _xr0 = rsi(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, tempRSIBuffer);
       outBegIdx1.value = _xr0.begIdx();
       outNbElement1.value = _xr0.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( outNbElement1.value == 0 ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
          return retCode ;
       }
-      OutRange _xr1 = STOCHF(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outFastK, outFastD);
+      OutRange _xr1 = stochf(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outFastK, outFastD);
       outBegIdx2.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( (int)outNBElement.value == 0 ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
          return retCode ;
       }
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode STOCHRSI_Impl( int startIdx,
-                          int endIdx,
-                          float inReal[],
-                          int optInTimePeriod,
-                          int optInFastK_Period,
-                          int optInFastD_Period,
-                          MAType optInFastD_MAType,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outFastK[],
-                          double outFastD[] )
+   RetCode stochrsiImpl( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         int optInTimePeriod,
+                         int optInFastK_Period,
+                         int optInFastD_Period,
+                         MAType optInFastD_MAType,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outFastK[],
+                         double outFastD[] )
    {
       double[] tempRSIBuffer;
       RetCode retCode;
@@ -190,66 +190,66 @@
       MInteger outBegIdx2 = new MInteger();
       MInteger outNbElement1 = new MInteger();
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastK_Period == Integer.MIN_VALUE ) {
          optInFastK_Period = 5;
       } else if( optInFastK_Period < 1 || optInFastK_Period > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastD_Period == Integer.MIN_VALUE ) {
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastD_MAType == MAType.DEFAULT ) {
          optInFastD_MAType = MAType.SMA;
       }
       if( outFastK == outFastD ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       outBegIdx.value = 0;
       outNBElement.value = 0;
-      lookbackSTOCHF = STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
-      lookbackTotal = RSI_Lookback(optInTimePeriod) + lookbackSTOCHF;
+      lookbackSTOCHF = stochfLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+      lookbackTotal = rsiLookback(optInTimePeriod) + lookbackSTOCHF;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       tempArraySize = endIdx - startIdx + 1 + lookbackSTOCHF;
       tempRSIBuffer = new double[(int)(tempArraySize * 1)];
-      OutRange _xr0 = RSI(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, tempRSIBuffer);
+      OutRange _xr0 = rsi(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, tempRSIBuffer);
       outBegIdx1.value = _xr0.begIdx();
       outNbElement1.value = _xr0.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( outNbElement1.value == 0 ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
          return retCode ;
       }
-      OutRange _xr1 = STOCHF(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outFastK, outFastD);
+      OutRange _xr1 = stochf(0, tempArraySize - 1, tempRSIBuffer, tempRSIBuffer, tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outFastK, outFastD);
       outBegIdx2.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( (int)outNBElement.value == 0 ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
          return retCode ;
       }
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Applies the Fast Stochastic (STOCHF) oscillator to an RSI series instead
@@ -266,7 +266,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#STOCHRSI_Lookback} is a <b>success
+    * valid range shorter than {@link Core#stochrsiLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -301,12 +301,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#RSI
-    * @see Core#STOCHF
-    * @see Core#STOCH
-    * @see Core#MA
+    * @see Core#rsi
+    * @see Core#stochf
+    * @see Core#stoch
+    * @see Core#ma
     */
-   public OutRange STOCHRSI( int startIdx,
+   public OutRange stochrsi( int startIdx,
                              int endIdx,
                              double inReal[],
                              int optInTimePeriod,
@@ -318,7 +318,7 @@
    {
       requireIndexRange("STOCHRSI", startIdx, endIdx);
       requireArgument("STOCHRSI", "optInFastD_MAType", optInFastD_MAType);
-      int guardStart = clampedStart("STOCHRSI", startIdx, STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType));
+      int guardStart = clampedStart("STOCHRSI", startIdx, stochrsiLookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("STOCHRSI", "inReal", inReal, guardInLen);
@@ -326,8 +326,8 @@
       requireLength("STOCHRSI", "outFastD", outFastD, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = STOCHRSI_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = stochrsiImpl(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("STOCHRSI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -350,7 +350,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#STOCHRSI_Lookback} is a <b>success
+    * valid range shorter than {@link Core#stochrsiLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -385,12 +385,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#RSI
-    * @see Core#STOCHF
-    * @see Core#STOCH
-    * @see Core#MA
+    * @see Core#rsi
+    * @see Core#stochf
+    * @see Core#stoch
+    * @see Core#ma
     */
-   public OutRange STOCHRSI( int startIdx,
+   public OutRange stochrsi( int startIdx,
                              int endIdx,
                              float inReal[],
                              int optInTimePeriod,
@@ -402,7 +402,7 @@
    {
       requireIndexRange("STOCHRSI", startIdx, endIdx);
       requireArgument("STOCHRSI", "optInFastD_MAType", optInFastD_MAType);
-      int guardStart = clampedStart("STOCHRSI", startIdx, STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType));
+      int guardStart = clampedStart("STOCHRSI", startIdx, stochrsiLookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("STOCHRSI", "inReal", inReal, guardInLen);
@@ -410,8 +410,8 @@
       requireLength("STOCHRSI", "outFastD", outFastD, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = STOCHRSI_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = stochrsiImpl(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("STOCHRSI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -420,7 +420,7 @@
 
    /**
     * A live STOCHRSI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#STOCHRSI} over the same series.
+    * closed bar, bit-identical to {@link Core#stochrsi} over the same series.
     * Open with {@link Core#stochrsiOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -450,7 +450,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#STOCHRSI} reports over the same bars: the
+       * <p>It is what {@link Core#stochrsi} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -477,7 +477,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("STOCHRSI advance", RetCode.OutOfRangeEndIndex);
+            throw failure("STOCHRSI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -515,10 +515,10 @@
        */
       public void update( double inReal, StochrsiOut out ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("STOCHRSI update", RetCode.OutOfRangeEndIndex);
+            throw failure("STOCHRSI update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("STOCHRSI update", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("STOCHRSI update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("STOCHRSI update: BAD_PARAM", RetCode.BAD_PARAM);
          core.stochrsiStepImpl(this, inReal);
          this.outRangeCount++;
          out.fastK = this.cur_outFastK;
@@ -538,7 +538,7 @@
       public void peek( double inReal, StochrsiOut out ) {
          requireArgument("STOCHRSI peek", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("STOCHRSI peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("STOCHRSI peek: BAD_PARAM", RetCode.BAD_PARAM);
          StochrsiStream sp = this;
          double cur_tempRSIBuffer = 0.0;
          double cur_outFastK = 0.0;
@@ -634,25 +634,25 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastK_Period == Integer.MIN_VALUE ) {
          optInFastK_Period = 5;
       } else if( optInFastK_Period < 1 || optInFastK_Period > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastD_Period == Integer.MIN_VALUE ) {
          optInFastD_Period = 3;
       } else if( optInFastD_Period < 1 || optInFastD_Period > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastD_MAType == MAType.DEFAULT ) {
          optInFastD_MAType = MAType.SMA;
@@ -660,10 +660,10 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      if( historyLen < STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType) + 1 ) {
-         return RetCode.InsufficientHistory;
+      if( historyLen < stochrsiLookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType) + 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       double[] sc_outFastK = outStride == 1 ? outFastK : new double[historyLen];
       double[] sc_outFastD = outStride == 1 ? outFastD : new double[historyLen];
@@ -694,8 +694,8 @@
       outBegIdx.value = 0;
       outNBElement.value = 0;
       /* Adjust startIdx to account for the lookback period. */
-      lookbackSTOCHF = STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
-      lookbackTotal = RSI_Lookback(optInTimePeriod) + lookbackSTOCHF;
+      lookbackSTOCHF = stochfLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+      lookbackTotal = rsiLookback(optInTimePeriod) + lookbackSTOCHF;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -703,7 +703,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       outBegIdx.value = startIdx;
       tempArraySize = endIdx - startIdx + 1 + lookbackSTOCHF;
@@ -711,24 +711,24 @@
       /* Sub-stream 0: rsi over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       RsiStream sub0 = rsiOpenAndFillInternal(inReal, startIdx - lookbackSTOCHF, optInTimePeriod, outBegIdx1, outNbElement1, tempRSIBuffer);
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( outNbElement1.value == 0 ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Sub-stream 1: stochf over `tempRSIBuffer, tempRSIBuffer, tempRSIBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       StochfStream sub1 = stochfOpenAndFillInternal(java.util.Arrays.copyOfRange(tempRSIBuffer, 0, (tempArraySize - 1) + 1), java.util.Arrays.copyOfRange(tempRSIBuffer, 0, (tempArraySize - 1) + 1), java.util.Arrays.copyOfRange(tempRSIBuffer, 0, (tempArraySize - 1) + 1), 0, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx2, outNBElement, sc_outFastK, sc_outFastD);
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( (int)outNBElement.value == 0 ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.optInFastK_Period = optInFastK_Period;
@@ -738,7 +738,7 @@
       sp.sub1 = sub1;
       sp.cur_outFastK = sc_outFastK[outNBElement.value - 1];
       sp.cur_outFastD = sc_outFastD[outNBElement.value - 1];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* stochrsiOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    StochrsiStream stochrsiOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, MInteger outBegIdx, MInteger outNBElement, double outFastK[], double outFastD[] )
@@ -747,16 +747,16 @@
       RetCode retCode = stochrsiOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("STOCHRSI openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("STOCHRSI openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("STOCHRSI openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("STOCHRSI openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("STOCHRSI openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind stochrsiOpen (composition seam). */
    StochrsiStream stochrsiOpenInternal( double inReal[], int startIdx, int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
@@ -769,22 +769,22 @@
       RetCode retCode = stochrsiOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, sink_outFastK, sink_outFastD, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("STOCHRSI open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("STOCHRSI open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("STOCHRSI open: internal error", retCode);
       }
-      throw new TaLibArgumentException("STOCHRSI open: " + retCode, retCode);
+      throw new TALibArgumentException("STOCHRSI open: " + retCode, retCode);
    }
    /**
     * Open a live STOCHRSI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#STOCHRSI} at that bar.
-    * <p>The history must hold at least {@code STOCHRSI_Lookback(...) + 1} bars
+    * to {@link Core#stochrsi} at that bar.
+    * <p>The history must hold at least {@code stochrsiLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} and {@link MAType#DEFAULT} select a
@@ -802,7 +802,7 @@
    }
    /**
     * {@link Core#stochrsiOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#STOCHRSI} over the whole history in the same single pass
+    * to {@link Core#stochrsi} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -816,11 +816,11 @@
       requireArgument("STOCHRSI openAndFill", "inReal", inReal);
       requireHistory("STOCHRSI openAndFill", inReal.length);
       requireArgument("STOCHRSI openAndFill", "optInFastD_MAType", optInFastD_MAType);
-      int guardOutLen = openFillCount("STOCHRSI openAndFill", inReal.length, STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType));
+      int guardOutLen = openFillCount("STOCHRSI openAndFill", inReal.length, stochrsiLookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType));
       requireLength("STOCHRSI openAndFill", "outFastK", outFastK, guardOutLen);
       requireLength("STOCHRSI openAndFill", "outFastD", outFastD, guardOutLen);
       if( (Object)outFastK == (Object)inReal || (Object)outFastD == (Object)inReal || (Object)outFastK == (Object)outFastD ) {
-         throw new TaLibArgumentException("STOCHRSI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("STOCHRSI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

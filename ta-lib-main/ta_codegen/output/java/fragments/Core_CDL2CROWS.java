@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#CDL2CROWS} consumes before it can
+    * Number of leading input bars {@link Core#cdl2crows} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,42 +21,42 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int CDL2CROWS_Lookback( )
+   public int cdl2crowsLookback( )
    {
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
       return BodyLong_avgPeriod + 2 ;
 
    }
-   RetCode CDL2CROWS_Impl( int startIdx,
-                           int endIdx,
-                           double inOpen[],
-                           double inHigh[],
-                           double inLow[],
-                           double inClose[],
-                           MInteger outBegIdx,
-                           MInteger outNBElement,
-                           int outInteger[] )
+   RetCode cdl2crowsImpl( int startIdx,
+                          int endIdx,
+                          double inOpen[],
+                          double inHigh[],
+                          double inLow[],
+                          double inClose[],
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       int i = 0;
       int outIdx = 0;
       int BodyLongTrailingIdx = 0;
       int lookbackTotal = 0;
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDL2CROWS_Lookback();
+      lookbackTotal = cdl2crowsLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -67,7 +67,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -116,40 +116,40 @@
       /* All done. Indicate the output limits and return. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode CDL2CROWS_Impl( int startIdx,
-                           int endIdx,
-                           float inOpen[],
-                           float inHigh[],
-                           float inLow[],
-                           float inClose[],
-                           MInteger outBegIdx,
-                           MInteger outNBElement,
-                           int outInteger[] )
+   RetCode cdl2crowsImpl( int startIdx,
+                          int endIdx,
+                          float inOpen[],
+                          float inHigh[],
+                          float inLow[],
+                          float inClose[],
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       int i = 0;
       int outIdx = 0;
       int BodyLongTrailingIdx = 0;
       int lookbackTotal = 0;
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
-      lookbackTotal = CDL2CROWS_Lookback();
+      lookbackTotal = cdl2crowsLookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       BodyLongPeriodTotal = 0;
       BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod;
@@ -172,7 +172,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Three-candle bearish reversal pattern: a long white candle, then a black
@@ -190,7 +190,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDL2CROWS_Lookback} is a <b>success
+    * valid range shorter than {@link Core#cdl2crowsLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -216,10 +216,10 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLUPSIDEGAP2CROWS
-    * @see Core#CDLIDENTICAL3CROWS
+    * @see Core#cdlupsidegap2crows
+    * @see Core#cdlidentical3crows
     */
-   public OutRange CDL2CROWS( int startIdx,
+   public OutRange cdl2crows( int startIdx,
                               int endIdx,
                               double inOpen[],
                               double inHigh[],
@@ -228,7 +228,7 @@
                               int outInteger[] )
    {
       requireIndexRange("CDL2CROWS", startIdx, endIdx);
-      int guardStart = clampedStart("CDL2CROWS", startIdx, CDL2CROWS_Lookback());
+      int guardStart = clampedStart("CDL2CROWS", startIdx, cdl2crowsLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDL2CROWS", "inOpen", inOpen, guardInLen);
@@ -238,8 +238,8 @@
       requireLength("CDL2CROWS", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDL2CROWS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdl2crowsImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDL2CROWS", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -263,7 +263,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDL2CROWS_Lookback} is a <b>success
+    * valid range shorter than {@link Core#cdl2crowsLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -289,10 +289,10 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLUPSIDEGAP2CROWS
-    * @see Core#CDLIDENTICAL3CROWS
+    * @see Core#cdlupsidegap2crows
+    * @see Core#cdlidentical3crows
     */
-   public OutRange CDL2CROWS( int startIdx,
+   public OutRange cdl2crows( int startIdx,
                               int endIdx,
                               float inOpen[],
                               float inHigh[],
@@ -301,7 +301,7 @@
                               int outInteger[] )
    {
       requireIndexRange("CDL2CROWS", startIdx, endIdx);
-      int guardStart = clampedStart("CDL2CROWS", startIdx, CDL2CROWS_Lookback());
+      int guardStart = clampedStart("CDL2CROWS", startIdx, cdl2crowsLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDL2CROWS", "inOpen", inOpen, guardInLen);
@@ -311,8 +311,8 @@
       requireLength("CDL2CROWS", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDL2CROWS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdl2crowsImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDL2CROWS", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -321,7 +321,7 @@
 
    /**
     * A live CDL2CROWS stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#CDL2CROWS} over the same series.
+    * closed bar, bit-identical to {@link Core#cdl2crows} over the same series.
     * Open with {@link Core#cdl2crowsOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -359,7 +359,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#CDL2CROWS} reports over the same bars: the
+       * <p>It is what {@link Core#cdl2crows} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -386,7 +386,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDL2CROWS advance", RetCode.OutOfRangeEndIndex);
+            throw failure("CDL2CROWS advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -432,9 +432,9 @@
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDL2CROWS update", RetCode.OutOfRangeEndIndex);
+            throw failure("CDL2CROWS update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDL2CROWS update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDL2CROWS update: BAD_PARAM", RetCode.BAD_PARAM);
          core.cdl2crowsStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -452,7 +452,7 @@
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDL2CROWS peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDL2CROWS peek: BAD_PARAM", RetCode.BAD_PARAM);
          Cdl2crowsStream sp = this;
          int cur_outInteger = 0;
          int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
@@ -551,26 +551,26 @@
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDL2CROWS_Lookback();
+      lookbackTotal = cdl2crowsLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -581,7 +581,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -633,7 +633,7 @@
       /* Capture the live batch state into the handle. */
       int cap_BodyLongTrailingIdx = i - BodyLongTrailingIdx;
       if( cap_BodyLongTrailingIdx < 0 || cap_BodyLongTrailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_BodyLongTrailingIdx = (cap_BodyLongTrailingIdx > 0)? cap_BodyLongTrailingIdx : 1;
       double[] capRing_BodyLongTrailingIdx_derived = new double[allocN_BodyLongTrailingIdx];
@@ -656,7 +656,7 @@
       sp.cs_BodyLong_avgPeriod = BodyLong_avgPeriod;
       sp.cs_BodyLong_factor = BodyLong_factor;
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* cdl2crowsOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    Cdl2crowsStream cdl2crowsOpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
@@ -665,16 +665,16 @@
       RetCode retCode = cdl2crowsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDL2CROWS openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDL2CROWS openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDL2CROWS openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDL2CROWS openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("CDL2CROWS openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind cdl2crowsOpen (composition seam). */
    Cdl2crowsStream cdl2crowsOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -686,22 +686,22 @@
       RetCode retCode = cdl2crowsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDL2CROWS open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDL2CROWS open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDL2CROWS open: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDL2CROWS open: " + retCode, retCode);
+      throw new TALibArgumentException("CDL2CROWS open: " + retCode, retCode);
    }
    /**
     * Open a live CDL2CROWS stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#CDL2CROWS} at that bar.
-    * <p>The history must hold at least {@code CDL2CROWS_Lookback(...) + 1} bars
+    * to {@link Core#cdl2crows} at that bar.
+    * <p>The history must hold at least {@code cdl2crowsLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -722,7 +722,7 @@
    }
    /**
     * {@link Core#cdl2crowsOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#CDL2CROWS} over the whole history in the same single pass
+    * to {@link Core#cdl2crows} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -738,13 +738,13 @@
       requireArgument("CDL2CROWS openAndFill", "inHigh", inHigh);
       requireArgument("CDL2CROWS openAndFill", "inLow", inLow);
       requireArgument("CDL2CROWS openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("CDL2CROWS openAndFill", inOpen.length, CDL2CROWS_Lookback());
+      int guardOutLen = openFillCount("CDL2CROWS openAndFill", inOpen.length, cdl2crowsLookback());
       requireHistoryLength("CDL2CROWS openAndFill", "inHigh", inHigh.length, inOpen.length);
       requireHistoryLength("CDL2CROWS openAndFill", "inLow", inLow.length, inOpen.length);
       requireHistoryLength("CDL2CROWS openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("CDL2CROWS openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
-         throw new TaLibArgumentException("CDL2CROWS openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("CDL2CROWS openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

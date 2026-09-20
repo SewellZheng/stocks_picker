@@ -51,7 +51,7 @@ package io.github.talib.test;
 import io.github.talib.Core;
 import io.github.talib.OutRange;
 import io.github.talib.RetCode;
-import io.github.talib.TaLibArgumentException;
+import io.github.talib.TALibArgumentException;
 
 /**
  * DIV's documented zero-divisor result (issue #249).
@@ -130,7 +130,7 @@ public class DivZeroTest {
         double[] out = new double[NUM.length];
         OutRange r;
         try {
-            r = Core.DEFAULT.DIV(0, NUM.length - 1, NUM, DEN, out);
+            r = Core.DEFAULT.div(0, NUM.length - 1, NUM, DEN, out);
         } catch (RuntimeException e) {
             fail("DIV threw on a zero divisor: " + e);
             return;
@@ -151,7 +151,7 @@ public class DivZeroTest {
         // 4..7 is the +/-Inf block, so a range that silently restarted at 0
         // would land on the NaN rows and fail rather than looking right.
         double[] out = new double[NUM.length];
-        OutRange r = Core.DEFAULT.DIV(4, 7, NUM, DEN, out);
+        OutRange r = Core.DEFAULT.div(4, 7, NUM, DEN, out);
         checks++;
         if (r.begIdx() != 4 || r.count() != 4) {
             failures++;
@@ -170,7 +170,7 @@ public class DivZeroTest {
         float[] n = new float[NUM.length], d = new float[DEN.length];
         for (int i = 0; i < NUM.length; i++) { n[i] = (float) NUM[i]; d[i] = (float) DEN[i]; }
         double[] out = new double[NUM.length];
-        Core.DEFAULT.DIV(0, NUM.length - 1, n, d, out);
+        Core.DEFAULT.div(0, NUM.length - 1, n, d, out);
         for (int i = 0; i < NUM.length; i++) {
             check("float", i, out[i]);
         }
@@ -264,8 +264,8 @@ public class DivZeroTest {
             body.run();
             failures++;
             System.out.println("  FAIL: " + what + " accepted a non-finite bar (" + bad + ")");
-        } catch (TaLibArgumentException e) {
-            if (e.retCode() != RetCode.BadParam) {
+        } catch (TALibArgumentException e) {
+            if (e.retCode() != RetCode.BAD_PARAM) {
                 failures++;
                 System.out.println("  FAIL: " + what + " on " + bad + " gave " + e.retCode());
             }

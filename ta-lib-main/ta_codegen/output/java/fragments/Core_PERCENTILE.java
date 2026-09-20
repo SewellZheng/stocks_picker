@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#PERCENTILE} consumes before it
+    * Number of leading input bars {@link Core#percentile} consumes before it
     * can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -25,7 +25,7 @@
     *        (default 50; range 0..100; {@link Core#REAL_DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int PERCENTILE_Lookback( int optInTimePeriod, double optInPercentile )
+   public int percentileLookback( int optInTimePeriod, double optInPercentile )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
@@ -40,14 +40,14 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode PERCENTILE_Impl( int startIdx,
-                            int endIdx,
-                            double inReal[],
-                            int optInTimePeriod,
-                            double optInPercentile,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode percentileImpl( int startIdx,
+                           int endIdx,
+                           double inReal[],
+                           int optInTimePeriod,
+                           double optInPercentile,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outReal[] )
    {
       double newValue = 0;
       double oldValue = 0;
@@ -66,20 +66,20 @@
       int sorted_Idx = 0;
       int maxIdx_sorted = (30)-1;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInPercentile == REAL_DEFAULT ) {
          optInPercentile = 5e1;
       } else if( !(optInPercentile >= 0e0 && optInPercentile <= 1e2) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* The window is carried twice: "ring" by age, "sorted" by value. */
       lookbackTotal = optInTimePeriod - 1;
@@ -89,13 +89,13 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       ring = new double[optInTimePeriod];
       maxIdx_ring = (optInTimePeriod)-1;
       ring_Idx = 0;
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       sorted = new double[optInTimePeriod];
       maxIdx_sorted = (optInTimePeriod)-1;
       sorted_Idx = 0;
@@ -176,16 +176,16 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode PERCENTILE_Impl( int startIdx,
-                            int endIdx,
-                            float inReal[],
-                            int optInTimePeriod,
-                            double optInPercentile,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode percentileImpl( int startIdx,
+                           int endIdx,
+                           float inReal[],
+                           int optInTimePeriod,
+                           double optInPercentile,
+                           MInteger outBegIdx,
+                           MInteger outNBElement,
+                           double outReal[] )
    {
       double newValue = 0;
       double oldValue = 0;
@@ -204,20 +204,20 @@
       int sorted_Idx = 0;
       int maxIdx_sorted = (30)-1;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInPercentile == REAL_DEFAULT ) {
          optInPercentile = 5e1;
       } else if( !(optInPercentile >= 0e0 && optInPercentile <= 1e2) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       lookbackTotal = optInTimePeriod - 1;
       if( startIdx < lookbackTotal ) {
@@ -226,13 +226,13 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       ring = new double[optInTimePeriod];
       maxIdx_ring = (optInTimePeriod)-1;
       ring_Idx = 0;
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       sorted = new double[optInTimePeriod];
       maxIdx_sorted = (optInTimePeriod)-1;
       sorted_Idx = 0;
@@ -297,7 +297,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Rolling percentile by the nearest-rank method: sort the trailing window
@@ -317,7 +317,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#PERCENTILE_Lookback} is a <b>success
+    * valid range shorter than {@link Core#percentileLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -343,12 +343,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MIN
-    * @see Core#MAX
-    * @see Core#MEDPRICE
-    * @see Core#STDDEV
+    * @see Core#min
+    * @see Core#max
+    * @see Core#medprice
+    * @see Core#stddev
     */
-   public OutRange PERCENTILE( int startIdx,
+   public OutRange percentile( int startIdx,
                                int endIdx,
                                double inReal[],
                                int optInTimePeriod,
@@ -356,15 +356,15 @@
                                double outReal[] )
    {
       requireIndexRange("PERCENTILE", startIdx, endIdx);
-      int guardStart = clampedStart("PERCENTILE", startIdx, PERCENTILE_Lookback(optInTimePeriod, optInPercentile));
+      int guardStart = clampedStart("PERCENTILE", startIdx, percentileLookback(optInTimePeriod, optInPercentile));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PERCENTILE", "inReal", inReal, guardInLen);
       requireLength("PERCENTILE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PERCENTILE_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInPercentile, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = percentileImpl(startIdx, endIdx, inReal, optInTimePeriod, optInPercentile, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("PERCENTILE", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -390,7 +390,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#PERCENTILE_Lookback} is a <b>success
+    * valid range shorter than {@link Core#percentileLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -416,12 +416,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MIN
-    * @see Core#MAX
-    * @see Core#MEDPRICE
-    * @see Core#STDDEV
+    * @see Core#min
+    * @see Core#max
+    * @see Core#medprice
+    * @see Core#stddev
     */
-   public OutRange PERCENTILE( int startIdx,
+   public OutRange percentile( int startIdx,
                                int endIdx,
                                float inReal[],
                                int optInTimePeriod,
@@ -429,15 +429,15 @@
                                double outReal[] )
    {
       requireIndexRange("PERCENTILE", startIdx, endIdx);
-      int guardStart = clampedStart("PERCENTILE", startIdx, PERCENTILE_Lookback(optInTimePeriod, optInPercentile));
+      int guardStart = clampedStart("PERCENTILE", startIdx, percentileLookback(optInTimePeriod, optInPercentile));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PERCENTILE", "inReal", inReal, guardInLen);
       requireLength("PERCENTILE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PERCENTILE_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInPercentile, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = percentileImpl(startIdx, endIdx, inReal, optInTimePeriod, optInPercentile, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("PERCENTILE", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -446,7 +446,7 @@
 
    /**
     * A live PERCENTILE stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#PERCENTILE} over the same series.
+    * closed bar, bit-identical to {@link Core#percentile} over the same series.
     * Open with {@link Core#percentileOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -481,7 +481,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#PERCENTILE} reports over the same bars: the
+       * <p>It is what {@link Core#percentile} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -508,7 +508,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("PERCENTILE advance", RetCode.OutOfRangeEndIndex);
+            throw failure("PERCENTILE advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -551,9 +551,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("PERCENTILE update", RetCode.OutOfRangeEndIndex);
+            throw failure("PERCENTILE update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("PERCENTILE update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("PERCENTILE update: BAD_PARAM", RetCode.BAD_PARAM);
          core.percentileStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -571,7 +571,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("PERCENTILE peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("PERCENTILE peek: BAD_PARAM", RetCode.BAD_PARAM);
          PercentileStream sp = this;
          double newValue = 0.0;
          double result = 0.0;
@@ -685,25 +685,25 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInPercentile == REAL_DEFAULT ) {
          optInPercentile = 5e1;
       } else if( !(optInPercentile >= 0e0 && optInPercentile <= 1e2) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* The window is carried twice: "ring" by age, "sorted" by value. */
       lookbackTotal = optInTimePeriod - 1;
@@ -713,13 +713,13 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       ring = new double[optInTimePeriod];
       maxIdx_ring = (optInTimePeriod)-1;
       ring_Idx = 0;
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       sorted = new double[optInTimePeriod];
       maxIdx_sorted = (optInTimePeriod)-1;
       sorted_Idx = 0;
@@ -803,11 +803,11 @@
       /* Capture the live batch state into the handle. */
       int capCb_ring = maxIdx_ring + 1;
       if( capCb_ring > historyLen + 1 ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int capCb_sorted = maxIdx_sorted + 1;
       if( capCb_sorted > historyLen + 1 ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.optInPercentile = optInPercentile;
@@ -822,7 +822,7 @@
       sp.cbSize_sorted = capCb_sorted;
       sp.cb_sorted = sorted;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* percentileOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    PercentileStream percentileOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInPercentile, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -831,16 +831,16 @@
       RetCode retCode = percentileOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInPercentile, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("PERCENTILE openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("PERCENTILE openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("PERCENTILE openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("PERCENTILE openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("PERCENTILE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind percentileOpen (composition seam). */
    PercentileStream percentileOpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInPercentile )
@@ -852,22 +852,22 @@
       RetCode retCode = percentileOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInPercentile, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("PERCENTILE open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("PERCENTILE open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("PERCENTILE open: internal error", retCode);
       }
-      throw new TaLibArgumentException("PERCENTILE open: " + retCode, retCode);
+      throw new TALibArgumentException("PERCENTILE open: " + retCode, retCode);
    }
    /**
     * Open a live PERCENTILE stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#PERCENTILE} at that bar.
-    * <p>The history must hold at least {@code PERCENTILE_Lookback(...) + 1} bars
+    * to {@link Core#percentile} at that bar.
+    * <p>The history must hold at least {@code percentileLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
@@ -884,7 +884,7 @@
    }
    /**
     * {@link Core#percentileOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#PERCENTILE} over the whole history in the same single pass
+    * to {@link Core#percentile} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -897,10 +897,10 @@
    {
       requireArgument("PERCENTILE openAndFill", "inReal", inReal);
       requireHistory("PERCENTILE openAndFill", inReal.length);
-      int guardOutLen = openFillCount("PERCENTILE openAndFill", inReal.length, PERCENTILE_Lookback(optInTimePeriod, optInPercentile));
+      int guardOutLen = openFillCount("PERCENTILE openAndFill", inReal.length, percentileLookback(optInTimePeriod, optInPercentile));
       requireLength("PERCENTILE openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("PERCENTILE openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("PERCENTILE openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

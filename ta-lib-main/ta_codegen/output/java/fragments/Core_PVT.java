@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#PVT} consumes before it can
+    * Number of leading input bars {@link Core#pvt} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,19 +21,19 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int PVT_Lookback( )
+   public int pvtLookback( )
    {
       /* This function have no lookback needed. */
       return 0 ;
 
    }
-   RetCode PVT_Impl( int startIdx,
-                     int endIdx,
-                     double inClose[],
-                     double inVolume[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode pvtImpl( int startIdx,
+                    int endIdx,
+                    double inClose[],
+                    double inVolume[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -41,10 +41,10 @@
       double prevClose = 0;
       double tempClose = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       prevPVT = 0.0;
       prevClose = inClose[startIdx];
@@ -63,15 +63,15 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode PVT_Impl( int startIdx,
-                     int endIdx,
-                     float inClose[],
-                     float inVolume[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode pvtImpl( int startIdx,
+                    int endIdx,
+                    float inClose[],
+                    float inVolume[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -79,10 +79,10 @@
       double prevClose = 0;
       double tempClose = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       prevPVT = 0.0;
       prevClose = (double)inClose[startIdx];
@@ -97,7 +97,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Price Volume Trend: a running cumulative total of each bar's volume
@@ -120,7 +120,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#PVT_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#pvtLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -143,20 +143,20 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#OBV
-    * @see Core#NVI
-    * @see Core#PVI
-    * @see Core#PVO
-    * @see Core#AD
+    * @see Core#obv
+    * @see Core#nvi
+    * @see Core#pvi
+    * @see Core#pvo
+    * @see Core#ad
     */
-   public OutRange PVT( int startIdx,
+   public OutRange pvt( int startIdx,
                         int endIdx,
                         double inClose[],
                         double inVolume[],
                         double outReal[] )
    {
       requireIndexRange("PVT", startIdx, endIdx);
-      int guardStart = clampedStart("PVT", startIdx, PVT_Lookback());
+      int guardStart = clampedStart("PVT", startIdx, pvtLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PVT", "inClose", inClose, guardInLen);
@@ -164,8 +164,8 @@
       requireLength("PVT", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PVT_Impl(startIdx, endIdx, inClose, inVolume, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = pvtImpl(startIdx, endIdx, inClose, inVolume, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("PVT", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -194,7 +194,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#PVT_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#pvtLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -217,20 +217,20 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#OBV
-    * @see Core#NVI
-    * @see Core#PVI
-    * @see Core#PVO
-    * @see Core#AD
+    * @see Core#obv
+    * @see Core#nvi
+    * @see Core#pvi
+    * @see Core#pvo
+    * @see Core#ad
     */
-   public OutRange PVT( int startIdx,
+   public OutRange pvt( int startIdx,
                         int endIdx,
                         float inClose[],
                         float inVolume[],
                         double outReal[] )
    {
       requireIndexRange("PVT", startIdx, endIdx);
-      int guardStart = clampedStart("PVT", startIdx, PVT_Lookback());
+      int guardStart = clampedStart("PVT", startIdx, pvtLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PVT", "inClose", inClose, guardInLen);
@@ -238,8 +238,8 @@
       requireLength("PVT", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PVT_Impl(startIdx, endIdx, inClose, inVolume, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = pvtImpl(startIdx, endIdx, inClose, inVolume, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("PVT", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -248,7 +248,7 @@
 
    /**
     * A live PVT stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#PVT} over the same series.
+    * closed bar, bit-identical to {@link Core#pvt} over the same series.
     * Open with {@link Core#pvtOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -273,7 +273,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#PVT} reports over the same bars: the
+       * <p>It is what {@link Core#pvt} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -300,7 +300,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("PVT advance", RetCode.OutOfRangeEndIndex);
+            throw failure("PVT advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -333,9 +333,9 @@
        */
       public double update( double inClose, double inVolume ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("PVT update", RetCode.OutOfRangeEndIndex);
+            throw failure("PVT update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("PVT update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("PVT update: BAD_PARAM", RetCode.BAD_PARAM);
          core.pvtStepImpl(this, inClose, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -353,7 +353,7 @@
        */
       public double peek( double inClose, double inVolume ) {
          if( !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("PVT peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("PVT peek: BAD_PARAM", RetCode.BAD_PARAM);
          PvtStream sp = this;
          double tempClose = 0.0;
          double cur_outReal = 0.0;
@@ -420,18 +420,18 @@
       int historyLen = inClose.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inVolume.length != inClose.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       prevPVT = 0.0;
       prevClose = inClose[startIdx];
@@ -454,7 +454,7 @@
       sp.prevPVT = prevPVT;
       sp.prevClose = prevClose;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* pvtOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    PvtStream pvtOpenAndFillInternal( double inClose[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -463,16 +463,16 @@
       RetCode retCode = pvtOpenImpl(sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("PVT openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("PVT openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("PVT openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("PVT openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("PVT openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind pvtOpen (composition seam). */
    PvtStream pvtOpenInternal( double inClose[], double inVolume[], int startIdx )
@@ -484,22 +484,22 @@
       RetCode retCode = pvtOpenImpl(sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("PVT open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("PVT open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("PVT open: internal error", retCode);
       }
-      throw new TaLibArgumentException("PVT open: " + retCode, retCode);
+      throw new TALibArgumentException("PVT open: " + retCode, retCode);
    }
    /**
     * Open a live PVT stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#PVT} at that bar.
-    * <p>The history must hold at least {@code PVT_Lookback(...) + 1} bars
+    * to {@link Core#pvt} at that bar.
+    * <p>The history must hold at least {@code pvtLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -516,7 +516,7 @@
    }
    /**
     * {@link Core#pvtOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#PVT} over the whole history in the same single pass
+    * to {@link Core#pvt} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -530,11 +530,11 @@
       requireArgument("PVT openAndFill", "inClose", inClose);
       requireHistory("PVT openAndFill", inClose.length);
       requireArgument("PVT openAndFill", "inVolume", inVolume);
-      int guardOutLen = openFillCount("PVT openAndFill", inClose.length, PVT_Lookback());
+      int guardOutLen = openFillCount("PVT openAndFill", inClose.length, pvtLookback());
       requireHistoryLength("PVT openAndFill", "inVolume", inVolume.length, inClose.length);
       requireLength("PVT openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
-         throw new TaLibArgumentException("PVT openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("PVT openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

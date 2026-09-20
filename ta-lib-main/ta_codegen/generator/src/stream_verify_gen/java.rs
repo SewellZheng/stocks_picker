@@ -44,7 +44,7 @@ fn sv_java_input_array(name: &str, generic_idx: &mut usize) -> &'static str {
 #[allow(clippy::too_many_lines, clippy::cast_possible_truncation, clippy::cognitive_complexity)]
 fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     use std::fmt::Write as _;
-    let base = func.name.clone();
+    let base = crate::backends::common::camel_words(&func.name);
     let base_camel = crate::backends::common::camel_words(&func.name);
     let class = crate::backends::java_stream::stream_class_name(func);
     let candle = func.name.starts_with("CDL");
@@ -247,10 +247,10 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     // Batch leg.
     let _ = writeln!(
         s,
-        "            RetCode rc;\n            try {{ rc = c2.{base}_Impl(0, svN - 1, {full_ins}, {opts_lead}beg, nb{bargs}); }}\n            catch (RuntimeException _sve) {{ if (!(_sve instanceof TaLibFailure)) throw _sve; rc = ((TaLibFailure) _sve).retCode(); beg.value = 0; nb.value = 0; }}"
+        "            RetCode rc;\n            try {{ rc = c2.{base}Impl(0, svN - 1, {full_ins}, {opts_lead}beg, nb{bargs}); }}\n            catch (RuntimeException _sve) {{ if (!(_sve instanceof TALibFailure)) throw _sve; rc = ((TALibFailure) _sve).retCode(); beg.value = 0; nb.value = 0; }}"
     );
-    let _ = writeln!(s, "            int lb = c2.{base}_Lookback({opts});");
-    s.push_str("            if (rc != RetCode.Success || nb.value == 0) {\n");
+    let _ = writeln!(s, "            int lb = c2.{base}Lookback({opts});");
+    s.push_str("            if (rc != RetCode.SUCCESS || nb.value == 0) {\n");
     s.push_str("                boolean openRejects;\n");
     let _ = writeln!(
         s,
@@ -633,10 +633,10 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     s.push_str("                    RetCode rcS;\n");
     let _ = writeln!(
         s,
-        "                    try {{ rcS = c2.{base}_Impl(Sidx, svN - 1, {full_ins}, {opts_lead}begS, nbS{bargs}); }}\n\
-         \x20                   catch (RuntimeException _sve) {{ if (!(_sve instanceof TaLibFailure)) throw _sve; rcS = ((TaLibFailure) _sve).retCode(); }}"
+        "                    try {{ rcS = c2.{base}Impl(Sidx, svN - 1, {full_ins}, {opts_lead}begS, nbS{bargs}); }}\n\
+         \x20                   catch (RuntimeException _sve) {{ if (!(_sve instanceof TALibFailure)) throw _sve; rcS = ((TALibFailure) _sve).retCode(); }}"
     );
-    s.push_str("                    if (rcS == RetCode.Success && nbS.value > 0) {\n");
+    s.push_str("                    if (rcS == RetCode.SUCCESS && nbS.value > 0) {\n");
     let _ = writeln!(
         s,
         "                        try {{\n\
@@ -699,7 +699,7 @@ pub(crate) fn generate_java_stream_verify(
     s.push_str("                c.candleSettings[i] = new CandleSetting(cs.rangeType, 0, cs.factor);\n");
     s.push_str("            } else if (rd == 3) {\n");
     s.push_str("                c.candleSettings[i] =\n");
-    s.push_str("                    new CandleSetting(RangeType.Shadows, cs.avgPeriod, cs.factor);\n");
+    s.push_str("                    new CandleSetting(RangeType.SHADOWS, cs.avgPeriod, cs.factor);\n");
     s.push_str("            }\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");

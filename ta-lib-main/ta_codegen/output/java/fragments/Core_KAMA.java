@@ -29,7 +29,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#KAMA} consumes before it can
+    * Number of leading input bars {@link Core#kama} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -42,7 +42,7 @@
     *        30; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int KAMA_Lookback( int optInTimePeriod )
+   public int kamaLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
@@ -55,13 +55,13 @@
       return optInTimePeriod + this.unstablePeriod[FuncUnstId.KAMA.ordinal()] ;
 
    }
-   RetCode KAMA_Impl( int startIdx,
-                      int endIdx,
-                      double inReal[],
-                      int optInTimePeriod,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outReal[] )
+   RetCode kamaImpl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double constMax = 0;
       double constDiff = 0;
@@ -78,15 +78,15 @@
       int nullRun = 0;
       double trailingValue = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       constMax = 2.0 / (30.0 + 1.0);
       constDiff = 2.0 / (2.0 + 1.0) - constMax;
@@ -103,7 +103,7 @@
             startIdx = lookbackTotal;
          }
          if( startIdx > endIdx ) {
-            return RetCode.Success ;
+            return RetCode.SUCCESS ;
          }
          outBegIdx.value = startIdx;
          outIdx = 0;
@@ -112,7 +112,7 @@
             outReal[outIdx++] = inReal[today++];
          }
          outNBElement.value = outIdx;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
@@ -128,7 +128,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Initialize the variables by going through
        * the lookback period.
@@ -300,15 +300,15 @@
          outReal[outIdx++] = prevKAMA;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode KAMA_Impl( int startIdx,
-                      int endIdx,
-                      float inReal[],
-                      int optInTimePeriod,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outReal[] )
+   RetCode kamaImpl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double constMax = 0;
       double constDiff = 0;
@@ -325,15 +325,15 @@
       int nullRun = 0;
       double trailingValue = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       constMax = 2.0 / (30.0 + 1.0);
       constDiff = 2.0 / (2.0 + 1.0) - constMax;
@@ -345,7 +345,7 @@
             startIdx = lookbackTotal;
          }
          if( startIdx > endIdx ) {
-            return RetCode.Success ;
+            return RetCode.SUCCESS ;
          }
          outBegIdx.value = startIdx;
          outIdx = 0;
@@ -354,7 +354,7 @@
             outReal[outIdx++] = (double)inReal[today++];
          }
          outNBElement.value = outIdx;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.KAMA.ordinal()];
       if( startIdx < lookbackTotal ) {
@@ -363,7 +363,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       sumROC1 = 0.0;
       nullRun = 0;
@@ -457,7 +457,7 @@
          outReal[outIdx++] = prevKAMA;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Kaufman Adaptive Moving Average: an EMA whose smoothing factor adapts each
@@ -475,8 +475,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#KAMA_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#kamaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -499,26 +499,26 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MAMA
-    * @see Core#EMA
-    * @see Core#MA
+    * @see Core#mama
+    * @see Core#ema
+    * @see Core#ma
     */
-   public OutRange KAMA( int startIdx,
+   public OutRange kama( int startIdx,
                          int endIdx,
                          double inReal[],
                          int optInTimePeriod,
                          double outReal[] )
    {
       requireIndexRange("KAMA", startIdx, endIdx);
-      int guardStart = clampedStart("KAMA", startIdx, KAMA_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("KAMA", startIdx, kamaLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("KAMA", "inReal", inReal, guardInLen);
       requireLength("KAMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = KAMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = kamaImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("KAMA", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -542,8 +542,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#KAMA_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#kamaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -566,26 +566,26 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MAMA
-    * @see Core#EMA
-    * @see Core#MA
+    * @see Core#mama
+    * @see Core#ema
+    * @see Core#ma
     */
-   public OutRange KAMA( int startIdx,
+   public OutRange kama( int startIdx,
                          int endIdx,
                          float inReal[],
                          int optInTimePeriod,
                          double outReal[] )
    {
       requireIndexRange("KAMA", startIdx, endIdx);
-      int guardStart = clampedStart("KAMA", startIdx, KAMA_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("KAMA", startIdx, kamaLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("KAMA", "inReal", inReal, guardInLen);
       requireLength("KAMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = KAMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = kamaImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("KAMA", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -594,7 +594,7 @@
 
    /**
     * A live KAMA stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#KAMA} over the same series.
+    * closed bar, bit-identical to {@link Core#kama} over the same series.
     * Open with {@link Core#kamaOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -628,7 +628,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#KAMA} reports over the same bars: the
+       * <p>It is what {@link Core#kama} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -655,7 +655,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("KAMA advance", RetCode.OutOfRangeEndIndex);
+            throw failure("KAMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -697,9 +697,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("KAMA update", RetCode.OutOfRangeEndIndex);
+            throw failure("KAMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("KAMA update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("KAMA update: BAD_PARAM", RetCode.BAD_PARAM);
          core.kamaStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -717,7 +717,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("KAMA peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("KAMA peek: BAD_PARAM", RetCode.BAD_PARAM);
          KamaStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -894,26 +894,26 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       if( optInTimePeriod == 1 ) {
-         int fillLb = KAMA_Lookback(optInTimePeriod);
+         int fillLb = kamaLookback(optInTimePeriod);
          if( startIdx > fillLb ) fillLb = startIdx;
          if( historyLen < fillLb + 1 ) {
-            return RetCode.InsufficientHistory;
+            return RetCode.INSUFFICIENT_HISTORY;
          }
          sp.optInTimePeriod = optInTimePeriod;
          sp.constMax = 0.0;
@@ -936,7 +936,7 @@
             }
          }
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-         return RetCode.Success;
+         return RetCode.SUCCESS;
       }
       constMax = 2.0 / (30.0 + 1.0);
       constDiff = 2.0 / (2.0 + 1.0) - constMax;
@@ -957,7 +957,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Initialize the variables by going through
        * the lookback period.
@@ -1132,7 +1132,7 @@
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = today - trailingIdx;
       if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
       double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
@@ -1149,7 +1149,7 @@
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* kamaOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    KamaStream kamaOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -1158,16 +1158,16 @@
       RetCode retCode = kamaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("KAMA openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("KAMA openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("KAMA openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("KAMA openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("KAMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind kamaOpen (composition seam). */
    KamaStream kamaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -1179,22 +1179,22 @@
       RetCode retCode = kamaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("KAMA open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("KAMA open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("KAMA open: internal error", retCode);
       }
-      throw new TaLibArgumentException("KAMA open: " + retCode, retCode);
+      throw new TALibArgumentException("KAMA open: " + retCode, retCode);
    }
    /**
     * Open a live KAMA stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#KAMA} at that bar.
-    * <p>The history must hold at least {@code KAMA_Lookback(...) + 1} bars
+    * to {@link Core#kama} at that bar.
+    * <p>The history must hold at least {@code kamaLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -1211,7 +1211,7 @@
    }
    /**
     * {@link Core#kamaOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#KAMA} over the whole history in the same single pass
+    * to {@link Core#kama} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1224,10 +1224,10 @@
    {
       requireArgument("KAMA openAndFill", "inReal", inReal);
       requireHistory("KAMA openAndFill", inReal.length);
-      int guardOutLen = openFillCount("KAMA openAndFill", inReal.length, KAMA_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("KAMA openAndFill", inReal.length, kamaLookback(optInTimePeriod));
       requireLength("KAMA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("KAMA openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("KAMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

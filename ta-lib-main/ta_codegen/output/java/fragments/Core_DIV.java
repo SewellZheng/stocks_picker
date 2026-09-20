@@ -12,7 +12,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#DIV} consumes before it can
+    * Number of leading input bars {@link Core#div} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -20,56 +20,56 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int DIV_Lookback( )
+   public int divLookback( )
    {
       return 0 ;
 
    }
-   RetCode DIV_Impl( int startIdx,
-                     int endIdx,
-                     double inReal0[],
-                     double inReal1[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode divImpl( int startIdx,
+                    int endIdx,
+                    double inReal0[],
+                    double inReal1[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx] = inReal0[i] / inReal1[i];
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode DIV_Impl( int startIdx,
-                     int endIdx,
-                     float inReal0[],
-                     float inReal1[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode divImpl( int startIdx,
+                    int endIdx,
+                    float inReal0[],
+                    float inReal1[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx] = (double)inReal0[i] / (double)inReal1[i];
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Element-wise division of two input series.
@@ -82,7 +82,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#DIV_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#divLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -105,18 +105,18 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MULT
-    * @see Core#ADD
-    * @see Core#SUB
+    * @see Core#mult
+    * @see Core#add
+    * @see Core#sub
     */
-   public OutRange DIV( int startIdx,
+   public OutRange div( int startIdx,
                         int endIdx,
                         double inReal0[],
                         double inReal1[],
                         double outReal[] )
    {
       requireIndexRange("DIV", startIdx, endIdx);
-      int guardStart = clampedStart("DIV", startIdx, DIV_Lookback());
+      int guardStart = clampedStart("DIV", startIdx, divLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("DIV", "inReal0", inReal0, guardInLen);
@@ -124,8 +124,8 @@
       requireLength("DIV", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = DIV_Impl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = divImpl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("DIV", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -144,7 +144,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#DIV_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#divLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -167,18 +167,18 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MULT
-    * @see Core#ADD
-    * @see Core#SUB
+    * @see Core#mult
+    * @see Core#add
+    * @see Core#sub
     */
-   public OutRange DIV( int startIdx,
+   public OutRange div( int startIdx,
                         int endIdx,
                         float inReal0[],
                         float inReal1[],
                         double outReal[] )
    {
       requireIndexRange("DIV", startIdx, endIdx);
-      int guardStart = clampedStart("DIV", startIdx, DIV_Lookback());
+      int guardStart = clampedStart("DIV", startIdx, divLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("DIV", "inReal0", inReal0, guardInLen);
@@ -186,8 +186,8 @@
       requireLength("DIV", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = DIV_Impl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = divImpl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("DIV", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -196,7 +196,7 @@
 
    /**
     * A live DIV stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#DIV} over the same series.
+    * closed bar, bit-identical to {@link Core#div} over the same series.
     * Open with {@link Core#divOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -219,7 +219,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#DIV} reports over the same bars: the
+       * <p>It is what {@link Core#div} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -246,7 +246,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("DIV advance", RetCode.OutOfRangeEndIndex);
+            throw failure("DIV advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -277,9 +277,9 @@
        */
       public double update( double inReal0, double inReal1 ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("DIV update", RetCode.OutOfRangeEndIndex);
+            throw failure("DIV update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
-            throw new TaLibArgumentException("DIV update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("DIV update: BAD_PARAM", RetCode.BAD_PARAM);
          core.divStepImpl(this, inReal0, inReal1);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -297,7 +297,7 @@
        */
       public double peek( double inReal0, double inReal1 ) {
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
-            throw new TaLibArgumentException("DIV peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("DIV peek: BAD_PARAM", RetCode.BAD_PARAM);
          DivStream sp = this;
          double cur_outReal = 0.0;
          cur_outReal = inReal0 / inReal1;
@@ -341,18 +341,18 @@
       int historyLen = inReal0.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inReal1.length != inReal0.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx * outStride] = inReal0[i] / inReal1[i];
@@ -361,7 +361,7 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* divOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    DivStream divOpenAndFillInternal( double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -370,16 +370,16 @@
       RetCode retCode = divOpenImpl(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("DIV openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("DIV openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("DIV openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("DIV openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("DIV openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind divOpen (composition seam). */
    DivStream divOpenInternal( double inReal0[], double inReal1[], int startIdx )
@@ -391,22 +391,22 @@
       RetCode retCode = divOpenImpl(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("DIV open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("DIV open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("DIV open: internal error", retCode);
       }
-      throw new TaLibArgumentException("DIV open: " + retCode, retCode);
+      throw new TALibArgumentException("DIV open: " + retCode, retCode);
    }
    /**
     * Open a live DIV stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#DIV} at that bar.
-    * <p>The history must hold at least {@code DIV_Lookback(...) + 1} bars
+    * to {@link Core#div} at that bar.
+    * <p>The history must hold at least {@code divLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -423,7 +423,7 @@
    }
    /**
     * {@link Core#divOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#DIV} over the whole history in the same single pass
+    * to {@link Core#div} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -437,11 +437,11 @@
       requireArgument("DIV openAndFill", "inReal0", inReal0);
       requireHistory("DIV openAndFill", inReal0.length);
       requireArgument("DIV openAndFill", "inReal1", inReal1);
-      int guardOutLen = openFillCount("DIV openAndFill", inReal0.length, DIV_Lookback());
+      int guardOutLen = openFillCount("DIV openAndFill", inReal0.length, divLookback());
       requireHistoryLength("DIV openAndFill", "inReal1", inReal1.length, inReal0.length);
       requireLength("DIV openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
-         throw new TaLibArgumentException("DIV openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("DIV openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

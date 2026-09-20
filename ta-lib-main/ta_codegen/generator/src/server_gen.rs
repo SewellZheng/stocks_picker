@@ -1371,8 +1371,8 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // it is there: a `switch` with a `default:` arm reported a member nobody had
     // added an arm for as TA_INTERNAL_ERROR, on the wire, silently.
     s.push_str("enum RetCode {\n");
-    s.push_str("    Success(0), BadParam(2), AllocErr(3), OutOfRangeStartIndex(12),\n");
-    s.push_str("    OutOfRangeEndIndex(13), InsufficientHistory(17), InternalError(5000);\n");
+    s.push_str("    SUCCESS(0), BAD_PARAM(2), ALLOC_ERR(3), OUT_OF_RANGE_START_INDEX(12),\n");
+    s.push_str("    OUT_OF_RANGE_END_INDEX(13), INSUFFICIENT_HISTORY(17), INTERNAL_ERROR(5000);\n");
     s.push_str("    private final int cValue;\n");
     s.push_str("    RetCode(int cValue) { this.cValue = cValue; }\n");
     s.push_str("    public int toInt() { return cValue; }\n");
@@ -1422,10 +1422,10 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     }
     s.push_str("}\n\n");
 
-    // RangeType — mirrors the shipped enum (RealBody=0, HighLow=1, Shadows=2) so the
+    // RangeType — mirrors the shipped enum (REAL_BODY=0, HIGH_LOW=1, SHADOWS=2) so the
     // canonical candle access (`rangeType.ordinal()`) compiles here as in Core.java.
     s.push_str("enum RangeType {\n");
-    s.push_str("    RealBody, HighLow, Shadows;\n");
+    s.push_str("    REAL_BODY, HIGH_LOW, SHADOWS;\n");
     s.push_str("}\n\n");
 
     // CandleSetting holds rangeType, avgPeriod, factor for one candle setting
@@ -1443,9 +1443,9 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // the canonical shipped Core.java access form emitted by emit_java_unpacking()
     // (`candleSettings[CandleSettingType.X.ordinal()]`).
     s.push_str("enum CandleSettingType {\n");
-    s.push_str("    BodyLong, BodyVeryLong, BodyShort, BodyDoji,\n");
-    s.push_str("    ShadowLong, ShadowVeryLong, ShadowShort, ShadowVeryShort,\n");
-    s.push_str("    Near, Far, Equal, AllCandleSettings;\n");
+    s.push_str("    BODY_LONG, BODY_VERY_LONG, BODY_SHORT, BODY_DOJI,\n");
+    s.push_str("    SHADOW_LONG, SHADOW_VERY_LONG, SHADOW_SHORT, SHADOW_VERY_SHORT,\n");
+    s.push_str("    NEAR, FAR, EQUAL, ALL_CANDLE_SETTINGS;\n");
     s.push_str("}\n\n");
 
     // Core class — method bodies are inlined by the caller via inline_java_core_methods()
@@ -1466,17 +1466,17 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // candleSettings[] in CandleSettingType ordinal order. Defaults from
     // TA_RestoreCandleDefaultSettings in ta_global.c. RangeType: 0=RealBody, 1=HighLow, 2=Shadows.
     s.push_str("    static final CandleSetting[] DEFAULT_CANDLE_SETTINGS = {\n");
-    s.push_str("        new CandleSetting(RangeType.RealBody, 10, 1.0),   // BodyLong\n");
-    s.push_str("        new CandleSetting(RangeType.RealBody, 10, 3.0),   // BodyVeryLong\n");
-    s.push_str("        new CandleSetting(RangeType.RealBody, 10, 1.0),   // BodyShort\n");
-    s.push_str("        new CandleSetting(RangeType.HighLow,  10, 0.1),   // BodyDoji\n");
-    s.push_str("        new CandleSetting(RangeType.RealBody, 0,  1.0),   // ShadowLong\n");
-    s.push_str("        new CandleSetting(RangeType.RealBody, 0,  2.0),   // ShadowVeryLong\n");
-    s.push_str("        new CandleSetting(RangeType.Shadows,  10, 1.0),   // ShadowShort\n");
-    s.push_str("        new CandleSetting(RangeType.HighLow,  10, 0.1),   // ShadowVeryShort\n");
-    s.push_str("        new CandleSetting(RangeType.HighLow,  5,  0.2),   // Near\n");
-    s.push_str("        new CandleSetting(RangeType.HighLow,  5,  0.6),   // Far\n");
-    s.push_str("        new CandleSetting(RangeType.HighLow,  5,  0.05),  // Equal\n");
+    s.push_str("        new CandleSetting(RangeType.REAL_BODY, 10, 1.0),   // BodyLong\n");
+    s.push_str("        new CandleSetting(RangeType.REAL_BODY, 10, 3.0),   // BodyVeryLong\n");
+    s.push_str("        new CandleSetting(RangeType.REAL_BODY, 10, 1.0),   // BodyShort\n");
+    s.push_str("        new CandleSetting(RangeType.HIGH_LOW,  10, 0.1),   // BodyDoji\n");
+    s.push_str("        new CandleSetting(RangeType.REAL_BODY, 0,  1.0),   // ShadowLong\n");
+    s.push_str("        new CandleSetting(RangeType.REAL_BODY, 0,  2.0),   // ShadowVeryLong\n");
+    s.push_str("        new CandleSetting(RangeType.SHADOWS,  10, 1.0),   // ShadowShort\n");
+    s.push_str("        new CandleSetting(RangeType.HIGH_LOW,  10, 0.1),   // ShadowVeryShort\n");
+    s.push_str("        new CandleSetting(RangeType.HIGH_LOW,  5,  0.2),   // Near\n");
+    s.push_str("        new CandleSetting(RangeType.HIGH_LOW,  5,  0.6),   // Far\n");
+    s.push_str("        new CandleSetting(RangeType.HIGH_LOW,  5,  0.05),  // Equal\n");
     s.push_str("    };\n\n");
     // The live array is a clone, so restoring a default is a slot copy out of the
     // table above rather than a second literal that could drift from it (#215).
@@ -1485,17 +1485,17 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    static RuntimeException failure(String funcName, RetCode retCode) {\n");
     s.push_str("        String where = funcName + \": \";\n");
     s.push_str("        switch (retCode) {\n");
-    s.push_str("            case OutOfRangeStartIndex: return new TaLibIndexException(where + \"startIdx out of range\", retCode);\n");
-    s.push_str("            case OutOfRangeEndIndex: return new TaLibIndexException(where + \"endIdx out of range\", retCode);\n");
+    s.push_str("            case OUT_OF_RANGE_START_INDEX: return new TALibIndexException(where + \"startIdx out of range\", retCode);\n");
+    s.push_str("            case OUT_OF_RANGE_END_INDEX: return new TALibIndexException(where + \"endIdx out of range\", retCode);\n");
     // Split exactly as the shipped `Core.java` splits it: the parity gate
     // compares these bodies token by token (issue #271 item 3).
-    s.push_str("            case BadParam: return new TaLibArgumentException(\n");
+    s.push_str("            case BAD_PARAM: return new TALibArgumentException(\n");
     s.push_str("                where + \"bad parameter (out-of-range optional parameter, or two \"\n");
     s.push_str("                      + \"outputs sharing one array)\", retCode);\n");
-    s.push_str("            case AllocErr: return new TaLibStateException(where + \"allocation failed\", retCode);\n");
-    s.push_str("            case InternalError: return new TaLibStateException(where + \"internal error\", retCode);\n");
-    s.push_str("            case InsufficientHistory: return new InsufficientHistoryException(where + \"history shorter than the lookback\");\n");
-    s.push_str("            default: return new TaLibStateException(where + retCode, retCode);\n");
+    s.push_str("            case ALLOC_ERR: return new TALibStateException(where + \"allocation failed\", retCode);\n");
+    s.push_str("            case INTERNAL_ERROR: return new TALibStateException(where + \"internal error\", retCode);\n");
+    s.push_str("            case INSUFFICIENT_HISTORY: return new InsufficientHistoryException(where + \"history shorter than the lookback\");\n");
+    s.push_str("            default: return new TALibStateException(where + retCode, retCode);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     // Same for the wrapper's argument checks (#172 C2). The server never calls a
@@ -1504,7 +1504,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // identity this splice exists to preserve would be an identity of text only.
     s.push_str("    static int clampedStart(String funcName, int startIdx, int lookback) {\n");
     s.push_str("        if (lookback < 0) {\n");
-    s.push_str("            throw failure(funcName, RetCode.BadParam);\n");
+    s.push_str("            throw failure(funcName, RetCode.BAD_PARAM);\n");
     s.push_str("        }\n");
     s.push_str("        return startIdx > lookback ? startIdx : lookback;\n");
     s.push_str("    }\n\n");
@@ -1517,44 +1517,44 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     }
     s.push_str("    static void checkLength(String funcName, String argName, int actual, int required) {\n");
     s.push_str("        if (actual < 0) {\n");
-    s.push_str("            throw new TaLibArgumentException(funcName + \": \" + argName + \" is null\", RetCode.BadParam);\n");
+    s.push_str("            throw new TALibArgumentException(funcName + \": \" + argName + \" is null\", RetCode.BAD_PARAM);\n");
     s.push_str("        }\n");
     s.push_str("        if (actual < required) {\n");
-    s.push_str("            throw new TaLibArgumentException(funcName + \": \" + argName\n");
-    s.push_str("                + \" has length \" + actual + \", needs \" + required, RetCode.BadParam);\n");
+    s.push_str("            throw new TALibArgumentException(funcName + \": \" + argName\n");
+    s.push_str("                + \" has length \" + actual + \", needs \" + required, RetCode.BAD_PARAM);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     s.push_str("    static void requireIndexRange(String funcName, int startIdx, int endIdx) {\n");
     s.push_str("        if (startIdx < 0 || startIdx > MAX_INDEX) {\n");
-    s.push_str("            throw failure(funcName, RetCode.OutOfRangeStartIndex);\n");
+    s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_START_INDEX);\n");
     s.push_str("        }\n");
     s.push_str("        if (endIdx < 0 || endIdx > MAX_INDEX || endIdx < startIdx) {\n");
-    s.push_str("            throw failure(funcName, RetCode.OutOfRangeEndIndex);\n");
+    s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_END_INDEX);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     s.push_str("    static int openFillCount(String funcName, int historyLen, int lookback) {\n");
     s.push_str("        if (lookback < 0) {\n");
-    s.push_str("            throw failure(funcName, RetCode.BadParam);\n");
+    s.push_str("            throw failure(funcName, RetCode.BAD_PARAM);\n");
     s.push_str("        }\n");
     s.push_str("        return historyLen <= lookback ? 0 : historyLen - lookback;\n");
     s.push_str("    }\n\n");
     s.push_str("    static void requireHistoryLength(String funcName, String argName, int actual, int historyLen) {\n");
     s.push_str("        if (actual != historyLen) {\n");
-    s.push_str("            throw new TaLibArgumentException(funcName + \": \" + argName + \" has length \" + actual\n");
-    s.push_str("                  + \", needs \" + historyLen, RetCode.BadParam);\n");
+    s.push_str("            throw new TALibArgumentException(funcName + \": \" + argName + \" has length \" + actual\n");
+    s.push_str("                  + \", needs \" + historyLen, RetCode.BAD_PARAM);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     s.push_str("    static void requireHistory(String funcName, int historyLen) {\n");
     s.push_str("        if (historyLen < 1) {\n");
-    s.push_str("            throw failure(funcName, RetCode.OutOfRangeStartIndex);\n");
+    s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_START_INDEX);\n");
     s.push_str("        }\n");
     s.push_str("        if (historyLen > MAX_INDEX + 1) {\n");
-    s.push_str("            throw failure(funcName, RetCode.OutOfRangeEndIndex);\n");
+    s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_END_INDEX);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     s.push_str("    static void requireArgument(String funcName, String argName, Object argument) {\n");
     s.push_str("        if (argument == null) {\n");
-    s.push_str("            throw new TaLibArgumentException(funcName + \": \" + argName + \" is null\", RetCode.BadParam);\n");
+    s.push_str("            throw new TALibArgumentException(funcName + \": \" + argName + \" is null\", RetCode.BAD_PARAM);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     for func in funcs {
@@ -1815,10 +1815,10 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            int rangeType = jsonInt(json, \"rangeType\");\n");
     s.push_str("            int avgPeriod = jsonInt(json, \"avgPeriod\");\n");
     s.push_str("            double factor = jsonF64Bits(json, \"factorBits\", 1.0);\n");
-    s.push_str("            if (settingType < 0 || settingType >= CandleSettingType.AllCandleSettings.ordinal()) {\n");
+    s.push_str("            if (settingType < 0 || settingType >= CandleSettingType.ALL_CANDLE_SETTINGS.ordinal()) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting\\\"}\";\n");
     s.push_str("            }\n");
-    s.push_str("            if (rangeType < 0 || rangeType > RangeType.Shadows.ordinal()) {\n");
+    s.push_str("            if (rangeType < 0 || rangeType > RangeType.SHADOWS.ordinal()) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting\\\"}\";\n");
     s.push_str("            }\n");
     s.push_str("            if (avgPeriod < 0 || avgPeriod > Core.MAX_INDEX) {\n");
@@ -1837,10 +1837,10 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        else if (json.contains(\"\\\"restore_candle_default_settings\\\"\")) {\n");
     s.push_str("            rideGen++;\n");
     s.push_str("            int settingType = jsonInt(json, \"settingType\");\n");
-    s.push_str("            if (settingType < 0 || settingType > CandleSettingType.AllCandleSettings.ordinal()) {\n");
+    s.push_str("            if (settingType < 0 || settingType > CandleSettingType.ALL_CANDLE_SETTINGS.ordinal()) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting type\\\"}\";\n");
     s.push_str("            }\n");
-    s.push_str("            if (settingType == CandleSettingType.AllCandleSettings.ordinal()) {\n");
+    s.push_str("            if (settingType == CandleSettingType.ALL_CANDLE_SETTINGS.ordinal()) {\n");
     s.push_str("                System.arraycopy(Core.DEFAULT_CANDLE_SETTINGS, 0, core.candleSettings, 0,\n");
     s.push_str("                    core.candleSettings.length);\n");
     s.push_str("            } else {\n");
@@ -1894,7 +1894,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
     // Per-function handler methods — each is small enough for C2 JIT compilation.
     for func in funcs {
-        let func_base = func.name.clone();
+        let func_base = crate::backends::common::camel_words(&func.name);
         let func_base_camel = crate::backends::common::camel_words(&func.name);
         let func_stream_class = crate::backends::java_stream::stream_class_name(func);
 
@@ -1994,7 +1994,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                 func.optional_inputs.iter().map(|o| o.name.clone()).collect();
             s.push_str(&doc_produced_extent("        ", "//"));
             s.push_str(&format!(
-                "        int _lb = core.{func_base}_Lookback({});\n",
+                "        int _lb = core.{func_base}Lookback({});\n",
                 lb_args.join(", ")
             ));
             s.push_str("        int _cs = startIdx > _lb ? startIdx : _lb;\n");
@@ -2014,7 +2014,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         }
         s.push_str("        MInteger outBegIdx = new MInteger();\n");
         s.push_str("        MInteger outNBElement = new MInteger();\n");
-        s.push_str("        RetCode rc = RetCode.Success;\n");
+        s.push_str("        RetCode rc = RetCode.SUCCESS;\n");
 
         // Benchmark iteration loop with timing. Iteration 0 is always a
         // discarded warm-up — see the C emitter: it removes the cold-call bias
@@ -2077,22 +2077,22 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             s.push_str("        if (bench_mode == 0) {\n");
             s.push_str("        if (jsonInt(json, \"timed\") != 0) {\n");
             s.push_str("            if (_optRejected) {\n");
-            s.push_str("                rc = RetCode.BadParam;\n");
+            s.push_str("                rc = RetCode.BAD_PARAM;\n");
             s.push_str("                outBegIdx.value = 0;\n");
             s.push_str("                outNBElement.value = 0;\n");
             s.push_str("            } else {\n");
             s.push_str("            try {\n");
-            s.push_str(&format!("                rc = core.{func_base}_Impl({core_args});\n"));
+            s.push_str(&format!("                rc = core.{func_base}Impl({core_args});\n"));
             s.push_str("            } catch (RuntimeException _e) {\n");
-            s.push_str("                if (!(_e instanceof TaLibFailure)) throw _e;\n");
-            s.push_str("                rc = ((TaLibFailure) _e).retCode();\n");
+            s.push_str("                if (!(_e instanceof TALibFailure)) throw _e;\n");
+            s.push_str("                rc = ((TALibFailure) _e).retCode();\n");
             s.push_str("                outBegIdx.value = 0;\n");
             s.push_str("                outNBElement.value = 0;\n");
             s.push_str("            }\n");
             s.push_str("            }\n");
             s.push_str("        } else {\n");
             s.push_str("            if (_optRejected) {\n");
-            s.push_str("                rc = RetCode.BadParam;\n");
+            s.push_str("                rc = RetCode.BAD_PARAM;\n");
             s.push_str("                outBegIdx.value = 0;\n");
             s.push_str("                outNBElement.value = 0;\n");
             s.push_str("            } else {\n");
@@ -2100,10 +2100,10 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             s.push_str(&format!("                OutRange _pr = core.{func_base}({pub_args});\n"));
             s.push_str("                outBegIdx.value = _pr.begIdx();\n");
             s.push_str("                outNBElement.value = _pr.count();\n");
-            s.push_str("                rc = RetCode.Success;\n");
+            s.push_str("                rc = RetCode.SUCCESS;\n");
             s.push_str("            } catch (RuntimeException _e) {\n");
-            s.push_str("                if (!(_e instanceof TaLibFailure)) throw _e;\n");
-            s.push_str("                rc = ((TaLibFailure) _e).retCode();\n");
+            s.push_str("                if (!(_e instanceof TALibFailure)) throw _e;\n");
+            s.push_str("                rc = ((TALibFailure) _e).retCode();\n");
             s.push_str("                outBegIdx.value = 0;\n");
             s.push_str("                outNBElement.value = 0;\n");
             s.push_str("            }\n");
@@ -2133,7 +2133,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                 fill_args.push(format!("outArr{k}"));
             }
             let fill = fill_args.join(", ");
-            s.push_str("        else if (_optRejected) { rc = RetCode.BadParam; }\n");
+            s.push_str("        else if (_optRejected) { rc = RetCode.BAD_PARAM; }\n");
             s.push_str("        else { try {\n");
             s.push_str("            if (bench_mode == 1) {\n");
             s.push_str(&format!(
@@ -2153,11 +2153,11 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                  \x20               outNBElement.value = _wh.outRange().count();\n"
             ));
             s.push_str("            }\n");
-            s.push_str("            rc = RetCode.Success;\n");
+            s.push_str("            rc = RetCode.SUCCESS;\n");
             // Report the code the open actually raised, not a stand-in. Every
             // failure the library throws carries it (#236 step 1); anything else
             // reaching here is not the library's and stays the catch-all.
-            s.push_str("        } catch (RuntimeException _e) { rc = _e instanceof TaLibFailure ? ((TaLibFailure)_e).retCode() : RetCode.BadParam; } }\n");
+            s.push_str("        } catch (RuntimeException _e) { rc = _e instanceof TALibFailure ? ((TALibFailure)_e).retCode() : RetCode.BAD_PARAM; } }\n");
         }
         s.push_str("        }\n"); // end bench_iters loop
 
@@ -2179,7 +2179,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // The float leg is a CORRECTNESS leg, so it takes the public overload
         // for the same reason the double one does. Normalised here, same shape.
         s.push_str("            if (_optRejected) {\n");
-        s.push_str("                rc = RetCode.BadParam;\n");
+        s.push_str("                rc = RetCode.BAD_PARAM;\n");
         s.push_str("                outBegIdx.value = 0;\n");
         s.push_str("                outNBElement.value = 0;\n");
         s.push_str("            } else {\n");
@@ -2198,10 +2198,10 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             s.push_str(&format!("                OutRange _fr = core.{func_base}({f_args});\n"));
             s.push_str("                outBegIdx.value = _fr.begIdx();\n");
             s.push_str("                outNBElement.value = _fr.count();\n");
-            s.push_str("                rc = RetCode.Success;\n");
+            s.push_str("                rc = RetCode.SUCCESS;\n");
             s.push_str("            } catch (RuntimeException _e) {\n");
-            s.push_str("                if (!(_e instanceof TaLibFailure)) throw _e;\n");
-            s.push_str("                rc = ((TaLibFailure) _e).retCode();\n");
+            s.push_str("                if (!(_e instanceof TALibFailure)) throw _e;\n");
+            s.push_str("                rc = ((TALibFailure) _e).retCode();\n");
             s.push_str("                outBegIdx.value = 0;\n");
             s.push_str("                outNBElement.value = 0;\n");
             s.push_str("            }\n");
@@ -2215,7 +2215,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // returned before the value response is built.
         s.push_str("        if (jsonInt(json, \"want_hash\") != 0 && jsonInt(json, \"full_output\") == 0) {\n");
         s.push_str("            long _h = svHashInit();\n");
-        s.push_str("            if (rc == RetCode.Success && outNBElement.value > 0) {\n");
+        s.push_str("            if (rc == RetCode.SUCCESS && outNBElement.value > 0) {\n");
         for (k, out) in outputs.iter().enumerate() {
             if out.param_type == ParamType::Integer {
                 s.push_str(&format!(
@@ -2239,7 +2239,11 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             for opt in &func.optional_inputs {
                 let _ = write!(ride_args, "{}, ", opt.name);
             }
-            s.push_str(&format!("            ride{}(core, json, endIdx, {}hb);\n", func.name, ride_args));
+            s.push_str(&format!(
+                "            ride{}(core, json, endIdx, {}hb);\n",
+                crate::backends::common::pascal_words(&func.name),
+                ride_args
+            ));
         }
         s.push_str("            hb.append(\"}\");\n");
         s.push_str("            return hb.toString();\n");
@@ -2285,7 +2289,8 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             }
             s.push_str(&format!(
                 "        ride{}(core, json, endIdx, {}sb);\n",
-                func.name, ride_args
+                crate::backends::common::pascal_words(&func.name),
+                ride_args
             ));
         }
         s.push_str("        sb.append(\"}\");\n");
@@ -2305,7 +2310,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // spelling difference the contract tolerates; what must match, and does, is
     // WHICH calls are rejected.
     s.push_str(r#"    static int computeLookback(String funcName, String json) {
-        io.github.talib.metadata.FunctionInfo f = io.github.talib.metadata.Functions.byName(funcName);
+        io.github.talib.metadata.FuncInfo f = io.github.talib.metadata.Functions.byName(funcName);
         if (f == null) return -1;
         try {
             return absBind(f, json, null).lookback();
@@ -2318,7 +2323,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
        output arrays when the caller needs them back; pass null for the lookback
        tier, which binds none. */
     static io.github.talib.metadata.ParamHolder absBind(
-            io.github.talib.metadata.FunctionInfo f, String json, Object[] outs) {
+            io.github.talib.metadata.FuncInfo f, String json, Object[] outs) {
         io.github.talib.metadata.ParamHolder h = f.newCall();
         int startIdx = jsonInt(json, "startIdx");
         int endIdx = jsonInt(json, "endIdx");
@@ -2367,7 +2372,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     }
 
     /* inReal / inReal0 / inReal1, matching the driver's key scheme. */
-    static double[] absRealInput(String json, io.github.talib.metadata.FunctionInfo f, int slot) {
+    static double[] absRealInput(String json, io.github.talib.metadata.FuncInfo f, int slot) {
         int generic = 0;
         for (int i = 0; i < slot; i++) {
             if (f.inputs().get(i).type() != io.github.talib.metadata.InputType.PRICE) generic++;
@@ -2381,7 +2386,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
     static String handleAbstractCall(String json) {
         String fn = jsonString(json, "funcName");
-        io.github.talib.metadata.FunctionInfo f = io.github.talib.metadata.Functions.byName(fn);
+        io.github.talib.metadata.FuncInfo f = io.github.talib.metadata.Functions.byName(fn);
         if (f == null) return "{\"error\":\"Unknown function\"}";
 
         Object[] outs = new Object[f.outputs().size()];
@@ -2677,9 +2682,9 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("                rideGen++;\n");
     s.push_str("                int id = GetInt(p, \"id\", -1);\n");
     s.push_str("                int period = GetInt(p, \"period\", 0);\n");
-    // The same 0..=MAX_INDEX domain the C library enforces. Checked before any
+    // The same 0..=MaxIndex domain the C library enforces. Checked before any
     // store, so a rejected call leaves every slot as it was (#186).
-    s.push_str("                if (period < 0 || period > Core.MAX_INDEX) {\n");
+    s.push_str("                if (period < 0 || period > Core.MaxIndex) {\n");
     s.push_str("                    return \"{\\\"error\\\":\\\"Invalid unstable period value\\\"}\";\n");
     s.push_str("                }\n");
     s.push_str("                if (id == (int)FuncUnstId.ALL) {\n");
@@ -2815,7 +2820,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     // absent-field fallbacks as the per-function handlers) and call its guarded
     // <Name>Lookback. Mirrors the Java server's computeLookback.
     //
-    // Deliberately NOT routed through FunctionCall: the --xlang-hash sweep
+    // Deliberately NOT routed through ParamHolder: the --xlang-hash sweep
     // drives out-of-range parameter vectors through abstract_get_lookback and
     // requires -1 back, which is exactly what the guarded *Lookback prologue
     // returns. A validating binder would throw before reaching it, and a
@@ -2824,7 +2829,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("    static long ComputeLookback(string funcName, JsonElement p) {\n");
     s.push_str("        switch (funcName) {\n");
     for func in funcs {
-        let base = func.name.clone();
+        let base = crate::backends::common::pascal_words(&func.name);
         s.push_str(&format!("        case \"{}\": {{\n", func.name));
         for opt in &func.optional_inputs {
             match &opt.param_type {
@@ -2845,7 +2850,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
         }
         let args: Vec<&str> = func.optional_inputs.iter().map(|o| o.name.as_str()).collect();
         s.push_str(&format!(
-            "            return core.{base}_Lookback({});\n",
+            "            return core.{base}Lookback({});\n",
             args.join(", ")
         ));
         s.push_str("        }\n");
@@ -2856,7 +2861,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
 
     // Per-function handler methods.
     for func in funcs {
-        let base = func.name.clone();
+        let base = crate::backends::common::pascal_words(&func.name);
         let base_pascal = crate::backends::common::pascal_words(&func.name);
         let stream_class = crate::backends::csharp_stream::stream_class_name(func);
         let input_names = expand_input_names(&func.inputs);
@@ -2966,7 +2971,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
                 func.optional_inputs.iter().map(|o| o.name.clone()).collect();
             s.push_str(&doc_produced_extent("        ", "//"));
             s.push_str(&format!(
-                "        int _lb = core.{base}_Lookback({});\n",
+                "        int _lb = core.{base}Lookback({});\n",
                 lb_args.join(", ")
             ));
             s.push_str("        int _cs = startIdx > _lb ? startIdx : _lb;\n");
@@ -3017,9 +3022,9 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             s.push_str("            if (bench_mode == 0) {\n");
             s.push_str("            if (GetInt(p, \"timed\", 0) != 0) {\n");
             s.push_str("                try {\n");
-            s.push_str(&format!("                    rc = core.{base}_Impl({call_args});\n"));
-            s.push_str("                } catch (Exception _e2) when (_e2 is ITaLibFailure) {\n");
-            s.push_str("                    rc = ((ITaLibFailure)_e2).RetCode;\n");
+            s.push_str(&format!("                    rc = core.{base}Impl({call_args});\n"));
+            s.push_str("                } catch (Exception _e2) when (_e2 is ITALibFailure) {\n");
+            s.push_str("                    rc = ((ITALibFailure)_e2).RetCode;\n");
             s.push_str("                    outBegIdx = 0;\n");
             s.push_str("                    outNBElement = 0;\n");
             s.push_str("                }\n");
@@ -3029,8 +3034,8 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             s.push_str("                    outBegIdx = _pr.BegIdx;\n");
             s.push_str("                    outNBElement = _pr.Count;\n");
             s.push_str("                    rc = RetCode.Success;\n");
-            s.push_str("                } catch (Exception _e) when (_e is ITaLibFailure) {\n");
-            s.push_str("                    rc = ((ITaLibFailure)_e).RetCode;\n");
+            s.push_str("                } catch (Exception _e) when (_e is ITALibFailure) {\n");
+            s.push_str("                    rc = ((ITALibFailure)_e).RetCode;\n");
             s.push_str("                    outBegIdx = 0;\n");
             s.push_str("                    outNBElement = 0;\n");
             s.push_str("                }\n");
@@ -3054,8 +3059,8 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             s.push_str("                try {\n");
             s.push_str(&format!("                    core.{base_pascal}Open({ins});\n"));
             s.push_str("                    rc = RetCode.Success;\n");
-            s.push_str("                } catch (Exception _e3) when (_e3 is ITaLibFailure) {\n");
-            s.push_str("                    rc = ((ITaLibFailure)_e3).RetCode;\n");
+            s.push_str("                } catch (Exception _e3) when (_e3 is ITALibFailure) {\n");
+            s.push_str("                    rc = ((ITALibFailure)_e3).RetCode;\n");
             s.push_str("                }\n");
             s.push_str("            } else {\n");
             s.push_str("                try {\n");
@@ -3068,8 +3073,8 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             s.push_str("                    outBegIdx = _wh.OutRange.BegIdx;\n");
             s.push_str("                    outNBElement = _wh.OutRange.Count;\n");
             s.push_str("                    rc = RetCode.Success;\n");
-            s.push_str("                } catch (Exception _e3) when (_e3 is ITaLibFailure) {\n");
-            s.push_str("                    rc = ((ITaLibFailure)_e3).RetCode;\n");
+            s.push_str("                } catch (Exception _e3) when (_e3 is ITALibFailure) {\n");
+            s.push_str("                    rc = ((ITALibFailure)_e3).RetCode;\n");
             s.push_str("                    outBegIdx = 0;\n");
             s.push_str("                    outNBElement = 0;\n");
             s.push_str("                }\n");
@@ -3118,8 +3123,8 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
                 s.push_str("                outBegIdx = _fr.BegIdx;\n");
                 s.push_str("                outNBElement = _fr.Count;\n");
                 s.push_str("                rc = RetCode.Success;\n");
-                s.push_str("            } catch (Exception _e) when (_e is ITaLibFailure) {\n");
-                s.push_str("                rc = ((ITaLibFailure)_e).RetCode;\n");
+                s.push_str("            } catch (Exception _e) when (_e is ITALibFailure) {\n");
+                s.push_str("                rc = ((ITALibFailure)_e).RetCode;\n");
                 s.push_str("                outBegIdx = 0;\n");
                 s.push_str("                outNBElement = 0;\n");
                 s.push_str("            }\n");
@@ -3156,7 +3161,11 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             for opt in &func.optional_inputs {
                 let _ = write!(ride_args, "{}, ", opt.name);
             }
-            s.push_str(&format!("            Ride{}(core, p, endIdx, {}hb);\n", func.name, ride_args));
+            s.push_str(&format!(
+                "            Ride{}(core, p, endIdx, {}hb);\n",
+                crate::backends::common::pascal_words(&func.name),
+                ride_args
+            ));
         }
         s.push_str("            hb.Append(\"}\");\n");
         s.push_str("            return hb.ToString();\n");
@@ -3194,7 +3203,8 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             }
             s.push_str(&format!(
                 "        Ride{}(core, p, endIdx, {}sb);\n",
-                func.name, ride_args
+                crate::backends::common::pascal_words(&func.name),
+                ride_args
             ));
         }
         s.push_str("        sb.Append(\"}\");\n");
@@ -3606,7 +3616,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // Per-function dispatch
     for func in funcs {
         let method_name = format!("TA_{}", func.name);
-        let fn_name = func.name.clone();
+        let fn_name = crate::backends::common::snake_words(&func.name);
 
         s.push_str(&format!("        \"{method_name}\" => {{\n"));
 
@@ -3768,8 +3778,8 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                 func.optional_inputs.iter().map(|o| o.name.clone()).collect();
             s.push_str(&doc_produced_extent("            ", "//"));
             s.push_str(&format!(
-                "            let _lb = core.{}_Lookback({}).unwrap_or(usize::MAX);\n",
-                func.name,
+                "            let _lb = core.{}_lookback({}).unwrap_or(usize::MAX);\n",
+                crate::backends::common::snake_words(&func.name),
                 lb_args.join(", ")
             ));
             s.push_str("            let _cs = if startIdx > _lb { startIdx } else { _lb };\n");
@@ -3920,10 +3930,10 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // cannot reproduce it. Report the driver's "rejected" marker rather than
         // a fabricated number, which is also what the abstract tier returns.
         if enum_opts.is_empty() {
-            s.push_str(&format!("            let lookback: i64 = core.{fn_name}_Lookback("));
+            s.push_str(&format!("            let lookback: i64 = core.{fn_name}_lookback("));
         } else {
             s.push_str(&format!(
-                "            let lookback: i64 = if _enum_bad {{ -1 }} else {{ core.{fn_name}_Lookback("
+                "            let lookback: i64 = if _enum_bad {{ -1 }} else {{ core.{fn_name}_lookback("
             ));
         }
         let lb_args: Vec<String> = func
@@ -4363,11 +4373,11 @@ fn abs_call(core: &Core, params: &Value) -> String {
         for (k, opt) in info.opt_inputs.iter().enumerate() {
             match opt.kind {
                 OptInputType::RealRange { .. } | OptInputType::RealList { .. } => {
-                    if let Some(v) = params[opt.param_name].as_f64() { note(h.set_opt(k, v)); }
+                    if let Some(v) = params[opt.param_name].as_f64() { note(h.set_opt_input(k, v)); }
                 }
                 _ => {
                     if let Some(v) = params[opt.param_name].as_i64() {
-                        note(h.set_opt(k, v as i32));
+                        note(h.set_opt_input(k, v as i32));
                     }
                 }
             }
@@ -4435,10 +4445,10 @@ fn abs_lookback(core: &Core, params: &Value) -> Option<i64> {
     for (k, opt) in id.info().opt_inputs.iter().enumerate() {
         match opt.kind {
             OptInputType::RealRange { .. } | OptInputType::RealList { .. } => {
-                if let Some(v) = params[opt.param_name].as_f64() { let _ = h.set_opt(k, v); }
+                if let Some(v) = params[opt.param_name].as_f64() { let _ = h.set_opt_input(k, v); }
             }
             _ => {
-                if let Some(v) = params[opt.param_name].as_i64() { let _ = h.set_opt(k, v as i32); }
+                if let Some(v) = params[opt.param_name].as_i64() { let _ = h.set_opt_input(k, v as i32); }
             }
         }
     }
@@ -4564,7 +4574,7 @@ pub(crate) fn java_server_stream_scaffolding() -> String {
 /// rule in CLAUDE.md).
 const JAVA_IHE: &str = include_str!("../templates/java/InsufficientHistoryException.java");
 
-/// Default-package twins of the shipped `TaLibFailure` interface and the four
+/// Default-package twins of the shipped `TALibFailure` interface and the four
 /// exception classes that carry a `RetCode` (#236 step 1). Same rule, same
 /// reason: the spliced wrappers throw these by name.
 const JAVA_FAILURES: &str = include_str!("../templates/java/Failures.java");
@@ -4609,7 +4619,7 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         _ => throw new InvalidOperationException("unhandled OptInputDomain"),
     };
 
-    static FunctionInfo? AbsLookup(JsonElement p) =>
+    static FuncInfo? AbsLookup(JsonElement p) =>
         FunctionCatalog.Default.TryGet(p.GetProperty("funcName").GetString()!, out var f) ? f : null;
 
     static string AbsFuncInfo(JsonElement p) {
@@ -4704,7 +4714,7 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
        sent one component per set bit; a lone real input keeps its own name,
        and several become inReal0/inReal1/... by rank (test_abstract.c's
        abstract_verify_server_call and expand_input_names agree on this). */
-    static string AbsRealInputKey(FunctionInfo f, int slot) {
+    static string AbsRealInputKey(FuncInfo f, int slot) {
         int totalReal = 0, rank = 0;
         for (int i = 0; i < f.Inputs.Length; i++) {
             if (f.Inputs[i].Kind != InputKind.Real) continue;
@@ -4724,7 +4734,7 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         _ => throw new ArgumentException($"not a single component: {c}"),
     };
 
-    /* abstract_call — the fully generic path, bound through FunctionCall. This
+    /* abstract_call — the fully generic path, bound through ParamHolder. This
        is a genuinely independent second implementation rather than a reroute to
        the per-function handler (which is what the Rust and Java servers do), so
        a wrong slot index or a transposed price component shows up as diverging
@@ -4738,9 +4748,9 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         // `n` below drives every output allocation, so validating after it
         // would turn an out-of-range request into an 800MB-per-output
         // allocation and take the server down instead of returning a code.
-        if (startIdx < 0 || startIdx > Core.MAX_INDEX)
+        if (startIdx < 0 || startIdx > Core.MaxIndex)
             return "{\"binder\":1,\"lookback\":-1,\"retCode\":12,\"outBegIdx\":0,\"outNBElement\":0}";
-        if (endIdx < 0 || endIdx > Core.MAX_INDEX || endIdx < startIdx)
+        if (endIdx < 0 || endIdx > Core.MaxIndex || endIdx < startIdx)
             return "{\"binder\":1,\"lookback\":-1,\"retCode\":13,\"outBegIdx\":0,\"outNBElement\":0}";
         int n = endIdx - startIdx + 1;
         if (n < 1) n = 1;
@@ -4769,9 +4779,9 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         for (int i = 0; i < f.OptInputs.Length; i++) {
             var o = f.OptInputs[i];
             if (o.Domain is OptInputDomain.RealRange or OptInputDomain.RealList) {
-                call.SetOption(i, GetDouble(p, o.ParamName, o.DefaultValue));
+                call.SetOptInput(i, GetDouble(p, o.ParamName, o.DefaultValue));
             } else {
-                call.SetOption(i, GetInt(p, o.ParamName, (int)o.DefaultValue));
+                call.SetOptInput(i, GetInt(p, o.ParamName, (int)o.DefaultValue));
             }
         }
 
@@ -4788,7 +4798,7 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         }
 
         int lookback = call.Lookback();
-        RetCode rc = call.TryInvoke(startIdx, endIdx, out OutRange range);
+        RetCode rc = call.TryCall(startIdx, endIdx, out OutRange range);
 
         var b = new System.Text.StringBuilder();
         b.Append($"{{\"lookback\":{lookback},\"retCode\":{(int)rc}")

@@ -56,11 +56,9 @@ fn rust_canary_check(out_is_int: &[bool]) -> String {
 #[allow(clippy::too_many_lines)]
 fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     use std::fmt::Write as _;
-    // The server-local verify fn stays snake_case (`sv_sma`); library calls use
-    // the verbatim function name.
-    let sn = func.name.to_lowercase();
-    let fname = &func.name;
-    let fname_snake = crate::backends::common::snake_words(fname);
+    let sn = crate::backends::common::snake_words(&func.name);
+    let fname = &sn;
+    let fname_snake = sn.clone();
     let candle = func.name.starts_with("CDL");
     let inputs = crate::streaming::input_array_names(func);
     let mut gi = 0usize;
@@ -265,7 +263,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         s,
         "        let rc = match c2.{fname}(0, svN - 1, {full_ins}, {opts_lead}{bargs_head}) {{ Ok(r) => {{ beg = r.beg_idx; nb = r.count; RetCode::Success }} Err(e) => {{ beg = 0; nb = 0; e }} }};"
     );
-    let _ = writeln!(s, "        let lb = c2.{fname}_Lookback({opts}).unwrap_or(usize::MAX);");
+    let _ = writeln!(s, "        let lb = c2.{fname}_lookback({opts}).unwrap_or(usize::MAX);");
     s.push_str("        if rc != RetCode::Success || nb == 0 {\n");
     let _ = writeln!(
         s,

@@ -94,12 +94,12 @@ fn package_info() -> String {
          \x20*\n\
          \x20* <p>{{@link {PACKAGE}.Functions#all()}} enumerates every function;\n\
          \x20* {{@link {PACKAGE}.Functions#byName(java.lang.String)}} looks one up.\n\
-         \x20* Each {{@link {PACKAGE}.FunctionInfo}} carries its group, its flags and its\n\
+         \x20* Each {{@link {PACKAGE}.FuncInfo}} carries its group, its flags and its\n\
          \x20* input/optional-input/output descriptors, and mints a\n\
          \x20* {{@link {PACKAGE}.ParamHolder}} to bind arguments into:\n\
          \x20*\n\
          \x20* <pre>{{@code\n\
-         \x20* FunctionInfo rsi = Functions.byName(\"RSI\");\n\
+         \x20* FuncInfo rsi = Functions.byName(\"RSI\");\n\
          \x20* double[] out = new double[close.length];\n\
          \x20* OutRange r = rsi.newCall()\n\
          \x20*     .setInput(0, close)\n\
@@ -191,22 +191,29 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, lib_src: &P
         }
     }
 
-    write(&dir, "package-info.java", &package_info());
-    write(&dir, "InputType.java", &input_type_enum());
-    write(&dir, "OptInputType.java", &opt_input_type_enum());
-    write(&dir, "OutputType.java", &output_type_enum());
-    write(&dir, "FuncFlags.java", &func_flags_class());
-    write(&dir, "InputFlags.java", &input_flags_class());
-    write(&dir, "OptInputFlags.java", &opt_input_flags_class());
-    write(&dir, "OutputFlags.java", &output_flags_class());
-    write(&dir, "InputInfo.java", &input_info_record());
-    write(&dir, "OptInputInfo.java", &opt_input_info_record());
-    write(&dir, "OutputInfo.java", &output_info_record());
-    write(&dir, "FunctionInfo.java", &function_info_record());
-    write(&dir, "Functions.java", &functions_registry(&rows));
-    write(&dir, "ParamHolder.java", &param_holder_class());
-    write(&dir, "Dispatch.java", &dispatch_class(&rows));
-    write(&dir, "FunctionDescription.java", &function_description_class(funcs));
+    let files: Vec<(&str, String)> = vec![
+        ("package-info.java", package_info()),
+        ("InputType.java", input_type_enum()),
+        ("OptInputType.java", opt_input_type_enum()),
+        ("OutputType.java", output_type_enum()),
+        ("FuncFlags.java", func_flags_class()),
+        ("InputFlags.java", input_flags_class()),
+        ("OptInputFlags.java", opt_input_flags_class()),
+        ("OutputFlags.java", output_flags_class()),
+        ("InputInfo.java", input_info_record()),
+        ("OptInputInfo.java", opt_input_info_record()),
+        ("OutputInfo.java", output_info_record()),
+        ("FuncInfo.java", function_info_record()),
+        ("Functions.java", functions_registry(&rows)),
+        ("ParamHolder.java", param_holder_class()),
+        ("Dispatch.java", dispatch_class(&rows)),
+        ("FunctionDescription.java", function_description_class(funcs)),
+    ];
+    for (name, body) in &files {
+        write(&dir, name, body);
+    }
+    let keep: Vec<&str> = files.iter().map(|(name, _)| *name).collect();
+    clean_stale(&dir, &keep);
 
     println!("  java metadata registry -> {} ({} functions)", dir.display(), rows.len());
 }
@@ -283,6 +290,24 @@ fn function_description_class(funcs: &[FuncDef]) -> String {
 
 fn write(dir: &Path, name: &str, body: &str) {
     super::write_if_changed_silent(&dir.join(name), body);
+}
+
+/// Remove any `.java` in `dir` this module no longer emits. The directory is
+/// wholly generated, and a file left behind after a rename still compiles into
+/// the jar while `git status` stays clean.
+fn clean_stale(dir: &Path, keep: &[&str]) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_java = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("java"));
+        let name = entry.file_name().to_string_lossy().to_string();
+        if is_java && !keep.contains(&name.as_str()) {
+            std::fs::remove_file(&path).ok();
+            println!("  removed stale Java metadata file {name}");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +394,7 @@ fn flag_class(name: &str, doc: &str, consts: &[(&str, u32, &str)]) -> String {
 fn func_flags_class() -> String {
     flag_class(
         "FuncFlags",
-        "Bit flags on a {@link FunctionInfo}. Values match C's {@code TA_FUNC_FLG_*}.",
+        "Bit flags on a {@link FuncInfo}. Values match C's {@code TA_FUNC_FLG_*}.",
         &[
             ("OVERLAP_STUDY", 0x0100_0000, "Output overlays the price chart."),
             ("STREAMING", 0x0200_0000, "A streaming (one-bar-at-a-time) API exists."),
@@ -553,7 +578,7 @@ fn function_info_record() -> String {
          \x20* @param optInputs     optional parameters in call order\n\
          \x20* @param outputs       outputs in call order\n\
          \x20*/\n\
-         public record FunctionInfo(\n\
+         public record FuncInfo(\n\
          \x20      String name,\n\
          \x20      String group,\n\
          \x20      String hint,\n\
@@ -608,7 +633,7 @@ fn functions_registry(rows: &[FuncRow]) -> String {
          \x20* cannot drift from them. Immutable and safe to use from any thread.\n\
          \x20*\n\
          \x20* <pre>{@code\n\
-         \x20* for (FunctionInfo f : Functions.all()) {\n\
+         \x20* for (FuncInfo f : Functions.all()) {\n\
          \x20*     System.out.println(f.name() + \" — \" + f.hint());\n\
          \x20* }\n\
          \x20* }</pre>\n\
@@ -621,10 +646,10 @@ fn functions_registry(rows: &[FuncRow]) -> String {
          \x20   private Functions() { }\n\n",
     );
 
-    s.push_str("   private static final Map<String, FunctionInfo> BY_NAME = build();\n\n");
+    s.push_str("   private static final Map<String, FuncInfo> BY_NAME = build();\n\n");
     s.push_str(
         "   /** Every function, in canonical name order. */\n\
-         \x20  public static List<FunctionInfo> all() {\n\
+         \x20  public static List<FuncInfo> all() {\n\
          \x20     return List.copyOf(BY_NAME.values());\n\
          \x20  }\n\n\
          \x20  /**\n\
@@ -635,7 +660,7 @@ fn functions_registry(rows: &[FuncRow]) -> String {
          \x20   * @param name the function's name, in any ASCII casing\n\
          \x20   * @return the metadata, or {@code null} if no such function exists\n\
          \x20   */\n\
-         \x20  public static FunctionInfo byName(String name) {\n\
+         \x20  public static FuncInfo byName(String name) {\n\
          \x20     return name == null ? null : BY_NAME.get(asciiUpper(name));\n\
          \x20  }\n\n\
          \x20  /**\n\
@@ -667,20 +692,20 @@ fn functions_registry(rows: &[FuncRow]) -> String {
          \x20  }\n\n\
          \x20  /** The distinct group names, in first-appearance order. */\n\
          \x20  public static List<String> groups() {\n\
-         \x20     return BY_NAME.values().stream().map(FunctionInfo::group).distinct().toList();\n\
+         \x20     return BY_NAME.values().stream().map(FuncInfo::group).distinct().toList();\n\
          \x20  }\n\n",
     );
 
     // The table. One private static method per function keeps each initializer
     // well under the 64 KB bytecode limit a single <clinit> would blow past.
-    s.push_str("   private static Map<String, FunctionInfo> build() {\n");
-    s.push_str("      Map<String, FunctionInfo> m = new LinkedHashMap<>();\n");
+    s.push_str("   private static Map<String, FuncInfo> build() {\n");
+    s.push_str("      Map<String, FuncInfo> m = new LinkedHashMap<>();\n");
     for row in rows {
         let _ = writeln!(s, "      put(m, {}());", java_ident(&row.name));
     }
     s.push_str("      return Collections.unmodifiableMap(m);\n");
     s.push_str("   }\n\n");
-    s.push_str("   private static void put(Map<String, FunctionInfo> m, FunctionInfo f) {\n");
+    s.push_str("   private static void put(Map<String, FuncInfo> m, FuncInfo f) {\n");
     s.push_str("      m.put(f.name(), f);\n");
     s.push_str("   }\n\n");
 
@@ -707,8 +732,8 @@ fn java_ident(name: &str) -> String {
 }
 
 fn emit_function_factory(s: &mut String, f: &FuncRow) {
-    let _ = writeln!(s, "   private static FunctionInfo {}() {{", java_ident(&f.name));
-    let _ = writeln!(s, "      return new FunctionInfo(");
+    let _ = writeln!(s, "   private static FuncInfo {}() {{", java_ident(&f.name));
+    let _ = writeln!(s, "      return new FuncInfo(");
     let _ = writeln!(
         s,
         "         {}, {}, {}, 0x{:08X},",
@@ -850,10 +875,10 @@ import io.github.talib.OutRange;
  * <p>The counterpart of C's {@code TA_ParamHolder}, for an application that does
  * not know at compile time which indicator it will run — a charting UI listing
  * every study, a parameter sweep. Obtain one from
- * {@link FunctionInfo#newCall()}:
+ * {@link FuncInfo#newCall()}:
  *
  * <pre>{@code
- * FunctionInfo f = Functions.byName("SMA");
+ * FuncInfo f = Functions.byName("SMA");
  * OutRange r = f.newCall()
  *     .setInput(0, close)
  *     .setOptInput(0, 30)
@@ -861,7 +886,7 @@ import io.github.talib.OutRange;
  *     .call(0, close.length - 1);
  * }</pre>
  *
- * <p>Everything is validated against the {@link FunctionInfo} row: an index out
+ * <p>Everything is validated against the {@link FuncInfo} row: an index out
  * of bounds, a type that does not match the declared parameter, or an unset
  * parameter at {@link #call} time throws {@link IllegalArgumentException}. The
  * call itself then behaves exactly like the typed method — including throwing
@@ -872,7 +897,7 @@ import io.github.talib.OutRange;
  */
 public final class ParamHolder {
 
-   private final FunctionInfo info;
+   private final FuncInfo info;
    private final Core core;
 
    /** Per input slot: a real series, an int series, or the six price components. */
@@ -888,7 +913,7 @@ public final class ParamHolder {
    private final double[][] realOutputs;
    private final int[][] intOutputs;
 
-   ParamHolder(FunctionInfo info, Core core) {
+   ParamHolder(FuncInfo info, Core core) {
       this.info = info;
       this.core = core;
       int ni = info.inputs().size();
@@ -906,7 +931,7 @@ public final class ParamHolder {
    }
 
    /** The function this holder calls. */
-   public FunctionInfo info() {
+   public FuncInfo info() {
       return info;
    }
 
@@ -1063,7 +1088,7 @@ public final class ParamHolder {
     * parameters bound so far.
     *
     * <p>The counterpart of C's {@code TA_GetLookback} and C#'s
-    * {@code FunctionCall.Lookback()}. Inputs and outputs need not be bound --
+    * {@code ParamHolder.Lookback()}. Inputs and outputs need not be bound --
     * a lookback depends only on the optional parameters, which is what makes it
     * useful for sizing the output arrays before binding them.
     *
@@ -1189,7 +1214,7 @@ final class Dispatch {
     );
 
     for f in rows {
-        let camel = f.name.clone();
+        let camel = super::common::camel_words(&f.name);
 
         // Argument order comes STRAIGHT from the row the registry publishes:
         // a price bundle is one slot, and `signature_components` is the order
@@ -1247,7 +1272,7 @@ final class Dispatch {
     );
 
     for f in rows {
-        let camel = f.name.clone();
+        let camel = super::common::camel_words(&f.name);
         let mut args: Vec<String> = Vec::new();
         for (k, opt) in f.opt_inputs.iter().enumerate() {
             match &opt.domain {
@@ -1259,7 +1284,7 @@ final class Dispatch {
             }
         }
         let _ = writeln!(s, "         case {}:", js(&f.name));
-        let _ = writeln!(s, "            return core.{camel}_Lookback({});", args.join(", "));
+        let _ = writeln!(s, "            return core.{camel}Lookback({});", args.join(", "));
     }
 
     s.push_str(

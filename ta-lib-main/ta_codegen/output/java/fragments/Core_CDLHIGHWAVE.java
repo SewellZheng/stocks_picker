@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#CDLHIGHWAVE} consumes before it
+    * Number of leading input bars {@link Core#cdlhighwave} consumes before it
     * can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -21,26 +21,26 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int CDLHIGHWAVE_Lookback( )
+   public int cdlhighwaveLookback( )
    {
-      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
-      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
-      double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
-      int ShadowVeryLong_rangeType = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].rangeType.ordinal();
-      int ShadowVeryLong_avgPeriod = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].avgPeriod;
-      double ShadowVeryLong_factor = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].factor;
+      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
+      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
+      double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
+      int ShadowVeryLong_rangeType = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].rangeType.ordinal();
+      int ShadowVeryLong_avgPeriod = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].avgPeriod;
+      double ShadowVeryLong_factor = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].factor;
       return Math.max(BodyShort_avgPeriod, ShadowVeryLong_avgPeriod) ;
 
    }
-   RetCode CDLHIGHWAVE_Impl( int startIdx,
-                             int endIdx,
-                             double inOpen[],
-                             double inHigh[],
-                             double inLow[],
-                             double inClose[],
-                             MInteger outBegIdx,
-                             MInteger outNBElement,
-                             int outInteger[] )
+   RetCode cdlhighwaveImpl( int startIdx,
+                            int endIdx,
+                            double inOpen[],
+                            double inHigh[],
+                            double inLow[],
+                            double inClose[],
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            int outInteger[] )
    {
       double BodyPeriodTotal = 0;
       double ShadowPeriodTotal = 0;
@@ -49,22 +49,22 @@
       int BodyTrailingIdx = 0;
       int ShadowTrailingIdx = 0;
       int lookbackTotal = 0;
-      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
-      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
-      double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
-      int ShadowVeryLong_rangeType = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].rangeType.ordinal();
-      int ShadowVeryLong_avgPeriod = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].avgPeriod;
-      double ShadowVeryLong_factor = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].factor;
+      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
+      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
+      double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
+      int ShadowVeryLong_rangeType = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].rangeType.ordinal();
+      int ShadowVeryLong_avgPeriod = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].avgPeriod;
+      double ShadowVeryLong_factor = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLHIGHWAVE_Lookback();
+      lookbackTotal = cdlhighwaveLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -75,7 +75,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -120,17 +120,17 @@
       /* All done. Indicate the output limits and return. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode CDLHIGHWAVE_Impl( int startIdx,
-                             int endIdx,
-                             float inOpen[],
-                             float inHigh[],
-                             float inLow[],
-                             float inClose[],
-                             MInteger outBegIdx,
-                             MInteger outNBElement,
-                             int outInteger[] )
+   RetCode cdlhighwaveImpl( int startIdx,
+                            int endIdx,
+                            float inOpen[],
+                            float inHigh[],
+                            float inLow[],
+                            float inClose[],
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            int outInteger[] )
    {
       double BodyPeriodTotal = 0;
       double ShadowPeriodTotal = 0;
@@ -139,26 +139,26 @@
       int BodyTrailingIdx = 0;
       int ShadowTrailingIdx = 0;
       int lookbackTotal = 0;
-      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
-      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
-      double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
-      int ShadowVeryLong_rangeType = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].rangeType.ordinal();
-      int ShadowVeryLong_avgPeriod = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].avgPeriod;
-      double ShadowVeryLong_factor = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].factor;
+      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
+      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
+      double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
+      int ShadowVeryLong_rangeType = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].rangeType.ordinal();
+      int ShadowVeryLong_avgPeriod = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].avgPeriod;
+      double ShadowVeryLong_factor = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
-      lookbackTotal = CDLHIGHWAVE_Lookback();
+      lookbackTotal = cdlhighwaveLookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       BodyPeriodTotal = 0;
       BodyTrailingIdx = startIdx - BodyShort_avgPeriod;
@@ -189,7 +189,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Single-candle pattern: a short real body with both a very long upper and a
@@ -206,7 +206,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLHIGHWAVE_Lookback} is a <b>success
+    * valid range shorter than {@link Core#cdlhighwaveLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -233,12 +233,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLLONGLEGGEDDOJI
-    * @see Core#CDLSPINNINGTOP
-    * @see Core#CDLRICKSHAWMAN
-    * @see Core#CDLDOJI
+    * @see Core#cdllongleggeddoji
+    * @see Core#cdlspinningtop
+    * @see Core#cdlrickshawman
+    * @see Core#cdldoji
     */
-   public OutRange CDLHIGHWAVE( int startIdx,
+   public OutRange cdlhighwave( int startIdx,
                                 int endIdx,
                                 double inOpen[],
                                 double inHigh[],
@@ -247,7 +247,7 @@
                                 int outInteger[] )
    {
       requireIndexRange("CDLHIGHWAVE", startIdx, endIdx);
-      int guardStart = clampedStart("CDLHIGHWAVE", startIdx, CDLHIGHWAVE_Lookback());
+      int guardStart = clampedStart("CDLHIGHWAVE", startIdx, cdlhighwaveLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLHIGHWAVE", "inOpen", inOpen, guardInLen);
@@ -257,8 +257,8 @@
       requireLength("CDLHIGHWAVE", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLHIGHWAVE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdlhighwaveImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLHIGHWAVE", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -281,7 +281,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLHIGHWAVE_Lookback} is a <b>success
+    * valid range shorter than {@link Core#cdlhighwaveLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -308,12 +308,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLLONGLEGGEDDOJI
-    * @see Core#CDLSPINNINGTOP
-    * @see Core#CDLRICKSHAWMAN
-    * @see Core#CDLDOJI
+    * @see Core#cdllongleggeddoji
+    * @see Core#cdlspinningtop
+    * @see Core#cdlrickshawman
+    * @see Core#cdldoji
     */
-   public OutRange CDLHIGHWAVE( int startIdx,
+   public OutRange cdlhighwave( int startIdx,
                                 int endIdx,
                                 float inOpen[],
                                 float inHigh[],
@@ -322,7 +322,7 @@
                                 int outInteger[] )
    {
       requireIndexRange("CDLHIGHWAVE", startIdx, endIdx);
-      int guardStart = clampedStart("CDLHIGHWAVE", startIdx, CDLHIGHWAVE_Lookback());
+      int guardStart = clampedStart("CDLHIGHWAVE", startIdx, cdlhighwaveLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLHIGHWAVE", "inOpen", inOpen, guardInLen);
@@ -332,8 +332,8 @@
       requireLength("CDLHIGHWAVE", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLHIGHWAVE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdlhighwaveImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLHIGHWAVE", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -342,7 +342,7 @@
 
    /**
     * A live CDLHIGHWAVE stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#CDLHIGHWAVE} over the same series.
+    * closed bar, bit-identical to {@link Core#cdlhighwave} over the same series.
     * Open with {@link Core#cdlhighwaveOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -379,7 +379,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#CDLHIGHWAVE} reports over the same bars: the
+       * <p>It is what {@link Core#cdlhighwave} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -406,7 +406,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLHIGHWAVE advance", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLHIGHWAVE advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -451,9 +451,9 @@
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLHIGHWAVE update", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLHIGHWAVE update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLHIGHWAVE update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLHIGHWAVE update: BAD_PARAM", RetCode.BAD_PARAM);
          core.cdlhighwaveStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -471,7 +471,7 @@
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLHIGHWAVE peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLHIGHWAVE peek: BAD_PARAM", RetCode.BAD_PARAM);
          CdlhighwaveStream sp = this;
          int cur_outInteger = 0;
          int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
@@ -561,29 +561,29 @@
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BodyShort.ordinal()].rangeType.ordinal();
-      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BodyShort.ordinal()].avgPeriod;
-      double BodyShort_factor = this.candleSettings[CandleSettingType.BodyShort.ordinal()].factor;
-      int ShadowVeryLong_rangeType = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].rangeType.ordinal();
-      int ShadowVeryLong_avgPeriod = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].avgPeriod;
-      double ShadowVeryLong_factor = this.candleSettings[CandleSettingType.ShadowVeryLong.ordinal()].factor;
+      int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
+      int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
+      double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
+      int ShadowVeryLong_rangeType = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].rangeType.ordinal();
+      int ShadowVeryLong_avgPeriod = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].avgPeriod;
+      double ShadowVeryLong_factor = this.candleSettings[CandleSettingType.SHADOW_VERY_LONG.ordinal()].factor;
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLHIGHWAVE_Lookback();
+      lookbackTotal = cdlhighwaveLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -594,7 +594,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -642,7 +642,7 @@
       /* Capture the live batch state into the handle. */
       int cap_BodyTrailingIdx = i - BodyTrailingIdx;
       if( cap_BodyTrailingIdx < 0 || cap_BodyTrailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_BodyTrailingIdx = (cap_BodyTrailingIdx > 0)? cap_BodyTrailingIdx : 1;
       double[] capRing_BodyTrailingIdx_derived = new double[allocN_BodyTrailingIdx];
@@ -651,7 +651,7 @@
       }
       int cap_ShadowTrailingIdx = i - ShadowTrailingIdx;
       if( cap_ShadowTrailingIdx < 0 || cap_ShadowTrailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_ShadowTrailingIdx = (cap_ShadowTrailingIdx > 0)? cap_ShadowTrailingIdx : 1;
       double[] capRing_ShadowTrailingIdx_derived = new double[allocN_ShadowTrailingIdx];
@@ -673,7 +673,7 @@
       sp.cs_ShadowVeryLong_avgPeriod = ShadowVeryLong_avgPeriod;
       sp.cs_ShadowVeryLong_factor = ShadowVeryLong_factor;
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* cdlhighwaveOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CdlhighwaveStream cdlhighwaveOpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
@@ -682,16 +682,16 @@
       RetCode retCode = cdlhighwaveOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLHIGHWAVE openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLHIGHWAVE openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLHIGHWAVE openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLHIGHWAVE openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("CDLHIGHWAVE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind cdlhighwaveOpen (composition seam). */
    CdlhighwaveStream cdlhighwaveOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -703,22 +703,22 @@
       RetCode retCode = cdlhighwaveOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLHIGHWAVE open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLHIGHWAVE open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLHIGHWAVE open: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLHIGHWAVE open: " + retCode, retCode);
+      throw new TALibArgumentException("CDLHIGHWAVE open: " + retCode, retCode);
    }
    /**
     * Open a live CDLHIGHWAVE stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#CDLHIGHWAVE} at that bar.
-    * <p>The history must hold at least {@code CDLHIGHWAVE_Lookback(...) + 1} bars
+    * to {@link Core#cdlhighwave} at that bar.
+    * <p>The history must hold at least {@code cdlhighwaveLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -739,7 +739,7 @@
    }
    /**
     * {@link Core#cdlhighwaveOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#CDLHIGHWAVE} over the whole history in the same single pass
+    * to {@link Core#cdlhighwave} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -755,13 +755,13 @@
       requireArgument("CDLHIGHWAVE openAndFill", "inHigh", inHigh);
       requireArgument("CDLHIGHWAVE openAndFill", "inLow", inLow);
       requireArgument("CDLHIGHWAVE openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("CDLHIGHWAVE openAndFill", inOpen.length, CDLHIGHWAVE_Lookback());
+      int guardOutLen = openFillCount("CDLHIGHWAVE openAndFill", inOpen.length, cdlhighwaveLookback());
       requireHistoryLength("CDLHIGHWAVE openAndFill", "inHigh", inHigh.length, inOpen.length);
       requireHistoryLength("CDLHIGHWAVE openAndFill", "inLow", inLow.length, inOpen.length);
       requireHistoryLength("CDLHIGHWAVE openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("CDLHIGHWAVE openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
-         throw new TaLibArgumentException("CDLHIGHWAVE openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("CDLHIGHWAVE openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

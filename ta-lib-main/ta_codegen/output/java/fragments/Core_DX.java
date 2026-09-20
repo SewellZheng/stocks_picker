@@ -22,7 +22,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#DX} consumes before it can
+    * Number of leading input bars {@link Core#dx} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -35,7 +35,7 @@
     *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int DX_Lookback( int optInTimePeriod )
+   public int dxLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -49,15 +49,15 @@
       }
 
    }
-   RetCode DX_Impl( int startIdx,
-                    int endIdx,
-                    double inHigh[],
-                    double inLow[],
-                    double inClose[],
-                    int optInTimePeriod,
-                    MInteger outBegIdx,
-                    MInteger outNBElement,
-                    double outReal[] )
+   RetCode dxImpl( int startIdx,
+                   int endIdx,
+                   double inHigh[],
+                   double inLow[],
+                   double inClose[],
+                   int optInTimePeriod,
+                   MInteger outBegIdx,
+                   MInteger outNBElement,
+                   double outReal[] )
    {
       int today = 0;
       int lookbackTotal = 0;
@@ -80,15 +80,15 @@
       double plusDI = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /*
        * The DM1 (one period) is base on the largest part of
@@ -202,7 +202,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Indicate where the next output should be put
        * in the outReal.
@@ -374,17 +374,17 @@
          outIdx += 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode DX_Impl( int startIdx,
-                    int endIdx,
-                    float inHigh[],
-                    float inLow[],
-                    float inClose[],
-                    int optInTimePeriod,
-                    MInteger outBegIdx,
-                    MInteger outNBElement,
-                    double outReal[] )
+   RetCode dxImpl( int startIdx,
+                   int endIdx,
+                   float inHigh[],
+                   float inLow[],
+                   float inClose[],
+                   int optInTimePeriod,
+                   MInteger outBegIdx,
+                   MInteger outNBElement,
+                   double outReal[] )
    {
       int today = 0;
       int lookbackTotal = 0;
@@ -407,15 +407,15 @@
       double plusDI = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInTimePeriod > 1 ) {
          lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.DX.ordinal()];
@@ -428,7 +428,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outIdx = 0;
       today = startIdx;
@@ -561,7 +561,7 @@
          outIdx += 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Wilder's Directional Movement Index: the normalized spread between +DI and
@@ -578,7 +578,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#DX_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#dxLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -604,15 +604,15 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#ADX
-    * @see Core#ADXR
-    * @see Core#PLUS_DI
-    * @see Core#MINUS_DI
-    * @see Core#PLUS_DM
-    * @see Core#MINUS_DM
-    * @see Core#TRANGE
+    * @see Core#adx
+    * @see Core#adxr
+    * @see Core#plusDi
+    * @see Core#minusDi
+    * @see Core#plusDm
+    * @see Core#minusDm
+    * @see Core#trange
     */
-   public OutRange DX( int startIdx,
+   public OutRange dx( int startIdx,
                        int endIdx,
                        double inHigh[],
                        double inLow[],
@@ -621,7 +621,7 @@
                        double outReal[] )
    {
       requireIndexRange("DX", startIdx, endIdx);
-      int guardStart = clampedStart("DX", startIdx, DX_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("DX", startIdx, dxLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("DX", "inHigh", inHigh, guardInLen);
@@ -630,8 +630,8 @@
       requireLength("DX", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = DX_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = dxImpl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("DX", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -654,7 +654,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#DX_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#dxLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -680,15 +680,15 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#ADX
-    * @see Core#ADXR
-    * @see Core#PLUS_DI
-    * @see Core#MINUS_DI
-    * @see Core#PLUS_DM
-    * @see Core#MINUS_DM
-    * @see Core#TRANGE
+    * @see Core#adx
+    * @see Core#adxr
+    * @see Core#plusDi
+    * @see Core#minusDi
+    * @see Core#plusDm
+    * @see Core#minusDm
+    * @see Core#trange
     */
-   public OutRange DX( int startIdx,
+   public OutRange dx( int startIdx,
                        int endIdx,
                        float inHigh[],
                        float inLow[],
@@ -697,7 +697,7 @@
                        double outReal[] )
    {
       requireIndexRange("DX", startIdx, endIdx);
-      int guardStart = clampedStart("DX", startIdx, DX_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("DX", startIdx, dxLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("DX", "inHigh", inHigh, guardInLen);
@@ -706,8 +706,8 @@
       requireLength("DX", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = DX_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = dxImpl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("DX", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -716,7 +716,7 @@
 
    /**
     * A live DX stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#DX} over the same series.
+    * closed bar, bit-identical to {@link Core#dx} over the same series.
     * Open with {@link Core#dxOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -748,7 +748,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#DX} reports over the same bars: the
+       * <p>It is what {@link Core#dx} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -775,7 +775,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("DX advance", RetCode.OutOfRangeEndIndex);
+            throw failure("DX advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -815,9 +815,9 @@
        */
       public double update( double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("DX update", RetCode.OutOfRangeEndIndex);
+            throw failure("DX update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("DX update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("DX update: BAD_PARAM", RetCode.BAD_PARAM);
          core.dxStepImpl(this, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -835,7 +835,7 @@
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("DX peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("DX peek: BAD_PARAM", RetCode.BAD_PARAM);
          DxStream sp = this;
          double tempReal = 0.0;
          double diffP = 0.0;
@@ -1012,23 +1012,23 @@
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /*
        * The DM1 (one period) is base on the largest part of
@@ -1142,7 +1142,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Indicate where the next output should be put
        * in the outReal.
@@ -1325,7 +1325,7 @@
       sp.prevTR = prevTR;
       sp.lastOut_outReal = outReal[(outNBElement.value - 1) * outStride];
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* dxOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    DxStream dxOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -1334,16 +1334,16 @@
       RetCode retCode = dxOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("DX openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("DX openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("DX openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("DX openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("DX openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind dxOpen (composition seam). */
    DxStream dxOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
@@ -1355,22 +1355,22 @@
       RetCode retCode = dxOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("DX open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("DX open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("DX open: internal error", retCode);
       }
-      throw new TaLibArgumentException("DX open: " + retCode, retCode);
+      throw new TALibArgumentException("DX open: " + retCode, retCode);
    }
    /**
     * Open a live DX stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#DX} at that bar.
-    * <p>The history must hold at least {@code DX_Lookback(...) + 1} bars
+    * to {@link Core#dx} at that bar.
+    * <p>The history must hold at least {@code dxLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -1391,7 +1391,7 @@
    }
    /**
     * {@link Core#dxOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#DX} over the whole history in the same single pass
+    * to {@link Core#dx} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1406,12 +1406,12 @@
       requireHistory("DX openAndFill", inHigh.length);
       requireArgument("DX openAndFill", "inLow", inLow);
       requireArgument("DX openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("DX openAndFill", inHigh.length, DX_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("DX openAndFill", inHigh.length, dxLookback(optInTimePeriod));
       requireHistoryLength("DX openAndFill", "inLow", inLow.length, inHigh.length);
       requireHistoryLength("DX openAndFill", "inClose", inClose.length, inHigh.length);
       requireLength("DX openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
-         throw new TaLibArgumentException("DX openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("DX openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

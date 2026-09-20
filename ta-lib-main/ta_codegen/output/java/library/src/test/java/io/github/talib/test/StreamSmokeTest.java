@@ -114,7 +114,7 @@ public class StreamSmokeTest {
      * inside each sweep so a flag/surface disagreement still fails. */
     private static int streamingCount() {
         int n = 0;
-        for (io.github.talib.metadata.FunctionInfo f : io.github.talib.metadata.Functions.all()) {
+        for (io.github.talib.metadata.FuncInfo f : io.github.talib.metadata.Functions.all()) {
             if (f.hasFlags(io.github.talib.metadata.FuncFlags.STREAMING)) {
                 n++;
             }
@@ -127,7 +127,7 @@ public class StreamSmokeTest {
         java.util.List<String> substage = new java.util.ArrayList<String>();
         java.util.List<String> unexpected = new java.util.ArrayList<String>();
 
-        for (io.github.talib.metadata.FunctionInfo f : io.github.talib.metadata.Functions.all()) {
+        for (io.github.talib.metadata.FuncInfo f : io.github.talib.metadata.Functions.all()) {
             java.lang.reflect.Method open = null;
             for (java.lang.reflect.Method m : Core.class.getMethods()) {
                 if (m.getName().equals(camelCase(f.name()) + "Open")) {
@@ -234,7 +234,7 @@ public class StreamSmokeTest {
             r.run();
             return false;
         } catch (IllegalArgumentException e) {
-            return String.valueOf(e.getMessage()).endsWith(": BadParam");
+            return String.valueOf(e.getMessage()).endsWith(": BAD_PARAM");
         }
     }
 
@@ -746,15 +746,15 @@ public class StreamSmokeTest {
     }
 
     /* The code as well as the type: {@code failure} maps BOTH index codes to
-     * {@link io.github.talib.TaLibIndexException}, so a type test alone would
+     * {@link io.github.talib.TALibIndexException}, so a type test alone would
      * accept U4 answering rule S1's code. */
     private static boolean refusesPastTheCeiling(Runnable r) {
         try {
             r.run();
             return false;
         } catch (IndexOutOfBoundsException e) {
-            return e instanceof io.github.talib.TaLibFailure
-                && ((io.github.talib.TaLibFailure) e).retCode() == RetCode.OutOfRangeEndIndex;
+            return e instanceof io.github.talib.TALibFailure
+                && ((io.github.talib.TALibFailure) e).retCode() == RetCode.OUT_OF_RANGE_END_INDEX;
         }
     }
 
@@ -946,7 +946,7 @@ public class StreamSmokeTest {
      * independent facts this sweep can compare.
      */
     private static java.util.List<String> declaredSlots(
-            io.github.talib.metadata.FunctionInfo f, java.util.List<String> unhandled) {
+            io.github.talib.metadata.FuncInfo f, java.util.List<String> unhandled) {
         java.util.List<String> slots = new java.util.ArrayList<String>();
         for (io.github.talib.metadata.InputInfo in : f.inputs()) {
             switch (in.type()) {
@@ -1165,7 +1165,7 @@ public class StreamSmokeTest {
         java.util.List<String> unhandled = new java.util.ArrayList<String>();
         int swept = 0;
 
-        for (io.github.talib.metadata.FunctionInfo f : io.github.talib.metadata.Functions.all()) {
+        for (io.github.talib.metadata.FuncInfo f : io.github.talib.metadata.Functions.all()) {
             String name = f.name();
             /* The registry name and the Java spelling are two different strings
              * since #278 (HT_TRENDLINE -> HtTrendlineStream, htTrendlineOpen), so
@@ -1446,9 +1446,9 @@ public class StreamSmokeTest {
 
         /* Lifecycle: open == batch at the last bar, update tracks batch. */
         double[] batch = new double[n];
-        batchRange = core.SMA(0, n - 1, close, 14, batch);
+        batchRange = core.sma(0, n - 1, close, 14, batch);
         check(!batchRange.isEmpty(), "batch SMA produced values");
-        int lb = core.SMA_Lookback(14);
+        int lb = core.smaLookback(14);
         Core.SmaStream s = core.smaOpen(java.util.Arrays.copyOf(close, lb + 1), 14);
         check(bitEq(s.value(), batch[0]), "open value == first batch output");
         /* The handle's range is the batch range over the bars it has been fed
@@ -1527,7 +1527,7 @@ public class StreamSmokeTest {
         /* The positive half, so this is not a rejection sweep: one more bar than
          * the anchor needs, and the range is the anchor and the bars after it. */
         {
-            int mavpLb = core.MAVP_Lookback(1, 30, MAType.SMA);
+            int mavpLb = core.mavpLookback(1, 30, MAType.SMA);
             double[] px = java.util.Arrays.copyOf(close, mavpLb + 3);
             Core.MavpStream mv = core.mavpOpen(px, px, 1, 30, MAType.SMA);
             check(mv.outRange().equals(new OutRange(mavpLb, 3)),
@@ -1626,7 +1626,7 @@ public class StreamSmokeTest {
          * already positions the handle at the last bar, so the update above
          * advances it past the end of what any batch call computes. */
         double[] bM = new double[n], bS = new double[n], bH = new double[n];
-        OutRange mr = core.MACD(0, n - 1, close, 12, 26, 9, bM, bS, bH);
+        OutRange mr = core.macd(0, n - 1, close, 12, 26, 9, bM, bS, bH);
         Core.MacdOut vOpen = new Core.MacdOut();
         core.macdOpen(close, 12, 26, 9).value(vOpen);
         int lastM = mr.count() - 1;
@@ -1649,7 +1649,7 @@ public class StreamSmokeTest {
          * pinned per function against the registry's output list. */
         java.util.List<String> wrongOut = new java.util.ArrayList<String>();
         int expectedOutTypes = 0;
-        for (io.github.talib.metadata.FunctionInfo vf : io.github.talib.metadata.Functions.all()) {
+        for (io.github.talib.metadata.FuncInfo vf : io.github.talib.metadata.Functions.all()) {
             if (vf.outputs().size() <= 1) {
                 continue;
             }
@@ -1729,7 +1729,7 @@ public class StreamSmokeTest {
          * with a huge BodyDoji factor calls every candle a doji, the default
          * core calls none of these one. */
         Core tuned = Core.builder()
-            .candleSetting(CandleSettingType.BodyDoji, RangeType.HighLow, 10, 1.0e9)
+            .candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, 1.0e9)
             .build();
         Core.CdldojiStream d1 = core.cdldojiOpen(
             java.util.Arrays.copyOf(open, 30), java.util.Arrays.copyOf(high, 30),

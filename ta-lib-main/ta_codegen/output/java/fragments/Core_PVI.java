@@ -14,7 +14,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#PVI} consumes before it can
+    * Number of leading input bars {@link Core#pvi} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -22,19 +22,19 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int PVI_Lookback( )
+   public int pviLookback( )
    {
       /* This function have no lookback needed. */
       return 0 ;
 
    }
-   RetCode PVI_Impl( int startIdx,
-                     int endIdx,
-                     double inClose[],
-                     double inVolume[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode pviImpl( int startIdx,
+                    int endIdx,
+                    double inClose[],
+                    double inVolume[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -45,10 +45,10 @@
       double tempVolume = 0;
       double tempPVI = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* The index is a running cumulative value seeded at 1000, updated only on
        * bars whose volume increased versus the prior bar (Positive Volume).
@@ -88,15 +88,15 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode PVI_Impl( int startIdx,
-                     int endIdx,
-                     float inClose[],
-                     float inVolume[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode pviImpl( int startIdx,
+                    int endIdx,
+                    float inClose[],
+                    float inVolume[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -107,10 +107,10 @@
       double tempVolume = 0;
       double tempPVI = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       prevPVI = 1000.0;
       prevClose = (double)inClose[startIdx];
@@ -132,7 +132,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Positive Volume Index: a running cumulative index that changes only on
@@ -149,7 +149,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#PVI_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#pviLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -172,14 +172,14 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     */
-   public OutRange PVI( int startIdx,
+   public OutRange pvi( int startIdx,
                         int endIdx,
                         double inClose[],
                         double inVolume[],
                         double outReal[] )
    {
       requireIndexRange("PVI", startIdx, endIdx);
-      int guardStart = clampedStart("PVI", startIdx, PVI_Lookback());
+      int guardStart = clampedStart("PVI", startIdx, pviLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PVI", "inClose", inClose, guardInLen);
@@ -187,8 +187,8 @@
       requireLength("PVI", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PVI_Impl(startIdx, endIdx, inClose, inVolume, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = pviImpl(startIdx, endIdx, inClose, inVolume, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("PVI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -211,7 +211,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#PVI_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#pviLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -234,14 +234,14 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     */
-   public OutRange PVI( int startIdx,
+   public OutRange pvi( int startIdx,
                         int endIdx,
                         float inClose[],
                         float inVolume[],
                         double outReal[] )
    {
       requireIndexRange("PVI", startIdx, endIdx);
-      int guardStart = clampedStart("PVI", startIdx, PVI_Lookback());
+      int guardStart = clampedStart("PVI", startIdx, pviLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PVI", "inClose", inClose, guardInLen);
@@ -249,8 +249,8 @@
       requireLength("PVI", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PVI_Impl(startIdx, endIdx, inClose, inVolume, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = pviImpl(startIdx, endIdx, inClose, inVolume, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("PVI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -259,7 +259,7 @@
 
    /**
     * A live PVI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#PVI} over the same series.
+    * closed bar, bit-identical to {@link Core#pvi} over the same series.
     * Open with {@link Core#pviOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -285,7 +285,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#PVI} reports over the same bars: the
+       * <p>It is what {@link Core#pvi} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -312,7 +312,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("PVI advance", RetCode.OutOfRangeEndIndex);
+            throw failure("PVI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -346,9 +346,9 @@
        */
       public double update( double inClose, double inVolume ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("PVI update", RetCode.OutOfRangeEndIndex);
+            throw failure("PVI update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("PVI update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("PVI update: BAD_PARAM", RetCode.BAD_PARAM);
          core.pviStepImpl(this, inClose, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -366,7 +366,7 @@
        */
       public double peek( double inClose, double inVolume ) {
          if( !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("PVI peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("PVI peek: BAD_PARAM", RetCode.BAD_PARAM);
          PviStream sp = this;
          double tempClose = 0.0;
          double tempVolume = 0.0;
@@ -473,18 +473,18 @@
       int historyLen = inClose.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inVolume.length != inClose.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* The index is a running cumulative value seeded at 1000, updated only on
        * bars whose volume increased versus the prior bar (Positive Volume).
@@ -529,7 +529,7 @@
       sp.prevClose = prevClose;
       sp.prevVolume = prevVolume;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* pviOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    PviStream pviOpenAndFillInternal( double inClose[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -538,16 +538,16 @@
       RetCode retCode = pviOpenImpl(sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("PVI openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("PVI openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("PVI openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("PVI openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("PVI openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind pviOpen (composition seam). */
    PviStream pviOpenInternal( double inClose[], double inVolume[], int startIdx )
@@ -559,22 +559,22 @@
       RetCode retCode = pviOpenImpl(sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("PVI open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("PVI open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("PVI open: internal error", retCode);
       }
-      throw new TaLibArgumentException("PVI open: " + retCode, retCode);
+      throw new TALibArgumentException("PVI open: " + retCode, retCode);
    }
    /**
     * Open a live PVI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#PVI} at that bar.
-    * <p>The history must hold at least {@code PVI_Lookback(...) + 1} bars
+    * to {@link Core#pvi} at that bar.
+    * <p>The history must hold at least {@code pviLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -591,7 +591,7 @@
    }
    /**
     * {@link Core#pviOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#PVI} over the whole history in the same single pass
+    * to {@link Core#pvi} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -605,11 +605,11 @@
       requireArgument("PVI openAndFill", "inClose", inClose);
       requireHistory("PVI openAndFill", inClose.length);
       requireArgument("PVI openAndFill", "inVolume", inVolume);
-      int guardOutLen = openFillCount("PVI openAndFill", inClose.length, PVI_Lookback());
+      int guardOutLen = openFillCount("PVI openAndFill", inClose.length, pviLookback());
       requireHistoryLength("PVI openAndFill", "inVolume", inVolume.length, inClose.length);
       requireLength("PVI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
-         throw new TaLibArgumentException("PVI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("PVI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

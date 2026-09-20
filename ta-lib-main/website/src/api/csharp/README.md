@@ -73,7 +73,7 @@ A function never writes more elements than you request, so the output span only 
 
 As an example, let's walk through `SMA`, a method to calculate a moving average.
 
-<pre>public OutRange SMA( <span class="ta-arg-range">int    startIdx,</span>
+<pre>public OutRange Sma( <span class="ta-arg-range">int    startIdx,</span>
                      <span class="ta-arg-range">int    endIdx,</span>
                      <span class="ta-arg-in">ReadOnlySpan&lt;double&gt; inReal,</span>
                      <span class="ta-arg-opt">int    optInTimePeriod,</span>
@@ -100,7 +100,7 @@ var core = new Core();
 double[] close = /* ...your closing prices... */;
 var outReal = new double[close.Length];
 
-OutRange r = core.SMA(
+OutRange r = core.Sma(
     <span class="ta-arg-range">0</span>, <span class="ta-arg-range">close.Length - 1</span>,
     <span class="ta-arg-in">close</span>,
     <span class="ta-arg-opt">30</span>,
@@ -125,10 +125,10 @@ Every indicator also has a `ReadOnlySpan<float>` overload — see [4.4](#input_t
 
 ### 3.2 Output Size and Lookback {#output_size}
 
-An indicator consumes a number of leading bars — its **lookback** — before it can produce anything. Query it with the matching `*_Lookback` method:
+An indicator consumes a number of leading bars — its **lookback** — before it can produce anything. Query it with the matching `*Lookback` method:
 
 ```csharp
-int lookback = core.SMA_Lookback(30);   // 29
+int lookback = core.SmaLookback(30);   // 29
 ```
 
 Output is written only where the indicator is defined: `outReal[0]` corresponds to input bar `r.BegIdx`, and nothing outside `0 .. r.Count - 1` is touched. The library never pads with `NaN`. A range shorter than the lookback is a **success with no values** (`r.Count == 0`), not an error.
@@ -139,9 +139,13 @@ The public methods throw rather than return a status code:
 
 | Condition | Exception |
 |---|---|
-| `startIdx`/`endIdx` negative, above `Core.MAX_INDEX`, or `endIdx < startIdx` | `ArgumentOutOfRangeException` |
-| An optional parameter outside its documented range | `ArgumentException` |
-| Two outputs overlapping, or an output *partially* overlapping an input | `ArgumentException` |
+| `startIdx`/`endIdx` negative, above `Core.MaxIndex`, or `endIdx < startIdx` | `TALibArgumentOutOfRangeException` |
+| An optional parameter outside its documented range | `TALibArgumentException` |
+| Two outputs overlapping, or an output *partially* overlapping an input | `TALibArgumentException` |
+
+Each extends the framework type you would reach for and implements
+`ITALibFailure`, so `catch (ArgumentException)` still works and the `RetCode` is
+there when you want it.
 
 Computing wholly in place is allowed and stays supported — passing the same buffer as both an input and an output is how several indicators are meant to be used. What is rejected is *partial* overlap, which only spans can express: two views of the same memory at different offsets make a body write through what it is still reading, and the result would be silently wrong rather than merely surprising.
 
@@ -154,32 +158,32 @@ Computing wholly in place is allowed and stays supported — passing the same bu
 ```csharp
 using TALib.Metadata;
 
-foreach (var f in Core.Functions.Where(f => f.Flags.HasFlag(FunctionFlags.Candlestick)))
+foreach (var f in Core.Functions.Where(f => f.Flags.HasFlag(FuncFlags.Candlestick)))
 {
     Console.WriteLine($"{f.Name}: {f.Hint}");
 }
 ```
 
-`Core.Functions` (an alias for `FunctionCatalog.Default`) implements `IReadOnlyList<FunctionInfo>`, so it is directly enumerable and LINQ-able, and is indexable by position or by name (`Core.Functions["SMA"]`). The name is matched with `StringComparer.OrdinalIgnoreCase`, so `"SMA"`, `"sma"` and `"Sma"` all resolve to the same function; `FunctionInfo.Name` stays the canonical `"SMA"`. Streamable functions carry `FunctionFlags.Stream`.
+`Core.Functions` (an alias for `FunctionCatalog.Default`) implements `IReadOnlyList<FuncInfo>`, so it is directly enumerable and LINQ-able, and is indexable by position or by name (`Core.Functions["SMA"]`). The name is matched with `StringComparer.OrdinalIgnoreCase`, so `"SMA"`, `"sma"` and `"Sma"` all resolve to the same function; `FuncInfo.Name` stays the canonical `"SMA"`. Streamable functions carry `FuncFlags.Stream`.
 
-Binding arguments at run time goes through a `FunctionCall`, obtained from `FunctionInfo.CreateCall()`:
+Binding arguments at run time goes through a `ParamHolder`, obtained from `FuncInfo.CreateCall()`:
 
 ```csharp
 var f = Core.Functions["SMA"];
 var range = f.CreateCall()
     .SetInput(0, close)
-    .SetOption(0, 30)
+    .SetOptInput(0, 30)
     .SetOutput(0, outReal)
-    .Invoke(0, close.Length - 1);
+    .Call(0, close.Length - 1);
 ```
 
-An index out of range, a type that does not match the declared parameter, or an unbound input or output at call time throws `ArgumentException`. Optional parameters left unbound take their documented defaults. A `FunctionCall` is not thread-safe: confine one to one thread, or build one per call. The `FunctionCatalog` it comes from is immutable and shared freely.
+An index out of range, a type that does not match the declared parameter, or an unbound input or output at call time throws `ArgumentException`. Optional parameters left unbound take their documented defaults. A `ParamHolder` is not thread-safe: confine one to one thread, or build one per call. The `FunctionCatalog` it comes from is immutable and shared freely.
 
 ### 4.2 Numerical Stability {#numerical_stability}
 
 Your value changed when you fed the same bar more history? That is by design: recursive functions converge as history accumulates. See [Unstable Period](/api/unstable-period/) for how to mitigate that.
 
-Rounding is a separate axis: floating-point error accumulates over a very long series, which is one reason a call is capped at [`Core.MAX_INDEX`](#index_range).
+Rounding is a separate axis: floating-point error accumulates over a very long series, which is one reason a call is capped at [`Core.MaxIndex`](#index_range).
 
 Every function documentation page carries a [numerical-stability property](/functions/stability): how much the value at a given bar depends on where the series you passed in begins.
 
@@ -193,7 +197,7 @@ var core = Core.Builder()
     .Build();
 ```
 
-The setters chain, so they cannot report a rejection at the point it happens; the first one is latched and surfaced by `Build()`, which throws `ArgumentOutOfRangeException`.
+Each setter throws `ArgumentOutOfRangeException` immediately if an argument is out of range, so the rejection names the call that caused it. `Build()` cannot fail. Rust is the one backend that defers: a setter there cannot throw, so `build()` returns a `Result`.
 
 ### 4.4 Input Type: float vs. double {#input_type}
 
@@ -201,7 +205,7 @@ Every indicator also has a `ReadOnlySpan<float>` overload (`float[]` converts im
 
 ### 4.5 Index Range {#index_range}
 
-`Core.MAX_INDEX` is the largest value `startIdx` or `endIdx` may take: **100,000,000**. It's a sanity bound. Past it, a call is more likely a caller bug than a real need, and it's also untested territory for overflow and rounding error.
+`Core.MaxIndex` is the largest value `startIdx` or `endIdx` may take: **100,000,000**. It's a sanity bound. Past it, a call is more likely a caller bug than a real need, and it's also untested territory for overflow and rounding error.
 
 ### 4.6 Threading {#multithreading}
 

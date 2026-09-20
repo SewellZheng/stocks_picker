@@ -23,7 +23,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#CORREL} consumes before it can
+    * Number of leading input bars {@link Core#correl} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -33,7 +33,7 @@
     *        {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int CORREL_Lookback( int optInTimePeriod )
+   public int correlLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
@@ -43,14 +43,14 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode CORREL_Impl( int startIdx,
-                        int endIdx,
-                        double inReal0[],
-                        double inReal1[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode correlImpl( int startIdx,
+                       int endIdx,
+                       double inReal0[],
+                       double inReal1[],
+                       int optInTimePeriod,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outReal[] )
    {
       double sumXY = 0;
       double sumX = 0;
@@ -78,15 +78,15 @@
       int windowStart = 0;
       int barsSinceReseed = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* Move up the start index if there is not
        * enough initial data.
@@ -104,7 +104,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       trailingIdx = startIdx - lookbackTotal;
@@ -290,16 +290,16 @@
          today += 1;
       } while( today <= endIdx );
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode CORREL_Impl( int startIdx,
-                        int endIdx,
-                        float inReal0[],
-                        float inReal1[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode correlImpl( int startIdx,
+                       int endIdx,
+                       float inReal0[],
+                       float inReal1[],
+                       int optInTimePeriod,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outReal[] )
    {
       double sumXY = 0;
       double sumX = 0;
@@ -327,15 +327,15 @@
       int windowStart = 0;
       int barsSinceReseed = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       invPeriod = 1.0 / (double)optInTimePeriod;
       lookbackTotal = optInTimePeriod - 1;
@@ -345,7 +345,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       trailingIdx = startIdx - lookbackTotal;
@@ -441,7 +441,7 @@
          today += 1;
       } while( today <= endIdx );
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Pearson's correlation coefficient (r) between two input series over a
@@ -457,7 +457,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CORREL_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#correlLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -482,11 +482,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#BETA
-    * @see Core#STDDEV
-    * @see Core#VAR
+    * @see Core#beta
+    * @see Core#stddev
+    * @see Core#var
     */
-   public OutRange CORREL( int startIdx,
+   public OutRange correl( int startIdx,
                            int endIdx,
                            double inReal0[],
                            double inReal1[],
@@ -494,7 +494,7 @@
                            double outReal[] )
    {
       requireIndexRange("CORREL", startIdx, endIdx);
-      int guardStart = clampedStart("CORREL", startIdx, CORREL_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("CORREL", startIdx, correlLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CORREL", "inReal0", inReal0, guardInLen);
@@ -502,8 +502,8 @@
       requireLength("CORREL", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CORREL_Impl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = correlImpl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CORREL", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -525,7 +525,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CORREL_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#correlLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -550,11 +550,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#BETA
-    * @see Core#STDDEV
-    * @see Core#VAR
+    * @see Core#beta
+    * @see Core#stddev
+    * @see Core#var
     */
-   public OutRange CORREL( int startIdx,
+   public OutRange correl( int startIdx,
                            int endIdx,
                            float inReal0[],
                            float inReal1[],
@@ -562,7 +562,7 @@
                            double outReal[] )
    {
       requireIndexRange("CORREL", startIdx, endIdx);
-      int guardStart = clampedStart("CORREL", startIdx, CORREL_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("CORREL", startIdx, correlLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CORREL", "inReal0", inReal0, guardInLen);
@@ -570,8 +570,8 @@
       requireLength("CORREL", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CORREL_Impl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = correlImpl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CORREL", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -580,7 +580,7 @@
 
    /**
     * A live CORREL stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#CORREL} over the same series.
+    * closed bar, bit-identical to {@link Core#correl} over the same series.
     * Open with {@link Core#correlOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -622,7 +622,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#CORREL} reports over the same bars: the
+       * <p>It is what {@link Core#correl} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -649,7 +649,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CORREL advance", RetCode.OutOfRangeEndIndex);
+            throw failure("CORREL advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -699,9 +699,9 @@
        */
       public double update( double inReal0, double inReal1 ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CORREL update", RetCode.OutOfRangeEndIndex);
+            throw failure("CORREL update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
-            throw new TaLibArgumentException("CORREL update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CORREL update: BAD_PARAM", RetCode.BAD_PARAM);
          core.correlStepImpl(this, inReal0, inReal1);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -719,7 +719,7 @@
        */
       public double peek( double inReal0, double inReal1 ) {
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
-            throw new TaLibArgumentException("CORREL peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CORREL peek: BAD_PARAM", RetCode.BAD_PARAM);
          CorrelStream sp = this;
          double x = 0.0;
          double y = 0.0;
@@ -1096,23 +1096,23 @@
       int historyLen = inReal0.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inReal1.length != inReal0.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* Move up the start index if there is not
        * enough initial data.
@@ -1130,7 +1130,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       outBegIdx.value = startIdx;
       trailingIdx = startIdx - lookbackTotal;
@@ -1319,7 +1319,7 @@
       /* Capture the live batch state into the handle. */
       int capX = today - trailingIdx + 1;
       if( capX < 1 || capX > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int physX = 1;
       while( physX < capX ) {
@@ -1351,7 +1351,7 @@
       sp.x_inReal0 = capX_inReal0;
       sp.x_inReal1 = capX_inReal1;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* correlOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CorrelStream correlOpenAndFillInternal( double inReal0[], double inReal1[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -1360,16 +1360,16 @@
       RetCode retCode = correlOpenImpl(sp, inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CORREL openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CORREL openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CORREL openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("CORREL openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("CORREL openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind correlOpen (composition seam). */
    CorrelStream correlOpenInternal( double inReal0[], double inReal1[], int startIdx, int optInTimePeriod )
@@ -1381,22 +1381,22 @@
       RetCode retCode = correlOpenImpl(sp, inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CORREL open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CORREL open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CORREL open: internal error", retCode);
       }
-      throw new TaLibArgumentException("CORREL open: " + retCode, retCode);
+      throw new TALibArgumentException("CORREL open: " + retCode, retCode);
    }
    /**
     * Open a live CORREL stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#CORREL} at that bar.
-    * <p>The history must hold at least {@code CORREL_Lookback(...) + 1} bars
+    * to {@link Core#correl} at that bar.
+    * <p>The history must hold at least {@code correlLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -1415,7 +1415,7 @@
    }
    /**
     * {@link Core#correlOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#CORREL} over the whole history in the same single pass
+    * to {@link Core#correl} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1429,11 +1429,11 @@
       requireArgument("CORREL openAndFill", "inReal0", inReal0);
       requireHistory("CORREL openAndFill", inReal0.length);
       requireArgument("CORREL openAndFill", "inReal1", inReal1);
-      int guardOutLen = openFillCount("CORREL openAndFill", inReal0.length, CORREL_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("CORREL openAndFill", inReal0.length, correlLookback(optInTimePeriod));
       requireHistoryLength("CORREL openAndFill", "inReal1", inReal1.length, inReal0.length);
       requireLength("CORREL openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
-         throw new TaLibArgumentException("CORREL openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("CORREL openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

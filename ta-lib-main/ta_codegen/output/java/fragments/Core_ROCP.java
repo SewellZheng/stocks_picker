@@ -14,7 +14,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#ROCP} consumes before it can
+    * Number of leading input bars {@link Core#rocp} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -24,7 +24,7 @@
     *        10; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int ROCP_Lookback( int optInTimePeriod )
+   public int rocpLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 10;
@@ -34,28 +34,28 @@
       return optInTimePeriod ;
 
    }
-   RetCode ROCP_Impl( int startIdx,
-                      int endIdx,
-                      double inReal[],
-                      int optInTimePeriod,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outReal[] )
+   RetCode rocpImpl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int inIdx = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 10;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* The interpretation of the rate of change varies widely depending
        * which software and/or books you are refering to.
@@ -98,7 +98,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Calculate Rate of change Ratio: (price / prevPrice) */
       outIdx = 0;
@@ -116,30 +116,30 @@
       /* Set output limits. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode ROCP_Impl( int startIdx,
-                      int endIdx,
-                      float inReal[],
-                      int optInTimePeriod,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outReal[] )
+   RetCode rocpImpl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int inIdx = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 10;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx < optInTimePeriod ) {
          startIdx = optInTimePeriod;
@@ -147,7 +147,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outIdx = 0;
       inIdx = startIdx;
@@ -163,7 +163,7 @@
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Rate of change expressed as a fraction of the price optInTimePeriod bars
@@ -174,8 +174,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#ROCP_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#rocpLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -198,27 +198,27 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#ROC
-    * @see Core#ROCR
-    * @see Core#ROCR100
-    * @see Core#MOM
+    * @see Core#roc
+    * @see Core#rocr
+    * @see Core#rocr100
+    * @see Core#mom
     */
-   public OutRange ROCP( int startIdx,
+   public OutRange rocp( int startIdx,
                          int endIdx,
                          double inReal[],
                          int optInTimePeriod,
                          double outReal[] )
    {
       requireIndexRange("ROCP", startIdx, endIdx);
-      int guardStart = clampedStart("ROCP", startIdx, ROCP_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("ROCP", startIdx, rocpLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ROCP", "inReal", inReal, guardInLen);
       requireLength("ROCP", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ROCP_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = rocpImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("ROCP", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -235,8 +235,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#ROCP_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#rocpLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -259,27 +259,27 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#ROC
-    * @see Core#ROCR
-    * @see Core#ROCR100
-    * @see Core#MOM
+    * @see Core#roc
+    * @see Core#rocr
+    * @see Core#rocr100
+    * @see Core#mom
     */
-   public OutRange ROCP( int startIdx,
+   public OutRange rocp( int startIdx,
                          int endIdx,
                          float inReal[],
                          int optInTimePeriod,
                          double outReal[] )
    {
       requireIndexRange("ROCP", startIdx, endIdx);
-      int guardStart = clampedStart("ROCP", startIdx, ROCP_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("ROCP", startIdx, rocpLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ROCP", "inReal", inReal, guardInLen);
       requireLength("ROCP", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ROCP_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = rocpImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("ROCP", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -288,7 +288,7 @@
 
    /**
     * A live ROCP stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#ROCP} over the same series.
+    * closed bar, bit-identical to {@link Core#rocp} over the same series.
     * Open with {@link Core#rocpOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -315,7 +315,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#ROCP} reports over the same bars: the
+       * <p>It is what {@link Core#rocp} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -342,7 +342,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("ROCP advance", RetCode.OutOfRangeEndIndex);
+            throw failure("ROCP advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -377,9 +377,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("ROCP update", RetCode.OutOfRangeEndIndex);
+            throw failure("ROCP update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("ROCP update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("ROCP update: BAD_PARAM", RetCode.BAD_PARAM);
          core.rocpStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -397,7 +397,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("ROCP peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("ROCP peek: BAD_PARAM", RetCode.BAD_PARAM);
          RocpStream sp = this;
          double tempReal = 0.0;
          double cur_outReal = 0.0;
@@ -469,20 +469,20 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 10;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* The interpretation of the rate of change varies widely depending
        * which software and/or books you are refering to.
@@ -525,7 +525,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Calculate Rate of change Ratio: (price / prevPrice) */
       outIdx = 0;
@@ -546,7 +546,7 @@
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = inIdx - trailingIdx;
       if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
       double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
@@ -556,7 +556,7 @@
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* rocpOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    RocpStream rocpOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -565,16 +565,16 @@
       RetCode retCode = rocpOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("ROCP openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("ROCP openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("ROCP openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("ROCP openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("ROCP openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind rocpOpen (composition seam). */
    RocpStream rocpOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -586,22 +586,22 @@
       RetCode retCode = rocpOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("ROCP open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("ROCP open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("ROCP open: internal error", retCode);
       }
-      throw new TaLibArgumentException("ROCP open: " + retCode, retCode);
+      throw new TALibArgumentException("ROCP open: " + retCode, retCode);
    }
    /**
     * Open a live ROCP stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#ROCP} at that bar.
-    * <p>The history must hold at least {@code ROCP_Lookback(...) + 1} bars
+    * to {@link Core#rocp} at that bar.
+    * <p>The history must hold at least {@code rocpLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -618,7 +618,7 @@
    }
    /**
     * {@link Core#rocpOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#ROCP} over the whole history in the same single pass
+    * to {@link Core#rocp} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -631,10 +631,10 @@
    {
       requireArgument("ROCP openAndFill", "inReal", inReal);
       requireHistory("ROCP openAndFill", inReal.length);
-      int guardOutLen = openFillCount("ROCP openAndFill", inReal.length, ROCP_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("ROCP openAndFill", inReal.length, rocpLookback(optInTimePeriod));
       requireLength("ROCP openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("ROCP openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("ROCP openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

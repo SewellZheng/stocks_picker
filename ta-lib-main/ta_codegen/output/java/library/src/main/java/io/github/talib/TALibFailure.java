@@ -41,27 +41,32 @@
 package io.github.talib;
 
 /**
- * The library failed for a reason that is not the caller's argument: an
- * allocation, or an invariant it owns.
+ * Implemented by every exception this library raises, so the condition that was
+ * reported can be recovered as the {@link RetCode} C would have returned for
+ * the same call.
  *
- * <p>An {@link IllegalStateException}, which is what the API documents and what
- * a caller catches; {@link #retCode()} distinguishes {@link RetCode#AllocErr}
- * from {@link RetCode#InternalError}, which the type alone cannot. Neither is
- * expected in normal use — an allocation failure terminates the JVM long before
- * it reaches here.
+ * <p>The exception <i>types</i> are the ones the API documents — a rejected
+ * index is still an {@link IndexOutOfBoundsException}, a bad parameter still an
+ * {@link IllegalArgumentException} — because that is what a caller catches.
+ * What the types cannot carry is <i>which</i> condition: one
+ * {@code IndexOutOfBoundsException} serves both {@link RetCode#OUT_OF_RANGE_START_INDEX}
+ * and {@link RetCode#OUT_OF_RANGE_END_INDEX}, and one {@link IllegalStateException}
+ * serves both {@link RetCode#ALLOC_ERR} and {@link RetCode#INTERNAL_ERROR}. This
+ * interface is what makes the two separable again, without narrowing the catch
+ * types.
+ *
+ * <p>The mapping is <b>total</b> over the batch and streaming tiers — every
+ * failure a call to an indicator raises implements it, including the length and
+ * presence checks C cannot make (they report {@link RetCode#BAD_PARAM}, the code
+ * C uses for an argument it can detect) — and <b>lossless</b>: distinct codes
+ * never share one thrown representation.
+ *
+ * <p>Outside it, deliberately: {@link CoreBuilder} and the
+ * {@code io.github.talib.metadata} binder still raise plain JDK types. Neither
+ * is an indicator call, so neither has a {@link RetCode} to carry.
  */
-public final class TaLibStateException extends IllegalStateException implements TaLibFailure {
-   private static final long serialVersionUID = 1L;
+public interface TALibFailure {
 
-   private final RetCode retCode;
-
-   TaLibStateException(String message, RetCode retCode) {
-      super(message);
-      this.retCode = retCode;
-   }
-
-   @Override
-   public RetCode retCode() {
-      return retCode;
-   }
+   /** The condition reported, as the code C would have returned. */
+   RetCode retCode();
 }

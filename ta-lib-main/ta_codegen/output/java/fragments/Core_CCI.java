@@ -30,7 +30,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#CCI} consumes before it can
+    * Number of leading input bars {@link Core#cci} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -41,7 +41,7 @@
     *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int CCI_Lookback( int optInTimePeriod )
+   public int cciLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -51,15 +51,15 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode CCI_Impl( int startIdx,
-                     int endIdx,
-                     double inHigh[],
-                     double inLow[],
-                     double inClose[],
-                     int optInTimePeriod,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode cciImpl( int startIdx,
+                    int endIdx,
+                    double inHigh[],
+                    double inLow[],
+                    double inClose[],
+                    int optInTimePeriod,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       double tempReal = 0;
       double tempReal2 = 0;
@@ -74,15 +74,15 @@
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* This ptr will points on a circular buffer of
        * at least "optInTimePeriod" element.
@@ -101,12 +101,12 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Allocate a circular buffer equal to the requested
        * period.
        */
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       circBuffer = new double[optInTimePeriod];
       maxIdx_circBuffer = (optInTimePeriod)-1;
       circBuffer_Idx = 0;
@@ -178,17 +178,17 @@
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
       /* Free the circular buffer if it was dynamically allocated. */
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode CCI_Impl( int startIdx,
-                     int endIdx,
-                     float inHigh[],
-                     float inLow[],
-                     float inClose[],
-                     int optInTimePeriod,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode cciImpl( int startIdx,
+                    int endIdx,
+                    float inHigh[],
+                    float inLow[],
+                    float inClose[],
+                    int optInTimePeriod,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       double tempReal = 0;
       double tempReal2 = 0;
@@ -203,15 +203,15 @@
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       lookbackTotal = optInTimePeriod - 1;
       if( startIdx < lookbackTotal ) {
@@ -220,9 +220,9 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       circBuffer = new double[optInTimePeriod];
       maxIdx_circBuffer = (optInTimePeriod)-1;
       circBuffer_Idx = 0;
@@ -262,7 +262,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Commodity Channel Index: measures the current typical price relative to
@@ -274,7 +274,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CCI_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#cciLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -301,10 +301,10 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#TYPPRICE
-    * @see Core#SMA
+    * @see Core#typprice
+    * @see Core#sma
     */
-   public OutRange CCI( int startIdx,
+   public OutRange cci( int startIdx,
                         int endIdx,
                         double inHigh[],
                         double inLow[],
@@ -313,7 +313,7 @@
                         double outReal[] )
    {
       requireIndexRange("CCI", startIdx, endIdx);
-      int guardStart = clampedStart("CCI", startIdx, CCI_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("CCI", startIdx, cciLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CCI", "inHigh", inHigh, guardInLen);
@@ -322,8 +322,8 @@
       requireLength("CCI", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CCI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cciImpl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CCI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -341,7 +341,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CCI_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#cciLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -368,10 +368,10 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#TYPPRICE
-    * @see Core#SMA
+    * @see Core#typprice
+    * @see Core#sma
     */
-   public OutRange CCI( int startIdx,
+   public OutRange cci( int startIdx,
                         int endIdx,
                         float inHigh[],
                         float inLow[],
@@ -380,7 +380,7 @@
                         double outReal[] )
    {
       requireIndexRange("CCI", startIdx, endIdx);
-      int guardStart = clampedStart("CCI", startIdx, CCI_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("CCI", startIdx, cciLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CCI", "inHigh", inHigh, guardInLen);
@@ -389,8 +389,8 @@
       requireLength("CCI", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CCI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cciImpl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CCI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -399,7 +399,7 @@
 
    /**
     * A live CCI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#CCI} over the same series.
+    * closed bar, bit-identical to {@link Core#cci} over the same series.
     * Open with {@link Core#cciOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -427,7 +427,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#CCI} reports over the same bars: the
+       * <p>It is what {@link Core#cci} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -454,7 +454,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CCI advance", RetCode.OutOfRangeEndIndex);
+            throw failure("CCI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -490,9 +490,9 @@
        */
       public double update( double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CCI update", RetCode.OutOfRangeEndIndex);
+            throw failure("CCI update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CCI update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CCI update: BAD_PARAM", RetCode.BAD_PARAM);
          core.cciStepImpl(this, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -510,7 +510,7 @@
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CCI peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CCI peek: BAD_PARAM", RetCode.BAD_PARAM);
          CciStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -662,23 +662,23 @@
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* This ptr will points on a circular buffer of
        * at least "optInTimePeriod" element.
@@ -697,12 +697,12 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Allocate a circular buffer equal to the requested
        * period.
        */
-      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
       circBuffer = new double[optInTimePeriod];
       maxIdx_circBuffer = (optInTimePeriod)-1;
       circBuffer_Idx = 0;
@@ -777,7 +777,7 @@
       /* Capture the live batch state into the handle. */
       int capCb_circBuffer = maxIdx_circBuffer + 1;
       if( capCb_circBuffer > historyLen + 1 ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.circBuffer_Idx = circBuffer_Idx;
@@ -785,7 +785,7 @@
       sp.cbSize_circBuffer = capCb_circBuffer;
       sp.cb_circBuffer = circBuffer;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* cciOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CciStream cciOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -794,16 +794,16 @@
       RetCode retCode = cciOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CCI openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CCI openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CCI openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("CCI openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("CCI openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind cciOpen (composition seam). */
    CciStream cciOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
@@ -815,22 +815,22 @@
       RetCode retCode = cciOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CCI open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CCI open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CCI open: internal error", retCode);
       }
-      throw new TaLibArgumentException("CCI open: " + retCode, retCode);
+      throw new TALibArgumentException("CCI open: " + retCode, retCode);
    }
    /**
     * Open a live CCI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#CCI} at that bar.
-    * <p>The history must hold at least {@code CCI_Lookback(...) + 1} bars
+    * to {@link Core#cci} at that bar.
+    * <p>The history must hold at least {@code cciLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -851,7 +851,7 @@
    }
    /**
     * {@link Core#cciOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#CCI} over the whole history in the same single pass
+    * to {@link Core#cci} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -866,12 +866,12 @@
       requireHistory("CCI openAndFill", inHigh.length);
       requireArgument("CCI openAndFill", "inLow", inLow);
       requireArgument("CCI openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("CCI openAndFill", inHigh.length, CCI_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("CCI openAndFill", inHigh.length, cciLookback(optInTimePeriod));
       requireHistoryLength("CCI openAndFill", "inLow", inLow.length, inHigh.length);
       requireHistoryLength("CCI openAndFill", "inClose", inClose.length, inHigh.length);
       requireLength("CCI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
-         throw new TaLibArgumentException("CCI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("CCI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

@@ -12,7 +12,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#SUB} consumes before it can
+    * Number of leading input bars {@link Core#sub} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -20,26 +20,26 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int SUB_Lookback( )
+   public int subLookback( )
    {
       return 0 ;
 
    }
-   RetCode SUB_Impl( int startIdx,
-                     int endIdx,
-                     double inReal0[],
-                     double inReal1[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode subImpl( int startIdx,
+                    int endIdx,
+                    double inReal0[],
+                    double inReal1[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Default return values */
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
@@ -47,30 +47,30 @@
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode SUB_Impl( int startIdx,
-                     int endIdx,
-                     float inReal0[],
-                     float inReal1[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode subImpl( int startIdx,
+                    int endIdx,
+                    float inReal0[],
+                    float inReal1[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx] = (double)inReal0[i] - (double)inReal1[i];
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Element-wise subtraction of two input series.
@@ -79,7 +79,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#SUB_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#subLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -102,18 +102,18 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#ADD
-    * @see Core#MULT
-    * @see Core#DIV
+    * @see Core#add
+    * @see Core#mult
+    * @see Core#div
     */
-   public OutRange SUB( int startIdx,
+   public OutRange sub( int startIdx,
                         int endIdx,
                         double inReal0[],
                         double inReal1[],
                         double outReal[] )
    {
       requireIndexRange("SUB", startIdx, endIdx);
-      int guardStart = clampedStart("SUB", startIdx, SUB_Lookback());
+      int guardStart = clampedStart("SUB", startIdx, subLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SUB", "inReal0", inReal0, guardInLen);
@@ -121,8 +121,8 @@
       requireLength("SUB", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SUB_Impl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = subImpl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("SUB", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -137,7 +137,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#SUB_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#subLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -160,18 +160,18 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#ADD
-    * @see Core#MULT
-    * @see Core#DIV
+    * @see Core#add
+    * @see Core#mult
+    * @see Core#div
     */
-   public OutRange SUB( int startIdx,
+   public OutRange sub( int startIdx,
                         int endIdx,
                         float inReal0[],
                         float inReal1[],
                         double outReal[] )
    {
       requireIndexRange("SUB", startIdx, endIdx);
-      int guardStart = clampedStart("SUB", startIdx, SUB_Lookback());
+      int guardStart = clampedStart("SUB", startIdx, subLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SUB", "inReal0", inReal0, guardInLen);
@@ -179,8 +179,8 @@
       requireLength("SUB", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SUB_Impl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = subImpl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("SUB", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -189,7 +189,7 @@
 
    /**
     * A live SUB stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#SUB} over the same series.
+    * closed bar, bit-identical to {@link Core#sub} over the same series.
     * Open with {@link Core#subOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -212,7 +212,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#SUB} reports over the same bars: the
+       * <p>It is what {@link Core#sub} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -239,7 +239,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("SUB advance", RetCode.OutOfRangeEndIndex);
+            throw failure("SUB advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -270,9 +270,9 @@
        */
       public double update( double inReal0, double inReal1 ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("SUB update", RetCode.OutOfRangeEndIndex);
+            throw failure("SUB update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
-            throw new TaLibArgumentException("SUB update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("SUB update: BAD_PARAM", RetCode.BAD_PARAM);
          core.subStepImpl(this, inReal0, inReal1);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -290,7 +290,7 @@
        */
       public double peek( double inReal0, double inReal1 ) {
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
-            throw new TaLibArgumentException("SUB peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("SUB peek: BAD_PARAM", RetCode.BAD_PARAM);
          SubStream sp = this;
          double cur_outReal = 0.0;
          cur_outReal = inReal0 - inReal1;
@@ -334,18 +334,18 @@
       int historyLen = inReal0.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inReal1.length != inReal0.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* Default return values */
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
@@ -355,7 +355,7 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* subOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    SubStream subOpenAndFillInternal( double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -364,16 +364,16 @@
       RetCode retCode = subOpenImpl(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("SUB openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("SUB openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("SUB openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("SUB openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("SUB openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind subOpen (composition seam). */
    SubStream subOpenInternal( double inReal0[], double inReal1[], int startIdx )
@@ -385,22 +385,22 @@
       RetCode retCode = subOpenImpl(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("SUB open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("SUB open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("SUB open: internal error", retCode);
       }
-      throw new TaLibArgumentException("SUB open: " + retCode, retCode);
+      throw new TALibArgumentException("SUB open: " + retCode, retCode);
    }
    /**
     * Open a live SUB stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#SUB} at that bar.
-    * <p>The history must hold at least {@code SUB_Lookback(...) + 1} bars
+    * to {@link Core#sub} at that bar.
+    * <p>The history must hold at least {@code subLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -417,7 +417,7 @@
    }
    /**
     * {@link Core#subOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#SUB} over the whole history in the same single pass
+    * to {@link Core#sub} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -431,11 +431,11 @@
       requireArgument("SUB openAndFill", "inReal0", inReal0);
       requireHistory("SUB openAndFill", inReal0.length);
       requireArgument("SUB openAndFill", "inReal1", inReal1);
-      int guardOutLen = openFillCount("SUB openAndFill", inReal0.length, SUB_Lookback());
+      int guardOutLen = openFillCount("SUB openAndFill", inReal0.length, subLookback());
       requireHistoryLength("SUB openAndFill", "inReal1", inReal1.length, inReal0.length);
       requireLength("SUB openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
-         throw new TaLibArgumentException("SUB openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("SUB openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

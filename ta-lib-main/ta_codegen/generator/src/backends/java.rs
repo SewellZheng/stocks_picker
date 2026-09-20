@@ -504,7 +504,7 @@ pub(crate) fn java_type_str(var_type: &VarType) -> &'static str {
 /// Optional-parameter validation prologue (Java): map the Integer.MIN_VALUE /
 /// `Core.REAL_DEFAULT` sentinels to the documented default value, then reject
 /// out-of-range values. One source of truth for both variants: guarded
-/// functions fail with `RetCode.BadParam`, lookback functions fail with `-1`
+/// functions fail with `RetCode.BAD_PARAM`, lookback functions fail with `-1`
 /// (the classic lookback bad-param contract).
 ///
 /// An `enum:` param substitutes its type's `DEFAULT` member (#182) and nothing
@@ -594,7 +594,7 @@ fn gen_lookback(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    let name = func.name.clone();
+    let name = super::common::camel_words(&func.name);
 
     // Build parameter list for signature
     let param_str = if func.optional_inputs.is_empty() {
@@ -633,7 +633,7 @@ fn gen_lookback(
 
     let docs = super::java_doc::lookback_docs(func, &name, enums);
     format!(
-        "{docs}   public int {name}_Lookback({param_str})\n\
+        "{docs}   public int {name}Lookback({param_str})\n\
          \x20  {{\n\
          {body}\n\
          \x20  }}\n"
@@ -680,7 +680,7 @@ fn render_init_expr(expr: &Expr) -> String {
 /// out-parameters; what changed in #236 step 3 is only that a cross-call inside
 /// it now calls the public callee and does not test a return code.
 fn body_name(base: &str) -> String {
-    format!("{base}_Impl")
+    format!("{base}Impl")
 }
 
 /// Emit the wrapper's array-argument checks (issue #172 C2).
@@ -727,18 +727,18 @@ fn body_name(base: &str) -> String {
 /// the buffers (B4, B5). A null enum is a parameter out of its domain, and its
 /// check has to sit ahead of the `_Lookback` call below, because that is where a
 /// null one is first dereferenced.
-fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {
+fn gen_argument_checks(func: &FuncDef, canonical: &str, method: &str) -> String {
     let inputs: Vec<&str> = func.inputs.iter().map(|i| i.name.as_str()).collect();
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "      requireIndexRange(\"{base_name}\", startIdx, endIdx);"
+        "      requireIndexRange(\"{canonical}\", startIdx, endIdx);"
     );
     for opt in &func.optional_inputs {
         if matches!(opt.param_type, ParamType::Enum(_)) {
             let _ = writeln!(
                 out,
-                "      requireArgument(\"{base_name}\", \"{0}\", {0});",
+                "      requireArgument(\"{canonical}\", \"{0}\", {0});",
                 opt.name
             );
         }
@@ -749,7 +749,7 @@ fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|o| o.name.clone()).collect();
     let _ = writeln!(
         out,
-        "      int guardStart = clampedStart(\"{base_name}\", startIdx, {base_name}_Lookback({}));",
+        "      int guardStart = clampedStart(\"{canonical}\", startIdx, {method}Lookback({}));",
         lb_args.join(", ")
     );
     if !inputs.is_empty() {
@@ -763,7 +763,7 @@ fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {
     for name in inputs {
         let _ = writeln!(
             out,
-            "      requireLength(\"{base_name}\", \"{name}\", {name}, guardInLen);"
+            "      requireLength(\"{canonical}\", \"{name}\", {name}, guardInLen);"
         );
     }
     for output in &func.outputs {
@@ -774,12 +774,12 @@ fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {
         if output.is_nullable() {
             let _ = writeln!(
                 out,
-                "      if( {name} != null ) requireLength(\"{base_name}\", \"{name}\", {name}, guardOutLen);"
+                "      if( {name} != null ) requireLength(\"{canonical}\", \"{name}\", {name}, guardOutLen);"
             );
         } else {
             let _ = writeln!(
                 out,
-                "      requireLength(\"{base_name}\", \"{name}\", {name}, guardOutLen);"
+                "      requireLength(\"{canonical}\", \"{name}\", {name}, guardOutLen);"
             );
         }
     }
@@ -800,7 +800,7 @@ fn gen_public_wrapper(
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
 ) -> String {
-    let base_name = func.name.clone();
+    let base_name = super::common::camel_words(&func.name);
     let core = body_name(&base_name);
     let public_name = base_name.clone();
 
@@ -851,14 +851,14 @@ fn gen_public_wrapper(
         out.push_str(param);
     }
     out.push_str(" )\n   {\n");
-    out.push_str(&gen_argument_checks(func, &base_name));
+    out.push_str(&gen_argument_checks(func, &func.name, &base_name));
     out.push_str("      MInteger outBegIdx = new MInteger();\n");
     out.push_str("      MInteger outNBElement = new MInteger();\n");
     {
         let _ = write!(out, "      RetCode retCode = {core}(");
         out.push_str(&args.join(", "));
         out.push_str(");\n");
-        out.push_str("      if( retCode != RetCode.Success ) {\n");
+        out.push_str("      if( retCode != RetCode.SUCCESS ) {\n");
         let _ = writeln!(out, "         throw failure(\"{}\", retCode);", func.name);
         out.push_str("      }\n");
     }
@@ -875,8 +875,8 @@ fn gen_private(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    let base_name = func.name.clone();
-    let name_override = format!("{base_name}_Private");
+    let base_name = super::common::camel_words(&func.name);
+    let name_override = format!("{base_name}Private");
     gen_func_inner(func, false, Some(&name_override), enums, registry, helpers)
 }
 
@@ -891,8 +891,8 @@ fn gen_private_sp(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    let base_name = func.name.clone();
-    let name_override = format!("{base_name}_Private");
+    let base_name = super::common::camel_words(&func.name);
+    let name_override = format!("{base_name}Private");
     gen_func_inner(func, true, Some(&name_override), enums, registry, helpers)
 }
 
@@ -919,7 +919,7 @@ fn gen_func_inner(
     helpers: &HelperRegistry,
 ) -> String {
     let mut out = String::new();
-    let base_name = func.name.clone();
+    let base_name = super::common::camel_words(&func.name);
     let name = if let Some(n) = name_override {
         n.to_string()
     } else {
@@ -1124,13 +1124,13 @@ fn gen_func_inner(
     // guarded cores that have already validated.
     if name_override.is_none() {
         out.push_str("      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {\n");
-        out.push_str("         return RetCode.OutOfRangeStartIndex ;\n");
+        out.push_str("         return RetCode.OUT_OF_RANGE_START_INDEX ;\n");
         out.push_str("      }\n");
         out.push_str("      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {\n");
-        out.push_str("         return RetCode.OutOfRangeEndIndex ;\n");
+        out.push_str("         return RetCode.OUT_OF_RANGE_END_INDEX ;\n");
         out.push_str("      }\n");
         // Optional parameter validation (default + range)
-        out.push_str(&emit_opt_param_validation(func, "RetCode.BadParam", enums));
+        out.push_str(&emit_opt_param_validation(func, "RetCode.BAD_PARAM", enums));
         // Output-distinctness (issue #108): aliasing two different output arrays
         // has no correct result, so reject it. Input == output stays allowed.
         // A nullable operand is guarded non-null first — a declined output
@@ -1171,7 +1171,7 @@ fn gen_func_inner(
             }
             if !pairs.is_empty() {
                 out.push_str(&format!("      if( {} ) {{\n", pairs.join(" || ")));
-                out.push_str("         return RetCode.BadParam ;\n");
+                out.push_str("         return RetCode.BAD_PARAM ;\n");
                 out.push_str("      }\n");
             }
         }
@@ -1445,7 +1445,7 @@ impl StatementEmitter for JavaStmt<'_> {
                 let mut s = String::new();
                 // The size is derived, so < 1 is a logic defect rather than an allocation
                 // failure: same code as C's TA_INTERNAL_ERROR(137) (#178).
-                s.push_str(&format!("{pad}if( {sz} < 1 ) return RetCode.InternalError;\n"));
+                s.push_str(&format!("{pad}if( {sz} < 1 ) return RetCode.INTERNAL_ERROR;\n"));
                 for (arr, t) in circbuf_arrays(id, layout) {
                     s.push_str(&format!(
                         "{pad}{arr} = new {}[{sz}];\n",
@@ -1516,7 +1516,7 @@ impl StatementEmitter for JavaStmt<'_> {
                     render_cross_indicator_call(fname, cargs, indent, self.ctx, self.registry, self.helpers)
                 {
                     let t = render_assign_target(target, self.ctx, self.registry, self.helpers);
-                    return format!("{block}{pad}{t} = RetCode.Success;\n");
+                    return format!("{block}{pad}{t} = RetCode.SUCCESS;\n");
                 }
             }
         }
@@ -1803,7 +1803,7 @@ impl StatementEmitter for JavaStmt<'_> {
                 if let Some(block) =
                     render_cross_indicator_call(fname, cargs, indent, self.ctx, self.registry, self.helpers)
                 {
-                    return format!("{block}{pad}return RetCode.Success ;\n");
+                    return format!("{block}{pad}return RetCode.SUCCESS ;\n");
                 }
             }
         }
@@ -1986,11 +1986,11 @@ fn render_return_expr(
 ) -> String {
     if let Expr::Var(name) = expr {
         return match name.as_str() {
-            "SUCCESS" => "RetCode.Success".to_string(),
-            "BadParam" => "RetCode.BadParam".to_string(),
-            "InsufficientHistory" => "RetCode.InsufficientHistory".to_string(),
-            "OutOfRangeEndIndex" => "RetCode.OutOfRangeEndIndex".to_string(),
-            "OutOfRangeStartIndex" => "RetCode.OutOfRangeStartIndex".to_string(),
+            "SUCCESS" => "RetCode.SUCCESS".to_string(),
+            "BadParam" => "RetCode.BAD_PARAM".to_string(),
+            "InsufficientHistory" => "RetCode.INSUFFICIENT_HISTORY".to_string(),
+            "OutOfRangeEndIndex" => "RetCode.OUT_OF_RANGE_END_INDEX".to_string(),
+            "OutOfRangeStartIndex" => "RetCode.OUT_OF_RANGE_START_INDEX".to_string(),
             _ => render_expr(expr, ctx, registry, helpers),
         };
     }
@@ -2010,10 +2010,10 @@ struct JavaExpr<'a> {
 impl ExprEmitter for JavaExpr<'_> {
     fn var(&self, name: &str) -> String {
         let mapped = match name {
-            "BAD_PARAM" => "RetCode.BadParam".to_string(),
-            "SUCCESS" => "RetCode.Success".to_string(),
-            "ALLOC_ERR" => "RetCode.AllocErr".to_string(),
-            "INTERNAL_ERROR" => "RetCode.InternalError".to_string(),
+            "BAD_PARAM" => "RetCode.BAD_PARAM".to_string(),
+            "SUCCESS" => "RetCode.SUCCESS".to_string(),
+            "ALLOC_ERR" => "RetCode.ALLOC_ERR".to_string(),
+            "INTERNAL_ERROR" => "RetCode.INTERNAL_ERROR".to_string(),
             // MAType constants (`TA_MAType_SMA` → `MAType.Sma`) resolve from the
             // enums.yaml-derived map on the ctx; unknown names pass through.
             _ => self.ctx.matype_map.get(name).cloned().unwrap_or_else(|| name.to_string()),
@@ -2792,31 +2792,33 @@ mod tests {
         // #236 step 5: the C-shaped tier is GONE. Two tiers remain -- the
         // public wrapper and the body it calls -- and nothing in the shipped
         // library answers a RetCode any more.
-        assert!(!output.contains("SMA_Internal"), "the C-shaped tier must not come back");
+        assert!(!output.contains("smaInternal("), "the C-shaped tier must not come back");
         assert!(!output.contains("Unguarded"), "no unguarded tier may exist");
+        // `public RetCode` with no name attached: the needle has to survive a
+        // rename of the method, which is what blinded its predecessor.
         assert!(
-            !output.contains("public RetCode SMA"),
+            !output.contains("public RetCode"),
             "cores must be package-private — RetCode never appears on the public surface"
         );
 
         // The BODY validates. Bounded to the double body's own text so a match
         // inside the float overload cannot stand in for it.
-        let body_pos = output.find("RetCode SMA_Impl( ").unwrap();
+        let body_pos = output.find("RetCode smaImpl( ").unwrap();
         let body_section = &output[body_pos..];
         let body_end = body_section[1..]
             .find("   RetCode ")
             .map_or(body_section.len(), |i| i + 1);
         assert!(
-            body_section[..body_end].contains("OutOfRangeStartIndex"),
+            body_section[..body_end].contains("OUT_OF_RANGE_START_INDEX"),
             "the body should contain validation"
         );
 
         // The public surface is OutRange-returning wrappers, and they call the
         // BODY, not the shim — a sub-call's throw has to propagate rather than be
         // converted and re-thrown under the outer function's name.
-        assert!(output.contains("   public OutRange SMA( "), "Missing public SMA wrapper");
+        assert!(output.contains("   public OutRange sma( "), "Missing public sma wrapper");
         assert!(
-            output.contains("RetCode retCode = SMA_Impl("),
+            output.contains("RetCode retCode = smaImpl("),
             "the public wrapper must call the body directly"
         );
         assert!(

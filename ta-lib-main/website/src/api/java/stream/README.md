@@ -4,11 +4,7 @@ description: "Java streaming API for live feeds: a stream carries indicator stat
 toc: false
 ---
 
-::: warning Not yet released
-The Java API is not yet released. Estimated release: **Q1 2027**.
-:::
-
-The **streaming API** is built for live feeds: open a stream once, then feed it one bar at a time. The stream carries its state from bar to bar, so each new bar costs O(1) — and every value is **bit-identical** to what the [batch method](/api/java/) (`core.SMA`, `core.RSI`, …) would return by recomputing over the whole array.
+The **streaming API** is built for live feeds: open a stream once, then feed it one bar at a time. The stream carries its state from bar to bar, so each new bar costs O(1) — and every value is **bit-identical** to what the [batch method](/api/java/) (`core.sma`, `core.rsi`, …) would return by recomputing over the whole array.
 
 Each streamable function adds two factory methods on `Core` and a handful of methods on its stream (a class nested in `Core`, e.g. `Core.SmaStream` — unrelated to `java.util.stream`):
 
@@ -35,7 +31,7 @@ import io.github.talib.Core;
 
 Core core = Core.DEFAULT;
 
-// Seed with warm-up history (>= SMA_Lookback(period) + 1 bars).
+// Seed with warm-up history (>= smaLookback(period) + 1 bars).
 double[] history = /* ...your closing prices... */;
 Core.SmaStream s = core.smaOpen(history, 30); // value() starts at the last history bar
 
@@ -50,7 +46,7 @@ double provisional = s.peek(formingClose);      // state left unchanged
 
 ## Rules
 
-- **Warm-up.** `open` succeeds only if `history.length >= <NAME>_Lookback(params) + 1` — with fewer bars there is no defined value yet. Too little history throws `InsufficientHistoryException` (see [Error model](#error-model)). After `open`, the history can be discarded — the stream keeps everything it needs.
+- **Warm-up.** `open` succeeds only if `history.length >= <name>Lookback(params) + 1` — with fewer bars there is no defined value yet. Too little history throws `InsufficientHistoryException` (see [Error model](#error-model)). After `open`, the history can be discarded — the stream keeps everything it needs.
 - **Closed vs forming bar.** `update` commits state irreversibly, so use it only for **closed** bars. `peek` returns exactly the value the next `update` would, without committing — call it as often as the forming bar ticks. `value()` re-reads the last committed value without recomputing.
 - **Parameters are fixed at `open`.** Changing a parameter means a new stream. [Unstable period](/api/java/#numerical_stability) and [candle settings](/api/java/#candle_settings) are read from the owning `Core` at `open`. Since `Core` is immutable they cannot change underneath a live stream — to stream with different settings, build a new `Core` and open from that.
 - **Threads.** A stream is single-writer: `update` must not race with any other call on the same stream. Processing forks are possible by cloning the stream, and each clone becomes fully independent and can be updated concurrently.
@@ -142,4 +138,4 @@ See [Rules](#rules) for when concurrent reads of these are safe.
 
 ## Discovering streamable functions
 
-When driving TA-Lib through the [abstraction layer](/api/java/#abstract), streamable functions carry the `FuncFlags.STREAMING` bit in `FunctionInfo#flags()`.
+When driving TA-Lib through the [abstraction layer](/api/java/#abstract), streamable functions carry the `FuncFlags.STREAMING` bit in `FuncInfo#flags()`.

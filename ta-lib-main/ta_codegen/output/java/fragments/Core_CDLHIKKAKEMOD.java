@@ -19,7 +19,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#CDLHIKKAKEMOD} consumes before it
+    * Number of leading input bars {@link Core#cdlhikkakemod} consumes before it
     * can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -27,23 +27,23 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int CDLHIKKAKEMOD_Lookback( )
+   public int cdlhikkakemodLookback( )
    {
-      int Near_rangeType = this.candleSettings[CandleSettingType.Near.ordinal()].rangeType.ordinal();
-      int Near_avgPeriod = this.candleSettings[CandleSettingType.Near.ordinal()].avgPeriod;
-      double Near_factor = this.candleSettings[CandleSettingType.Near.ordinal()].factor;
+      int Near_rangeType = this.candleSettings[CandleSettingType.NEAR.ordinal()].rangeType.ordinal();
+      int Near_avgPeriod = this.candleSettings[CandleSettingType.NEAR.ordinal()].avgPeriod;
+      double Near_factor = this.candleSettings[CandleSettingType.NEAR.ordinal()].factor;
       return Math.max(1, Near_avgPeriod) + 5 ;
 
    }
-   RetCode CDLHIKKAKEMOD_Impl( int startIdx,
-                               int endIdx,
-                               double inOpen[],
-                               double inHigh[],
-                               double inLow[],
-                               double inClose[],
-                               MInteger outBegIdx,
-                               MInteger outNBElement,
-                               int outInteger[] )
+   RetCode cdlhikkakemodImpl( int startIdx,
+                              int endIdx,
+                              double inOpen[],
+                              double inHigh[],
+                              double inLow[],
+                              double inClose[],
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              int outInteger[] )
    {
       double NearPeriodTotal = 0;
       int i = 0;
@@ -54,14 +54,14 @@
       int patternCount = 0;
       double patternHigh = 0;
       double patternLow = 0;
-      int Near_rangeType = this.candleSettings[CandleSettingType.Near.ordinal()].rangeType.ordinal();
-      int Near_avgPeriod = this.candleSettings[CandleSettingType.Near.ordinal()].avgPeriod;
-      double Near_factor = this.candleSettings[CandleSettingType.Near.ordinal()].factor;
+      int Near_rangeType = this.candleSettings[CandleSettingType.NEAR.ordinal()].rangeType.ordinal();
+      int Near_avgPeriod = this.candleSettings[CandleSettingType.NEAR.ordinal()].avgPeriod;
+      double Near_factor = this.candleSettings[CandleSettingType.NEAR.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Confirmation window countdown (replaces the absolute patternIdx guard)
        * and a cache of the 3rd candle's high/low (replaces inHigh/inLow
@@ -70,7 +70,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLHIKKAKEMOD_Lookback();
+      lookbackTotal = cdlhikkakemodLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -81,7 +81,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -185,17 +185,17 @@
       /* All done. Indicate the output limits and return. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode CDLHIKKAKEMOD_Impl( int startIdx,
-                               int endIdx,
-                               float inOpen[],
-                               float inHigh[],
-                               float inLow[],
-                               float inClose[],
-                               MInteger outBegIdx,
-                               MInteger outNBElement,
-                               int outInteger[] )
+   RetCode cdlhikkakemodImpl( int startIdx,
+                              int endIdx,
+                              float inOpen[],
+                              float inHigh[],
+                              float inLow[],
+                              float inClose[],
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              int outInteger[] )
    {
       double NearPeriodTotal = 0;
       int i = 0;
@@ -206,23 +206,23 @@
       int patternCount = 0;
       double patternHigh = 0;
       double patternLow = 0;
-      int Near_rangeType = this.candleSettings[CandleSettingType.Near.ordinal()].rangeType.ordinal();
-      int Near_avgPeriod = this.candleSettings[CandleSettingType.Near.ordinal()].avgPeriod;
-      double Near_factor = this.candleSettings[CandleSettingType.Near.ordinal()].factor;
+      int Near_rangeType = this.candleSettings[CandleSettingType.NEAR.ordinal()].rangeType.ordinal();
+      int Near_avgPeriod = this.candleSettings[CandleSettingType.NEAR.ordinal()].avgPeriod;
+      double Near_factor = this.candleSettings[CandleSettingType.NEAR.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
-      lookbackTotal = CDLHIKKAKEMOD_Lookback();
+      lookbackTotal = cdlhikkakemodLookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       NearPeriodTotal = 0;
       NearTrailingIdx = startIdx - 3 - Near_avgPeriod;
@@ -276,7 +276,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * A four-candle pattern: two successively narrower inside bars, then a
@@ -293,7 +293,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLHIKKAKEMOD_Lookback} is a
+    * valid range shorter than {@link Core#cdlhikkakemodLookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -319,9 +319,9 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLHIKKAKE
+    * @see Core#cdlhikkake
     */
-   public OutRange CDLHIKKAKEMOD( int startIdx,
+   public OutRange cdlhikkakemod( int startIdx,
                                   int endIdx,
                                   double inOpen[],
                                   double inHigh[],
@@ -330,7 +330,7 @@
                                   int outInteger[] )
    {
       requireIndexRange("CDLHIKKAKEMOD", startIdx, endIdx);
-      int guardStart = clampedStart("CDLHIKKAKEMOD", startIdx, CDLHIKKAKEMOD_Lookback());
+      int guardStart = clampedStart("CDLHIKKAKEMOD", startIdx, cdlhikkakemodLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLHIKKAKEMOD", "inOpen", inOpen, guardInLen);
@@ -340,8 +340,8 @@
       requireLength("CDLHIKKAKEMOD", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLHIKKAKEMOD_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdlhikkakemodImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLHIKKAKEMOD", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -364,7 +364,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLHIKKAKEMOD_Lookback} is a
+    * valid range shorter than {@link Core#cdlhikkakemodLookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -390,9 +390,9 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLHIKKAKE
+    * @see Core#cdlhikkake
     */
-   public OutRange CDLHIKKAKEMOD( int startIdx,
+   public OutRange cdlhikkakemod( int startIdx,
                                   int endIdx,
                                   float inOpen[],
                                   float inHigh[],
@@ -401,7 +401,7 @@
                                   int outInteger[] )
    {
       requireIndexRange("CDLHIKKAKEMOD", startIdx, endIdx);
-      int guardStart = clampedStart("CDLHIKKAKEMOD", startIdx, CDLHIKKAKEMOD_Lookback());
+      int guardStart = clampedStart("CDLHIKKAKEMOD", startIdx, cdlhikkakemodLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLHIKKAKEMOD", "inOpen", inOpen, guardInLen);
@@ -411,8 +411,8 @@
       requireLength("CDLHIKKAKEMOD", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLHIKKAKEMOD_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdlhikkakemodImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLHIKKAKEMOD", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -421,7 +421,7 @@
 
    /**
     * A live CDLHIKKAKEMOD stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#CDLHIKKAKEMOD} over the same series.
+    * closed bar, bit-identical to {@link Core#cdlhikkakemod} over the same series.
     * Open with {@link Core#cdlhikkakemodOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -466,7 +466,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#CDLHIKKAKEMOD} reports over the same bars: the
+       * <p>It is what {@link Core#cdlhikkakemod} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -493,7 +493,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLHIKKAKEMOD advance", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLHIKKAKEMOD advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -546,9 +546,9 @@
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLHIKKAKEMOD update", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLHIKKAKEMOD update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLHIKKAKEMOD update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLHIKKAKEMOD update: BAD_PARAM", RetCode.BAD_PARAM);
          core.cdlhikkakemodStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -566,7 +566,7 @@
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLHIKKAKEMOD peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLHIKKAKEMOD peek: BAD_PARAM", RetCode.BAD_PARAM);
          CdlhikkakemodStream sp = this;
          int cur_outInteger = 0;
          int patternCount = sp.patternCount;
@@ -698,22 +698,22 @@
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      int Near_rangeType = this.candleSettings[CandleSettingType.Near.ordinal()].rangeType.ordinal();
-      int Near_avgPeriod = this.candleSettings[CandleSettingType.Near.ordinal()].avgPeriod;
-      double Near_factor = this.candleSettings[CandleSettingType.Near.ordinal()].factor;
+      int Near_rangeType = this.candleSettings[CandleSettingType.NEAR.ordinal()].rangeType.ordinal();
+      int Near_avgPeriod = this.candleSettings[CandleSettingType.NEAR.ordinal()].avgPeriod;
+      double Near_factor = this.candleSettings[CandleSettingType.NEAR.ordinal()].factor;
       /* Confirmation window countdown (replaces the absolute patternIdx guard)
        * and a cache of the 3rd candle's high/low (replaces inHigh/inLow
        * [patternIdx-1]) so nothing in the per-bar logic references the cursor.
@@ -721,7 +721,7 @@
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLHIKKAKEMOD_Lookback();
+      lookbackTotal = cdlhikkakemodLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -732,7 +732,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -840,7 +840,7 @@
       int capLag_NearTrailingIdx = i - NearTrailingIdx;
       int cap_NearTrailingIdx = capLag_NearTrailingIdx + 3;
       if( capLag_NearTrailingIdx < 0 || cap_NearTrailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_NearTrailingIdx = (cap_NearTrailingIdx > 0)? cap_NearTrailingIdx : 1;
       double[] capRing_NearTrailingIdx_derived = new double[allocN_NearTrailingIdx];
@@ -870,7 +870,7 @@
       sp.cs_Near_avgPeriod = Near_avgPeriod;
       sp.cs_Near_factor = Near_factor;
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* cdlhikkakemodOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CdlhikkakemodStream cdlhikkakemodOpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
@@ -879,16 +879,16 @@
       RetCode retCode = cdlhikkakemodOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLHIKKAKEMOD openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLHIKKAKEMOD openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLHIKKAKEMOD openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLHIKKAKEMOD openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("CDLHIKKAKEMOD openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind cdlhikkakemodOpen (composition seam). */
    CdlhikkakemodStream cdlhikkakemodOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -900,22 +900,22 @@
       RetCode retCode = cdlhikkakemodOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLHIKKAKEMOD open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLHIKKAKEMOD open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLHIKKAKEMOD open: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLHIKKAKEMOD open: " + retCode, retCode);
+      throw new TALibArgumentException("CDLHIKKAKEMOD open: " + retCode, retCode);
    }
    /**
     * Open a live CDLHIKKAKEMOD stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#CDLHIKKAKEMOD} at that bar.
-    * <p>The history must hold at least {@code CDLHIKKAKEMOD_Lookback(...) + 1} bars
+    * to {@link Core#cdlhikkakemod} at that bar.
+    * <p>The history must hold at least {@code cdlhikkakemodLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -936,7 +936,7 @@
    }
    /**
     * {@link Core#cdlhikkakemodOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#CDLHIKKAKEMOD} over the whole history in the same single pass
+    * to {@link Core#cdlhikkakemod} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -952,13 +952,13 @@
       requireArgument("CDLHIKKAKEMOD openAndFill", "inHigh", inHigh);
       requireArgument("CDLHIKKAKEMOD openAndFill", "inLow", inLow);
       requireArgument("CDLHIKKAKEMOD openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("CDLHIKKAKEMOD openAndFill", inOpen.length, CDLHIKKAKEMOD_Lookback());
+      int guardOutLen = openFillCount("CDLHIKKAKEMOD openAndFill", inOpen.length, cdlhikkakemodLookback());
       requireHistoryLength("CDLHIKKAKEMOD openAndFill", "inHigh", inHigh.length, inOpen.length);
       requireHistoryLength("CDLHIKKAKEMOD openAndFill", "inLow", inLow.length, inOpen.length);
       requireHistoryLength("CDLHIKKAKEMOD openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("CDLHIKKAKEMOD openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
-         throw new TaLibArgumentException("CDLHIKKAKEMOD openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("CDLHIKKAKEMOD openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

@@ -51,10 +51,10 @@ import io.github.talib.Core;
 import io.github.talib.MAType;
 import io.github.talib.OutRange;
 import io.github.talib.RetCode;
-import io.github.talib.TaLibFailure;
+import io.github.talib.TALibFailure;
 import io.github.talib.metadata.FuncFlags;
 import io.github.talib.metadata.FunctionDescription;
-import io.github.talib.metadata.FunctionInfo;
+import io.github.talib.metadata.FuncInfo;
 import io.github.talib.metadata.Functions;
 import io.github.talib.metadata.InputFlags;
 import io.github.talib.metadata.InputInfo;
@@ -166,7 +166,7 @@ public class MetadataTest {
         int inGroups = 0;
         for (String g : Functions.groups()) {
             int n = 0;
-            for (FunctionInfo f : Functions.all()) {
+            for (FuncInfo f : Functions.all()) {
                 if (f.group().equals(g)) {
                     n++;
                 }
@@ -179,7 +179,7 @@ public class MetadataTest {
               + Functions.all().size() + ")");
 
         // Every row must be internally coherent.
-        for (FunctionInfo f : Functions.all()) {
+        for (FuncInfo f : Functions.all()) {
             check(!f.name().isEmpty() && !f.group().isEmpty(),
                   f.name() + ": name/group populated");
             check(!f.outputs().isEmpty(), f.name() + ": has at least one output");
@@ -197,9 +197,9 @@ public class MetadataTest {
      */
     static void byNameFoldsAsciiCase() {
         int canonical = 0;
-        for (FunctionInfo f : Functions.all()) {
-            FunctionInfo lower = Functions.byName(asciiLower(f.name()));
-            FunctionInfo mixed = Functions.byName(alternating(f.name()));
+        for (FuncInfo f : Functions.all()) {
+            FuncInfo lower = Functions.byName(asciiLower(f.name()));
+            FuncInfo mixed = Functions.byName(alternating(f.name()));
             check(lower == f, f.name() + ": lower-case lookup finds it");
             check(mixed == f, f.name() + ": mixed-case lookup finds it");
 
@@ -320,12 +320,12 @@ public class MetadataTest {
 
     /** Flag vocabularies the island left unnamed, so consumers hardcoded the bits. */
     static void flagVocabularyIsComplete() {
-        FunctionInfo mama = Functions.byName("MAMA");
+        FuncInfo mama = Functions.byName("MAMA");
         OutputInfo fama = mama.outputs().get(1);
         check((fama.flags() & OutputFlags.NULLABLE) != 0,
               "MAMA outFAMA carries the named NULLABLE bit (was the bare literal 8196)");
 
-        FunctionInfo bb = Functions.byName("BBANDS");
+        FuncInfo bb = Functions.byName("BBANDS");
         check((bb.outputs().get(0).flags() & OutputFlags.UPPER_LIMIT) != 0,
               "BBANDS upper band carries UPPER_LIMIT");
         check((bb.outputs().get(2).flags() & OutputFlags.LOWER_LIMIT) != 0,
@@ -348,7 +348,7 @@ public class MetadataTest {
               "the Volume Indicators group exists regardless");
         check(Functions.byName("CDLDOJI").hasFlags(FuncFlags.CANDLESTICK), "CDLDOJI is a candlestick");
 
-        FunctionInfo stoch = Functions.byName("STOCH");
+        FuncInfo stoch = Functions.byName("STOCH");
         InputInfo price = stoch.inputs().get(0);
         check(price.type() == InputType.PRICE, "STOCH takes a price bundle");
         int hlc = InputFlags.PRICE_HIGH | InputFlags.PRICE_LOW | InputFlags.PRICE_CLOSE;
@@ -364,7 +364,7 @@ public class MetadataTest {
     /* --------------------------------------------------- call-by-name parity */
 
     /** Binds every declared parameter of `f` onto a fresh holder. */
-    private static ParamHolder bind(FunctionInfo f, double[][] outs, int[][] iouts) {
+    private static ParamHolder bind(FuncInfo f, double[][] outs, int[][] iouts) {
         ParamHolder h = f.newCall();
         for (int i = 0; i < f.inputs().size(); i++) {
             InputInfo in = f.inputs().get(i);
@@ -398,7 +398,7 @@ public class MetadataTest {
     static void callByNameMatchesTheTypedApi() throws Exception {
         int compared = 0;
         int nonEmpty = 0;
-        for (FunctionInfo f : Functions.all()) {
+        for (FuncInfo f : Functions.all()) {
             int nout = f.outputs().size();
             double[][] outsA = new double[nout][N];
             int[][] ioutsA = new int[nout][N];
@@ -463,7 +463,21 @@ public class MetadataTest {
      * second path for the comparison above. (The library itself uses no
      * reflection; this is test scaffolding.)
      */
-    private static OutRange typedCall(FunctionInfo f, double[][] outs, int[][] iouts)
+    /** The canonical name as the Java surface spells it: {@code HT_TRENDLINE} -> {@code htTrendline}. */
+    private static String folded(String canonical) {
+        StringBuilder sb = new StringBuilder();
+        for (String part : canonical.split("_")) {
+            if (part.isEmpty()) {
+                continue;
+            }
+            sb.append(sb.length() == 0 ? Character.toLowerCase(part.charAt(0))
+                                       : Character.toUpperCase(part.charAt(0)));
+            sb.append(part.substring(1).toLowerCase(java.util.Locale.ROOT));
+        }
+        return sb.toString();
+    }
+
+    private static OutRange typedCall(FuncInfo f, double[][] outs, int[][] iouts)
             throws Exception {
         java.util.List<Object> args = new java.util.ArrayList<>();
         java.util.List<Class<?>> types = new java.util.ArrayList<>();
@@ -528,14 +542,14 @@ public class MetadataTest {
         }
 
         java.lang.reflect.Method m =
-            Core.class.getMethod(f.name(), types.toArray(new Class<?>[0]));
+            Core.class.getMethod(folded(f.name()), types.toArray(new Class<?>[0]));
         return (OutRange) m.invoke(Core.DEFAULT, args.toArray());
     }
 
     /* --------------------------------------------------------- holder misuse */
 
     static void holderRejectsMisuse() {
-        FunctionInfo sma = Functions.byName("SMA");
+        FuncInfo sma = Functions.byName("SMA");
         double[] out = new double[N];
 
         checkThrows(IllegalArgumentException.class,
@@ -552,7 +566,7 @@ public class MetadataTest {
             () -> sma.newCall().setOptInput(0, 1.5), "wrong optInput type -> IAE");
 
         // A price-typed input must not accept a bare real series, and vice versa.
-        FunctionInfo stoch = Functions.byName("STOCH");
+        FuncInfo stoch = Functions.byName("STOCH");
         checkThrows(IllegalArgumentException.class,
             () -> stoch.newCall().setInput(0, CLOSE), "real setter on a PRICE input -> IAE");
         checkThrows(IllegalArgumentException.class,
@@ -563,7 +577,7 @@ public class MetadataTest {
             "missing a required price component -> IAE");
 
         // An integer output cannot be bound with a double[] array.
-        FunctionInfo doji = Functions.byName("CDLDOJI");
+        FuncInfo doji = Functions.byName("CDLDOJI");
         checkThrows(IllegalArgumentException.class,
             () -> doji.newCall().setOutput(0, out), "double[] on an INTEGER output -> IAE");
 
@@ -575,14 +589,14 @@ public class MetadataTest {
            API, not by oversight: its setters take a bare pointer and carry no
            length. */
         double[] shortLeg = new double[N / 2];
-        checkRetCode(RetCode.BadParam,
+        checkRetCode(RetCode.BAD_PARAM,
             () -> sma.newCall().setInput(0, shortLeg).setOptInput(0, 30)
                      .setOutput(0, new double[N]).call(0, N - 1),
-            "an input shorter than the range -> BadParam");
-        checkRetCode(RetCode.BadParam,
+            "an input shorter than the range -> BAD_PARAM");
+        checkRetCode(RetCode.BAD_PARAM,
             () -> sma.newCall().setInput(0, CLOSE).setOptInput(0, 30)
                      .setOutput(0, new double[4]).call(0, N - 1),
-            "an output shorter than the produced count -> BadParam");
+            "an output shorter than the produced count -> BAD_PARAM");
         // Control: sized to the count actually produced, which is B5's bound --
         // not the width of the requested range.
         int lookback = sma.newCall().setOptInput(0, 30).lookback();
@@ -607,7 +621,7 @@ public class MetadataTest {
     static void aRejectedSetterLeavesTheHolderAsItFoundIt() {
         // WILLR consumes High|Low|Close, so close is the last required component
         // and the natural place to trip the setter.
-        FunctionInfo willr = Functions.byName("WILLR");
+        FuncInfo willr = Functions.byName("WILLR");
         // A different PHASE, not a shift: WILLR is (hh - c) / (hh - ll), which a
         // uniform offset leaves unchanged -- the control below would then pass on
         // a setter that did nothing at all.
@@ -669,7 +683,7 @@ public class MetadataTest {
             failures++;
             System.out.println("  FAIL: " + what + " (no exception thrown)");
         } catch (RuntimeException e) {
-            if (!(e instanceof TaLibFailure f) || f.retCode() != expected) {
+            if (!(e instanceof TALibFailure f) || f.retCode() != expected) {
                 failures++;
                 System.out.println("  FAIL: " + what + " (threw " + e.getClass().getName() + ")");
             }
@@ -691,7 +705,7 @@ public class MetadataTest {
 
         // And against the typed call, bit for bit.
         double[] c = new double[N];
-        OutRange rc = Core.DEFAULT.SMA(0, N - 1, CLOSE, 5, c);
+        OutRange rc = Core.DEFAULT.sma(0, N - 1, CLOSE, 5, c);
         check(rc.equals(ra), "explicit-parameter range matches the typed call");
         boolean same = true;
         for (int i = 0; i < rc.count(); i++) {
@@ -727,7 +741,7 @@ public class MetadataTest {
      */
     private static void choiceListSentinelMatchesTheDefault() {
         int covered = 0;
-        for (FunctionInfo f : Functions.all()) {
+        for (FuncInfo f : Functions.all()) {
             for (int p = 0; p < f.optInputs().size(); p++) {
                 if (f.optInputs().get(p).type() != OptInputType.INTEGER_LIST) {
                     continue;
@@ -787,7 +801,7 @@ public class MetadataTest {
     private static void holderLookbackMatchesTheTypedApi() {
         int compared = 0;
         int withDistinct = 0;
-        for (FunctionInfo f : Functions.all()) {
+        for (FuncInfo f : Functions.all()) {
             ParamHolder h = bind(f, newReal(f), newInt(f));
 
             /* Distinct, in-range, non-default where the domain allows it. */
@@ -845,7 +859,7 @@ public class MetadataTest {
         check(xml.startsWith("<?xml"), "the XML description is an XML document");
         check(xml.contains("</FinancialFunctions>"), "the XML description is complete");
         int found = 0;
-        for (FunctionInfo f : Functions.all()) {
+        for (FuncInfo f : Functions.all()) {
             if (xml.contains("<Abbreviation>" + f.name() + "</Abbreviation>")) {
                 found++;
             } else {
@@ -856,7 +870,7 @@ public class MetadataTest {
               "XML describes every function (" + found + "/" + Functions.all().size() + ")");
     }
 
-    private static double[][] newReal(FunctionInfo f) {
+    private static double[][] newReal(FuncInfo f) {
         double[][] a = new double[f.outputs().size()][];
         for (int i = 0; i < a.length; i++) {
             a[i] = new double[N];
@@ -864,7 +878,7 @@ public class MetadataTest {
         return a;
     }
 
-    private static int[][] newInt(FunctionInfo f) {
+    private static int[][] newInt(FuncInfo f) {
         int[][] a = new int[f.outputs().size()][];
         for (int i = 0; i < a.length; i++) {
             a[i] = new int[N];
@@ -873,7 +887,7 @@ public class MetadataTest {
     }
 
     /**
-     * {@code FunctionInfo.newCall(Core)} must route through the {@code Core} it
+     * {@code FuncInfo.newCall(Core)} must route through the {@code Core} it
      * was handed, not {@link Core#DEFAULT}.
      *
      * <p>It is public API with zero callers anywhere — every other metadata test
@@ -886,15 +900,15 @@ public class MetadataTest {
      */
     static void newCallCarriesTheGivenCore() {
         Core tuned = Core.builder().unstablePeriod(io.github.talib.FuncUnstId.RSI, 9).build();
-        FunctionInfo rsi = Functions.byName("RSI");
+        FuncInfo rsi = Functions.byName("RSI");
 
         int viaDefault = rsi.newCall().setOptInput(0, 14).lookback();
         int viaTuned = rsi.newCall(tuned).setOptInput(0, 14).lookback();
 
-        check(viaDefault == Core.DEFAULT.RSI_Lookback(14),
+        check(viaDefault == Core.DEFAULT.rsiLookback(14),
               "newCall() uses Core.DEFAULT (" + viaDefault + ")");
-        check(viaTuned == tuned.RSI_Lookback(14),
-              "newCall(core) uses the given Core (" + viaTuned + " vs " + tuned.RSI_Lookback(14) + ")");
+        check(viaTuned == tuned.rsiLookback(14),
+              "newCall(core) uses the given Core (" + viaTuned + " vs " + tuned.rsiLookback(14) + ")");
         check(viaTuned == viaDefault + 9,
               "the unstable period reaches the binder: " + viaDefault + " + 9 == " + viaTuned);
 
@@ -932,7 +946,7 @@ public class MetadataTest {
          * the 176 functions to on Core.DEFAULT, now on a Core that is not it.
          */
         double[] direct = new double[N];
-        OutRange rDirect = tuned.RSI(0, N - 1, CLOSE, 14, direct);
+        OutRange rDirect = tuned.rsi(0, N - 1, CLOSE, 14, direct);
         check(rDirect.begIdx() == rTuned.begIdx() && rDirect.count() == rTuned.count(),
               "the binder and the typed call agree on the range for the tuned Core");
         boolean sameBits = true;

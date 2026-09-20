@@ -55,12 +55,12 @@
  *
  * <pre>{@code
  * double[] out = new double[close.length];
- * OutRange r = Core.DEFAULT.SMA(0, close.length - 1, close, 30, out);
+ * OutRange r = Core.DEFAULT.sma(0, close.length - 1, close, 30, out);
  * // out[0 .. r.count() - 1] are the values; r.begIdx() is where they start
  * }</pre>
  *
  * <p>Output is written from index {@code 0}, not from {@code begIdx}: an
- * indicator needs {@code <NAME>_Lookback(params)} bars before it can produce
+ * indicator needs {@code <name>Lookback(params)} bars before it can produce
  * anything, so {@code begIdx} says where in the <i>input</i> the first value
  * belongs. A range shorter than the lookback is a success with a count of
  * zero, never an exception.
@@ -85,12 +85,22 @@
  *
  * <h2>Errors</h2>
  *
- * Parameters outside their documented range throw
- * {@link java.lang.IllegalArgumentException}; indices outside the input throw
- * {@link java.lang.IndexOutOfBoundsException}; a stream opened on less history
- * than its lookback throws {@link io.github.talib.InsufficientHistoryException},
- * which extends {@code IllegalArgumentException} so it can be caught to
- * accumulate more bars and retry.
+ * A {@code startIdx} or {@code endIdx} that is negative or above
+ * {@link io.github.talib.Core#MAX_INDEX}, an {@code endIdx} below
+ * {@code startIdx}, or a stream history that is empty or longer than
+ * {@code MAX_INDEX + 1} bars, throws
+ * {@link io.github.talib.TALibIndexException}. A parameter outside its
+ * documented range, a required array that is absent, or an array too short for
+ * the values the call reads or writes (including an {@code endIdx} past the end
+ * of the input), throws {@link io.github.talib.TALibArgumentException}. A stream
+ * opened on a non-empty history of fewer bars than its lookback plus one throws
+ * {@link io.github.talib.InsufficientHistoryException}, which extends
+ * {@code TALibArgumentException} so it can be caught to accumulate more bars and
+ * retry.
+ *
+ * <p>Each extends the platform type a caller would reach for
+ * ({@code IndexOutOfBoundsException}, {@code IllegalArgumentException}), so
+ * catching either shape works.
  *
  * @see io.github.talib.metadata
  * @see <a href="https://ta-lib.org">ta-lib.org</a>

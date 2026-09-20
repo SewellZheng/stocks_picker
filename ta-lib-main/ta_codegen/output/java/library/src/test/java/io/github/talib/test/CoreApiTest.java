@@ -157,13 +157,13 @@ public class CoreApiTest {
         Core plain = Core.DEFAULT;
         Core tuned = Core.builder().unstablePeriod(FuncUnstId.RSI, 9).build();
 
-        OutRange r0 = plain.RSI(0, in.length - 1, in, 14, out0);
-        OutRange r9 = tuned.RSI(0, in.length - 1, in, 14, out9);
+        OutRange r0 = plain.rsi(0, in.length - 1, in, 14, out0);
+        OutRange r9 = tuned.rsi(0, in.length - 1, in, 14, out9);
         check(!r0.isEmpty() && !r9.isEmpty(), "both rsi calls produced values");
         check(r9.begIdx() == r0.begIdx() + 9,
               "unstable period shifts begIdx by exactly that many bars ("
               + r0.begIdx() + " -> " + r9.begIdx() + ")");
-        check(plain.RSI_Lookback(14) + 9 == tuned.RSI_Lookback(14),
+        check(plain.rsiLookback(14) + 9 == tuned.rsiLookback(14),
               "the lookback is unstable-period aware per Core instance");
     }
 
@@ -179,13 +179,13 @@ public class CoreApiTest {
         }
 
         Core tuned = Core.builder()
-            .candleSetting(CandleSettingType.BodyDoji, RangeType.HighLow, 10, 1.0e9)
+            .candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, 1.0e9)
             .build();
 
         int[] outD = new int[n], outT = new int[n];
 
-        OutRange rD = Core.DEFAULT.CDLDOJI(0, n - 1, open, high, low, close, outD);
-        OutRange rT = tuned.CDLDOJI(0, n - 1, open, high, low, close, outT);
+        OutRange rD = Core.DEFAULT.cdldoji(0, n - 1, open, high, low, close, outD);
+        OutRange rT = tuned.cdldoji(0, n - 1, open, high, low, close, outT);
         check(!rD.isEmpty() && !rT.isEmpty(), "cdlDoji produced output on both cores");
         check(outD[rD.count() - 1] == 0, "default core: this candle is not a doji");
         check(outT[rT.count() - 1] == 100, "tuned core: a huge BodyDoji factor calls it a doji");
@@ -208,14 +208,14 @@ public class CoreApiTest {
 
         for (int avgPeriod : new int[] { 0, 1, 5, n - 1, n, 100, Core.MAX_INDEX }) {
             Core core = Core.builder()
-                .candleSetting(CandleSettingType.BodyDoji, RangeType.HighLow, avgPeriod, 0.1)
+                .candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, avgPeriod, 0.1)
                 .build();
-            int lookback = core.CDLDOJI_Lookback();
+            int lookback = core.cdldojiLookback();
             check(lookback >= 0 && lookback <= Core.MAX_INDEX,
                   "avgPeriod " + avgPeriod + ": lookback " + lookback + " is a real index count");
 
             int[] out = new int[n];
-            OutRange r = core.CDLDOJI(0, n - 1, open, high, low, close, out);
+            OutRange r = core.cdldoji(0, n - 1, open, high, low, close, out);
             if (lookback > n - 1) {
                 check(r.isEmpty(),
                       "avgPeriod " + avgPeriod + ": a lookback past the series produces nothing");
@@ -229,9 +229,9 @@ public class CoreApiTest {
 
     static void restoreCandleDefaultUndoesAnOverride() {
         CoreBuilder b = Core.builder()
-            .candleSetting(CandleSettingType.BodyDoji, RangeType.RealBody, 3, 42.0);
+            .candleSetting(CandleSettingType.BODY_DOJI, RangeType.REAL_BODY, 3, 42.0);
         Core overridden = b.build();
-        Core restored = b.restoreCandleDefault(CandleSettingType.BodyDoji).build();
+        Core restored = b.restoreCandleDefault(CandleSettingType.BODY_DOJI).build();
 
         int n = 60;
         double[] open = new double[n], high = new double[n], low = new double[n], close = new double[n];
@@ -240,9 +240,9 @@ public class CoreApiTest {
         }
         int[] o1 = new int[n], o2 = new int[n], o3 = new int[n];
 
-        OutRange q1 = overridden.CDLDOJI(0, n - 1, open, high, low, close, o1);
-        OutRange q2 = restored.CDLDOJI(0, n - 1, open, high, low, close, o2);
-        OutRange q3 = Core.DEFAULT.CDLDOJI(0, n - 1, open, high, low, close, o3);
+        OutRange q1 = overridden.cdldoji(0, n - 1, open, high, low, close, o1);
+        OutRange q2 = restored.cdldoji(0, n - 1, open, high, low, close, o2);
+        OutRange q3 = Core.DEFAULT.cdldoji(0, n - 1, open, high, low, close, o3);
 
         check(o1[q1.count() - 1] != o3[q3.count() - 1],
               "the override changed the verdict (so the restore below is not vacuous)");
@@ -264,7 +264,7 @@ public class CoreApiTest {
     static void toBuilderRoundTripsAndDoesNotAlias() {
         Core original = Core.builder()
             .unstablePeriod(FuncUnstId.RSI, 5)
-            .candleSetting(CandleSettingType.BodyLong, RangeType.HighLow, 4, 2.0)
+            .candleSetting(CandleSettingType.BODY_LONG, RangeType.HIGH_LOW, 4, 2.0)
             .build();
         Core derived = original.toBuilder().unstablePeriod(FuncUnstId.EMA, 8).build();
 
@@ -275,9 +275,9 @@ public class CoreApiTest {
     }
 
     static void candleSettingIsImmutable() {
-        CandleSetting cs = new CandleSetting(CandleSettingType.BodyDoji, RangeType.HighLow, 10, 0.1);
-        check(cs.settingType() == CandleSettingType.BodyDoji, "CandleSetting.settingType()");
-        check(cs.rangeType() == RangeType.HighLow, "CandleSetting.rangeType()");
+        CandleSetting cs = new CandleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, 0.1);
+        check(cs.settingType() == CandleSettingType.BODY_DOJI, "CandleSetting.settingType()");
+        check(cs.rangeType() == RangeType.HIGH_LOW, "CandleSetting.rangeType()");
         check(cs.avgPeriod() == 10, "CandleSetting.avgPeriod()");
         check(cs.factor() == 0.1, "CandleSetting.factor()");
 
@@ -354,35 +354,35 @@ public class CoreApiTest {
             () -> Core.builder().unstablePeriod(FuncUnstId.ALL, Core.MAX_INDEX + 1),
             "wildcard period above MAX_INDEX -> IAE");
         checkThrows(NullPointerException.class,
-            () -> Core.builder().candleSetting(null, RangeType.HighLow, 1, 1.0),
+            () -> Core.builder().candleSetting(null, RangeType.HIGH_LOW, 1, 1.0),
             "null CandleSettingType -> NPE");
         checkThrows(NullPointerException.class,
-            () -> Core.builder().candleSetting(CandleSettingType.BodyDoji, null, 1, 1.0),
+            () -> Core.builder().candleSetting(CandleSettingType.BODY_DOJI, null, 1, 1.0),
             "null RangeType -> NPE");
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().candleSetting(
-                CandleSettingType.AllCandleSettings, RangeType.HighLow, 1, 1.0),
+                CandleSettingType.ALL_CANDLE_SETTINGS, RangeType.HIGH_LOW, 1, 1.0),
             "AllCandleSettings as a single-setting target -> IAE");
         checkThrows(IllegalArgumentException.class,
-            () -> Core.builder().candleSetting(CandleSettingType.BodyDoji, RangeType.HighLow, -1, 1.0),
+            () -> Core.builder().candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, -1, 1.0),
             "negative avgPeriod -> IAE");
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().candleSetting(
-                CandleSettingType.BodyDoji, RangeType.HighLow, Core.MAX_INDEX + 1, 1.0),
+                CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, Core.MAX_INDEX + 1, 1.0),
             "avgPeriod above MAX_INDEX -> IAE");
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().candleSetting(
-                CandleSettingType.BodyDoji, RangeType.HighLow, Integer.MAX_VALUE, 1.0),
+                CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, Integer.MAX_VALUE, 1.0),
             "avgPeriod at Integer.MAX_VALUE -> IAE");
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().candleSetting(
-                CandleSettingType.BodyDoji, RangeType.HighLow, 10, Double.NaN),
+                CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, Double.NaN),
             "NaN factor -> IAE");
         // A negative factor is legal: it scales a threshold nothing can fall
         // below, so the pattern simply never matches — a plausible thing to ask
         // for, unlike NaN.
         check(Core.builder().candleSetting(
-                  CandleSettingType.BodyDoji, RangeType.HighLow, 10, -1.0) != null,
+                  CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, -1.0) != null,
               "a negative factor is accepted");
         // Core.unstablePeriod(id) reads; CoreBuilder.unstablePeriod(id, period)
         // writes. Same name, different class and arity — the immutable Core has
@@ -407,7 +407,7 @@ public class CoreApiTest {
         final Core shared = Core.builder().unstablePeriod(FuncUnstId.RSI, 4).build();
 
         final double[] reference = new double[in.length];
-        final OutRange refRange = shared.RSI(0, in.length - 1, in, 14, reference);
+        final OutRange refRange = shared.rsi(0, in.length - 1, in, 14, reference);
 
         final int threads = 8;
         final CountDownLatch start = new CountDownLatch(1);
@@ -420,7 +420,7 @@ public class CoreApiTest {
                     start.await();
                     for (int rep = 0; rep < 50; rep++) {
                         double[] out = new double[in.length];
-                        OutRange r = shared.RSI(0, in.length - 1, in, 14, out);
+                        OutRange r = shared.rsi(0, in.length - 1, in, 14, out);
                         if (!r.equals(refRange)) {
                             problems.add("range diverged: " + r + " != " + refRange);
                             return;

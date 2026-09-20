@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#FOSC} consumes before it can
+    * Number of leading input bars {@link Core#fosc} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -23,7 +23,7 @@
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int FOSC_Lookback( int optInTimePeriod )
+   public int foscLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
@@ -33,13 +33,13 @@
       return optInTimePeriod ;
 
    }
-   RetCode FOSC_Impl( int startIdx,
-                      int endIdx,
-                      double inReal[],
-                      int optInTimePeriod,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outReal[] )
+   RetCode foscImpl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -63,15 +63,15 @@
       double weightedTrailing = 0;
       double sumAbs = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* The forecast compared against the close is the one made one bar EARLIER:
        * FOSC[t] = 100*(inReal[t] - TSF[t-1])/inReal[t]. The regression window
@@ -88,7 +88,7 @@
        * exactly that cell whenever startIdx is the clamped minimum. closeValue
        * carries no such constraint: it sits startIdx bars ahead of the cursor.
        */
-      lookbackTotal = FOSC_Lookback(optInTimePeriod);
+      lookbackTotal = foscLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -96,7 +96,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outIdx = 0;
       today = startIdx;
@@ -160,15 +160,15 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode FOSC_Impl( int startIdx,
-                      int endIdx,
-                      float inReal[],
-                      int optInTimePeriod,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outReal[] )
+   RetCode foscImpl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -192,24 +192,24 @@
       double weightedTrailing = 0;
       double sumAbs = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
-      lookbackTotal = FOSC_Lookback(optInTimePeriod);
+      lookbackTotal = foscLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outIdx = 0;
       today = startIdx;
@@ -273,7 +273,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Forecast Oscillator: the percentage by which the close deviates from the
@@ -292,8 +292,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#FOSC_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#foscLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -316,26 +316,26 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#TSF
-    * @see Core#LINEARREG
-    * @see Core#CMOU
+    * @see Core#tsf
+    * @see Core#linearreg
+    * @see Core#cmou
     */
-   public OutRange FOSC( int startIdx,
+   public OutRange fosc( int startIdx,
                          int endIdx,
                          double inReal[],
                          int optInTimePeriod,
                          double outReal[] )
    {
       requireIndexRange("FOSC", startIdx, endIdx);
-      int guardStart = clampedStart("FOSC", startIdx, FOSC_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("FOSC", startIdx, foscLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("FOSC", "inReal", inReal, guardInLen);
       requireLength("FOSC", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = FOSC_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = foscImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("FOSC", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -360,8 +360,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#FOSC_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#foscLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -384,26 +384,26 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#TSF
-    * @see Core#LINEARREG
-    * @see Core#CMOU
+    * @see Core#tsf
+    * @see Core#linearreg
+    * @see Core#cmou
     */
-   public OutRange FOSC( int startIdx,
+   public OutRange fosc( int startIdx,
                          int endIdx,
                          float inReal[],
                          int optInTimePeriod,
                          double outReal[] )
    {
       requireIndexRange("FOSC", startIdx, endIdx);
-      int guardStart = clampedStart("FOSC", startIdx, FOSC_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("FOSC", startIdx, foscLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("FOSC", "inReal", inReal, guardInLen);
       requireLength("FOSC", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = FOSC_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = foscImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("FOSC", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -412,7 +412,7 @@
 
    /**
     * A live FOSC stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#FOSC} over the same series.
+    * closed bar, bit-identical to {@link Core#fosc} over the same series.
     * Open with {@link Core#foscOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -450,7 +450,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#FOSC} reports over the same bars: the
+       * <p>It is what {@link Core#fosc} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -477,7 +477,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("FOSC advance", RetCode.OutOfRangeEndIndex);
+            throw failure("FOSC advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -523,9 +523,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("FOSC update", RetCode.OutOfRangeEndIndex);
+            throw failure("FOSC update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("FOSC update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("FOSC update: BAD_PARAM", RetCode.BAD_PARAM);
          core.foscStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -543,7 +543,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("FOSC peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("FOSC peek: BAD_PARAM", RetCode.BAD_PARAM);
          FoscStream sp = this;
          double m = 0.0;
          double b = 0.0;
@@ -692,20 +692,20 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* The forecast compared against the close is the one made one bar EARLIER:
        * FOSC[t] = 100*(inReal[t] - TSF[t-1])/inReal[t]. The regression window
@@ -722,7 +722,7 @@
        * exactly that cell whenever startIdx is the clamped minimum. closeValue
        * carries no such constraint: it sits startIdx bars ahead of the cursor.
        */
-      lookbackTotal = FOSC_Lookback(optInTimePeriod);
+      lookbackTotal = foscLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -730,7 +730,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       outIdx = 0;
       today = startIdx;
@@ -797,7 +797,7 @@
       /* Capture the live batch state into the handle. */
       int capX = today - trailingIdx + 1;
       if( capX < 1 || capX > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int physX = 1;
       while( physX < capX ) {
@@ -823,7 +823,7 @@
       sp.xMask = physX - 1;
       sp.x_inReal = capX_inReal;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* foscOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    FoscStream foscOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -832,16 +832,16 @@
       RetCode retCode = foscOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("FOSC openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("FOSC openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("FOSC openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("FOSC openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("FOSC openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind foscOpen (composition seam). */
    FoscStream foscOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -853,22 +853,22 @@
       RetCode retCode = foscOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("FOSC open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("FOSC open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("FOSC open: internal error", retCode);
       }
-      throw new TaLibArgumentException("FOSC open: " + retCode, retCode);
+      throw new TALibArgumentException("FOSC open: " + retCode, retCode);
    }
    /**
     * Open a live FOSC stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#FOSC} at that bar.
-    * <p>The history must hold at least {@code FOSC_Lookback(...) + 1} bars
+    * to {@link Core#fosc} at that bar.
+    * <p>The history must hold at least {@code foscLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -885,7 +885,7 @@
    }
    /**
     * {@link Core#foscOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#FOSC} over the whole history in the same single pass
+    * to {@link Core#fosc} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -898,10 +898,10 @@
    {
       requireArgument("FOSC openAndFill", "inReal", inReal);
       requireHistory("FOSC openAndFill", inReal.length);
-      int guardOutLen = openFillCount("FOSC openAndFill", inReal.length, FOSC_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("FOSC openAndFill", inReal.length, foscLookback(optInTimePeriod));
       requireLength("FOSC openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("FOSC openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("FOSC openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

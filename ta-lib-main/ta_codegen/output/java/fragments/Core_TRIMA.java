@@ -21,7 +21,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#TRIMA} consumes before it can
+    * Number of leading input bars {@link Core#trima} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -31,7 +31,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int TRIMA_Lookback( int optInTimePeriod )
+   public int trimaLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
@@ -41,13 +41,13 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode TRIMA_Impl( int startIdx,
-                       int endIdx,
-                       double inReal[],
-                       int optInTimePeriod,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode trimaImpl( int startIdx,
+                      int endIdx,
+                      double inReal[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int lookbackTotal = 0;
       double numerator = 0;
@@ -61,15 +61,15 @@
       double factor = 0;
       double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
@@ -85,7 +85,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* TRIMA Description
        * =================
@@ -320,15 +320,15 @@
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode TRIMA_Impl( int startIdx,
-                       int endIdx,
-                       float inReal[],
-                       int optInTimePeriod,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode trimaImpl( int startIdx,
+                      int endIdx,
+                      float inReal[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int lookbackTotal = 0;
       double numerator = 0;
@@ -342,15 +342,15 @@
       double factor = 0;
       double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       lookbackTotal = optInTimePeriod - 1;
       if( startIdx < lookbackTotal ) {
@@ -359,7 +359,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outIdx = 0;
       if( optInTimePeriod % 2 == 1 ) {
@@ -441,7 +441,7 @@
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Triangular Moving Average: a double-smoothed moving average that weights
@@ -458,7 +458,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#TRIMA_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#trimaLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -482,26 +482,26 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#SMA
-    * @see Core#WMA
-    * @see Core#MA
+    * @see Core#sma
+    * @see Core#wma
+    * @see Core#ma
     */
-   public OutRange TRIMA( int startIdx,
+   public OutRange trima( int startIdx,
                           int endIdx,
                           double inReal[],
                           int optInTimePeriod,
                           double outReal[] )
    {
       requireIndexRange("TRIMA", startIdx, endIdx);
-      int guardStart = clampedStart("TRIMA", startIdx, TRIMA_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("TRIMA", startIdx, trimaLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("TRIMA", "inReal", inReal, guardInLen);
       requireLength("TRIMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TRIMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = trimaImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("TRIMA", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -524,7 +524,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#TRIMA_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#trimaLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -548,26 +548,26 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#SMA
-    * @see Core#WMA
-    * @see Core#MA
+    * @see Core#sma
+    * @see Core#wma
+    * @see Core#ma
     */
-   public OutRange TRIMA( int startIdx,
+   public OutRange trima( int startIdx,
                           int endIdx,
                           float inReal[],
                           int optInTimePeriod,
                           double outReal[] )
    {
       requireIndexRange("TRIMA", startIdx, endIdx);
-      int guardStart = clampedStart("TRIMA", startIdx, TRIMA_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("TRIMA", startIdx, trimaLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("TRIMA", "inReal", inReal, guardInLen);
       requireLength("TRIMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TRIMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = trimaImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("TRIMA", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -576,7 +576,7 @@
 
    /**
     * A live TRIMA stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#TRIMA} over the same series.
+    * closed bar, bit-identical to {@link Core#trima} over the same series.
     * Open with {@link Core#trimaOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -611,7 +611,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#TRIMA} reports over the same bars: the
+       * <p>It is what {@link Core#trima} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -638,7 +638,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("TRIMA advance", RetCode.OutOfRangeEndIndex);
+            throw failure("TRIMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -681,9 +681,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("TRIMA update", RetCode.OutOfRangeEndIndex);
+            throw failure("TRIMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("TRIMA update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("TRIMA update: BAD_PARAM", RetCode.BAD_PARAM);
          core.trimaStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -701,7 +701,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("TRIMA peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("TRIMA peek: BAD_PARAM", RetCode.BAD_PARAM);
          TrimaStream sp = this;
          double cur_outReal = 0.0;
          if( sp.optInTimePeriod % 2 == 1 ) {
@@ -871,15 +871,15 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInTimePeriod % 2 == 1 ) {
          int lookbackTotal = 0;
@@ -907,7 +907,7 @@
          if( startIdx > endIdx ) {
             outBegIdx.value = 0;
             outNBElement.value = 0;
-            return RetCode.InsufficientHistory ;
+            return RetCode.INSUFFICIENT_HISTORY ;
          }
          /* TRIMA Description
           * =================
@@ -1082,14 +1082,14 @@
          /* Capture the live batch state into the handle. */
          int cap_middleIdx = todayIdx - middleIdx;
          if( cap_middleIdx < 0 || cap_middleIdx > historyLen ) {
-            return RetCode.InternalError;
+            return RetCode.INTERNAL_ERROR;
          }
          int allocN_middleIdx = (cap_middleIdx > 0)? cap_middleIdx : 1;
          double[] capRing_middleIdx_inReal = new double[allocN_middleIdx];
          System.arraycopy(inReal, historyLen - cap_middleIdx, capRing_middleIdx_inReal, 0, cap_middleIdx);
          int cap_trailingIdx = todayIdx - trailingIdx;
          if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-            return RetCode.InternalError;
+            return RetCode.INTERNAL_ERROR;
          }
          int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
          double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
@@ -1107,7 +1107,7 @@
          sp.ringCap_trailingIdx = cap_trailingIdx;
          sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-         return RetCode.Success;
+         return RetCode.SUCCESS;
       } else {
          int lookbackTotal = 0;
          double numerator = 0;
@@ -1134,7 +1134,7 @@
          if( startIdx > endIdx ) {
             outBegIdx.value = 0;
             outNBElement.value = 0;
-            return RetCode.InsufficientHistory ;
+            return RetCode.INSUFFICIENT_HISTORY ;
          }
          /* TRIMA Description
           * =================
@@ -1287,14 +1287,14 @@
          /* Capture the live batch state into the handle. */
          int cap_middleIdx = todayIdx - middleIdx;
          if( cap_middleIdx < 0 || cap_middleIdx > historyLen ) {
-            return RetCode.InternalError;
+            return RetCode.INTERNAL_ERROR;
          }
          int allocN_middleIdx = (cap_middleIdx > 0)? cap_middleIdx : 1;
          double[] capRing_middleIdx_inReal = new double[allocN_middleIdx];
          System.arraycopy(inReal, historyLen - cap_middleIdx, capRing_middleIdx_inReal, 0, cap_middleIdx);
          int cap_trailingIdx = todayIdx - trailingIdx;
          if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-            return RetCode.InternalError;
+            return RetCode.INTERNAL_ERROR;
          }
          int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
          double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
@@ -1312,7 +1312,7 @@
          sp.ringCap_trailingIdx = cap_trailingIdx;
          sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-         return RetCode.Success;
+         return RetCode.SUCCESS;
       }
    }
    /* trimaOpenAndFill anchored at startIdx — the composed-open fusion seam. */
@@ -1322,16 +1322,16 @@
       RetCode retCode = trimaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("TRIMA openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("TRIMA openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("TRIMA openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("TRIMA openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("TRIMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind trimaOpen (composition seam). */
    TrimaStream trimaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -1343,22 +1343,22 @@
       RetCode retCode = trimaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("TRIMA open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("TRIMA open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("TRIMA open: internal error", retCode);
       }
-      throw new TaLibArgumentException("TRIMA open: " + retCode, retCode);
+      throw new TALibArgumentException("TRIMA open: " + retCode, retCode);
    }
    /**
     * Open a live TRIMA stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#TRIMA} at that bar.
-    * <p>The history must hold at least {@code TRIMA_Lookback(...) + 1} bars
+    * to {@link Core#trima} at that bar.
+    * <p>The history must hold at least {@code trimaLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -1375,7 +1375,7 @@
    }
    /**
     * {@link Core#trimaOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#TRIMA} over the whole history in the same single pass
+    * to {@link Core#trima} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1388,10 +1388,10 @@
    {
       requireArgument("TRIMA openAndFill", "inReal", inReal);
       requireHistory("TRIMA openAndFill", inReal.length);
-      int guardOutLen = openFillCount("TRIMA openAndFill", inReal.length, TRIMA_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("TRIMA openAndFill", inReal.length, trimaLookback(optInTimePeriod));
       requireLength("TRIMA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("TRIMA openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("TRIMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

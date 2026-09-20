@@ -30,7 +30,7 @@ fn main() -> Result<(), RetCode> {
     let core = Core::new();
     let mut sma = vec![0.0; close.len()];
 
-    let out = core.SMA(0, close.len() - 1, &close, 3, &mut sma)?;
+    let out = core.sma(0, close.len() - 1, &close, 3, &mut sma)?;
 
     // The first 3-period average lands at input index 2 (the lookback):
     assert_eq!((out.beg_idx, out.count), (2, 8));
@@ -43,7 +43,7 @@ Every indicator is a method on `Core` with the same calling pattern: `&[f64]`
 input slices, a `startIdx..=endIdx` range, caller-provided output slices, and a
 `Result<OutRange, RetCode>`. On success the `OutRange` says where the values
 start (`beg_idx`, in the input series' coordinates) and how many there are
-(`count`); `*_Lookback` methods return how many leading values an indicator
+(`count`); `*_lookback` methods return how many leading values an indicator
 consumes before the first one exists.
 
 A range shorter than the lookback is a **success with no values** (`count == 0`),

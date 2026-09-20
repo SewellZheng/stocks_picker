@@ -34,7 +34,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#BBANDS} consumes before it can
+    * Number of leading input bars {@link Core#bbands} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -52,7 +52,7 @@
     *        {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int BBANDS_Lookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
+   public int bbandsLookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
@@ -86,23 +86,23 @@
        * Open is tied to lookback+1. The middle band still begins at the MA's earlier
        * begIdx internally and is realigned to this later bar in bbands() below.
        */
-      maLookback = MA_Lookback(optInTimePeriod, optInMAType);
-      stddevLookback = STDDEV_Lookback(optInTimePeriod, 1.0);
+      maLookback = maLookback(optInTimePeriod, optInMAType);
+      stddevLookback = stddevLookback(optInTimePeriod, 1.0);
       return (maLookback > stddevLookback) ? maLookback : stddevLookback ;
 
    }
-   RetCode BBANDS_Impl( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        int optInTimePeriod,
-                        double optInNbDevUp,
-                        double optInNbDevDn,
-                        MAType optInMAType,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outRealUpperBand[],
-                        double outRealMiddleBand[],
-                        double outRealLowerBand[] )
+   RetCode bbandsImpl( int startIdx,
+                       int endIdx,
+                       double inReal[],
+                       int optInTimePeriod,
+                       double optInNbDevUp,
+                       double optInNbDevDn,
+                       MAType optInMAType,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outRealUpperBand[],
+                       double outRealMiddleBand[],
+                       double outRealLowerBand[] )
    {
       RetCode retCode;
       int i = 0;
@@ -113,31 +113,31 @@
       double[] tempBuffer1;
       double[] tempBuffer2;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDevUp == REAL_DEFAULT ) {
          optInNbDevUp = 2e0;
       } else if( !(optInNbDevUp >= REAL_MIN && optInNbDevUp <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDevDn == REAL_DEFAULT ) {
          optInNbDevDn = 2e0;
       } else if( !(optInNbDevDn >= REAL_MIN && optInNbDevDn <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
       }
       if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       if( optInMAType == MAType.SMA ) {
          /* SMA fast path: the middle band (SMA) and the standard deviation share one
@@ -165,7 +165,7 @@
           * (like using the input buffer in two output!)
           */
          if( tempBuffer1 == inReal || tempBuffer2 == inReal ) {
-            return RetCode.BadParam ;
+            return RetCode.BAD_PARAM ;
          }
          /* One pass with two independent recurrences: the SMA running sum (maTotal,
           * mean -> tempBuffer1, bit-identical to TA_MA(SMA)) and the shifted-data
@@ -195,7 +195,7 @@
          if( startIdx > endIdx ) {
             outBegIdx.value = 0;
             outNBElement.value = 0;
-            return RetCode.Success ;
+            return RetCode.SUCCESS ;
          }
          _invPeriod = 1.0 / (double)optInTimePeriod;
          _trailingIdx = startIdx - _lookbackTotal;
@@ -303,7 +303,7 @@
                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
             }
          }
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* General path (every MA type other than SMA): the middle band is the moving
        * average and the deviation is the standard deviation of the input, combined
@@ -325,18 +325,18 @@
        * deviation's, so its clamp already covers it. Pinned by the zero-length
        * no-I/O probe over every guarded core, at every MA type.
        */
-      if( BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
+      if( bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
       tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
       /* Calculate the middle band moving average. */
-      OutRange _xr0 = MA(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer1);
+      OutRange _xr0 = ma(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer1);
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
          return retCode ;
@@ -344,10 +344,10 @@
       /* Remember where the moving average begins, to realign it below. */
       maBegIdx = (int)outBegIdx.value;
       /* Calculate the Standard Deviation into tempBuffer2. */
-      OutRange _xr1 = STDDEV((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, tempBuffer2);
+      OutRange _xr1 = stddev((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, tempBuffer2);
       outBegIdx.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       /* When the standard deviation (lookback optInTimePeriod-1) clamps to a later
        * begIdx than the moving average did - as with TA_MAType_MAMA (constant
        * lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
@@ -378,20 +378,20 @@
             outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
          }
       }
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode BBANDS_Impl( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        int optInTimePeriod,
-                        double optInNbDevUp,
-                        double optInNbDevDn,
-                        MAType optInMAType,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outRealUpperBand[],
-                        double outRealMiddleBand[],
-                        double outRealLowerBand[] )
+   RetCode bbandsImpl( int startIdx,
+                       int endIdx,
+                       float inReal[],
+                       int optInTimePeriod,
+                       double optInNbDevUp,
+                       double optInNbDevDn,
+                       MAType optInMAType,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outRealUpperBand[],
+                       double outRealMiddleBand[],
+                       double outRealLowerBand[] )
    {
       RetCode retCode;
       int i = 0;
@@ -402,31 +402,31 @@
       double[] tempBuffer1;
       double[] tempBuffer2;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDevUp == REAL_DEFAULT ) {
          optInNbDevUp = 2e0;
       } else if( !(optInNbDevUp >= REAL_MIN && optInNbDevUp <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDevDn == REAL_DEFAULT ) {
          optInNbDevDn = 2e0;
       } else if( !(optInNbDevDn >= REAL_MIN && optInNbDevDn <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
       }
       if( outRealUpperBand == outRealMiddleBand || outRealUpperBand == outRealLowerBand || outRealMiddleBand == outRealLowerBand ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       if( optInMAType == MAType.SMA ) {
          if( false ) {
@@ -443,7 +443,7 @@
             tempBuffer2 = outRealUpperBand;
          }
          if( false || false ) {
-            return RetCode.BadParam ;
+            return RetCode.BAD_PARAM ;
          }
          double maTotal;
          double shift;
@@ -467,7 +467,7 @@
          if( startIdx > endIdx ) {
             outBegIdx.value = 0;
             outNBElement.value = 0;
-            return RetCode.Success ;
+            return RetCode.SUCCESS ;
          }
          _invPeriod = 1.0 / (double)optInTimePeriod;
          _trailingIdx = startIdx - _lookbackTotal;
@@ -551,28 +551,28 @@
                outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
             }
          }
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
-      if( BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
+      if( bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
       tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
-      OutRange _xr0 = MA(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer1);
+      OutRange _xr0 = ma(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer1);
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
          return retCode ;
       }
       maBegIdx = (int)outBegIdx.value;
-      OutRange _xr1 = STDDEV((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, tempBuffer2);
+      OutRange _xr1 = stddev((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, tempBuffer2);
       outBegIdx.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( (int)outBegIdx.value > maBegIdx ) {
          shiftIdx = (int)outBegIdx.value - maBegIdx;
       } else {
@@ -593,7 +593,7 @@
             outRealLowerBand[i] = tempReal2 - tempBuffer2[i] * optInNbDevDn;
          }
       }
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Bollinger Bands: a moving-average middle band with upper and lower bands
@@ -604,7 +604,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#BBANDS_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#bbandsLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -640,11 +640,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MA
-    * @see Core#STDDEV
-    * @see Core#SMA
+    * @see Core#ma
+    * @see Core#stddev
+    * @see Core#sma
     */
-   public OutRange BBANDS( int startIdx,
+   public OutRange bbands( int startIdx,
                            int endIdx,
                            double inReal[],
                            int optInTimePeriod,
@@ -657,7 +657,7 @@
    {
       requireIndexRange("BBANDS", startIdx, endIdx);
       requireArgument("BBANDS", "optInMAType", optInMAType);
-      int guardStart = clampedStart("BBANDS", startIdx, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      int guardStart = clampedStart("BBANDS", startIdx, bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BBANDS", "inReal", inReal, guardInLen);
@@ -666,8 +666,8 @@
       requireLength("BBANDS", "outRealLowerBand", outRealLowerBand, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BBANDS_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = bbandsImpl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("BBANDS", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -684,7 +684,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#BBANDS_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#bbandsLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -720,11 +720,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MA
-    * @see Core#STDDEV
-    * @see Core#SMA
+    * @see Core#ma
+    * @see Core#stddev
+    * @see Core#sma
     */
-   public OutRange BBANDS( int startIdx,
+   public OutRange bbands( int startIdx,
                            int endIdx,
                            float inReal[],
                            int optInTimePeriod,
@@ -737,7 +737,7 @@
    {
       requireIndexRange("BBANDS", startIdx, endIdx);
       requireArgument("BBANDS", "optInMAType", optInMAType);
-      int guardStart = clampedStart("BBANDS", startIdx, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      int guardStart = clampedStart("BBANDS", startIdx, bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BBANDS", "inReal", inReal, guardInLen);
@@ -746,8 +746,8 @@
       requireLength("BBANDS", "outRealLowerBand", outRealLowerBand, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BBANDS_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = bbandsImpl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("BBANDS", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -756,7 +756,7 @@
 
    /**
     * A live BBANDS stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#BBANDS} over the same series.
+    * closed bar, bit-identical to {@link Core#bbands} over the same series.
     * Open with {@link Core#bbandsOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -787,7 +787,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#BBANDS} reports over the same bars: the
+       * <p>It is what {@link Core#bbands} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -814,7 +814,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("BBANDS advance", RetCode.OutOfRangeEndIndex);
+            throw failure("BBANDS advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -853,10 +853,10 @@
        */
       public void update( double inReal, BbandsOut out ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("BBANDS update", RetCode.OutOfRangeEndIndex);
+            throw failure("BBANDS update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("BBANDS update", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("BBANDS update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("BBANDS update: BAD_PARAM", RetCode.BAD_PARAM);
          core.bbandsStepImpl(this, inReal);
          this.outRangeCount++;
          out.realUpperBand = this.cur_outRealUpperBand;
@@ -877,7 +877,7 @@
       public void peek( double inReal, BbandsOut out ) {
          requireArgument("BBANDS peek", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("BBANDS peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("BBANDS peek: BAD_PARAM", RetCode.BAD_PARAM);
          BbandsStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -998,25 +998,25 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDevUp == REAL_DEFAULT ) {
          optInNbDevUp = 2e0;
       } else if( !(optInNbDevUp >= REAL_MIN && optInNbDevUp <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDevDn == REAL_DEFAULT ) {
          optInNbDevDn = 2e0;
       } else if( !(optInNbDevDn >= REAL_MIN && optInNbDevDn <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
@@ -1024,10 +1024,10 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      if( historyLen < BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) + 1 ) {
-         return RetCode.InsufficientHistory;
+      if( historyLen < bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) + 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       double[] sc_outRealUpperBand = outStride == 1 ? outRealUpperBand : new double[historyLen];
       double[] sc_outRealMiddleBand = outStride == 1 ? outRealMiddleBand : new double[historyLen];
@@ -1052,10 +1052,10 @@
        * deviation's, so its clamp already covers it. Pinned by the zero-length
        * no-I/O probe over every guarded core, at every MA type.
        */
-      if( BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
+      if( bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
       tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
@@ -1063,10 +1063,10 @@
       /* Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MaStream sub0 = maOpenAndFillInternal(inReal, startIdx, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Remember where the moving average begins, to realign it below. */
       maBegIdx = (int)outBegIdx.value;
@@ -1074,7 +1074,7 @@
       /* Sub-stream 1: stddev over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       StddevStream sub1 = stddevOpenAndFillInternal(inReal, (int)outBegIdx.value, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       /* When the standard deviation (lookback optInTimePeriod-1) clamps to a later
        * begIdx than the moving average did - as with TA_MAType_MAMA (constant
        * lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
@@ -1107,7 +1107,7 @@
       }
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.optInNbDevUp = optInNbDevUp;
@@ -1118,7 +1118,7 @@
       sp.cur_outRealUpperBand = sc_outRealUpperBand[outNBElement.value - 1];
       sp.cur_outRealMiddleBand = sc_outRealMiddleBand[outNBElement.value - 1];
       sp.cur_outRealLowerBand = sc_outRealLowerBand[outNBElement.value - 1];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* bbandsOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    BbandsStream bbandsOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
@@ -1127,16 +1127,16 @@
       RetCode retCode = bbandsOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("BBANDS openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("BBANDS openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("BBANDS openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("BBANDS openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("BBANDS openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind bbandsOpen (composition seam). */
    BbandsStream bbandsOpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
@@ -1150,22 +1150,22 @@
       RetCode retCode = bbandsOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("BBANDS open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("BBANDS open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("BBANDS open: internal error", retCode);
       }
-      throw new TaLibArgumentException("BBANDS open: " + retCode, retCode);
+      throw new TALibArgumentException("BBANDS open: " + retCode, retCode);
    }
    /**
     * Open a live BBANDS stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#BBANDS} at that bar.
-    * <p>The history must hold at least {@code BBANDS_Lookback(...) + 1} bars
+    * to {@link Core#bbands} at that bar.
+    * <p>The history must hold at least {@code bbandsLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE}, {@link Core#REAL_DEFAULT} and
@@ -1184,7 +1184,7 @@
    }
    /**
     * {@link Core#bbandsOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#BBANDS} over the whole history in the same single pass
+    * to {@link Core#bbands} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1198,12 +1198,12 @@
       requireArgument("BBANDS openAndFill", "inReal", inReal);
       requireHistory("BBANDS openAndFill", inReal.length);
       requireArgument("BBANDS openAndFill", "optInMAType", optInMAType);
-      int guardOutLen = openFillCount("BBANDS openAndFill", inReal.length, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      int guardOutLen = openFillCount("BBANDS openAndFill", inReal.length, bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
       requireLength("BBANDS openAndFill", "outRealUpperBand", outRealUpperBand, guardOutLen);
       requireLength("BBANDS openAndFill", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
       requireLength("BBANDS openAndFill", "outRealLowerBand", outRealLowerBand, guardOutLen);
       if( (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
-         throw new TaLibArgumentException("BBANDS openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("BBANDS openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

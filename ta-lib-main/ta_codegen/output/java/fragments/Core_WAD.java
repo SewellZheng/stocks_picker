@@ -12,7 +12,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#WAD} consumes before it can
+    * Number of leading input bars {@link Core#wad} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -20,7 +20,7 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int WAD_Lookback( )
+   public int wadLookback( )
    {
       /* The first bar has no previous close, so it accumulates nothing and the
        * line starts at 0.0 -- the same convention as the other cumulative
@@ -31,14 +31,14 @@
       return 0 ;
 
    }
-   RetCode WAD_Impl( int startIdx,
-                     int endIdx,
-                     double inHigh[],
-                     double inLow[],
-                     double inClose[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode wadImpl( int startIdx,
+                    int endIdx,
+                    double inHigh[],
+                    double inLow[],
+                    double inClose[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       double sum = 0;
       double prevClose = 0;
@@ -47,10 +47,10 @@
       int i = 0;
       int outIdx = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Williams' Accumulation/Distribution, in the form Steven Achelis
        * published (Technical Analysis from A to Z, 2nd ed., p.368) and the form
@@ -114,16 +114,16 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode WAD_Impl( int startIdx,
-                     int endIdx,
-                     float inHigh[],
-                     float inLow[],
-                     float inClose[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode wadImpl( int startIdx,
+                    int endIdx,
+                    float inHigh[],
+                    float inLow[],
+                    float inClose[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       double sum = 0;
       double prevClose = 0;
@@ -132,10 +132,10 @@
       int i = 0;
       int outIdx = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       sum = 0.0;
       outIdx = 0;
@@ -161,7 +161,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Williams' Accumulation/Distribution: a cumulative line meant to expose
@@ -184,7 +184,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#WAD_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#wadLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -208,13 +208,13 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#AD
-    * @see Core#ADOSC
-    * @see Core#NVI
-    * @see Core#OBV
-    * @see Core#PVI
+    * @see Core#ad
+    * @see Core#adosc
+    * @see Core#nvi
+    * @see Core#obv
+    * @see Core#pvi
     */
-   public OutRange WAD( int startIdx,
+   public OutRange wad( int startIdx,
                         int endIdx,
                         double inHigh[],
                         double inLow[],
@@ -222,7 +222,7 @@
                         double outReal[] )
    {
       requireIndexRange("WAD", startIdx, endIdx);
-      int guardStart = clampedStart("WAD", startIdx, WAD_Lookback());
+      int guardStart = clampedStart("WAD", startIdx, wadLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("WAD", "inHigh", inHigh, guardInLen);
@@ -231,8 +231,8 @@
       requireLength("WAD", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = WAD_Impl(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = wadImpl(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("WAD", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -261,7 +261,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#WAD_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#wadLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -285,13 +285,13 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#AD
-    * @see Core#ADOSC
-    * @see Core#NVI
-    * @see Core#OBV
-    * @see Core#PVI
+    * @see Core#ad
+    * @see Core#adosc
+    * @see Core#nvi
+    * @see Core#obv
+    * @see Core#pvi
     */
-   public OutRange WAD( int startIdx,
+   public OutRange wad( int startIdx,
                         int endIdx,
                         float inHigh[],
                         float inLow[],
@@ -299,7 +299,7 @@
                         double outReal[] )
    {
       requireIndexRange("WAD", startIdx, endIdx);
-      int guardStart = clampedStart("WAD", startIdx, WAD_Lookback());
+      int guardStart = clampedStart("WAD", startIdx, wadLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("WAD", "inHigh", inHigh, guardInLen);
@@ -308,8 +308,8 @@
       requireLength("WAD", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = WAD_Impl(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = wadImpl(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("WAD", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -318,7 +318,7 @@
 
    /**
     * A live WAD stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#WAD} over the same series.
+    * closed bar, bit-identical to {@link Core#wad} over the same series.
     * Open with {@link Core#wadOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -343,7 +343,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#WAD} reports over the same bars: the
+       * <p>It is what {@link Core#wad} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -370,7 +370,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("WAD advance", RetCode.OutOfRangeEndIndex);
+            throw failure("WAD advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -403,9 +403,9 @@
        */
       public double update( double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("WAD update", RetCode.OutOfRangeEndIndex);
+            throw failure("WAD update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("WAD update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("WAD update: BAD_PARAM", RetCode.BAD_PARAM);
          core.wadStepImpl(this, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -423,7 +423,7 @@
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("WAD peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("WAD peek: BAD_PARAM", RetCode.BAD_PARAM);
          WadStream sp = this;
          double close = 0.0;
          double trueExtreme = 0.0;
@@ -505,18 +505,18 @@
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* Williams' Accumulation/Distribution, in the form Steven Achelis
        * published (Technical Analysis from A to Z, 2nd ed., p.368) and the form
@@ -584,7 +584,7 @@
       sp.sum = sum;
       sp.prevClose = prevClose;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* wadOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    WadStream wadOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -593,16 +593,16 @@
       RetCode retCode = wadOpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("WAD openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("WAD openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("WAD openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("WAD openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("WAD openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind wadOpen (composition seam). */
    WadStream wadOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -614,22 +614,22 @@
       RetCode retCode = wadOpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("WAD open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("WAD open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("WAD open: internal error", retCode);
       }
-      throw new TaLibArgumentException("WAD open: " + retCode, retCode);
+      throw new TALibArgumentException("WAD open: " + retCode, retCode);
    }
    /**
     * Open a live WAD stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#WAD} at that bar.
-    * <p>The history must hold at least {@code WAD_Lookback(...) + 1} bars
+    * to {@link Core#wad} at that bar.
+    * <p>The history must hold at least {@code wadLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -648,7 +648,7 @@
    }
    /**
     * {@link Core#wadOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#WAD} over the whole history in the same single pass
+    * to {@link Core#wad} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -663,12 +663,12 @@
       requireHistory("WAD openAndFill", inHigh.length);
       requireArgument("WAD openAndFill", "inLow", inLow);
       requireArgument("WAD openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("WAD openAndFill", inHigh.length, WAD_Lookback());
+      int guardOutLen = openFillCount("WAD openAndFill", inHigh.length, wadLookback());
       requireHistoryLength("WAD openAndFill", "inLow", inLow.length, inHigh.length);
       requireHistoryLength("WAD openAndFill", "inClose", inClose.length, inHigh.length);
       requireLength("WAD openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
-         throw new TaLibArgumentException("WAD openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("WAD openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

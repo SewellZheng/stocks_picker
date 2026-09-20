@@ -1438,12 +1438,9 @@ fn build_java_library(root: &Path, bin_dir: &Path) -> bool {
     // backend needs no Maven installed -- a JDK and `unzip` -- and "which Maven
     // built the release" has one answer on every machine instead of one per distro.
     //
-    // `clean` on purpose. maven-compiler-plugin's incremental check is
-    // all-or-nothing on the sources it can see, but a class whose source was
-    // DELETED survives in target/classes and would be packaged -- and this repo
-    // has already been bitten twice by a stale Java artifact reading green
-    // (a class directory javac would not refresh, and a stale server binary).
-    // The jar is the artifact; it gets built from nothing, every time.
+    // `clean` is load-bearing: maven-javadoc-plugin never counts a source edit as
+    // a change, so without it the javadoc jar and its doclint pass would reflect
+    // an earlier build's sources and still succeed.
     //
     // Tests are skipped here, not run: the suites are junit-free `main()`
     // classes, so surefire discovers them and executes zero methods. They are
@@ -1709,7 +1706,9 @@ fn check_java_jars(
             continue;
         }
         if entry.path().join(format!("{name}.yaml")).exists() {
-            expected.push(name.to_uppercase());
+            // The jar spells the batch entry point as Java does; the directory
+            // name is the canonical one it is folded from.
+            expected.push(backends::common::camel_words(&name.to_uppercase()));
         }
     }
     expected.sort();
@@ -2408,7 +2407,7 @@ const EXAMPLE_QUICK_START: FrontPageExample = FrontPageExample {
 let core = Core::new();
 let mut sma = vec![0.0; close.len()];
 
-let out = core.SMA(0, close.len() - 1, &close, 3, &mut sma)?;
+let out = core.sma(0, close.len() - 1, &close, 3, &mut sma)?;
 
 // The first 3-period average lands at input index 2 (the lookback):
 assert_eq!((out.beg_idx, out.count), (2, 8));
@@ -2733,7 +2732,7 @@ $EX_QUICK_START_DOC
 //! * Inputs are `&[f64]` slices, computed over the range `startIdx..=endIdx`.
 //! * Outputs are written into caller-provided `&mut` slices. An indicator consumes a
 //!   number of leading values (its *lookback*) before producing output — query it with
-//!   the matching `*_Lookback` method (e.g. [`Core::SMA_Lookback`]).
+//!   the matching `*_lookback` method (e.g. [`Core::sma_lookback`]).
 //! * Integer parameters accept [`Core::INTEGER_DEFAULT`], and real parameters
 //!   [`Core::REAL_DEFAULT`], to select their default value; a moving-average type takes
 //!   [`MAType::DEFAULT`] instead, the sentinel being unrepresentable at a typed enum.
@@ -2874,7 +2873,7 @@ Every indicator is a method on `Core` with the same calling pattern: `&[f64]`
 input slices, a `startIdx..=endIdx` range, caller-provided output slices, and a
 `Result<OutRange, RetCode>`. On success the `OutRange` says where the values
 start (`beg_idx`, in the input series' coordinates) and how many there are
-(`count`); `*_Lookback` methods return how many leading values an indicator
+(`count`); `*_lookback` methods return how many leading values an indicator
 consumes before the first one exists.
 
 A range shorter than the lookback is a **success with no values** (`count == 0`),

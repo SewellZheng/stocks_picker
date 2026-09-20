@@ -45,7 +45,7 @@ const RIDE_JAVA_SUPPORT: &str = r#"
      * without narrowing the catch types; -1 is an exception the library does
      * not own, which is itself a divergence. */
     static int rideCode(RuntimeException e) {
-        return (e instanceof TaLibFailure) ? ((TaLibFailure) e).retCode().toInt() : -1;
+        return (e instanceof TALibFailure) ? ((TALibFailure) e).retCode().toInt() : -1;
     }
 
     static boolean rideFinite(double[] a, int n) {
@@ -111,8 +111,12 @@ const RIDE_JAVA_SUPPORT: &str = r#"
 
 #[allow(clippy::too_many_lines)]
 fn emit_java_ridealong_fn(func: &FuncDef) -> String {
-    let n = func.name.clone();
-    let base = crate::backends::common::camel_words(&func.name);
+    // `n` names the LIBRARY method (lowerCamel). The ride-along helpers below sit
+    // behind a lowercase prefix, so the stem capitalizes there or `ride` + `sma`
+    // reads `ridesma`.
+    let n = crate::backends::common::camel_words(&func.name);
+    let base = n.clone();
+    let pas = crate::backends::common::pascal_words(&func.name);
     let input_names = expand_input_names(&func.inputs);
     let outs = &func.outputs;
     let multi = outs.len() > 1;
@@ -205,13 +209,13 @@ fn emit_java_ridealong_fn(func: &FuncDef) -> String {
 
     let _ = writeln!(
         s,
-        "    static void ride{n}(Core core, String json, int endIdx, {sig_ins}{sig_opts}StringBuilder sb) {{"
+        "    static void ride{pas}(Core core, String json, int endIdx, {sig_ins}{sig_opts}StringBuilder sb) {{"
     );
     s.push_str("        if (!rideGate(json)) return;\n");
     s.push_str("        RideResult r = new RideResult();\n");
     let _ = writeln!(
         s,
-        "        rideBody{n}(core, json, endIdx, {}{}r);",
+        "        rideBody{pas}(core, json, endIdx, {}{}r);",
         ride_arg_list(&input_names),
         opt_args
     );
@@ -219,14 +223,14 @@ fn emit_java_ridealong_fn(func: &FuncDef) -> String {
 
     let _ = writeln!(
         s,
-        "    @SuppressWarnings(\"unused\")\n    static void rideBody{n}(Core core, String json, int endIdx, {sig_ins}{sig_opts}RideResult r) {{"
+        "    @SuppressWarnings(\"unused\")\n    static void rideBody{pas}(Core core, String json, int endIdx, {sig_ins}{sig_opts}RideResult r) {{"
     );
     // A negative lookback is a REJECTED parameter and travels on: it is the
     // only rejection the ride can reach, and the reject leg below is what
     // reads it. Everything between here and there must tolerate it.
     let _ = writeln!(
         s,
-        "        try {{ r.lb = core.{n}_Lookback({opt_bare}); }} catch (RuntimeException _e) {{ r.lb = -1; }}"
+        "        try {{ r.lb = core.{n}Lookback({opt_bare}); }} catch (RuntimeException _e) {{ r.lb = -1; }}"
     );
     s.push_str("        int lb = r.lb;\n");
     s.push_str("        int navail = endIdx + 1;\n");
@@ -248,7 +252,7 @@ fn emit_java_ridealong_fn(func: &FuncDef) -> String {
     s.push_str("false) { r.skip = 4; return; }\n\n");
 
     s.push_str("        long hash = 0xcbf29ce484222325L;\n");
-    let _ = writeln!(s, "        hash = rideMixStr(hash, \"TA_{}\");", n.to_uppercase());
+    let _ = writeln!(s, "        hash = rideMixStr(hash, \"TA_{}\");", func.name.to_uppercase());
     s.push_str("        hash = rideMix(hash, m);\n");
     s.push_str("        hash = rideMix(hash, rideGen);\n");
     s.push_str("        hash = rideMix(hash, jsonInt(json, \"unstablePeriod\"));\n");

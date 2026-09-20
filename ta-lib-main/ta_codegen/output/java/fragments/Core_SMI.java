@@ -16,7 +16,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#SMI} consumes before it can
+    * Number of leading input bars {@link Core#smi} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -34,7 +34,7 @@
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int SMI_Lookback( int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
+   public int smiLookback( int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 13;
@@ -62,22 +62,22 @@
        * function it comes from, so none of them is restated here -- which is also
        * what makes SMI inherit TA_FUNC_UNST_EMA from its callee.
        */
-      return optInTimePeriod - 1 + EMA_Lookback(optInSlowPeriod) + EMA_Lookback(optInFastPeriod) + EMA_Lookback(optInSignalPeriod) ;
+      return optInTimePeriod - 1 + emaLookback(optInSlowPeriod) + emaLookback(optInFastPeriod) + emaLookback(optInSignalPeriod) ;
 
    }
-   RetCode SMI_Impl( int startIdx,
-                     int endIdx,
-                     double inHigh[],
-                     double inLow[],
-                     double inClose[],
-                     int optInTimePeriod,
-                     int optInFastPeriod,
-                     int optInSlowPeriod,
-                     int optInSignalPeriod,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outSMI[],
-                     double outSMISignal[] )
+   RetCode smiImpl( int startIdx,
+                    int endIdx,
+                    double inHigh[],
+                    double inLow[],
+                    double inClose[],
+                    int optInTimePeriod,
+                    int optInFastPeriod,
+                    int optInSlowPeriod,
+                    int optInSignalPeriod,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outSMI[],
+                    double outSMISignal[] )
    {
       double kSlow = 0;
       double kFast = 0;
@@ -112,42 +112,42 @@
       int nFast = 0;
       int nSignal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 13;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 2;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 25;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSignalPeriod == Integer.MIN_VALUE ) {
          optInSignalPeriod = 9;
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outSMI == outSMISignal ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
-      lookbackTotal = SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      lookbackTotal = smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       /* Blau's pipeline in one pass. A composed form is not available: the
@@ -167,8 +167,8 @@
       kSlow = 2.0 / (double)(optInSlowPeriod + 1);
       kFast = 2.0 / (double)(optInFastPeriod + 1);
       kSignal = 2.0 / (double)(optInSignalPeriod + 1);
-      lookbackSlow = EMA_Lookback(optInSlowPeriod);
-      lookbackFast = EMA_Lookback(optInFastPeriod);
+      lookbackSlow = emaLookback(optInSlowPeriod);
+      lookbackFast = emaLookback(optInFastPeriod);
       emaSlowNum = 0.0;
       emaSlowDen = 0.0;
       emaFastNum = 0.0;
@@ -358,21 +358,21 @@
          today = today + 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode SMI_Impl( int startIdx,
-                     int endIdx,
-                     float inHigh[],
-                     float inLow[],
-                     float inClose[],
-                     int optInTimePeriod,
-                     int optInFastPeriod,
-                     int optInSlowPeriod,
-                     int optInSignalPeriod,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outSMI[],
-                     double outSMISignal[] )
+   RetCode smiImpl( int startIdx,
+                    int endIdx,
+                    float inHigh[],
+                    float inLow[],
+                    float inClose[],
+                    int optInTimePeriod,
+                    int optInFastPeriod,
+                    int optInSlowPeriod,
+                    int optInSignalPeriod,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outSMI[],
+                    double outSMISignal[] )
    {
       double kSlow = 0;
       double kFast = 0;
@@ -407,49 +407,49 @@
       int nFast = 0;
       int nSignal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 13;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 2;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 25;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSignalPeriod == Integer.MIN_VALUE ) {
          optInSignalPeriod = 9;
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outSMI == outSMISignal ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
-      lookbackTotal = SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      lookbackTotal = smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       kSlow = 2.0 / (double)(optInSlowPeriod + 1);
       kFast = 2.0 / (double)(optInFastPeriod + 1);
       kSignal = 2.0 / (double)(optInSignalPeriod + 1);
-      lookbackSlow = EMA_Lookback(optInSlowPeriod);
-      lookbackFast = EMA_Lookback(optInFastPeriod);
+      lookbackSlow = emaLookback(optInSlowPeriod);
+      lookbackFast = emaLookback(optInFastPeriod);
       emaSlowNum = 0.0;
       emaSlowDen = 0.0;
       emaFastNum = 0.0;
@@ -605,7 +605,7 @@
          today = today + 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Stochastic Momentum Index: where the close sits relative to the
@@ -629,7 +629,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#SMI_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#smiLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -665,12 +665,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#STOCH
-    * @see Core#STOCHRSI
-    * @see Core#WILLR
-    * @see Core#MACD
+    * @see Core#stoch
+    * @see Core#stochrsi
+    * @see Core#willr
+    * @see Core#macd
     */
-   public OutRange SMI( int startIdx,
+   public OutRange smi( int startIdx,
                         int endIdx,
                         double inHigh[],
                         double inLow[],
@@ -683,7 +683,7 @@
                         double outSMISignal[] )
    {
       requireIndexRange("SMI", startIdx, endIdx);
-      int guardStart = clampedStart("SMI", startIdx, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardStart = clampedStart("SMI", startIdx, smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SMI", "inHigh", inHigh, guardInLen);
@@ -693,8 +693,8 @@
       requireLength("SMI", "outSMISignal", outSMISignal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SMI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = smiImpl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("SMI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -724,7 +724,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#SMI_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#smiLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -760,12 +760,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#STOCH
-    * @see Core#STOCHRSI
-    * @see Core#WILLR
-    * @see Core#MACD
+    * @see Core#stoch
+    * @see Core#stochrsi
+    * @see Core#willr
+    * @see Core#macd
     */
-   public OutRange SMI( int startIdx,
+   public OutRange smi( int startIdx,
                         int endIdx,
                         float inHigh[],
                         float inLow[],
@@ -778,7 +778,7 @@
                         double outSMISignal[] )
    {
       requireIndexRange("SMI", startIdx, endIdx);
-      int guardStart = clampedStart("SMI", startIdx, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardStart = clampedStart("SMI", startIdx, smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SMI", "inHigh", inHigh, guardInLen);
@@ -788,8 +788,8 @@
       requireLength("SMI", "outSMISignal", outSMISignal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SMI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = smiImpl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("SMI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -798,7 +798,7 @@
 
    /**
     * A live SMI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#SMI} over the same series.
+    * closed bar, bit-identical to {@link Core#smi} over the same series.
     * Open with {@link Core#smiOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -845,7 +845,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#SMI} reports over the same bars: the
+       * <p>It is what {@link Core#smi} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -872,7 +872,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("SMI advance", RetCode.OutOfRangeEndIndex);
+            throw failure("SMI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -927,10 +927,10 @@
        */
       public void update( double inHigh, double inLow, double inClose, SmiOut out ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("SMI update", RetCode.OutOfRangeEndIndex);
+            throw failure("SMI update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("SMI update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("SMI update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("SMI update: BAD_PARAM", RetCode.BAD_PARAM);
          core.smiStepImpl(this, inHigh, inLow, inClose);
          this.outRangeCount++;
          out.smi = this.cur_outSMI;
@@ -950,7 +950,7 @@
       public void peek( double inHigh, double inLow, double inClose, SmiOut out ) {
          requireArgument("SMI peek", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("SMI peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("SMI peek: BAD_PARAM", RetCode.BAD_PARAM);
          SmiStream sp = this;
          double tmp = 0.0;
          double num = 0.0;
@@ -1205,47 +1205,47 @@
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 13;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 2;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 25;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSignalPeriod == Integer.MIN_VALUE ) {
          optInSignalPeriod = 9;
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      lookbackTotal = SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      lookbackTotal = smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       outBegIdx.value = startIdx;
       /* Blau's pipeline in one pass. A composed form is not available: the
@@ -1265,8 +1265,8 @@
       kSlow = 2.0 / (double)(optInSlowPeriod + 1);
       kFast = 2.0 / (double)(optInFastPeriod + 1);
       kSignal = 2.0 / (double)(optInSignalPeriod + 1);
-      lookbackSlow = EMA_Lookback(optInSlowPeriod);
-      lookbackFast = EMA_Lookback(optInFastPeriod);
+      lookbackSlow = emaLookback(optInSlowPeriod);
+      lookbackFast = emaLookback(optInFastPeriod);
       emaSlowNum = 0.0;
       emaSlowDen = 0.0;
       emaFastNum = 0.0;
@@ -1459,7 +1459,7 @@
       /* Capture the live batch state into the handle. */
       int capX = today - trailingIdx + 1;
       if( capX < 1 || capX > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int physX = 1;
       while( physX < capX ) {
@@ -1498,7 +1498,7 @@
       sp.x_inClose = capX_inClose;
       sp.cur_outSMI = outSMI[(outNBElement.value - 1) * outStride];
       sp.cur_outSMISignal = outSMISignal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* smiOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    SmiStream smiOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outSMI[], double outSMISignal[] )
@@ -1507,16 +1507,16 @@
       RetCode retCode = smiOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("SMI openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("SMI openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("SMI openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("SMI openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("SMI openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind smiOpen (composition seam). */
    SmiStream smiOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
@@ -1529,22 +1529,22 @@
       RetCode retCode = smiOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, sink_outSMI, sink_outSMISignal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("SMI open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("SMI open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("SMI open: internal error", retCode);
       }
-      throw new TaLibArgumentException("SMI open: " + retCode, retCode);
+      throw new TALibArgumentException("SMI open: " + retCode, retCode);
    }
    /**
     * Open a live SMI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#SMI} at that bar.
-    * <p>The history must hold at least {@code SMI_Lookback(...) + 1} bars
+    * to {@link Core#smi} at that bar.
+    * <p>The history must hold at least {@code smiLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -1565,7 +1565,7 @@
    }
    /**
     * {@link Core#smiOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#SMI} over the whole history in the same single pass
+    * to {@link Core#smi} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1580,13 +1580,13 @@
       requireHistory("SMI openAndFill", inHigh.length);
       requireArgument("SMI openAndFill", "inLow", inLow);
       requireArgument("SMI openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("SMI openAndFill", inHigh.length, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardOutLen = openFillCount("SMI openAndFill", inHigh.length, smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       requireHistoryLength("SMI openAndFill", "inLow", inLow.length, inHigh.length);
       requireHistoryLength("SMI openAndFill", "inClose", inClose.length, inHigh.length);
       requireLength("SMI openAndFill", "outSMI", outSMI, guardOutLen);
       requireLength("SMI openAndFill", "outSMISignal", outSMISignal, guardOutLen);
       if( (Object)outSMI == (Object)inHigh || (Object)outSMI == (Object)inLow || (Object)outSMI == (Object)inClose || (Object)outSMISignal == (Object)inHigh || (Object)outSMISignal == (Object)inLow || (Object)outSMISignal == (Object)inClose || (Object)outSMI == (Object)outSMISignal ) {
-         throw new TaLibArgumentException("SMI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("SMI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

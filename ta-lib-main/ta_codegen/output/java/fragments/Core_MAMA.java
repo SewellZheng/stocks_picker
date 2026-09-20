@@ -15,7 +15,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#MAMA} consumes before it can
+    * Number of leading input bars {@link Core#mama} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -32,7 +32,7 @@
     *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int MAMA_Lookback( double optInFastLimit, double optInSlowLimit )
+   public int mamaLookback( double optInFastLimit, double optInSlowLimit )
    {
       if( optInFastLimit == REAL_DEFAULT ) {
          optInFastLimit = 5e-1;
@@ -67,15 +67,15 @@
       return 32 + this.unstablePeriod[FuncUnstId.MAMA.ordinal()] ;
 
    }
-   RetCode MAMA_Impl( int startIdx,
-                      int endIdx,
-                      double inReal[],
-                      double optInFastLimit,
-                      double optInSlowLimit,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outMAMA[],
-                      double outFAMA[] )
+   RetCode mamaImpl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     double optInFastLimit,
+                     double optInSlowLimit,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outMAMA[],
+                     double outFAMA[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -138,23 +138,23 @@
       double todayValue = 0;
       double prevPhase = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastLimit == REAL_DEFAULT ) {
          optInFastLimit = 5e-1;
       } else if( !(optInFastLimit >= 1e-2 && optInFastLimit <= 9.9e-1) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowLimit == REAL_DEFAULT ) {
          optInSlowLimit = 5e-2;
       } else if( !(optInSlowLimit >= 1e-2 && optInSlowLimit <= 9.9e-1) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outFAMA != null && outMAMA == outFAMA ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       a = 0.0962;
       b = 0.5769;
@@ -176,7 +176,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -461,17 +461,17 @@
       }
       /* Default return values */
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode MAMA_Impl( int startIdx,
-                      int endIdx,
-                      float inReal[],
-                      double optInFastLimit,
-                      double optInSlowLimit,
-                      MInteger outBegIdx,
-                      MInteger outNBElement,
-                      double outMAMA[],
-                      double outFAMA[] )
+   RetCode mamaImpl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     double optInFastLimit,
+                     double optInSlowLimit,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outMAMA[],
+                     double outFAMA[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -534,23 +534,23 @@
       double todayValue = 0;
       double prevPhase = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastLimit == REAL_DEFAULT ) {
          optInFastLimit = 5e-1;
       } else if( !(optInFastLimit >= 1e-2 && optInFastLimit <= 9.9e-1) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowLimit == REAL_DEFAULT ) {
          optInSlowLimit = 5e-2;
       } else if( !(optInSlowLimit >= 1e-2 && optInSlowLimit <= 9.9e-1) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outFAMA != null && outMAMA == outFAMA ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       a = 0.0962;
       b = 0.5769;
@@ -562,7 +562,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       trailingWMAIdx = startIdx - lookbackTotal;
@@ -796,7 +796,7 @@
          today += 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * MESA Adaptive Moving Average: an adaptive EMA whose smoothing factor is
@@ -808,8 +808,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#MAMA_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#mamaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -840,11 +840,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MA
-    * @see Core#WMA
-    * @see Core#HT_DCPERIOD
+    * @see Core#ma
+    * @see Core#wma
+    * @see Core#htDcperiod
     */
-   public OutRange MAMA( int startIdx,
+   public OutRange mama( int startIdx,
                          int endIdx,
                          double inReal[],
                          double optInFastLimit,
@@ -853,7 +853,7 @@
                          double outFAMA[] )
    {
       requireIndexRange("MAMA", startIdx, endIdx);
-      int guardStart = clampedStart("MAMA", startIdx, MAMA_Lookback(optInFastLimit, optInSlowLimit));
+      int guardStart = clampedStart("MAMA", startIdx, mamaLookback(optInFastLimit, optInSlowLimit));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MAMA", "inReal", inReal, guardInLen);
@@ -861,8 +861,8 @@
       if( outFAMA != null ) requireLength("MAMA", "outFAMA", outFAMA, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MAMA_Impl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = mamaImpl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("MAMA", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -880,8 +880,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#MAMA_Lookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range shorter than {@link Core#mamaLookback} is a <b>success with no
+    * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -912,11 +912,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#MA
-    * @see Core#WMA
-    * @see Core#HT_DCPERIOD
+    * @see Core#ma
+    * @see Core#wma
+    * @see Core#htDcperiod
     */
-   public OutRange MAMA( int startIdx,
+   public OutRange mama( int startIdx,
                          int endIdx,
                          float inReal[],
                          double optInFastLimit,
@@ -925,7 +925,7 @@
                          double outFAMA[] )
    {
       requireIndexRange("MAMA", startIdx, endIdx);
-      int guardStart = clampedStart("MAMA", startIdx, MAMA_Lookback(optInFastLimit, optInSlowLimit));
+      int guardStart = clampedStart("MAMA", startIdx, mamaLookback(optInFastLimit, optInSlowLimit));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MAMA", "inReal", inReal, guardInLen);
@@ -933,8 +933,8 @@
       if( outFAMA != null ) requireLength("MAMA", "outFAMA", outFAMA, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MAMA_Impl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = mamaImpl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("MAMA", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -943,7 +943,7 @@
 
    /**
     * A live MAMA stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#MAMA} over the same series.
+    * closed bar, bit-identical to {@link Core#mama} over the same series.
     * Open with {@link Core#mamaOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -1016,7 +1016,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#MAMA} reports over the same bars: the
+       * <p>It is what {@link Core#mama} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -1043,7 +1043,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("MAMA advance", RetCode.OutOfRangeEndIndex);
+            throw failure("MAMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -1124,10 +1124,10 @@
        */
       public void update( double inReal, MamaOut out ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("MAMA update", RetCode.OutOfRangeEndIndex);
+            throw failure("MAMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("MAMA update", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("MAMA update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("MAMA update: BAD_PARAM", RetCode.BAD_PARAM);
          core.mamaStepImpl(this, inReal);
          this.outRangeCount++;
          out.mama = this.cur_outMAMA;
@@ -1147,7 +1147,7 @@
       public void peek( double inReal, MamaOut out ) {
          requireArgument("MAMA peek", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("MAMA peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("MAMA peek: BAD_PARAM", RetCode.BAD_PARAM);
          MamaStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -1616,25 +1616,25 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInFastLimit == REAL_DEFAULT ) {
          optInFastLimit = 5e-1;
       } else if( !(optInFastLimit >= 1e-2 && optInFastLimit <= 9.9e-1) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowLimit == REAL_DEFAULT ) {
          optInSlowLimit = 5e-2;
       } else if( !(optInSlowLimit >= 1e-2 && optInSlowLimit <= 9.9e-1) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       a = 0.0962;
       b = 0.5769;
@@ -1656,7 +1656,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       outBegIdx.value = startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -1945,7 +1945,7 @@
       /* Capture the live batch state into the handle. */
       int cap_trailingWMAIdx = today - trailingWMAIdx;
       if( cap_trailingWMAIdx < 0 || cap_trailingWMAIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingWMAIdx = (cap_trailingWMAIdx > 0)? cap_trailingWMAIdx : 1;
       double[] capRing_trailingWMAIdx_inReal = new double[allocN_trailingWMAIdx];
@@ -2001,7 +2001,7 @@
       sp.ring_trailingWMAIdx_inReal = capRing_trailingWMAIdx_inReal;
       sp.cur_outMAMA = outMAMA[(outNBElement.value - 1) * outStride];
       sp.cur_outFAMA = lastCur_outFAMA;
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* mamaOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MamaStream mamaOpenAndFillInternal( double inReal[], int startIdx, double optInFastLimit, double optInSlowLimit, MInteger outBegIdx, MInteger outNBElement, double outMAMA[], double outFAMA[] )
@@ -2010,16 +2010,16 @@
       RetCode retCode = mamaOpenImpl(sp, inReal, startIdx, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("MAMA openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MAMA openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("MAMA openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("MAMA openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("MAMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind mamaOpen (composition seam). */
    MamaStream mamaOpenInternal( double inReal[], int startIdx, double optInFastLimit, double optInSlowLimit )
@@ -2032,22 +2032,22 @@
       RetCode retCode = mamaOpenImpl(sp, inReal, startIdx, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, sink_outMAMA, sink_outFAMA, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("MAMA open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MAMA open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("MAMA open: internal error", retCode);
       }
-      throw new TaLibArgumentException("MAMA open: " + retCode, retCode);
+      throw new TALibArgumentException("MAMA open: " + retCode, retCode);
    }
    /**
     * Open a live MAMA stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#MAMA} at that bar.
-    * <p>The history must hold at least {@code MAMA_Lookback(...) + 1} bars
+    * to {@link Core#mama} at that bar.
+    * <p>The history must hold at least {@code mamaLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Core#REAL_DEFAULT} selects a parameter's documented default,
@@ -2064,7 +2064,7 @@
    }
    /**
     * {@link Core#mamaOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#MAMA} over the whole history in the same single pass
+    * to {@link Core#mama} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -2079,11 +2079,11 @@
    {
       requireArgument("MAMA openAndFill", "inReal", inReal);
       requireHistory("MAMA openAndFill", inReal.length);
-      int guardOutLen = openFillCount("MAMA openAndFill", inReal.length, MAMA_Lookback(optInFastLimit, optInSlowLimit));
+      int guardOutLen = openFillCount("MAMA openAndFill", inReal.length, mamaLookback(optInFastLimit, optInSlowLimit));
       requireLength("MAMA openAndFill", "outMAMA", outMAMA, guardOutLen);
       if( outFAMA != null ) requireLength("MAMA openAndFill", "outFAMA", outFAMA, guardOutLen);
       if( (Object)outMAMA == (Object)inReal || (outFAMA != null && (Object)outFAMA == (Object)inReal) || (outFAMA != null && (Object)outMAMA == (Object)outFAMA) ) {
-         throw new TaLibArgumentException("MAMA openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("MAMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

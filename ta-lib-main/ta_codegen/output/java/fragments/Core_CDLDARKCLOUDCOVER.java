@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#CDLDARKCLOUDCOVER} consumes
+    * Number of leading input bars {@link Core#cdldarkcloudcover} consumes
     * before it can produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -25,53 +25,53 @@
     *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int CDLDARKCLOUDCOVER_Lookback( double optInPenetration )
+   public int cdldarkcloudcoverLookback( double optInPenetration )
    {
       if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
       } else if( !(optInPenetration >= 0e0 && optInPenetration <= REAL_MAX) ) {
          return -1;
       }
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
       return BodyLong_avgPeriod + 1 ;
 
    }
-   RetCode CDLDARKCLOUDCOVER_Impl( int startIdx,
-                                   int endIdx,
-                                   double inOpen[],
-                                   double inHigh[],
-                                   double inLow[],
-                                   double inClose[],
-                                   double optInPenetration,
-                                   MInteger outBegIdx,
-                                   MInteger outNBElement,
-                                   int outInteger[] )
+   RetCode cdldarkcloudcoverImpl( int startIdx,
+                                  int endIdx,
+                                  double inOpen[],
+                                  double inHigh[],
+                                  double inLow[],
+                                  double inClose[],
+                                  double optInPenetration,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       int i = 0;
       int outIdx = 0;
       int BodyLongTrailingIdx = 0;
       int lookbackTotal = 0;
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
       } else if( !(optInPenetration >= 0e0 && optInPenetration <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLDARKCLOUDCOVER_Lookback(optInPenetration);
+      lookbackTotal = cdldarkcloudcoverLookback(optInPenetration);
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -82,7 +82,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -128,46 +128,46 @@
       /* All done. Indicate the output limits and return. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode CDLDARKCLOUDCOVER_Impl( int startIdx,
-                                   int endIdx,
-                                   float inOpen[],
-                                   float inHigh[],
-                                   float inLow[],
-                                   float inClose[],
-                                   double optInPenetration,
-                                   MInteger outBegIdx,
-                                   MInteger outNBElement,
-                                   int outInteger[] )
+   RetCode cdldarkcloudcoverImpl( int startIdx,
+                                  int endIdx,
+                                  float inOpen[],
+                                  float inHigh[],
+                                  float inLow[],
+                                  float inClose[],
+                                  double optInPenetration,
+                                  MInteger outBegIdx,
+                                  MInteger outNBElement,
+                                  int outInteger[] )
    {
       double BodyLongPeriodTotal = 0;
       int i = 0;
       int outIdx = 0;
       int BodyLongTrailingIdx = 0;
       int lookbackTotal = 0;
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
       } else if( !(optInPenetration >= 0e0 && optInPenetration <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
-      lookbackTotal = CDLDARKCLOUDCOVER_Lookback(optInPenetration);
+      lookbackTotal = cdldarkcloudcoverLookback(optInPenetration);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       BodyLongPeriodTotal = 0;
       BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod;
@@ -190,7 +190,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * A two-candle bearish reversal pattern: a long white candle followed by a
@@ -206,7 +206,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLDARKCLOUDCOVER_Lookback} is a
+    * valid range shorter than {@link Core#cdldarkcloudcoverLookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -236,11 +236,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLPIERCING
-    * @see Core#CDLENGULFING
-    * @see Core#CDLONNECK
+    * @see Core#cdlpiercing
+    * @see Core#cdlengulfing
+    * @see Core#cdlonneck
     */
-   public OutRange CDLDARKCLOUDCOVER( int startIdx,
+   public OutRange cdldarkcloudcover( int startIdx,
                                       int endIdx,
                                       double inOpen[],
                                       double inHigh[],
@@ -250,7 +250,7 @@
                                       int outInteger[] )
    {
       requireIndexRange("CDLDARKCLOUDCOVER", startIdx, endIdx);
-      int guardStart = clampedStart("CDLDARKCLOUDCOVER", startIdx, CDLDARKCLOUDCOVER_Lookback(optInPenetration));
+      int guardStart = clampedStart("CDLDARKCLOUDCOVER", startIdx, cdldarkcloudcoverLookback(optInPenetration));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLDARKCLOUDCOVER", "inOpen", inOpen, guardInLen);
@@ -260,8 +260,8 @@
       requireLength("CDLDARKCLOUDCOVER", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLDARKCLOUDCOVER_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdldarkcloudcoverImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLDARKCLOUDCOVER", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -283,7 +283,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#CDLDARKCLOUDCOVER_Lookback} is a
+    * valid range shorter than {@link Core#cdldarkcloudcoverLookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -313,11 +313,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CDLPIERCING
-    * @see Core#CDLENGULFING
-    * @see Core#CDLONNECK
+    * @see Core#cdlpiercing
+    * @see Core#cdlengulfing
+    * @see Core#cdlonneck
     */
-   public OutRange CDLDARKCLOUDCOVER( int startIdx,
+   public OutRange cdldarkcloudcover( int startIdx,
                                       int endIdx,
                                       float inOpen[],
                                       float inHigh[],
@@ -327,7 +327,7 @@
                                       int outInteger[] )
    {
       requireIndexRange("CDLDARKCLOUDCOVER", startIdx, endIdx);
-      int guardStart = clampedStart("CDLDARKCLOUDCOVER", startIdx, CDLDARKCLOUDCOVER_Lookback(optInPenetration));
+      int guardStart = clampedStart("CDLDARKCLOUDCOVER", startIdx, cdldarkcloudcoverLookback(optInPenetration));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLDARKCLOUDCOVER", "inOpen", inOpen, guardInLen);
@@ -337,8 +337,8 @@
       requireLength("CDLDARKCLOUDCOVER", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLDARKCLOUDCOVER_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = cdldarkcloudcoverImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, outBegIdx, outNBElement, outInteger);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("CDLDARKCLOUDCOVER", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -347,7 +347,7 @@
 
    /**
     * A live CDLDARKCLOUDCOVER stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#CDLDARKCLOUDCOVER} over the same series.
+    * closed bar, bit-identical to {@link Core#cdldarkcloudcover} over the same series.
     * Open with {@link Core#cdldarkcloudcoverOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -383,7 +383,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#CDLDARKCLOUDCOVER} reports over the same bars: the
+       * <p>It is what {@link Core#cdldarkcloudcover} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -410,7 +410,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLDARKCLOUDCOVER advance", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLDARKCLOUDCOVER advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -454,9 +454,9 @@
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("CDLDARKCLOUDCOVER update", RetCode.OutOfRangeEndIndex);
+            throw failure("CDLDARKCLOUDCOVER update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLDARKCLOUDCOVER update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLDARKCLOUDCOVER update: BAD_PARAM", RetCode.BAD_PARAM);
          core.cdldarkcloudcoverStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -474,7 +474,7 @@
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("CDLDARKCLOUDCOVER peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("CDLDARKCLOUDCOVER peek: BAD_PARAM", RetCode.BAD_PARAM);
          CdldarkcloudcoverStream sp = this;
          int cur_outInteger = 0;
          int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
@@ -560,31 +560,31 @@
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 5e-1;
       } else if( !(optInPenetration >= 0e0 && optInPenetration <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType.ordinal();
-      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod;
-      double BodyLong_factor = this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor;
+      int BodyLong_rangeType = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType.ordinal();
+      int BodyLong_avgPeriod = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod;
+      double BodyLong_factor = this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor;
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = CDLDARKCLOUDCOVER_Lookback(optInPenetration);
+      lookbackTotal = cdldarkcloudcoverLookback(optInPenetration);
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -595,7 +595,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -645,7 +645,7 @@
       int capLag_BodyLongTrailingIdx = i - BodyLongTrailingIdx;
       int cap_BodyLongTrailingIdx = capLag_BodyLongTrailingIdx + 2;
       if( capLag_BodyLongTrailingIdx < 0 || cap_BodyLongTrailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_BodyLongTrailingIdx = (cap_BodyLongTrailingIdx > 0)? cap_BodyLongTrailingIdx : 1;
       double[] capRing_BodyLongTrailingIdx_derived = new double[allocN_BodyLongTrailingIdx];
@@ -666,7 +666,7 @@
       sp.cs_BodyLong_avgPeriod = BodyLong_avgPeriod;
       sp.cs_BodyLong_factor = BodyLong_factor;
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* cdldarkcloudcoverOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CdldarkcloudcoverStream cdldarkcloudcoverOpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
@@ -675,16 +675,16 @@
       RetCode retCode = cdldarkcloudcoverOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, outInteger, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLDARKCLOUDCOVER openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLDARKCLOUDCOVER openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLDARKCLOUDCOVER openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLDARKCLOUDCOVER openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("CDLDARKCLOUDCOVER openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind cdldarkcloudcoverOpen (composition seam). */
    CdldarkcloudcoverStream cdldarkcloudcoverOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration )
@@ -696,22 +696,22 @@
       RetCode retCode = cdldarkcloudcoverOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, sink_outInteger, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("CDLDARKCLOUDCOVER open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CDLDARKCLOUDCOVER open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("CDLDARKCLOUDCOVER open: internal error", retCode);
       }
-      throw new TaLibArgumentException("CDLDARKCLOUDCOVER open: " + retCode, retCode);
+      throw new TALibArgumentException("CDLDARKCLOUDCOVER open: " + retCode, retCode);
    }
    /**
     * Open a live CDLDARKCLOUDCOVER stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#CDLDARKCLOUDCOVER} at that bar.
-    * <p>The history must hold at least {@code CDLDARKCLOUDCOVER_Lookback(...) + 1} bars
+    * to {@link Core#cdldarkcloudcover} at that bar.
+    * <p>The history must hold at least {@code cdldarkcloudcoverLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Core#REAL_DEFAULT} selects a parameter's documented default,
@@ -734,7 +734,7 @@
    }
    /**
     * {@link Core#cdldarkcloudcoverOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#CDLDARKCLOUDCOVER} over the whole history in the same single pass
+    * to {@link Core#cdldarkcloudcover} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -750,13 +750,13 @@
       requireArgument("CDLDARKCLOUDCOVER openAndFill", "inHigh", inHigh);
       requireArgument("CDLDARKCLOUDCOVER openAndFill", "inLow", inLow);
       requireArgument("CDLDARKCLOUDCOVER openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("CDLDARKCLOUDCOVER openAndFill", inOpen.length, CDLDARKCLOUDCOVER_Lookback(optInPenetration));
+      int guardOutLen = openFillCount("CDLDARKCLOUDCOVER openAndFill", inOpen.length, cdldarkcloudcoverLookback(optInPenetration));
       requireHistoryLength("CDLDARKCLOUDCOVER openAndFill", "inHigh", inHigh.length, inOpen.length);
       requireHistoryLength("CDLDARKCLOUDCOVER openAndFill", "inLow", inLow.length, inOpen.length);
       requireHistoryLength("CDLDARKCLOUDCOVER openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("CDLDARKCLOUDCOVER openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
-         throw new TaLibArgumentException("CDLDARKCLOUDCOVER openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("CDLDARKCLOUDCOVER openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

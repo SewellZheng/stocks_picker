@@ -16,7 +16,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#BOP} consumes before it can
+    * Number of leading input bars {@link Core#bop} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -24,29 +24,29 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int BOP_Lookback( )
+   public int bopLookback( )
    {
       return 0 ;
 
    }
-   RetCode BOP_Impl( int startIdx,
-                     int endIdx,
-                     double inOpen[],
-                     double inHigh[],
-                     double inLow[],
-                     double inClose[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode bopImpl( int startIdx,
+                    int endIdx,
+                    double inOpen[],
+                    double inHigh[],
+                    double inLow[],
+                    double inClose[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
       double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* BOP = (Close - Open)/(High - Low) */
       outIdx = 0;
@@ -66,26 +66,26 @@
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode BOP_Impl( int startIdx,
-                     int endIdx,
-                     float inOpen[],
-                     float inHigh[],
-                     float inLow[],
-                     float inClose[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode bopImpl( int startIdx,
+                    int endIdx,
+                    float inOpen[],
+                    float inHigh[],
+                    float inLow[],
+                    float inClose[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
       double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       outIdx = 0;
       for( i = startIdx; i <= endIdx; i += 1 ) {
@@ -98,7 +98,7 @@
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Balance Of Power compares where the close sits relative to the open,
@@ -110,7 +110,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#BOP_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#bopLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -135,7 +135,7 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     */
-   public OutRange BOP( int startIdx,
+   public OutRange bop( int startIdx,
                         int endIdx,
                         double inOpen[],
                         double inHigh[],
@@ -144,7 +144,7 @@
                         double outReal[] )
    {
       requireIndexRange("BOP", startIdx, endIdx);
-      int guardStart = clampedStart("BOP", startIdx, BOP_Lookback());
+      int guardStart = clampedStart("BOP", startIdx, bopLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BOP", "inOpen", inOpen, guardInLen);
@@ -154,8 +154,8 @@
       requireLength("BOP", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BOP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = bopImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("BOP", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -173,7 +173,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#BOP_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#bopLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -198,7 +198,7 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     */
-   public OutRange BOP( int startIdx,
+   public OutRange bop( int startIdx,
                         int endIdx,
                         float inOpen[],
                         float inHigh[],
@@ -207,7 +207,7 @@
                         double outReal[] )
    {
       requireIndexRange("BOP", startIdx, endIdx);
-      int guardStart = clampedStart("BOP", startIdx, BOP_Lookback());
+      int guardStart = clampedStart("BOP", startIdx, bopLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BOP", "inOpen", inOpen, guardInLen);
@@ -217,8 +217,8 @@
       requireLength("BOP", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BOP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = bopImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("BOP", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -227,7 +227,7 @@
 
    /**
     * A live BOP stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#BOP} over the same series.
+    * closed bar, bit-identical to {@link Core#bop} over the same series.
     * Open with {@link Core#bopOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -250,7 +250,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#BOP} reports over the same bars: the
+       * <p>It is what {@link Core#bop} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -277,7 +277,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("BOP advance", RetCode.OutOfRangeEndIndex);
+            throw failure("BOP advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -308,9 +308,9 @@
        */
       public double update( double inOpen, double inHigh, double inLow, double inClose ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("BOP update", RetCode.OutOfRangeEndIndex);
+            throw failure("BOP update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("BOP update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("BOP update: BAD_PARAM", RetCode.BAD_PARAM);
          core.bopStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -328,7 +328,7 @@
        */
       public double peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("BOP peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("BOP peek: BAD_PARAM", RetCode.BAD_PARAM);
          BopStream sp = this;
          double tempReal = 0.0;
          double cur_outReal = 0.0;
@@ -397,18 +397,18 @@
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* BOP = (Close - Open)/(High - Low) */
       outIdx = 0;
@@ -430,7 +430,7 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* bopOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    BopStream bopOpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -439,16 +439,16 @@
       RetCode retCode = bopOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("BOP openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("BOP openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("BOP openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("BOP openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("BOP openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind bopOpen (composition seam). */
    BopStream bopOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -460,22 +460,22 @@
       RetCode retCode = bopOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("BOP open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("BOP open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("BOP open: internal error", retCode);
       }
-      throw new TaLibArgumentException("BOP open: " + retCode, retCode);
+      throw new TALibArgumentException("BOP open: " + retCode, retCode);
    }
    /**
     * Open a live BOP stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#BOP} at that bar.
-    * <p>The history must hold at least {@code BOP_Lookback(...) + 1} bars
+    * to {@link Core#bop} at that bar.
+    * <p>The history must hold at least {@code bopLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -496,7 +496,7 @@
    }
    /**
     * {@link Core#bopOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#BOP} over the whole history in the same single pass
+    * to {@link Core#bop} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -512,13 +512,13 @@
       requireArgument("BOP openAndFill", "inHigh", inHigh);
       requireArgument("BOP openAndFill", "inLow", inLow);
       requireArgument("BOP openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("BOP openAndFill", inOpen.length, BOP_Lookback());
+      int guardOutLen = openFillCount("BOP openAndFill", inOpen.length, bopLookback());
       requireHistoryLength("BOP openAndFill", "inHigh", inHigh.length, inOpen.length);
       requireHistoryLength("BOP openAndFill", "inLow", inLow.length, inOpen.length);
       requireHistoryLength("BOP openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("BOP openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inOpen || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
-         throw new TaLibArgumentException("BOP openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("BOP openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

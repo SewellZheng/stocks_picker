@@ -13,7 +13,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#MASSI} consumes before it can
+    * Number of leading input bars {@link Core#massi} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -26,7 +26,7 @@
     *        25; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int MASSI_Lookback( int optInFastPeriod, int optInSlowPeriod )
+   public int massiLookback( int optInFastPeriod, int optInSlowPeriod )
    {
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 9;
@@ -42,18 +42,18 @@
        * window. The EMA term is exactly the callee's own lookback, which is what
        * makes MASSI inherit TA_FUNC_UNST_EMA -- and it shifts by 2u, not u.
        */
-      return EMA_Lookback(optInFastPeriod) * 2 + (optInSlowPeriod - 1) ;
+      return emaLookback(optInFastPeriod) * 2 + (optInSlowPeriod - 1) ;
 
    }
-   RetCode MASSI_Impl( int startIdx,
-                       int endIdx,
-                       double inHigh[],
-                       double inLow[],
-                       int optInFastPeriod,
-                       int optInSlowPeriod,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode massiImpl( int startIdx,
+                      int endIdx,
+                      double inHigh[],
+                      double inLow[],
+                      int optInFastPeriod,
+                      int optInSlowPeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double optInK_1 = 0;
       double hl = 0;
@@ -75,22 +75,22 @@
       int ratioRing_Idx = 0;
       int maxIdx_ratioRing = (32)-1;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 9;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 25;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
-      lookbackEma = EMA_Lookback(optInFastPeriod);
+      lookbackEma = emaLookback(optInFastPeriod);
       lookbackEma2 = lookbackEma * 2;
       lookbackTotal = lookbackEma2 + (optInSlowPeriod - 1);
       if( startIdx < lookbackTotal ) {
@@ -99,9 +99,9 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
-      if( optInSlowPeriod < 1 ) return RetCode.InternalError;
+      if( optInSlowPeriod < 1 ) return RetCode.INTERNAL_ERROR;
       ratioRing = new double[optInSlowPeriod];
       maxIdx_ratioRing = (optInSlowPeriod)-1;
       ratioRing_Idx = 0;
@@ -209,17 +209,17 @@
          today = today + 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode MASSI_Impl( int startIdx,
-                       int endIdx,
-                       float inHigh[],
-                       float inLow[],
-                       int optInFastPeriod,
-                       int optInSlowPeriod,
-                       MInteger outBegIdx,
-                       MInteger outNBElement,
-                       double outReal[] )
+   RetCode massiImpl( int startIdx,
+                      int endIdx,
+                      float inHigh[],
+                      float inLow[],
+                      int optInFastPeriod,
+                      int optInSlowPeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double optInK_1 = 0;
       double hl = 0;
@@ -241,22 +241,22 @@
       int ratioRing_Idx = 0;
       int maxIdx_ratioRing = (32)-1;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 9;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 25;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
-      lookbackEma = EMA_Lookback(optInFastPeriod);
+      lookbackEma = emaLookback(optInFastPeriod);
       lookbackEma2 = lookbackEma * 2;
       lookbackTotal = lookbackEma2 + (optInSlowPeriod - 1);
       if( startIdx < lookbackTotal ) {
@@ -265,9 +265,9 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
-      if( optInSlowPeriod < 1 ) return RetCode.InternalError;
+      if( optInSlowPeriod < 1 ) return RetCode.INTERNAL_ERROR;
       ratioRing = new double[optInSlowPeriod];
       maxIdx_ratioRing = (optInSlowPeriod)-1;
       ratioRing_Idx = 0;
@@ -342,7 +342,7 @@
          today = today + 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Mass Index: Donald Dorsey's non-directional measure of how the trading
@@ -368,7 +368,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#MASSI_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#massiLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -396,14 +396,14 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CVI
-    * @see Core#ATR
-    * @see Core#NATR
-    * @see Core#TRANGE
-    * @see Core#EMA
-    * @see Core#SUM
+    * @see Core#cvi
+    * @see Core#atr
+    * @see Core#natr
+    * @see Core#trange
+    * @see Core#ema
+    * @see Core#sum
     */
-   public OutRange MASSI( int startIdx,
+   public OutRange massi( int startIdx,
                           int endIdx,
                           double inHigh[],
                           double inLow[],
@@ -412,7 +412,7 @@
                           double outReal[] )
    {
       requireIndexRange("MASSI", startIdx, endIdx);
-      int guardStart = clampedStart("MASSI", startIdx, MASSI_Lookback(optInFastPeriod, optInSlowPeriod));
+      int guardStart = clampedStart("MASSI", startIdx, massiLookback(optInFastPeriod, optInSlowPeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MASSI", "inHigh", inHigh, guardInLen);
@@ -420,8 +420,8 @@
       requireLength("MASSI", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MASSI_Impl(startIdx, endIdx, inHigh, inLow, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = massiImpl(startIdx, endIdx, inHigh, inLow, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("MASSI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -453,7 +453,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#MASSI_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#massiLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -481,14 +481,14 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#CVI
-    * @see Core#ATR
-    * @see Core#NATR
-    * @see Core#TRANGE
-    * @see Core#EMA
-    * @see Core#SUM
+    * @see Core#cvi
+    * @see Core#atr
+    * @see Core#natr
+    * @see Core#trange
+    * @see Core#ema
+    * @see Core#sum
     */
-   public OutRange MASSI( int startIdx,
+   public OutRange massi( int startIdx,
                           int endIdx,
                           float inHigh[],
                           float inLow[],
@@ -497,7 +497,7 @@
                           double outReal[] )
    {
       requireIndexRange("MASSI", startIdx, endIdx);
-      int guardStart = clampedStart("MASSI", startIdx, MASSI_Lookback(optInFastPeriod, optInSlowPeriod));
+      int guardStart = clampedStart("MASSI", startIdx, massiLookback(optInFastPeriod, optInSlowPeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MASSI", "inHigh", inHigh, guardInLen);
@@ -505,8 +505,8 @@
       requireLength("MASSI", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MASSI_Impl(startIdx, endIdx, inHigh, inLow, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = massiImpl(startIdx, endIdx, inHigh, inLow, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("MASSI", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -515,7 +515,7 @@
 
    /**
     * A live MASSI stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#MASSI} over the same series.
+    * closed bar, bit-identical to {@link Core#massi} over the same series.
     * Open with {@link Core#massiOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -548,7 +548,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#MASSI} reports over the same bars: the
+       * <p>It is what {@link Core#massi} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -575,7 +575,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("MASSI advance", RetCode.OutOfRangeEndIndex);
+            throw failure("MASSI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -616,9 +616,9 @@
        */
       public double update( double inHigh, double inLow ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("MASSI update", RetCode.OutOfRangeEndIndex);
+            throw failure("MASSI update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TaLibArgumentException("MASSI update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("MASSI update: BAD_PARAM", RetCode.BAD_PARAM);
          core.massiStepImpl(this, inHigh, inLow);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -636,7 +636,7 @@
        */
       public double peek( double inHigh, double inLow ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TaLibArgumentException("MASSI peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("MASSI peek: BAD_PARAM", RetCode.BAD_PARAM);
          MassiStream sp = this;
          double hl = 0.0;
          double ratio = 0.0;
@@ -742,30 +742,30 @@
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 9;
       } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInSlowPeriod == Integer.MIN_VALUE ) {
          optInSlowPeriod = 25;
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      lookbackEma = EMA_Lookback(optInFastPeriod);
+      lookbackEma = emaLookback(optInFastPeriod);
       lookbackEma2 = lookbackEma * 2;
       lookbackTotal = lookbackEma2 + (optInSlowPeriod - 1);
       if( startIdx < lookbackTotal ) {
@@ -774,9 +774,9 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
-      if( optInSlowPeriod < 1 ) return RetCode.InternalError;
+      if( optInSlowPeriod < 1 ) return RetCode.INTERNAL_ERROR;
       ratioRing = new double[optInSlowPeriod];
       maxIdx_ratioRing = (optInSlowPeriod)-1;
       ratioRing_Idx = 0;
@@ -887,7 +887,7 @@
       /* Capture the live batch state into the handle. */
       int capCb_ratioRing = maxIdx_ratioRing + 1;
       if( capCb_ratioRing > historyLen + 1 ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       sp.optInFastPeriod = optInFastPeriod;
       sp.optInSlowPeriod = optInSlowPeriod;
@@ -900,7 +900,7 @@
       sp.cbSize_ratioRing = capCb_ratioRing;
       sp.cb_ratioRing = ratioRing;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* massiOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MassiStream massiOpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -909,16 +909,16 @@
       RetCode retCode = massiOpenImpl(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("MASSI openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MASSI openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("MASSI openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("MASSI openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("MASSI openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind massiOpen (composition seam). */
    MassiStream massiOpenInternal( double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod )
@@ -930,22 +930,22 @@
       RetCode retCode = massiOpenImpl(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("MASSI open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MASSI open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("MASSI open: internal error", retCode);
       }
-      throw new TaLibArgumentException("MASSI open: " + retCode, retCode);
+      throw new TALibArgumentException("MASSI open: " + retCode, retCode);
    }
    /**
     * Open a live MASSI stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#MASSI} at that bar.
-    * <p>The history must hold at least {@code MASSI_Lookback(...) + 1} bars
+    * to {@link Core#massi} at that bar.
+    * <p>The history must hold at least {@code massiLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -964,7 +964,7 @@
    }
    /**
     * {@link Core#massiOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#MASSI} over the whole history in the same single pass
+    * to {@link Core#massi} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -978,11 +978,11 @@
       requireArgument("MASSI openAndFill", "inHigh", inHigh);
       requireHistory("MASSI openAndFill", inHigh.length);
       requireArgument("MASSI openAndFill", "inLow", inLow);
-      int guardOutLen = openFillCount("MASSI openAndFill", inHigh.length, MASSI_Lookback(optInFastPeriod, optInSlowPeriod));
+      int guardOutLen = openFillCount("MASSI openAndFill", inHigh.length, massiLookback(optInFastPeriod, optInSlowPeriod));
       requireHistoryLength("MASSI openAndFill", "inLow", inLow.length, inHigh.length);
       requireLength("MASSI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
-         throw new TaLibArgumentException("MASSI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("MASSI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

@@ -126,7 +126,7 @@ fn spellings(lang: &str) -> (&'static str, &'static str) {
     match lang {
         "c" => ("outRangeCount++", "return TA_BAD_PARAM;"),
         "rust" => ("out.count += 1", "return Err(RetCode::BadParam);"),
-        "java" => ("outRangeCount++", "throw new TaLibArgumentException("),
+        "java" => ("outRangeCount++", "throw new TALibArgumentException("),
         "csharp" => ("outRangeCount++", "throw Core.StreamFailure("),
         other => panic!("unknown backend {other}"),
     }
@@ -138,7 +138,7 @@ fn ceiling_needle(lang: &str) -> &'static str {
         "c" => "stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX",
         "rust" => "if self.out.beg_idx + self.out.count > Core::MAX_INDEX {",
         "java" => "if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )",
-        "csharp" => "if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )",
+        "csharp" => "if( outRangeBegIdx + outRangeCount > Core.MaxIndex )",
         other => panic!("unknown backend {other}"),
     }
 }
@@ -178,7 +178,7 @@ fn assert_ceiling_is_answered_first(what: &str, lang: &str, body: &str) {
         "java" => [
             ceiling_needle("java"),
             "throw failure(",
-            "RetCode.OutOfRangeEndIndex",
+            "RetCode.OUT_OF_RANGE_END_INDEX",
         ],
         "csharp" => [
             ceiling_needle("csharp"),

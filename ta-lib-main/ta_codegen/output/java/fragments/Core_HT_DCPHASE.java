@@ -14,8 +14,8 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#HT_DCPHASE} consumes before it
-    * can produce its first value.
+    * Number of leading input bars {@link Core#htDcphase} consumes before it can
+    * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
     * output.
@@ -25,7 +25,7 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int HT_DCPHASE_Lookback( )
+   public int htDcphaseLookback( )
    {
       /* 31 input are skip
        * +32 output are skip to account for misc lookback
@@ -38,12 +38,12 @@
       return 63 + this.unstablePeriod[FuncUnstId.HT_DCPHASE.ordinal()] ;
 
    }
-   RetCode HT_DCPHASE_Impl( int startIdx,
-                            int endIdx,
-                            double inReal[],
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode htDcphaseImpl( int startIdx,
+                          int endIdx,
+                          double inReal[],
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -114,10 +114,10 @@
       double imagPart = 0;
       double realPart = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       a = 0.0962;
       b = 0.5769;
@@ -148,7 +148,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -444,14 +444,14 @@
          today += 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode HT_DCPHASE_Impl( int startIdx,
-                            int endIdx,
-                            float inReal[],
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode htDcphaseImpl( int startIdx,
+                          int endIdx,
+                          float inReal[],
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -522,10 +522,10 @@
       double imagPart = 0;
       double realPart = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       a = 0.0962;
       b = 0.5769;
@@ -540,7 +540,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
       trailingWMAIdx = startIdx - lookbackTotal;
@@ -786,7 +786,7 @@
          today += 1;
       }
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Hilbert Transform Dominant Cycle Phase: the instantaneous phase (in
@@ -798,7 +798,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#HT_DCPHASE_Lookback} is a <b>success
+    * valid range shorter than {@link Core#htDcphaseLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -820,29 +820,29 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#HT_DCPERIOD
-    * @see Core#HT_PHASOR
-    * @see Core#HT_SINE
-    * @see Core#HT_TRENDLINE
-    * @see Core#HT_TRENDMODE
-    * @see Core#MAMA
-    * @see Core#WMA
+    * @see Core#htDcperiod
+    * @see Core#htPhasor
+    * @see Core#htSine
+    * @see Core#htTrendline
+    * @see Core#htTrendmode
+    * @see Core#mama
+    * @see Core#wma
     */
-   public OutRange HT_DCPHASE( int startIdx,
-                               int endIdx,
-                               double inReal[],
-                               double outReal[] )
+   public OutRange htDcphase( int startIdx,
+                              int endIdx,
+                              double inReal[],
+                              double outReal[] )
    {
       requireIndexRange("HT_DCPHASE", startIdx, endIdx);
-      int guardStart = clampedStart("HT_DCPHASE", startIdx, HT_DCPHASE_Lookback());
+      int guardStart = clampedStart("HT_DCPHASE", startIdx, htDcphaseLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("HT_DCPHASE", "inReal", inReal, guardInLen);
       requireLength("HT_DCPHASE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_DCPHASE_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = htDcphaseImpl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("HT_DCPHASE", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -860,7 +860,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#HT_DCPHASE_Lookback} is a <b>success
+    * valid range shorter than {@link Core#htDcphaseLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -882,29 +882,29 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#HT_DCPERIOD
-    * @see Core#HT_PHASOR
-    * @see Core#HT_SINE
-    * @see Core#HT_TRENDLINE
-    * @see Core#HT_TRENDMODE
-    * @see Core#MAMA
-    * @see Core#WMA
+    * @see Core#htDcperiod
+    * @see Core#htPhasor
+    * @see Core#htSine
+    * @see Core#htTrendline
+    * @see Core#htTrendmode
+    * @see Core#mama
+    * @see Core#wma
     */
-   public OutRange HT_DCPHASE( int startIdx,
-                               int endIdx,
-                               float inReal[],
-                               double outReal[] )
+   public OutRange htDcphase( int startIdx,
+                              int endIdx,
+                              float inReal[],
+                              double outReal[] )
    {
       requireIndexRange("HT_DCPHASE", startIdx, endIdx);
-      int guardStart = clampedStart("HT_DCPHASE", startIdx, HT_DCPHASE_Lookback());
+      int guardStart = clampedStart("HT_DCPHASE", startIdx, htDcphaseLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("HT_DCPHASE", "inReal", inReal, guardInLen);
       requireLength("HT_DCPHASE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_DCPHASE_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = htDcphaseImpl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("HT_DCPHASE", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -913,7 +913,7 @@
 
    /**
     * A live HT_DCPHASE stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#HT_DCPHASE} over the same series.
+    * closed bar, bit-identical to {@link Core#htDcphase} over the same series.
     * Open with {@link Core#htDcphaseOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -987,7 +987,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#HT_DCPHASE} reports over the same bars: the
+       * <p>It is what {@link Core#htDcphase} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -1014,7 +1014,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("HT_DCPHASE advance", RetCode.OutOfRangeEndIndex);
+            throw failure("HT_DCPHASE advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -1096,9 +1096,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("HT_DCPHASE update", RetCode.OutOfRangeEndIndex);
+            throw failure("HT_DCPHASE update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("HT_DCPHASE update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("HT_DCPHASE update: BAD_PARAM", RetCode.BAD_PARAM);
          core.htDcphaseStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -1116,7 +1116,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("HT_DCPHASE peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("HT_DCPHASE peek: BAD_PARAM", RetCode.BAD_PARAM);
          HtDcphaseStream sp = this;
          int i = 0;
          double tempReal = 0.0;
@@ -1658,15 +1658,15 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       a = 0.0962;
       b = 0.5769;
@@ -1697,7 +1697,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       outBegIdx.value = startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -1996,14 +1996,14 @@
       /* Capture the live batch state into the handle. */
       int cap_trailingWMAIdx = today - trailingWMAIdx;
       if( cap_trailingWMAIdx < 0 || cap_trailingWMAIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingWMAIdx = (cap_trailingWMAIdx > 0)? cap_trailingWMAIdx : 1;
       double[] capRing_trailingWMAIdx_inReal = new double[allocN_trailingWMAIdx];
       System.arraycopy(inReal, historyLen - cap_trailingWMAIdx, capRing_trailingWMAIdx_inReal, 0, cap_trailingWMAIdx);
       int capCb_smoothPrice = maxIdx_smoothPrice + 1;
       if( capCb_smoothPrice > historyLen + 1 ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       sp.period = period;
       sp.periodWMASum = periodWMASum;
@@ -2057,7 +2057,7 @@
       sp.cbSize_smoothPrice = capCb_smoothPrice;
       sp.cb_smoothPrice = smoothPrice;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* htDcphaseOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    HtDcphaseStream htDcphaseOpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -2066,16 +2066,16 @@
       RetCode retCode = htDcphaseOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("HT_DCPHASE openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("HT_DCPHASE openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("HT_DCPHASE openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("HT_DCPHASE openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("HT_DCPHASE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind htDcphaseOpen (composition seam). */
    HtDcphaseStream htDcphaseOpenInternal( double inReal[], int startIdx )
@@ -2087,22 +2087,22 @@
       RetCode retCode = htDcphaseOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("HT_DCPHASE open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("HT_DCPHASE open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("HT_DCPHASE open: internal error", retCode);
       }
-      throw new TaLibArgumentException("HT_DCPHASE open: " + retCode, retCode);
+      throw new TALibArgumentException("HT_DCPHASE open: " + retCode, retCode);
    }
    /**
     * Open a live HT_DCPHASE stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#HT_DCPHASE} at that bar.
-    * <p>The history must hold at least {@code HT_DCPHASE_Lookback(...) + 1} bars
+    * to {@link Core#htDcphase} at that bar.
+    * <p>The history must hold at least {@code htDcphaseLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -2117,7 +2117,7 @@
    }
    /**
     * {@link Core#htDcphaseOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#HT_DCPHASE} over the whole history in the same single pass
+    * to {@link Core#htDcphase} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -2130,10 +2130,10 @@
    {
       requireArgument("HT_DCPHASE openAndFill", "inReal", inReal);
       requireHistory("HT_DCPHASE openAndFill", inReal.length);
-      int guardOutLen = openFillCount("HT_DCPHASE openAndFill", inReal.length, HT_DCPHASE_Lookback());
+      int guardOutLen = openFillCount("HT_DCPHASE openAndFill", inReal.length, htDcphaseLookback());
       requireLength("HT_DCPHASE openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("HT_DCPHASE openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("HT_DCPHASE openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

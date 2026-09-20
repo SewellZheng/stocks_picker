@@ -17,7 +17,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#STDDEV} consumes before it can
+    * Number of leading input bars {@link Core#stddev} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -29,7 +29,7 @@
     *        {@link Core#REAL_DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int STDDEV_Lookback( int optInTimePeriod, double optInNbDev )
+   public int stddevLookback( int optInTimePeriod, double optInNbDev )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
@@ -42,35 +42,35 @@
          return -1;
       }
       /* Lookback is driven by the variance. */
-      return VAR_Lookback(optInTimePeriod, optInNbDev) ;
+      return varLookback(optInTimePeriod, optInNbDev) ;
 
    }
-   RetCode STDDEV_Impl( int startIdx,
-                        int endIdx,
-                        double inReal[],
-                        int optInTimePeriod,
-                        double optInNbDev,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode stddevImpl( int startIdx,
+                       int endIdx,
+                       double inReal[],
+                       int optInTimePeriod,
+                       double optInNbDev,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outReal[] )
    {
       int i = 0;
       RetCode retCode;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* Nothing to produce: the range is shorter than the lookback. Return before
        * touching anything.
@@ -81,16 +81,16 @@
        * the lookback reads nothing" true of stddev itself rather than only of var.
        * Pinned by the zero-length no-I/O probe over every guarded core.
        */
-      if( STDDEV_Lookback(optInTimePeriod, optInNbDev) > endIdx ) {
+      if( stddevLookback(optInTimePeriod, optInNbDev) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Calculate the variance. */
-      OutRange _xr0 = VAR(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal);
+      OutRange _xr0 = var(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal);
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       /* Calculate the square root of each variance, this
        * is the standard deviation.
        *
@@ -115,44 +115,44 @@
             outReal[i] = Math.sqrt(outReal[i]);
          }
       }
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode STDDEV_Impl( int startIdx,
-                        int endIdx,
-                        float inReal[],
-                        int optInTimePeriod,
-                        double optInNbDev,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outReal[] )
+   RetCode stddevImpl( int startIdx,
+                       int endIdx,
+                       float inReal[],
+                       int optInTimePeriod,
+                       double optInNbDev,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outReal[] )
    {
       int i = 0;
       RetCode retCode;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
-      if( STDDEV_Lookback(optInTimePeriod, optInNbDev) > endIdx ) {
+      if( stddevLookback(optInTimePeriod, optInNbDev) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
-      OutRange _xr0 = VAR(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal);
+      OutRange _xr0 = var(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal);
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       if( optInNbDev != 1.0 ) {
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
             outReal[i] = Math.sqrt(outReal[i]) * optInNbDev;
@@ -162,7 +162,7 @@
             outReal[i] = Math.sqrt(outReal[i]);
          }
       }
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Rolling standard deviation of a series over a window, scaled by a
@@ -176,7 +176,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#STDDEV_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#stddevLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -202,11 +202,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#VAR
-    * @see Core#BBANDS
-    * @see Core#SMA
+    * @see Core#var
+    * @see Core#bbands
+    * @see Core#sma
     */
-   public OutRange STDDEV( int startIdx,
+   public OutRange stddev( int startIdx,
                            int endIdx,
                            double inReal[],
                            int optInTimePeriod,
@@ -214,15 +214,15 @@
                            double outReal[] )
    {
       requireIndexRange("STDDEV", startIdx, endIdx);
-      int guardStart = clampedStart("STDDEV", startIdx, STDDEV_Lookback(optInTimePeriod, optInNbDev));
+      int guardStart = clampedStart("STDDEV", startIdx, stddevLookback(optInTimePeriod, optInNbDev));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("STDDEV", "inReal", inReal, guardInLen);
       requireLength("STDDEV", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = STDDEV_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = stddevImpl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("STDDEV", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -242,7 +242,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#STDDEV_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#stddevLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -268,11 +268,11 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#VAR
-    * @see Core#BBANDS
-    * @see Core#SMA
+    * @see Core#var
+    * @see Core#bbands
+    * @see Core#sma
     */
-   public OutRange STDDEV( int startIdx,
+   public OutRange stddev( int startIdx,
                            int endIdx,
                            float inReal[],
                            int optInTimePeriod,
@@ -280,15 +280,15 @@
                            double outReal[] )
    {
       requireIndexRange("STDDEV", startIdx, endIdx);
-      int guardStart = clampedStart("STDDEV", startIdx, STDDEV_Lookback(optInTimePeriod, optInNbDev));
+      int guardStart = clampedStart("STDDEV", startIdx, stddevLookback(optInTimePeriod, optInNbDev));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("STDDEV", "inReal", inReal, guardInLen);
       requireLength("STDDEV", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = STDDEV_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = stddevImpl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("STDDEV", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -297,7 +297,7 @@
 
    /**
     * A live STDDEV stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#STDDEV} over the same series.
+    * closed bar, bit-identical to {@link Core#stddev} over the same series.
     * Open with {@link Core#stddevOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -323,7 +323,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#STDDEV} reports over the same bars: the
+       * <p>It is what {@link Core#stddev} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -350,7 +350,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("STDDEV advance", RetCode.OutOfRangeEndIndex);
+            throw failure("STDDEV advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -384,9 +384,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("STDDEV update", RetCode.OutOfRangeEndIndex);
+            throw failure("STDDEV update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("STDDEV update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("STDDEV update: BAD_PARAM", RetCode.BAD_PARAM);
          core.stddevStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -404,7 +404,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("STDDEV peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("STDDEV peek: BAD_PARAM", RetCode.BAD_PARAM);
          StddevStream sp = this;
          double cur_outReal = 0.0;
          /* Pipeline the new bar through the sub-streams (batch tail order). */
@@ -464,28 +464,28 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
-      if( historyLen < STDDEV_Lookback(optInTimePeriod, optInNbDev) + 1 ) {
-         return RetCode.InsufficientHistory;
+      if( historyLen < stddevLookback(optInTimePeriod, optInNbDev) + 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       double[] sc_outReal = outStride == 1 ? outReal : new double[historyLen];
       /* Nothing to produce: the range is shorter than the lookback. Return before
@@ -497,16 +497,16 @@
        * the lookback reads nothing" true of stddev itself rather than only of var.
        * Pinned by the zero-length no-I/O probe over every guarded core.
        */
-      if( STDDEV_Lookback(optInTimePeriod, optInNbDev) > endIdx ) {
+      if( stddevLookback(optInTimePeriod, optInNbDev) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Calculate the variance. */
       /* Sub-stream 0: var over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       VarStream sub0 = varOpenAndFillInternal(inReal, startIdx, optInTimePeriod, 1.0, outBegIdx, outNBElement, sc_outReal);
-      retCode = RetCode.Success;
+      retCode = RetCode.SUCCESS;
       /* Calculate the square root of each variance, this
        * is the standard deviation.
        *
@@ -533,13 +533,13 @@
       }
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.optInNbDev = optInNbDev;
       sp.sub0 = sub0;
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* stddevOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    StddevStream stddevOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -548,16 +548,16 @@
       RetCode retCode = stddevOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("STDDEV openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("STDDEV openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("STDDEV openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("STDDEV openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("STDDEV openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind stddevOpen (composition seam). */
    StddevStream stddevOpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
@@ -569,22 +569,22 @@
       RetCode retCode = stddevOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("STDDEV open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("STDDEV open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("STDDEV open: internal error", retCode);
       }
-      throw new TaLibArgumentException("STDDEV open: " + retCode, retCode);
+      throw new TALibArgumentException("STDDEV open: " + retCode, retCode);
    }
    /**
     * Open a live STDDEV stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#STDDEV} at that bar.
-    * <p>The history must hold at least {@code STDDEV_Lookback(...) + 1} bars
+    * to {@link Core#stddev} at that bar.
+    * <p>The history must hold at least {@code stddevLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
@@ -601,7 +601,7 @@
    }
    /**
     * {@link Core#stddevOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#STDDEV} over the whole history in the same single pass
+    * to {@link Core#stddev} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -614,10 +614,10 @@
    {
       requireArgument("STDDEV openAndFill", "inReal", inReal);
       requireHistory("STDDEV openAndFill", inReal.length);
-      int guardOutLen = openFillCount("STDDEV openAndFill", inReal.length, STDDEV_Lookback(optInTimePeriod, optInNbDev));
+      int guardOutLen = openFillCount("STDDEV openAndFill", inReal.length, stddevLookback(optInTimePeriod, optInNbDev));
       requireLength("STDDEV openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("STDDEV openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("STDDEV openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

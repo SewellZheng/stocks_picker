@@ -94,8 +94,8 @@ pub fn emits_stream(func: &FuncDef, lookup: &dyn streaming::CalleeLookup) -> boo
     streaming::validate_streamable(&func.resolved_for(crate::ir::Lang::CSharp), lookup).is_ok()
 }
 
-/// The base every C# identifier for this function is spelled from: the YAML
-/// `name:` verbatim (`SMA`, `MA`, `CDL2CROWS`), matching `Lang::CSharp` in
+/// The YAML `name:` for this function (`SMA`, `MA`, `CDL2CROWS`). Every C#
+/// identifier folds from it through `pascal_words`, matching `Lang::CSharp` in
 /// `registry.rs`.
 fn base_name(func: &FuncDef) -> String {
     func.name.clone()
@@ -577,7 +577,7 @@ fn render_predicate(
 ///
 /// `cref` discipline: never `<see cref="Core.SMA"/>` — the batch method is an
 /// overload set and that is CS0419. Only single-signature members
-/// (`SmaOpen`, `SMA_Lookback`, `SmaStream`, `Update`, ...) are cref-able;
+/// (`SmaOpen`, `SmaLookback`, `SmaStream`, `Update`, ...) are cref-able;
 /// everything else goes in prose as `<c>SMA</c>`.
 struct XmlDoc {
     lines: Vec<String>,
@@ -750,7 +750,7 @@ fn opt_param_desc(base: &str, opt: &OptInput, enums: &HashMap<String, EnumDef>) 
     // The sentinel a caller can TYPE at this parameter. An enum takes the member
     // rather than the integer, which needs a cast here.
     let sentinel = match &opt.param_type {
-        ParamType::Real => "<see cref=\"Core.REAL_DEFAULT\"/>".to_string(),
+        ParamType::Real => "<see cref=\"Core.RealDefault\"/>".to_string(),
         ParamType::Enum(name) => match super::common::enum_default_variant(enums, name) {
             Some(v) => format!("<c>{name}.{}</c>", v.name),
             None => format!("<c>({name})int.MinValue</c>"),
@@ -758,7 +758,7 @@ fn opt_param_desc(base: &str, opt: &OptInput, enums: &HashMap<String, EnumDef>) 
         _ => "<c>int.MinValue</c>".to_string(),
     };
     format!(
-        "As in the batch call; see <see cref=\"{base}_Lookback\"/> for its default \
+        "As in the batch call; see <see cref=\"{base}Lookback\"/> for its default \
          and range ({sentinel} selects the default)."
     )
 }
@@ -887,7 +887,7 @@ fn emit_handle_class_with_members(
          caller chose not to take the fill."
     ));
     d.para(
-        "The last bar it can reach is <see cref=\"Core.MAX_INDEX\"/>; past that \
+        "The last bar it can reach is <see cref=\"Core.MaxIndex\"/>; past that \
          <c>Update</c> and <c>Advance</c> throw.",
     );
     d.close("remarks");
@@ -915,7 +915,7 @@ fn emit_handle_class_with_members(
     );
     d.para(
         "Throws <see cref=\"System.ArgumentException\"/> once <see cref=\"OutRange\"/> has \
-         reached bar <see cref=\"Core.MAX_INDEX\"/>, the last one the batch tier can \
+         reached bar <see cref=\"Core.MaxIndex\"/>, the last one the batch tier can \
          address and the last this handle will count. <c>Update</c> throws the same \
          there.",
     );
@@ -1032,7 +1032,7 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
 /// time (`docs/error-handling-spec.md` §2.4, which carries why a sub-handle
 /// cannot answer it before its parent).
 ///
-/// `>` and not `>=`: an opener may legally take `MAX_INDEX + 1` bars (rule S2),
+/// `>` and not `>=`: an opener may legally take `MaxIndex + 1` bars (rule S2),
 /// so a handle can be born holding the last bar in the domain and it is the NEXT
 /// one that has nowhere to go.
 ///
@@ -1041,7 +1041,7 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
 fn out_range_ceiling_guard(func: &FuncDef, indent: &str, what: &str) -> String {
     let n = base_name(func);
     format!(
-        "{indent}if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )\n\
+        "{indent}if( outRangeBegIdx + outRangeCount > Core.MaxIndex )\n\
          {indent}   throw Core.StreamFailure(\"{n}\", \"{what}\", RetCode.OutOfRangeEndIndex);\n"
     )
 }
@@ -1113,7 +1113,7 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
     );
     d.para(
         "Throws <see cref=\"System.ArgumentException\"/> once <see cref=\"OutRange\"/> has \
-         reached bar <see cref=\"Core.MAX_INDEX\"/>, which no re-feed clears: the handle \
+         reached bar <see cref=\"Core.MaxIndex\"/>, which no re-feed clears: the handle \
          has run out of index domain and only a shorter history can start a new one.",
     );
     d.close("remarks");
@@ -1151,7 +1151,7 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     );
     d.para("Its cost does not grow with the period.");
     d.para(
-        "It counts no bar, so it keeps answering past the <see cref=\"Core.MAX_INDEX\"/> \
+        "It counts no bar, so it keeps answering past the <see cref=\"Core.MaxIndex\"/> \
          ceiling <c>Update</c> stops at.",
     );
     d.close("remarks");
@@ -1998,10 +1998,10 @@ fn emit_open_validation(
     let _ = writeln!(o, "         return RetCode.OutOfRangeStartIndex;");
     let _ = writeln!(o, "      }}");
     // The fill covers bars 0..historyLen-1, so its last bar is an index like any
-    // other and MAX_INDEX bounds it too (#180). Without this the streaming entry
+    // other and MaxIndex bounds it too (#180). Without this the streaming entry
     // points would compute over exactly the ranges the batch call refuses, and
     // the two are required to agree bit for bit.
-    let _ = writeln!(o, "      if( historyLen > MAX_INDEX + 1 ) {{");
+    let _ = writeln!(o, "      if( historyLen > MaxIndex + 1 ) {{");
     let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
     let _ = writeln!(o, "      }}");
     let mismatches: Vec<String> = inputs[1..]
@@ -2147,12 +2147,12 @@ fn emit_identity_fast_path(
     counter: &Cell<usize>,
 ) {
     let Some(idp) = &model.identity else { return };
-    let base = base_name(func);
+    let base = pascal_words(&base_name(func));
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
     let cond = render_expr(&idp.condition, &ctx, registry, helpers);
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let lb_call = format!("{base}_Lookback({})", lb_args.join(", "));
+    let lb_call = format!("{base}Lookback({})", lb_args.join(", "));
     let _ = writeln!(o, "      if( {cond} ) {{");
     // batch( startIdx, .. ) begins at max(startIdx, lookback), and the anchored
     // `OpenInternal`/`OpenAndFillInternal` variants are the batch call over that same range. The
@@ -2574,16 +2574,16 @@ fn public_open_empty_guards(n: &str, verb: &str, inputs: &[String]) -> String {
     let first = &inputs[0];
     let _ = writeln!(
         s,
-        "      if( {first}.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof({first}), \"{n} {verb}: history is empty\", RetCode.OutOfRangeStartIndex);"
+        "      if( {first}.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof({first}), \"{n} {verb}: history is empty\", RetCode.OutOfRangeStartIndex);"
     );
     let _ = writeln!(
         s,
-        "      if( {first}.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof({first}), \"{n} {verb}: history is longer than MAX_INDEX + 1\", RetCode.OutOfRangeEndIndex);"
+        "      if( {first}.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof({first}), \"{n} {verb}: history is longer than MaxIndex + 1\", RetCode.OutOfRangeEndIndex);"
     );
     for input in &inputs[1..] {
         let _ = writeln!(
             s,
-            "      if( {input}.IsEmpty ) throw new TaLibArgumentException(\"{n} {verb}: {input} is empty\", nameof({input}), RetCode.BadParam);"
+            "      if( {input}.IsEmpty ) throw new TALibArgumentException(\"{n} {verb}: {input} is empty\", nameof({input}), RetCode.BadParam);"
         );
     }
     s
@@ -2642,7 +2642,8 @@ fn public_open_fill_capacity(func: &FuncDef, n: &str, history: &str) -> String {
     // buffer rules would have said about a call it made no sense to size.
     let _ = writeln!(
         s,
-        "      int guardOutLen = OpenFillCount(\"{n}\", \"openAndFill\", {history}.Length, {n}_Lookback({}));",
+        "      int guardOutLen = OpenFillCount(\"{n}\", \"openAndFill\", {history}.Length, {}Lookback({}));",
+        pascal_words(n),
         lb_args.join(", ")
     );
     // Then S5's input half, ahead of its output half — the order B5 states.
@@ -2683,12 +2684,8 @@ fn emit_open_wrappers(
     merged: bool,
     enums: &HashMap<String, EnumDef>,
 ) {
-    // `base` stays the raw verbatim name: it feeds `_Lookback` references and
-    // `opt_param_desc`, both pointing at the unchanged batch tier (issue #278
-    // is streaming-only). `cbase` is the PascalCase form for this file's own
-    // `_Open`/`_OpenAndFill`/`_OpenInternal`/`_Impl` family.
-    let base = base_name(func);
-    let cbase = pascal_words(&base);
+    let base = pascal_words(&base_name(func));
+    let cbase = base.clone();
     let class = stream_class_name(func);
     let n = func.name.to_uppercase();
     let empty = DocDef::default();
@@ -2771,7 +2768,7 @@ fn emit_open_wrappers(
          value — bit-identical to what <c>{n}</c> reports for that bar."
     ));
     d.para(&format!(
-        "The history must hold at least <c>{base}_Lookback(...) + 1</c> bars \
+        "The history must hold at least <c>{base}Lookback(...) + 1</c> bars \
          (unstable-period aware). Nothing is written to any caller array; use \
          <c>{cbase}OpenAndFill</c> to get the warm-up values as well."
     ));
@@ -2788,7 +2785,7 @@ fn emit_open_wrappers(
     d.returns("The open stream handle.");
     d.exception(
         "InsufficientHistoryException",
-        &format!("The history holds fewer than <c>{base}_Lookback(...) + 1</c> bars."),
+        &format!("The history holds fewer than <c>{base}Lookback(...) + 1</c> bars."),
     );
     // Built from the same two facts the guards are: a function with no optional
     // parameter and one input span can raise neither cause.
@@ -2812,7 +2809,7 @@ fn emit_open_wrappers(
     d.exception(
         "System.ArgumentOutOfRangeException",
         "The history is empty — which is what a null array becomes, since a span cannot be \
-         null — or it is longer than <see cref=\"Core.MAX_INDEX\"/> + 1, the two index \
+         null — or it is longer than <see cref=\"Core.MaxIndex\"/> + 1, the two index \
          faults an opener can have (rules S1 and S2).",
     );
     o.push('\n');
@@ -2861,7 +2858,7 @@ fn emit_open_wrappers(
          series, so no separate batch call is needed for the warm-up plot."
     ));
     d.para(&format!(
-        "Output arrays must hold <c>historyLen - {base}_Lookback(...)</c> values and must \
+        "Output arrays must hold <c>historyLen - {base}Lookback(...)</c> values and must \
          not alias the inputs or each other — this path writes the outputs and then reads \
          the input tail to seed its rings, so the batch tier's in-place allowance does not \
          carry over here. Both are checked before anything is written, so an undersized \
@@ -2886,7 +2883,7 @@ fn emit_open_wrappers(
         d.param(
             &out.name,
             &format!(
-                "{}{} Must hold at least <c>historyLen - {base}_Lookback(...)</c> values.",
+                "{}{} Must hold at least <c>historyLen - {base}Lookback(...)</c> values.",
                 super::csharp_doc::output_desc(out, doc),
                 if out.is_nullable() {
                     " Pass an empty span to decline it: the value is still computed \
@@ -2900,7 +2897,7 @@ fn emit_open_wrappers(
     d.returns("The open stream handle, with its fill range set.");
     d.exception(
         "InsufficientHistoryException",
-        &format!("The history holds fewer than <c>{base}_Lookback(...) + 1</c> bars."),
+        &format!("The history holds fewer than <c>{base}Lookback(...) + 1</c> bars."),
     );
     d.exception(
         "System.ArgumentException",
@@ -2911,7 +2908,7 @@ fn emit_open_wrappers(
     d.exception(
         "System.ArgumentOutOfRangeException",
         "The history is empty — which is what a null array becomes, since a span cannot be \
-         null — or it is longer than <see cref=\"Core.MAX_INDEX\"/> + 1, the two index \
+         null — or it is longer than <see cref=\"Core.MaxIndex\"/> + 1, the two index \
          faults an opener can have (rules S1 and S2).",
     );
     o.push('\n');
@@ -3249,7 +3246,7 @@ fn emit_dispatch(
     let outputs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
     let inputs = streaming::input_array_names(func);
     let bar_args = inputs.join(", ");
-    let base = base_name(func);
+    let base = pascal_words(&base_name(func));
     let empty = HashSet::new();
     let mut ctx = stream_ctx(&empty, counter, stream_fma);
     // The dispatch identity guard can compare `optInMAType == TA_MAType_*`
@@ -3258,7 +3255,7 @@ fn emit_dispatch(
     // body dispatches structurally.
     ctx.matype_map = build_matype_map(enums);
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let lb_call = format!("{base}_Lookback({})", lb_args.join(", "));
+    let lb_call = format!("{base}Lookback({})", lb_args.join(", "));
 
     // --- handle class -------------------------------------------------------
     let fields = base_fields(func);
@@ -3548,10 +3545,7 @@ fn emit_period_bank(
 ) {
     let _ = helpers;
     let callee = plan.callee.as_str();
-    // `callee_base` stays raw for the callee's (unchanged, batch-tier) `_Lookback`;
-    // `callee_pascal` is the PascalCase form for the callee's own stream `_Open*` family.
-    let callee_base = registry.name_of(callee);
-    let callee_pascal = pascal_words(&callee_base);
+    let callee_pascal = pascal_words(&registry.name_of(callee));
     let subty = callee_stream_class(registry, callee);
     let callee_out0 = registry.callee_outputs(callee)[0].clone();
     let min = plan.min_param.as_str();
@@ -3628,8 +3622,8 @@ fn emit_period_bank(
 
     // --- open body (Scalar) -------------------------------------------------
     let own_lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let base = base_name(func);
-    let own_lb_call = format!("{base}_Lookback({})", own_lb_args.join(", "));
+    let base = pascal_words(&base_name(func));
+    let own_lb_call = format!("{base}Lookback({})", own_lb_args.join(", "));
     emit_open_body_sig(o, func, OutMode::Scalar);
     let _ = writeln!(o, "      int historyLen = {price}.Length;");
     emit_open_validation(o, func, OutMode::Scalar, enums);
@@ -3651,7 +3645,7 @@ fn emit_period_bank(
          \x20      * (smaller) lookback would seed the recurrence from a different bar and\n\
          \x20      * diverge for every period < maxPeriod. */"
     );
-    let _ = writeln!(o, "      int lookbackTotal = {callee_base}_Lookback({lb_args});");
+    let _ = writeln!(o, "      int lookbackTotal = {callee_pascal}Lookback({lb_args});");
     let _ = writeln!(o, "      int subStart = (startIdx < lookbackTotal)? lookbackTotal : startIdx;");
     // The bank is opened at `subStart`, so the history has to reach it.
     let _ = writeln!(o, "      if( historyLen < subStart + 1 ) {{");
@@ -3692,7 +3686,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "      if( {min} > {max} ) {{");
     let _ = writeln!(o, "         return RetCode.BadParam;");
     let _ = writeln!(o, "      }}");
-    let _ = writeln!(o, "      int lookbackTotal = {callee_base}_Lookback({lb_args});");
+    let _ = writeln!(o, "      int lookbackTotal = {callee_pascal}Lookback({lb_args});");
     let _ = writeln!(o, "      if( historyLen < lookbackTotal + 1 ) {{");
     let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
     let _ = writeln!(o, "      }}");
@@ -4214,7 +4208,7 @@ fn emit_composed_open(
     {
         let lb_args: Vec<String> =
             func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-        let lb_call = format!("{}_Lookback({})", base_name(func), lb_args.join(", "));
+        let lb_call = format!("{}Lookback({})", pascal_words(&base_name(func)), lb_args.join(", "));
         let _ = writeln!(o, "      if( historyLen < {lb_call} + 1 ) {{");
         let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
         let _ = writeln!(o, "      }}");

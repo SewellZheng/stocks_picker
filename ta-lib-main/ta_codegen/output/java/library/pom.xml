@@ -188,10 +188,33 @@
       <id>release</id>
       <build>
         <plugins>
+          <!-- maven-javadoc-plugin never counts a source edit as a change, so
+               without this the javadoc jar repackages whatever an earlier build
+               left behind, doclint never runs, and the build still succeeds. -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-clean-plugin</artifactId>
+            <version>3.2.0</version>
+            <executions>
+              <execution>
+                <id>release-from-nothing</id>
+                <phase>initialize</phase>
+                <goals><goal>clean</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-gpg-plugin</artifactId>
             <version>3.2.8</version>
+            <configuration>
+              <!-- Named, because gpg otherwise signs with the first secret key
+                   in the keyring. An absent key fails here; a wrong one fails
+                   at Central, after the upload. Rotating the key is this line
+                   and nothing else: the namespace is bound to the account. -->
+              <keyname>B351CC3D856EE4AC3DBFD4C44F36E9F467C8547D</keyname>
+            </configuration>
             <executions>
               <execution>
                 <id>sign-artifacts</id>

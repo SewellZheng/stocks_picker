@@ -146,12 +146,12 @@ fn test_all_indicators_contain_success_returns() {
                 name
             );
             // Accept: literal RetCode.Success OR a return of a RetCode variable/call.
-            let java_has_success = out.java.contains("RetCode.Success")
+            let java_has_success = out.java.contains("RetCode.SUCCESS")
                 || out.java.contains("return retCode ;")
                 || (out.java.contains("return ") && out.java.contains("Internal("));
             assert!(
                 java_has_success,
-                "Java {}: missing RetCode.Success return",
+                "Java {}: missing RetCode.SUCCESS return",
                 name
             );
         }));
@@ -190,8 +190,8 @@ fn test_rust_generic_output_smoke() {
 
     // 1. Concrete f64 signatures present (no generics)
     assert!(
-        r.contains("pub fn SMA("),
-        "Rust SMA should have pub fn SMA("
+        r.contains("pub fn sma("),
+        "Rust SMA should have pub fn sma("
     );
     assert!(
         !r.contains("_unguarded"),
@@ -229,10 +229,13 @@ fn test_rust_generic_output_smoke() {
     // 6. Exactly 4 pub fn: guarded + lookback + the stream tier's open +
     // open_and_fill (open_internal is pub(crate), update/peek live on the handle
     // type).
-    let batch_pub_fn_count = r.matches("pub fn SMA").count();
+    // `pub fn sma` alone would also match the stream openers, whose names now
+    // share the stem.
+    let batch_pub_fn_count =
+        r.matches("pub fn sma(").count() + r.matches("pub fn sma_lookback(").count();
     assert_eq!(
         batch_pub_fn_count, 2,
-        "Rust SMA batch tier should have exactly 2 pub fn (sma, SMA_Lookback), got {}",
+        "Rust SMA batch tier should have exactly 2 pub fn (sma, sma_lookback), got {}",
         batch_pub_fn_count
     );
     let stream_pub_fn_count = r.matches("pub fn sma_open").count();
@@ -1712,15 +1715,15 @@ fn java_backend_emits_candle_settings() {
 
     // Assert Java output contains unpacking lines (canonical array/ordinal form)
     assert!(
-        java_out.contains("this.candleSettings[CandleSettingType.BodyLong.ordinal()].rangeType"),
+        java_out.contains("this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].rangeType"),
         "Java output should unpack BodyLong.rangeType: {java_out}"
     );
     assert!(
-        java_out.contains("this.candleSettings[CandleSettingType.BodyLong.ordinal()].avgPeriod"),
+        java_out.contains("this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].avgPeriod"),
         "Java output should unpack BodyLong.avgPeriod"
     );
     assert!(
-        java_out.contains("this.candleSettings[CandleSettingType.BodyLong.ordinal()].factor"),
+        java_out.contains("this.candleSettings[CandleSettingType.BODY_LONG.ordinal()].factor"),
         "Java output should unpack BodyLong.factor"
     );
 }
@@ -1745,17 +1748,17 @@ fn candle_settings_unpacking_in_lookback() {
         "C lookback should contain candle settings unpacking"
     );
 
-    let rust_lookback_end = rust_out.find("pub fn CDL2CROWS(").unwrap();
+    let rust_lookback_end = rust_out.find("pub fn cdl2crows(").unwrap();
     let rust_lookback = &rust_out[..rust_lookback_end];
     assert!(
         rust_lookback.contains("self.candle_settings.body_long"),
         "Rust lookback should contain candle settings unpacking"
     );
 
-    let java_lookback_end = java_out.find("RetCode CDL2CROWS_Impl(").unwrap();
+    let java_lookback_end = java_out.find("RetCode cdl2crowsImpl(").unwrap();
     let java_lookback = &java_out[..java_lookback_end];
     assert!(
-        java_lookback.contains("this.candleSettings[CandleSettingType.BodyLong.ordinal()]"),
+        java_lookback.contains("this.candleSettings[CandleSettingType.BODY_LONG.ordinal()]"),
         "Java lookback should contain candle settings unpacking"
     );
 }
@@ -1789,11 +1792,11 @@ fn candle_settings_multiple_settings_in_kicking() {
 
     let java_out = backends::java::generate(&func, &enums, &registry, &helpers);
     assert!(
-        java_out.contains("this.candleSettings[CandleSettingType.BodyLong.ordinal()]"),
+        java_out.contains("this.candleSettings[CandleSettingType.BODY_LONG.ordinal()]"),
         "Java output should unpack BodyLong"
     );
     assert!(
-        java_out.contains("this.candleSettings[CandleSettingType.ShadowVeryShort.ordinal()]"),
+        java_out.contains("this.candleSettings[CandleSettingType.SHADOW_VERY_SHORT.ordinal()]"),
         "Java output should unpack ShadowVeryShort"
     );
 }

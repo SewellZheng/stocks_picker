@@ -12,7 +12,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#VORTEX} consumes before it can
+    * Number of leading input bars {@link Core#vortex} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -22,7 +22,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int VORTEX_Lookback( int optInTimePeriod )
+   public int vortexLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -37,16 +37,16 @@
       return optInTimePeriod ;
 
    }
-   RetCode VORTEX_Impl( int startIdx,
-                        int endIdx,
-                        double inHigh[],
-                        double inLow[],
-                        double inClose[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outPlusVI[],
-                        double outMinusVI[] )
+   RetCode vortexImpl( int startIdx,
+                       int endIdx,
+                       double inHigh[],
+                       double inLow[],
+                       double inClose[],
+                       int optInTimePeriod,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outPlusVI[],
+                       double outMinusVI[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -66,18 +66,18 @@
       double tempHT = 0;
       double tempCY = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outPlusVI == outMinusVI ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
       /* Vortex Indicator (Botes & Siepman, TASC 28:1, Jan 2010): two lines,
        * each a rolling sum of "vortex movement" normalized by the rolling sum
@@ -97,7 +97,7 @@
        * both of which sit at or ahead of the output slot, which is why the
        * outputs are written LAST (see the loop comment).
        */
-      lookbackTotal = VORTEX_Lookback(optInTimePeriod);
+      lookbackTotal = vortexLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -105,7 +105,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Prime the three window sums over the optInTimePeriod-1 terms before the
        * first output bar: [startIdx-optInTimePeriod+1, startIdx). Each term at
@@ -233,18 +233,18 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode VORTEX_Impl( int startIdx,
-                        int endIdx,
-                        float inHigh[],
-                        float inLow[],
-                        float inClose[],
-                        int optInTimePeriod,
-                        MInteger outBegIdx,
-                        MInteger outNBElement,
-                        double outPlusVI[],
-                        double outMinusVI[] )
+   RetCode vortexImpl( int startIdx,
+                       int endIdx,
+                       float inHigh[],
+                       float inLow[],
+                       float inClose[],
+                       int optInTimePeriod,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outPlusVI[],
+                       double outMinusVI[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -264,27 +264,27 @@
       double tempHT = 0;
       double tempCY = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( outPlusVI == outMinusVI ) {
-         return RetCode.BadParam ;
+         return RetCode.BAD_PARAM ;
       }
-      lookbackTotal = VORTEX_Lookback(optInTimePeriod);
+      lookbackTotal = vortexLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       sTR = 0.0;
       sVMP = 0.0;
@@ -371,7 +371,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Vortex Indicator: Etienne Botes and Douglas Siepman's two-line trend
@@ -391,7 +391,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#VORTEX_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#vortexLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -419,12 +419,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#TRANGE
-    * @see Core#PLUS_DI
-    * @see Core#MINUS_DI
-    * @see Core#ADX
+    * @see Core#trange
+    * @see Core#plusDi
+    * @see Core#minusDi
+    * @see Core#adx
     */
-   public OutRange VORTEX( int startIdx,
+   public OutRange vortex( int startIdx,
                            int endIdx,
                            double inHigh[],
                            double inLow[],
@@ -434,7 +434,7 @@
                            double outMinusVI[] )
    {
       requireIndexRange("VORTEX", startIdx, endIdx);
-      int guardStart = clampedStart("VORTEX", startIdx, VORTEX_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("VORTEX", startIdx, vortexLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("VORTEX", "inHigh", inHigh, guardInLen);
@@ -444,8 +444,8 @@
       requireLength("VORTEX", "outMinusVI", outMinusVI, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VORTEX_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outPlusVI, outMinusVI);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = vortexImpl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outPlusVI, outMinusVI);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("VORTEX", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -471,7 +471,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#VORTEX_Lookback} is a <b>success with
+    * valid range shorter than {@link Core#vortexLookback} is a <b>success with
     * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -499,12 +499,12 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#TRANGE
-    * @see Core#PLUS_DI
-    * @see Core#MINUS_DI
-    * @see Core#ADX
+    * @see Core#trange
+    * @see Core#plusDi
+    * @see Core#minusDi
+    * @see Core#adx
     */
-   public OutRange VORTEX( int startIdx,
+   public OutRange vortex( int startIdx,
                            int endIdx,
                            float inHigh[],
                            float inLow[],
@@ -514,7 +514,7 @@
                            double outMinusVI[] )
    {
       requireIndexRange("VORTEX", startIdx, endIdx);
-      int guardStart = clampedStart("VORTEX", startIdx, VORTEX_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("VORTEX", startIdx, vortexLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("VORTEX", "inHigh", inHigh, guardInLen);
@@ -524,8 +524,8 @@
       requireLength("VORTEX", "outMinusVI", outMinusVI, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VORTEX_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outPlusVI, outMinusVI);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = vortexImpl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outPlusVI, outMinusVI);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("VORTEX", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -534,7 +534,7 @@
 
    /**
     * A live VORTEX stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#VORTEX} over the same series.
+    * closed bar, bit-identical to {@link Core#vortex} over the same series.
     * Open with {@link Core#vortexOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -572,7 +572,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#VORTEX} reports over the same bars: the
+       * <p>It is what {@link Core#vortex} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -599,7 +599,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("VORTEX advance", RetCode.OutOfRangeEndIndex);
+            throw failure("VORTEX advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -645,10 +645,10 @@
        */
       public void update( double inHigh, double inLow, double inClose, VortexOut out ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("VORTEX update", RetCode.OutOfRangeEndIndex);
+            throw failure("VORTEX update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("VORTEX update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("VORTEX update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("VORTEX update: BAD_PARAM", RetCode.BAD_PARAM);
          core.vortexStepImpl(this, inHigh, inLow, inClose);
          this.outRangeCount++;
          out.plusVI = this.cur_outPlusVI;
@@ -668,7 +668,7 @@
       public void peek( double inHigh, double inLow, double inClose, VortexOut out ) {
          requireArgument("VORTEX peek", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TaLibArgumentException("VORTEX peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("VORTEX peek: BAD_PARAM", RetCode.BAD_PARAM);
          VortexStream sp = this;
          double curTR = 0.0;
          double curVMP = 0.0;
@@ -963,23 +963,23 @@
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* Vortex Indicator (Botes & Siepman, TASC 28:1, Jan 2010): two lines,
        * each a rolling sum of "vortex movement" normalized by the rolling sum
@@ -999,7 +999,7 @@
        * both of which sit at or ahead of the output slot, which is why the
        * outputs are written LAST (see the loop comment).
        */
-      lookbackTotal = VORTEX_Lookback(optInTimePeriod);
+      lookbackTotal = vortexLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -1007,7 +1007,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Prime the three window sums over the optInTimePeriod-1 terms before the
        * first output bar: [startIdx-optInTimePeriod+1, startIdx). Each term at
@@ -1139,7 +1139,7 @@
       int capLag_trailingIdx = today - trailingIdx;
       int cap_trailingIdx = capLag_trailingIdx + 2;
       if( capLag_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
       double[] capRing_trailingIdx_inHigh = new double[allocN_trailingIdx];
@@ -1170,7 +1170,7 @@
       sp.ring_trailingIdx_inClose = capRing_trailingIdx_inClose;
       sp.cur_outPlusVI = outPlusVI[(outNBElement.value - 1) * outStride];
       sp.cur_outMinusVI = outMinusVI[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* vortexOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    VortexStream vortexOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outPlusVI[], double outMinusVI[] )
@@ -1179,16 +1179,16 @@
       RetCode retCode = vortexOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outPlusVI, outMinusVI, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("VORTEX openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("VORTEX openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("VORTEX openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("VORTEX openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("VORTEX openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind vortexOpen (composition seam). */
    VortexStream vortexOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
@@ -1201,22 +1201,22 @@
       RetCode retCode = vortexOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outPlusVI, sink_outMinusVI, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("VORTEX open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("VORTEX open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("VORTEX open: internal error", retCode);
       }
-      throw new TaLibArgumentException("VORTEX open: " + retCode, retCode);
+      throw new TALibArgumentException("VORTEX open: " + retCode, retCode);
    }
    /**
     * Open a live VORTEX stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#VORTEX} at that bar.
-    * <p>The history must hold at least {@code VORTEX_Lookback(...) + 1} bars
+    * to {@link Core#vortex} at that bar.
+    * <p>The history must hold at least {@code vortexLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -1237,7 +1237,7 @@
    }
    /**
     * {@link Core#vortexOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#VORTEX} over the whole history in the same single pass
+    * to {@link Core#vortex} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1252,13 +1252,13 @@
       requireHistory("VORTEX openAndFill", inHigh.length);
       requireArgument("VORTEX openAndFill", "inLow", inLow);
       requireArgument("VORTEX openAndFill", "inClose", inClose);
-      int guardOutLen = openFillCount("VORTEX openAndFill", inHigh.length, VORTEX_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("VORTEX openAndFill", inHigh.length, vortexLookback(optInTimePeriod));
       requireHistoryLength("VORTEX openAndFill", "inLow", inLow.length, inHigh.length);
       requireHistoryLength("VORTEX openAndFill", "inClose", inClose.length, inHigh.length);
       requireLength("VORTEX openAndFill", "outPlusVI", outPlusVI, guardOutLen);
       requireLength("VORTEX openAndFill", "outMinusVI", outMinusVI, guardOutLen);
       if( (Object)outPlusVI == (Object)inHigh || (Object)outPlusVI == (Object)inLow || (Object)outPlusVI == (Object)inClose || (Object)outMinusVI == (Object)inHigh || (Object)outMinusVI == (Object)inLow || (Object)outMinusVI == (Object)inClose || (Object)outPlusVI == (Object)outMinusVI ) {
-         throw new TaLibArgumentException("VORTEX openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("VORTEX openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

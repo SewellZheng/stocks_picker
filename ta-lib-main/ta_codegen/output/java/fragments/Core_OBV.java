@@ -16,7 +16,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#OBV} consumes before it can
+    * Number of leading input bars {@link Core#obv} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -24,19 +24,19 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int OBV_Lookback( )
+   public int obvLookback( )
    {
       /* This function have no lookback needed. */
       return 0 ;
 
    }
-   RetCode OBV_Impl( int startIdx,
-                     int endIdx,
-                     double inReal[],
-                     double inVolume[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode obvImpl( int startIdx,
+                    int endIdx,
+                    double inReal[],
+                    double inVolume[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -44,10 +44,10 @@
       double tempReal = 0;
       double prevOBV = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       prevOBV = inVolume[startIdx];
       prevReal = inReal[startIdx];
@@ -64,15 +64,15 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode OBV_Impl( int startIdx,
-                     int endIdx,
-                     float inReal[],
-                     float inVolume[],
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode obvImpl( int startIdx,
+                    int endIdx,
+                    float inReal[],
+                    float inVolume[],
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -80,10 +80,10 @@
       double tempReal = 0;
       double prevOBV = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       prevOBV = (double)inVolume[startIdx];
       prevReal = (double)inReal[startIdx];
@@ -100,7 +100,7 @@
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * On Balance Volume: a running cumulative total of volume, added on up-price
@@ -111,7 +111,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#OBV_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#obvLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -134,14 +134,14 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     */
-   public OutRange OBV( int startIdx,
+   public OutRange obv( int startIdx,
                         int endIdx,
                         double inReal[],
                         double inVolume[],
                         double outReal[] )
    {
       requireIndexRange("OBV", startIdx, endIdx);
-      int guardStart = clampedStart("OBV", startIdx, OBV_Lookback());
+      int guardStart = clampedStart("OBV", startIdx, obvLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("OBV", "inReal", inReal, guardInLen);
@@ -149,8 +149,8 @@
       requireLength("OBV", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = OBV_Impl(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = obvImpl(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("OBV", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -167,7 +167,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#OBV_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#obvLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -190,14 +190,14 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     */
-   public OutRange OBV( int startIdx,
+   public OutRange obv( int startIdx,
                         int endIdx,
                         float inReal[],
                         float inVolume[],
                         double outReal[] )
    {
       requireIndexRange("OBV", startIdx, endIdx);
-      int guardStart = clampedStart("OBV", startIdx, OBV_Lookback());
+      int guardStart = clampedStart("OBV", startIdx, obvLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("OBV", "inReal", inReal, guardInLen);
@@ -205,8 +205,8 @@
       requireLength("OBV", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = OBV_Impl(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = obvImpl(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("OBV", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -215,7 +215,7 @@
 
    /**
     * A live OBV stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#OBV} over the same series.
+    * closed bar, bit-identical to {@link Core#obv} over the same series.
     * Open with {@link Core#obvOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -240,7 +240,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#OBV} reports over the same bars: the
+       * <p>It is what {@link Core#obv} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -267,7 +267,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("OBV advance", RetCode.OutOfRangeEndIndex);
+            throw failure("OBV advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -300,9 +300,9 @@
        */
       public double update( double inReal, double inVolume ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("OBV update", RetCode.OutOfRangeEndIndex);
+            throw failure("OBV update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("OBV update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("OBV update: BAD_PARAM", RetCode.BAD_PARAM);
          core.obvStepImpl(this, inReal, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -320,7 +320,7 @@
        */
       public double peek( double inReal, double inVolume ) {
          if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
-            throw new TaLibArgumentException("OBV peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("OBV peek: BAD_PARAM", RetCode.BAD_PARAM);
          ObvStream sp = this;
          double tempReal = 0.0;
          double cur_outReal = 0.0;
@@ -383,18 +383,18 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inVolume.length != inReal.length ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       prevOBV = inVolume[startIdx];
       prevReal = inReal[startIdx];
@@ -415,7 +415,7 @@
       sp.prevReal = prevReal;
       sp.prevOBV = prevOBV;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* obvOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    ObvStream obvOpenAndFillInternal( double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -424,16 +424,16 @@
       RetCode retCode = obvOpenImpl(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("OBV openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("OBV openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("OBV openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("OBV openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("OBV openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind obvOpen (composition seam). */
    ObvStream obvOpenInternal( double inReal[], double inVolume[], int startIdx )
@@ -445,22 +445,22 @@
       RetCode retCode = obvOpenImpl(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("OBV open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("OBV open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("OBV open: internal error", retCode);
       }
-      throw new TaLibArgumentException("OBV open: " + retCode, retCode);
+      throw new TALibArgumentException("OBV open: " + retCode, retCode);
    }
    /**
     * Open a live OBV stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#OBV} at that bar.
-    * <p>The history must hold at least {@code OBV_Lookback(...) + 1} bars
+    * to {@link Core#obv} at that bar.
+    * <p>The history must hold at least {@code obvLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -477,7 +477,7 @@
    }
    /**
     * {@link Core#obvOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#OBV} over the whole history in the same single pass
+    * to {@link Core#obv} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -491,11 +491,11 @@
       requireArgument("OBV openAndFill", "inReal", inReal);
       requireHistory("OBV openAndFill", inReal.length);
       requireArgument("OBV openAndFill", "inVolume", inVolume);
-      int guardOutLen = openFillCount("OBV openAndFill", inReal.length, OBV_Lookback());
+      int guardOutLen = openFillCount("OBV openAndFill", inReal.length, obvLookback());
       requireHistoryLength("OBV openAndFill", "inVolume", inVolume.length, inReal.length);
       requireLength("OBV openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
-         throw new TaLibArgumentException("OBV openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("OBV openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

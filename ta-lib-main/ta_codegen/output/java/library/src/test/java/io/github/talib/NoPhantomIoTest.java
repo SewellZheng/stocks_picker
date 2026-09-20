@@ -48,7 +48,7 @@
 
 package io.github.talib;
 
-import io.github.talib.metadata.FunctionInfo;
+import io.github.talib.metadata.FuncInfo;
 import io.github.talib.metadata.Functions;
 import io.github.talib.metadata.InputFlags;
 import io.github.talib.metadata.InputInfo;
@@ -204,7 +204,7 @@ public class NoPhantomIoTest {
         final String name;
         final Method core;
         final Method lookback;
-        final FunctionInfo info;
+        final FuncInfo info;
         /** The settings this signature's lookbacks and calls are resolved against. */
         final Core on;
         /** Parameter index of each input array, in call order. */
@@ -220,7 +220,7 @@ public class NoPhantomIoTest {
         /** The parameter vectors to probe at; see {@link #vectors}. Never empty. */
         List<Vector> vectors;
 
-        Sig(String name, Method core, Method lookback, FunctionInfo info, Core on) {
+        Sig(String name, Method core, Method lookback, FuncInfo info, Core on) {
             this.name = name;
             this.core = core;
             this.lookback = lookback;
@@ -258,7 +258,7 @@ public class NoPhantomIoTest {
      * {@code inPriceHLC} is three. The order is C's, low bit first, which is the
      * order {@code ta_abstract} and every backend emit them in.
      */
-    private static String[] legNames(FunctionInfo info) {
+    private static String[] legNames(FuncInfo info) {
         List<String> legs = new ArrayList<>();
         for (InputInfo in : info.inputs()) {
             if (in.type() != InputType.PRICE) {
@@ -298,23 +298,43 @@ public class NoPhantomIoTest {
     private static Map<String, Sig> discover(boolean wantFloat, Core on) {
         Map<String, Method> cores = new TreeMap<>();
         Map<String, Method> lookbacks = new HashMap<>();
+        // Driven from the registry rather than from a name pattern: the stream
+        // tier also ends in `Impl`, and a pattern that stops matching would leave
+        // the sweeps below quietly probing nothing. The key stays the canonical
+        // name, which is what the metadata and every message here speak.
+        Map<String, String> stems = new HashMap<>();
+        for (FuncInfo f : Functions.all()) {
+            stems.put(camelCase(f.name()), f.name());
+        }
         for (Method m : Core.class.getDeclaredMethods()) {
             String n = m.getName();
-            if (n.endsWith("_Impl")) {
-                boolean isFloat = m.getParameterTypes()[2] == float[].class;
-                if (isFloat == wantFloat) {
-                    cores.put(n.substring(0, n.length() - "_Impl".length()), m);
+            if (n.endsWith("Impl")) {
+                String canonical = stems.get(n.substring(0, n.length() - "Impl".length()));
+                if (canonical != null) {
+                    boolean isFloat = m.getParameterTypes()[2] == float[].class;
+                    if (isFloat == wantFloat) {
+                        cores.put(canonical, m);
+                    }
                 }
-            } else if (n.endsWith("_Lookback")) {
-                lookbacks.put(n.substring(0, n.length() - "_Lookback".length()), m);
+            } else if (n.endsWith("Lookback")) {
+                String canonical = stems.get(n.substring(0, n.length() - "Lookback".length()));
+                if (canonical != null) {
+                    lookbacks.put(canonical, m);
+                }
             }
         }
+        // A discovery keyed on a spelling goes vacuous, not red, when the spelling
+        // moves: with no floor the sweeps below would report a clean pass over an
+        // empty corpus.
+        check(cores.size() >= 150,
+              "phantom-I/O discovery found " + cores.size() + " cores; the naming of the"
+              + " numerics tier moved and the sweeps are probing almost nothing");
         Map<String, Sig> out = new TreeMap<>();
         for (Map.Entry<String, Method> e : cores.entrySet()) {
             String name = e.getKey();
             Method lb = lookbacks.get(name);
             check(lb != null, name + " has a lookback method");
-            FunctionInfo info = Functions.byName(name);
+            FuncInfo info = Functions.byName(name);
             check(info != null, name + " has a metadata row");
             if (lb == null || info == null) {
                 continue;
@@ -534,7 +554,7 @@ public class NoPhantomIoTest {
             try {
                 lookback = (Integer) sig.lookback.invoke(sig.on, e.getValue());
             } catch (ReflectiveOperationException ex) {
-                violation(sig.name + "_Lookback(" + e.getKey() + ") threw " + ex.getCause());
+                violation(sig.name + "Lookback(" + e.getKey() + ") threw " + ex.getCause());
                 continue;
             }
             if (lookback >= 0) {
@@ -551,7 +571,7 @@ public class NoPhantomIoTest {
      * with zero-length arrays for every input and every output.
      *
      * <p>Such a call is a documented success with no values: it must return
-     * {@link RetCode#Success}, report a count of 0, and touch neither array.
+     * {@link RetCode#SUCCESS}, report a count of 0, and touch neither array.
      *
      * <p>Each core also gets its own control arm before the quiet call: the same
      * call one bar longer produces exactly one value, so it must index an array,
@@ -596,7 +616,7 @@ public class NoPhantomIoTest {
                 // An IndexOutOfBoundsException is this core indexing a
                 // zero-length array: it computed.
                 //
-                // A TaLibArgumentException is a LENGTH check, and the core under
+                // A TALibArgumentException is a LENGTH check, and the core under
                 // test is NAME_Impl, which has none. So it can only have come from
                 // a callee's public tier, which this core reached by cross-calling
                 // it -- which is equally a proof that the core still computes, and
@@ -606,7 +626,7 @@ public class NoPhantomIoTest {
                 // sweep below would read as compliance.
                 Throwable cause = ite.getCause();
                 if (cause instanceof IndexOutOfBoundsException
-                        || cause instanceof TaLibArgumentException) {
+                        || cause instanceof TALibArgumentException) {
                     live.add(sig.name);
                 } else {
                     violation(tier + " " + sig.name + " at endIdx == lookback threw "
@@ -645,7 +665,7 @@ public class NoPhantomIoTest {
                     + v.lookback + ", endIdx " + (v.lookback - 1) + ")";
                 try {
                     Object rc = sig.core.invoke(sig.on, args);
-                    if (rc != RetCode.Success) {
+                    if (rc != RetCode.SUCCESS) {
                         violation(where + " returned " + rc + ", expected Success");
                         violations++;
                     } else if (nb.value != 0) {
@@ -757,7 +777,7 @@ public class NoPhantomIoTest {
                         violations++;
                         continue;
                     }
-                    if (rc != RetCode.Success) {
+                    if (rc != RetCode.SUCCESS) {
                         // An out-of-range parameter combination the lookback let
                         // through. Not this sweep's business; it simply is not a
                         // call, so there is nothing to hold to a bound.
@@ -871,7 +891,7 @@ public class NoPhantomIoTest {
                     zeroArray(sig.core.getParameterTypes()[sig.inputPos[leg]]);
                 try {
                     Object rc = sig.core.invoke(sig.on, args);
-                    if (rc != RetCode.Success) {
+                    if (rc != RetCode.SUCCESS) {
                         continue;
                     }
                     unread.add(sig.name + "." + sig.legName[leg]);
@@ -943,7 +963,7 @@ public class NoPhantomIoTest {
         // Checked before the sweep so an empty discovery cannot pass.
         java.util.Set<String> streamingCores = new TreeSet<>();
         for (String name : cores.keySet()) {
-            FunctionInfo sInfo = Functions.byName(name);
+            FuncInfo sInfo = Functions.byName(name);
             if (sInfo != null && sInfo.hasFlags(io.github.talib.metadata.FuncFlags.STREAMING)) {
                 streamingCores.add(name);
             }
@@ -1000,7 +1020,7 @@ public class NoPhantomIoTest {
                 //
                 // S1's refusal is ITSELF an IndexOutOfBoundsException, so the
                 // discriminator is the carried code, not the type: what the
-                // library raises implements TaLibFailure, and a write past the
+                // library raises implements TALibFailure, and a write past the
                 // end of a zero-length array does not.
                 Object[] shortArgs = args.clone();
                 for (int k = 0; k < nLegs; k++) {
@@ -1018,7 +1038,7 @@ public class NoPhantomIoTest {
                 } catch (InvocationTargetException ite) {
                     Throwable t = ite.getCause();
                     if (t instanceof IndexOutOfBoundsException
-                            && !(t instanceof TaLibFailure)) {
+                            && !(t instanceof TALibFailure)) {
                         violation(camelCase(sig.name) + "OpenAndFill[" + v.label + "] wrote to a "
                             + "zero-length output before refusing a " + v.lookback
                             + "-bar history: " + t);
@@ -1153,16 +1173,16 @@ public class NoPhantomIoTest {
      */
     static void theProbesCanFail() {
         Core core = Core.DEFAULT;
-        int lookback = core.SMA_Lookback(30);
+        int lookback = core.smaLookback(30);
         MInteger b = new MInteger();
         MInteger n = new MInteger();
 
         // 1. sub-lookback: the quiet case, then one bar longer.
-        RetCode quiet = core.SMA_Impl(0, lookback - 1, new double[0], 30, b, n,
+        RetCode quiet = core.smaImpl(0, lookback - 1, new double[0], 30, b, n,
                                           new double[0]);
-        check(quiet == RetCode.Success && n.value == 0,
+        check(quiet == RetCode.SUCCESS && n.value == 0,
               "a sub-lookback range with zero-length arrays is a silent success");
-        check(throwsOob(() -> core.SMA_Impl(0, lookback, new double[0], 30, b, n,
+        check(throwsOob(() -> core.smaImpl(0, lookback, new double[0], 30, b, n,
                                                 new double[0])),
               "one bar longer DOES touch the arrays, so sweep 1 can detect I/O");
 
@@ -1174,13 +1194,13 @@ public class NoPhantomIoTest {
         for (int i = 0; i < in.length; i++) {
             in[i] = bar("inReal", i);
         }
-        check(core.SMA_Impl(0, endIdx, in, 30, b, n, new double[count])
-                  == RetCode.Success && n.value == count,
+        check(core.smaImpl(0, endIdx, in, 30, b, n, new double[count])
+                  == RetCode.SUCCESS && n.value == count,
               "exactly-sized input and output are enough for SMA");
-        check(throwsOob(() -> core.SMA_Impl(0, endIdx, in, 30, b, n,
+        check(throwsOob(() -> core.smaImpl(0, endIdx, in, 30, b, n,
                                                 new double[count - 1])),
               "an output one short of the count throws, so sweep 2 sees over-writes");
-        check(throwsOob(() -> core.SMA_Impl(0, endIdx, Arrays.copyOf(in, endIdx),
+        check(throwsOob(() -> core.smaImpl(0, endIdx, Arrays.copyOf(in, endIdx),
                                                 30, b, n, new double[count])),
               "an input one short of endIdx+1 throws, so sweep 2 sees over-reads");
 
@@ -1190,7 +1210,7 @@ public class NoPhantomIoTest {
         for (int i = 0; i < bars.length; i++) {
             bars[i] = bar("close", i);
         }
-        check(throwsOob(() -> core.MEDPRICE_Impl(0, endIdx, new double[0], bars,
+        check(throwsOob(() -> core.medpriceImpl(0, endIdx, new double[0], bars,
                                                      b, n, new double[endIdx + 1])),
               "a leg the function reads, given zero length, throws");
 
@@ -1219,7 +1239,7 @@ public class NoPhantomIoTest {
             body.run();
             return false;
         } catch (RuntimeException ex) {
-            return ex instanceof TaLibFailure;
+            return ex instanceof TALibFailure;
         }
     }
 
@@ -1249,7 +1269,7 @@ public class NoPhantomIoTest {
             // from. A new indicator lands in both or in neither; if it lands in one,
             // this is red.
             List<String> registry = new ArrayList<>();
-            for (FunctionInfo f : Functions.all()) {
+            for (FuncInfo f : Functions.all()) {
                 registry.add(f.name());
             }
             java.util.Collections.sort(registry);

@@ -12,7 +12,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#LN} consumes before it can
+    * Number of leading input bars {@link Core#ln} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -20,54 +20,54 @@
     *
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int LN_Lookback( )
+   public int lnLookback( )
    {
       return 0 ;
 
    }
-   RetCode LN_Impl( int startIdx,
-                    int endIdx,
-                    double inReal[],
-                    MInteger outBegIdx,
-                    MInteger outNBElement,
-                    double outReal[] )
+   RetCode lnImpl( int startIdx,
+                   int endIdx,
+                   double inReal[],
+                   MInteger outBegIdx,
+                   MInteger outNBElement,
+                   double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx] = Math.log(inReal[i]);
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode LN_Impl( int startIdx,
-                    int endIdx,
-                    float inReal[],
-                    MInteger outBegIdx,
-                    MInteger outNBElement,
-                    double outReal[] )
+   RetCode lnImpl( int startIdx,
+                   int endIdx,
+                   float inReal[],
+                   MInteger outBegIdx,
+                   MInteger outNBElement,
+                   double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx] = Math.log((double)inReal[i]);
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Element-wise natural logarithm of the input series.
@@ -80,7 +80,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#LN_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#lnLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -102,25 +102,25 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#LOG10
-    * @see Core#EXP
-    * @see Core#SQRT
+    * @see Core#log10
+    * @see Core#exp
+    * @see Core#sqrt
     */
-   public OutRange LN( int startIdx,
+   public OutRange ln( int startIdx,
                        int endIdx,
                        double inReal[],
                        double outReal[] )
    {
       requireIndexRange("LN", startIdx, endIdx);
-      int guardStart = clampedStart("LN", startIdx, LN_Lookback());
+      int guardStart = clampedStart("LN", startIdx, lnLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("LN", "inReal", inReal, guardInLen);
       requireLength("LN", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = LN_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = lnImpl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("LN", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -139,7 +139,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#LN_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#lnLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -161,25 +161,25 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#LOG10
-    * @see Core#EXP
-    * @see Core#SQRT
+    * @see Core#log10
+    * @see Core#exp
+    * @see Core#sqrt
     */
-   public OutRange LN( int startIdx,
+   public OutRange ln( int startIdx,
                        int endIdx,
                        float inReal[],
                        double outReal[] )
    {
       requireIndexRange("LN", startIdx, endIdx);
-      int guardStart = clampedStart("LN", startIdx, LN_Lookback());
+      int guardStart = clampedStart("LN", startIdx, lnLookback());
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("LN", "inReal", inReal, guardInLen);
       requireLength("LN", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = LN_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = lnImpl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("LN", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -188,7 +188,7 @@
 
    /**
     * A live LN stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#LN} over the same series.
+    * closed bar, bit-identical to {@link Core#ln} over the same series.
     * Open with {@link Core#lnOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -211,7 +211,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#LN} reports over the same bars: the
+       * <p>It is what {@link Core#ln} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -238,7 +238,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("LN advance", RetCode.OutOfRangeEndIndex);
+            throw failure("LN advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -269,9 +269,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("LN update", RetCode.OutOfRangeEndIndex);
+            throw failure("LN update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("LN update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("LN update: BAD_PARAM", RetCode.BAD_PARAM);
          core.lnStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -289,7 +289,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("LN peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("LN peek: BAD_PARAM", RetCode.BAD_PARAM);
          LnStream sp = this;
          double cur_outReal = 0.0;
          cur_outReal = Math.log(inReal);
@@ -333,15 +333,15 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx * outStride] = Math.log(inReal[i]);
@@ -350,7 +350,7 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* lnOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    LnStream lnOpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -359,16 +359,16 @@
       RetCode retCode = lnOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("LN openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("LN openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("LN openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("LN openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("LN openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind lnOpen (composition seam). */
    LnStream lnOpenInternal( double inReal[], int startIdx )
@@ -380,22 +380,22 @@
       RetCode retCode = lnOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("LN open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("LN open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("LN open: internal error", retCode);
       }
-      throw new TaLibArgumentException("LN open: " + retCode, retCode);
+      throw new TALibArgumentException("LN open: " + retCode, retCode);
    }
    /**
     * Open a live LN stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#LN} at that bar.
-    * <p>The history must hold at least {@code LN_Lookback(...) + 1} bars
+    * to {@link Core#ln} at that bar.
+    * <p>The history must hold at least {@code lnLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
@@ -410,7 +410,7 @@
    }
    /**
     * {@link Core#lnOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#LN} over the whole history in the same single pass
+    * to {@link Core#ln} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -423,10 +423,10 @@
    {
       requireArgument("LN openAndFill", "inReal", inReal);
       requireHistory("LN openAndFill", inReal.length);
-      int guardOutLen = openFillCount("LN openAndFill", inReal.length, LN_Lookback());
+      int guardOutLen = openFillCount("LN openAndFill", inReal.length, lnLookback());
       requireLength("LN openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("LN openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("LN openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

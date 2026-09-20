@@ -16,7 +16,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#WMA} consumes before it can
+    * Number of leading input bars {@link Core#wma} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -26,7 +26,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int WMA_Lookback( int optInTimePeriod )
+   public int wmaLookback( int optInTimePeriod )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
@@ -36,13 +36,13 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode WMA_Impl( int startIdx,
-                     int endIdx,
-                     double inReal[],
-                     int optInTimePeriod,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode wmaImpl( int startIdx,
+                    int endIdx,
+                    double inReal[],
+                    int optInTimePeriod,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int inIdx = 0;
       int outIdx = 0;
@@ -59,15 +59,15 @@
       double divider = 0;
       int lookbackTotal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       lookbackTotal = optInTimePeriod - 1;
       /* Move up the start index if there is not
@@ -80,7 +80,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* To make the rest more efficient, handle exception
        * case where the user is asking for a period of '1'.
@@ -98,7 +98,7 @@
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
             outReal[i] = inReal[inIdx++];
          }
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
        * int product n*(n+1) overflows int32 at n>=46341 (#142).
@@ -229,15 +229,15 @@
       /* Set output limits. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode WMA_Impl( int startIdx,
-                     int endIdx,
-                     float inReal[],
-                     int optInTimePeriod,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode wmaImpl( int startIdx,
+                    int endIdx,
+                    float inReal[],
+                    int optInTimePeriod,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       int inIdx = 0;
       int outIdx = 0;
@@ -254,15 +254,15 @@
       double divider = 0;
       int lookbackTotal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       lookbackTotal = optInTimePeriod - 1;
       if( startIdx < lookbackTotal ) {
@@ -271,7 +271,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       if( optInTimePeriod == 1 ) {
          outBegIdx.value = startIdx;
@@ -280,7 +280,7 @@
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
             outReal[i] = (double)inReal[inIdx++];
          }
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       divider = (double)optInTimePeriod * (optInTimePeriod + 1) / 2.0;
       outIdx = 0;
@@ -325,7 +325,7 @@
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Linearly weighted moving average: each of the last N prices is weighted by
@@ -340,7 +340,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#WMA_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#wmaLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -364,28 +364,28 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#SMA
-    * @see Core#EMA
-    * @see Core#MA
-    * @see Core#DEMA
-    * @see Core#TEMA
+    * @see Core#sma
+    * @see Core#ema
+    * @see Core#ma
+    * @see Core#dema
+    * @see Core#tema
     */
-   public OutRange WMA( int startIdx,
+   public OutRange wma( int startIdx,
                         int endIdx,
                         double inReal[],
                         int optInTimePeriod,
                         double outReal[] )
    {
       requireIndexRange("WMA", startIdx, endIdx);
-      int guardStart = clampedStart("WMA", startIdx, WMA_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("WMA", startIdx, wmaLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("WMA", "inReal", inReal, guardInLen);
       requireLength("WMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = WMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = wmaImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("WMA", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -406,7 +406,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#WMA_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#wmaLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -430,28 +430,28 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#SMA
-    * @see Core#EMA
-    * @see Core#MA
-    * @see Core#DEMA
-    * @see Core#TEMA
+    * @see Core#sma
+    * @see Core#ema
+    * @see Core#ma
+    * @see Core#dema
+    * @see Core#tema
     */
-   public OutRange WMA( int startIdx,
+   public OutRange wma( int startIdx,
                         int endIdx,
                         float inReal[],
                         int optInTimePeriod,
                         double outReal[] )
    {
       requireIndexRange("WMA", startIdx, endIdx);
-      int guardStart = clampedStart("WMA", startIdx, WMA_Lookback(optInTimePeriod));
+      int guardStart = clampedStart("WMA", startIdx, wmaLookback(optInTimePeriod));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("WMA", "inReal", inReal, guardInLen);
       requireLength("WMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = WMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = wmaImpl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("WMA", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -460,7 +460,7 @@
 
    /**
     * A live WMA stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#WMA} over the same series.
+    * closed bar, bit-identical to {@link Core#wma} over the same series.
     * Open with {@link Core#wmaOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -496,7 +496,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#WMA} reports over the same bars: the
+       * <p>It is what {@link Core#wma} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -523,7 +523,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("WMA advance", RetCode.OutOfRangeEndIndex);
+            throw failure("WMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -567,9 +567,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("WMA update", RetCode.OutOfRangeEndIndex);
+            throw failure("WMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("WMA update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("WMA update: BAD_PARAM", RetCode.BAD_PARAM);
          core.wmaStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -587,7 +587,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("WMA peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("WMA peek: BAD_PARAM", RetCode.BAD_PARAM);
          WmaStream sp = this;
          int j = 0;
          int rw = 0;
@@ -826,26 +826,26 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       if( optInTimePeriod == 1 ) {
-         int fillLb = WMA_Lookback(optInTimePeriod);
+         int fillLb = wmaLookback(optInTimePeriod);
          if( startIdx > fillLb ) fillLb = startIdx;
          if( historyLen < fillLb + 1 ) {
-            return RetCode.InsufficientHistory;
+            return RetCode.INSUFFICIENT_HISTORY;
          }
          sp.optInTimePeriod = optInTimePeriod;
          sp.lookbackWin = 0;
@@ -870,7 +870,7 @@
             }
          }
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-         return RetCode.Success;
+         return RetCode.SUCCESS;
       }
       lookbackTotal = optInTimePeriod - 1;
       /* Move up the start index if there is not
@@ -883,7 +883,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       /* Weighted denominator 1+2+...+n = n(n+1)/2. Computed in double: the
        * int product n*(n+1) overflows int32 at n>=46341 (#142).
@@ -1017,14 +1017,14 @@
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = inIdx - trailingIdx;
       if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
       double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
       System.arraycopy(inReal, historyLen - cap_trailingIdx, capRing_trailingIdx_inReal, 0, cap_trailingIdx);
       int cap_j = (int)(lookbackWin + 1);
       if( cap_j < 1 || cap_j > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       double[] capWin_j_inReal = new double[cap_j];
       System.arraycopy(inReal, historyLen - cap_j, capWin_j_inReal, 0, cap_j);
@@ -1042,7 +1042,7 @@
       sp.winCap_j = cap_j;
       sp.win_j_inReal = capWin_j_inReal;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* wmaOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    WmaStream wmaOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -1051,16 +1051,16 @@
       RetCode retCode = wmaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("WMA openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("WMA openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("WMA openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("WMA openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("WMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind wmaOpen (composition seam). */
    WmaStream wmaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -1072,22 +1072,22 @@
       RetCode retCode = wmaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("WMA open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("WMA open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("WMA open: internal error", retCode);
       }
-      throw new TaLibArgumentException("WMA open: " + retCode, retCode);
+      throw new TALibArgumentException("WMA open: " + retCode, retCode);
    }
    /**
     * Open a live WMA stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#WMA} at that bar.
-    * <p>The history must hold at least {@code WMA_Lookback(...) + 1} bars
+    * to {@link Core#wma} at that bar.
+    * <p>The history must hold at least {@code wmaLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
@@ -1104,7 +1104,7 @@
    }
    /**
     * {@link Core#wmaOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#WMA} over the whole history in the same single pass
+    * to {@link Core#wma} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1117,10 +1117,10 @@
    {
       requireArgument("WMA openAndFill", "inReal", inReal);
       requireHistory("WMA openAndFill", inReal.length);
-      int guardOutLen = openFillCount("WMA openAndFill", inReal.length, WMA_Lookback(optInTimePeriod));
+      int guardOutLen = openFillCount("WMA openAndFill", inReal.length, wmaLookback(optInTimePeriod));
       requireLength("WMA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("WMA openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("WMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

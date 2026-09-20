@@ -103,15 +103,15 @@ fn test_java_sma_ring_stream_section() {
     // which the wrapper types. It used to BORROW OutOfRangeEndIndex in band,
     // which also meant a history LONGER than MAX_INDEX + 1 -- the only other
     // producer of that code -- surfaced as "history shorter than lookback + 1".
-    assert!(s.contains("return RetCode.InsufficientHistory ;"));
-    assert!(!s.contains("return RetCode.OutOfRangeEndIndex ;"),
+    assert!(s.contains("return RetCode.INSUFFICIENT_HISTORY ;"));
+    assert!(!s.contains("return RetCode.OUT_OF_RANGE_END_INDEX ;"),
             "the borrowed in-band code is gone from the open body");
     // The message names the function as the metadata registry spells it, with
     // no C `TA_` prefix (that is C's namespacing, meaningless on a classpath).
     assert!(s.contains("throw new InsufficientHistoryException(\"SMA open:"));
     // Carrying, not a plain JDK type: the code has to be recoverable from every
     // failure the library raises, on this ladder as much as the batch one.
-    assert!(s.contains("throw new TaLibStateException(\"SMA open: internal error\", retCode);"));
+    assert!(s.contains("throw new TALibStateException(\"SMA open: internal error\", retCode);"));
     assert!(!s.contains("\"TA_SMA open:"), "no C-namespaced prefix survives");
     // OpenAndFill: aliasing guard (Java is the one managed backend where
     // out == in compiles) and the batch output tail.
@@ -319,7 +319,7 @@ fn test_java_mavp_period_bank() {
     // Lockstep advance + clamp-select.
     assert!(s.contains("for( int bankIdx = 0; bankIdx < sp.bank.length; bankIdx++ ) {"));
     // Shared max-period seeding anchor.
-    assert!(s.contains("MA_Lookback(optInMaxPeriod, optInMAType)"));
+    assert!(s.contains("maLookback(optInMaxPeriod, optInMAType)"));
     // Fill replays history (no per-bar array exists to un-discard).
     assert!(s.contains("java.util.Arrays.copyOfRange(inReal, 0, lookbackTotal + 1)"));
 }
@@ -621,7 +621,7 @@ fn java_public_fill_keeps_the_aliasing_guards() {
         "output-vs-output guard survives on the public fill:\n{body}"
     );
     assert!(
-        body.contains("throw new TaLibArgumentException(\"ACCBANDS openAndFill: \" + RetCode.BadParam, RetCode.BadParam);"),
+        body.contains("throw new TALibArgumentException(\"ACCBANDS openAndFill: \" + RetCode.BAD_PARAM, RetCode.BAD_PARAM);"),
         "the guard throws the same text the retired ladder produced:\n{body}"
     );
     // Paired negatives: both are false today only because the guard moved UP,
@@ -916,7 +916,7 @@ fn no_java_peek_copies_the_handle() {
                 }
             }
             // Comments carry the word too, and `throw new
-            // TaLibArgumentException` is the bar rejection — neither copies a
+            // TALibArgumentException` is the bar rejection — neither copies a
             // handle. `new <N>Out()` is the sink a COMPOSED frame allocates for
             // a multi-output sub-handle (#310); it is counted separately and
             // pinned to an exact set below rather than blanket-exempted, so a

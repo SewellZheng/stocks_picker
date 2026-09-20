@@ -41,32 +41,26 @@
 package io.github.talib;
 
 /**
- * Implemented by every exception this library raises, so the condition that was
- * reported can be recovered as the {@link RetCode} C would have returned for
- * the same call.
+ * {@code startIdx} or {@code endIdx} is outside {@code [0, }{@link
+ * Core#MAX_INDEX}{@code ]}, or {@code endIdx} precedes {@code startIdx}.
  *
- * <p>The exception <i>types</i> are the ones the API documents — a rejected
- * index is still an {@link IndexOutOfBoundsException}, a bad parameter still an
- * {@link IllegalArgumentException} — because that is what a caller catches.
- * What the types cannot carry is <i>which</i> condition: one
- * {@code IndexOutOfBoundsException} serves both {@link RetCode#OutOfRangeStartIndex}
- * and {@link RetCode#OutOfRangeEndIndex}, and one {@link IllegalStateException}
- * serves both {@link RetCode#AllocErr} and {@link RetCode#InternalError}. This
- * interface is what makes the two separable again, without narrowing the catch
- * types.
- *
- * <p>The mapping is <b>total</b> over the batch and streaming tiers — every
- * failure a call to an indicator raises implements it, including the length and
- * presence checks C cannot make (they report {@link RetCode#BadParam}, the code
- * C uses for an argument it can detect) — and <b>lossless</b>: distinct codes
- * never share one thrown representation.
- *
- * <p>Outside it, deliberately: {@link CoreBuilder} and the
- * {@code io.github.talib.metadata} binder still raise plain JDK types. Neither
- * is an indicator call, so neither has a {@link RetCode} to carry.
+ * <p>An {@link IndexOutOfBoundsException}, which is what the API documents and
+ * what a caller catches; {@link #retCode()} distinguishes
+ * {@link RetCode#OUT_OF_RANGE_START_INDEX} from {@link RetCode#OUT_OF_RANGE_END_INDEX},
+ * which the type alone cannot.
  */
-public interface TaLibFailure {
+public final class TALibIndexException extends IndexOutOfBoundsException implements TALibFailure {
+   private static final long serialVersionUID = 1L;
 
-   /** The condition reported, as the code C would have returned. */
-   RetCode retCode();
+   private final RetCode retCode;
+
+   TALibIndexException(String message, RetCode retCode) {
+      super(message);
+      this.retCode = retCode;
+   }
+
+   @Override
+   public RetCode retCode() {
+      return retCode;
+   }
 }

@@ -18,7 +18,7 @@
  */
 
    /**
-    * Number of leading input bars {@link Core#VAR} consumes before it can
+    * Number of leading input bars {@link Core#var} consumes before it can
     * produce its first value.
     * <p>Equivalently, the index of the first bar with a value when the whole
     * series is requested. Feed at least {@code lookback + 1} bars to get any
@@ -31,7 +31,7 @@
     *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
-   public int VAR_Lookback( int optInTimePeriod, double optInNbDev )
+   public int varLookback( int optInTimePeriod, double optInNbDev )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
@@ -46,14 +46,14 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode VAR_Impl( int startIdx,
-                     int endIdx,
-                     double inReal[],
-                     int optInTimePeriod,
-                     double optInNbDev,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode varImpl( int startIdx,
+                    int endIdx,
+                    double inReal[],
+                    int optInTimePeriod,
+                    double optInNbDev,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       double tempReal = 0;
       double shift = 0;
@@ -70,20 +70,20 @@
       int nbInitialElementNeeded = 0;
       int barsSinceReseed = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       /* Identify the minimum number of price bar needed to calculate
        * at least one output.
@@ -97,7 +97,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       invPeriod = 1.0 / (double)optInTimePeriod;
       /* Measure deviations against a shift near the window: the running sums
@@ -234,16 +234,16 @@
       /* All done. Indicate the output limits and return. */
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
-   RetCode VAR_Impl( int startIdx,
-                     int endIdx,
-                     float inReal[],
-                     int optInTimePeriod,
-                     double optInNbDev,
-                     MInteger outBegIdx,
-                     MInteger outNBElement,
-                     double outReal[] )
+   RetCode varImpl( int startIdx,
+                    int endIdx,
+                    float inReal[],
+                    int optInTimePeriod,
+                    double optInNbDev,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outReal[] )
    {
       double tempReal = 0;
       double shift = 0;
@@ -260,20 +260,20 @@
       int nbInitialElementNeeded = 0;
       int barsSinceReseed = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
-         return RetCode.OutOfRangeStartIndex ;
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       nbInitialElementNeeded = optInTimePeriod - 1;
       if( startIdx < nbInitialElementNeeded ) {
@@ -282,7 +282,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.Success ;
+         return RetCode.SUCCESS ;
       }
       invPeriod = 1.0 / (double)optInTimePeriod;
       trailingIdx = startIdx - nbInitialElementNeeded;
@@ -342,7 +342,7 @@
       } while( i <= endIdx );
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
-      return RetCode.Success ;
+      return RetCode.SUCCESS ;
    }
    /**
     * Rolling population variance of a real series over a given period. Measures
@@ -358,7 +358,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#VAR_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#varLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -385,9 +385,9 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#STDDEV
+    * @see Core#stddev
     */
-   public OutRange VAR( int startIdx,
+   public OutRange var( int startIdx,
                         int endIdx,
                         double inReal[],
                         int optInTimePeriod,
@@ -395,15 +395,15 @@
                         double outReal[] )
    {
       requireIndexRange("VAR", startIdx, endIdx);
-      int guardStart = clampedStart("VAR", startIdx, VAR_Lookback(optInTimePeriod, optInNbDev));
+      int guardStart = clampedStart("VAR", startIdx, varLookback(optInTimePeriod, optInNbDev));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("VAR", "inReal", inReal, guardInLen);
       requireLength("VAR", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VAR_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = varImpl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("VAR", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -425,7 +425,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#VAR_Lookback} is a <b>success with no
+    * valid range shorter than {@link Core#varLookback} is a <b>success with no
     * values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -452,9 +452,9 @@
     *        exception: {@code null} is how you decline it. Checked before anything is
     *        written, so a rejected call leaves every buffer untouched.
     *
-    * @see Core#STDDEV
+    * @see Core#stddev
     */
-   public OutRange VAR( int startIdx,
+   public OutRange var( int startIdx,
                         int endIdx,
                         float inReal[],
                         int optInTimePeriod,
@@ -462,15 +462,15 @@
                         double outReal[] )
    {
       requireIndexRange("VAR", startIdx, endIdx);
-      int guardStart = clampedStart("VAR", startIdx, VAR_Lookback(optInTimePeriod, optInNbDev));
+      int guardStart = clampedStart("VAR", startIdx, varLookback(optInTimePeriod, optInNbDev));
       int guardInLen = endIdx + 1;
       int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("VAR", "inReal", inReal, guardInLen);
       requireLength("VAR", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VAR_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
-      if( retCode != RetCode.Success ) {
+      RetCode retCode = varImpl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
+      if( retCode != RetCode.SUCCESS ) {
          throw failure("VAR", retCode);
       }
       return new OutRange(outBegIdx.value, outNBElement.value);
@@ -479,7 +479,7 @@
 
    /**
     * A live VAR stream (unrelated to {@code java.util.stream}): one value per
-    * closed bar, bit-identical to {@link Core#VAR} over the same series.
+    * closed bar, bit-identical to {@link Core#var} over the same series.
     * Open with {@link Core#varOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
@@ -516,7 +516,7 @@
       /**
        * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
-       * <p>It is what {@link Core#VAR} reports over the same bars: the
+       * <p>It is what {@link Core#var} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
        * accepted {@code update} adds one to the count — a rejected one
        * changes nothing, and neither does {@code peek} — and
@@ -543,7 +543,7 @@
        */
       public void advance() {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("VAR advance", RetCode.OutOfRangeEndIndex);
+            throw failure("VAR advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
 
@@ -588,9 +588,9 @@
        */
       public double update( double inReal ) {
          if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
-            throw failure("VAR update", RetCode.OutOfRangeEndIndex);
+            throw failure("VAR update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("VAR update: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("VAR update: BAD_PARAM", RetCode.BAD_PARAM);
          core.varStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -608,7 +608,7 @@
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TaLibArgumentException("VAR peek: BadParam", RetCode.BadParam);
+            throw new TALibArgumentException("VAR peek: BAD_PARAM", RetCode.BAD_PARAM);
          VarStream sp = this;
          double tempReal = 0.0;
          double meanValue1 = 0.0;
@@ -893,25 +893,25 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
+         return RetCode.OUT_OF_RANGE_START_INDEX;
       }
       if( historyLen > MAX_INDEX + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
-         return RetCode.BadParam;
+         return RetCode.BAD_PARAM;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory;
+         return RetCode.INSUFFICIENT_HISTORY;
       }
       /* Identify the minimum number of price bar needed to calculate
        * at least one output.
@@ -925,7 +925,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.InsufficientHistory ;
+         return RetCode.INSUFFICIENT_HISTORY ;
       }
       invPeriod = 1.0 / (double)optInTimePeriod;
       /* Measure deviations against a shift near the window: the running sums
@@ -1065,7 +1065,7 @@
       /* Capture the live batch state into the handle. */
       int capX = i - trailingIdx + 1;
       if( capX < 1 || capX > historyLen ) {
-         return RetCode.InternalError;
+         return RetCode.INTERNAL_ERROR;
       }
       int physX = 1;
       while( physX < capX ) {
@@ -1090,7 +1090,7 @@
       sp.xMask = physX - 1;
       sp.x_inReal = capX_inReal;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      return RetCode.Success;
+      return RetCode.SUCCESS;
    }
    /* varOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    VarStream varOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -1099,16 +1099,16 @@
       RetCode retCode = varOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("VAR openAndFill: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("VAR openAndFill: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("VAR openAndFill: internal error", retCode);
       }
-      throw new TaLibArgumentException("VAR openAndFill: " + retCode, retCode);
+      throw new TALibArgumentException("VAR openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind varOpen (composition seam). */
    VarStream varOpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
@@ -1120,22 +1120,22 @@
       RetCode retCode = varOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, sink_outReal, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
-      if( retCode == RetCode.Success ) {
+      if( retCode == RetCode.SUCCESS ) {
          return sp;
       }
-      if( retCode == RetCode.InsufficientHistory ) {
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
          throw new InsufficientHistoryException("VAR open: history shorter than lookback + 1");
       }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("VAR open: internal error", retCode);
+      if( retCode == RetCode.INTERNAL_ERROR ) {
+         throw new TALibStateException("VAR open: internal error", retCode);
       }
-      throw new TaLibArgumentException("VAR open: " + retCode, retCode);
+      throw new TALibArgumentException("VAR open: " + retCode, retCode);
    }
    /**
     * Open a live VAR stream over the warm-up history; the handle's
     * {@code value()} starts at the last history bar's value — bit-identical
-    * to {@link Core#VAR} at that bar.
-    * <p>The history must hold at least {@code VAR_Lookback(...) + 1} bars
+    * to {@link Core#var} at that bar.
+    * <p>The history must hold at least {@code varLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
@@ -1152,7 +1152,7 @@
    }
    /**
     * {@link Core#varOpen} that also fills the output array(s) bit-identically
-    * to {@link Core#VAR} over the whole history in the same single pass
+    * to {@link Core#var} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values — both checked before anything is
@@ -1165,10 +1165,10 @@
    {
       requireArgument("VAR openAndFill", "inReal", inReal);
       requireHistory("VAR openAndFill", inReal.length);
-      int guardOutLen = openFillCount("VAR openAndFill", inReal.length, VAR_Lookback(optInTimePeriod, optInNbDev));
+      int guardOutLen = openFillCount("VAR openAndFill", inReal.length, varLookback(optInTimePeriod, optInNbDev));
       requireLength("VAR openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TaLibArgumentException("VAR openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+         throw new TALibArgumentException("VAR openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
