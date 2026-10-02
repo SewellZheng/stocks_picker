@@ -150,6 +150,10 @@ int ta_test_ref_window_is_constant( const double *v, int s, int period );
  * written against different ranges and their measured tolerances depend on the
  * exact sequence. Callers re-seed before each block, so sharing the state is
  * safe as long as no two blocks interleave -- none do.
+ *
+ * At most one draw per full expression: C leaves the order of two draws in
+ * one expression to the compiler, so gcc and clang would build different
+ * series.
  * -------------------------------------------------------------------------*/
 void   ta_test_ref_lcg_seed( unsigned int seed );
 double ta_test_ref_lcg_sym( void );    /* uniform [-1.0, 1.0)  */
@@ -159,6 +163,14 @@ double ta_test_ref_lcg_half( void );   /* uniform [-0.5, 0.5)  */
  * affine-invariance corpus was measured on. */
 void   ta_test_ref_xorshift_seed( unsigned int seed );
 double ta_test_ref_xorshift_unit( void );   /* uniform [0.0, 1.0] */
+
+/* An EMA(10) of a price pegged at 1.0001 in 1e-4 ticks: 60 bars off the peg,
+ * then 480 back on it, twice. `walk` is an unpegged cent walk to pair it with.
+ * The second return settles the EMA back onto the level the first one left the
+ * rolling sums anchored on, the shape #434 is about. */
+#define TA_TEST_REF_PEG_N 1080
+void ta_test_ref_peg_ema( double pegEma[TA_TEST_REF_PEG_N],
+                          double walk[TA_TEST_REF_PEG_N] );
 
 /* ---------------------------------------------------------------------------
  * Datasets. All public domain (NIST StRD is a US Government work) or

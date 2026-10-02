@@ -58,10 +58,10 @@
       double trailingValue = 0;
       double divider = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -253,10 +253,10 @@
       double trailingValue = 0;
       double divider = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -340,8 +340,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#wmaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#wmaLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -349,11 +349,12 @@
     * @param optInTimePeriod Number of bars in the weighting window (default 30;
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Weighted moving average series. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, wmaLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -406,8 +407,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#wmaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#wmaLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -415,11 +416,12 @@
     * @param optInTimePeriod Number of bars in the weighting window (default 30;
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Weighted moving average series. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, wmaLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -503,7 +505,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -517,12 +519,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("WMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -561,15 +563,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("WMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("WMA update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("WMA update", "inReal");
          core.wmaStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -579,15 +581,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("WMA peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("WMA peek", "inReal");
          WmaStream sp = this;
          int j = 0;
          int rw = 0;
@@ -599,18 +599,12 @@
          double trailingValue = sp.trailingValue;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         int pkSlot1 = -1;
-         double pkVal1 = 0.0;
          if( sp.optInTimePeriod == 1 ) {
             cur_outReal = inReal;
             return cur_outReal ;
          }
-         if( sp.ringCap_trailingIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inReal;
-         }
-         pkSlot1 = sp.winPos_j;
-         pkVal1 = inReal;
+         pkSlot0 = sp.winPos_j;
+         pkVal0 = inReal;
          /* Add the current price bar to the sum
           * who are carried through the iterations.
           */
@@ -668,7 +662,7 @@
             periodSum = (double)0.0;
             rw = 1;
             for( j = sp.lookbackWin; j >= 0; j -= 1 ) {
-               tempReal = (((sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j) != pkSlot1) ? sp.win_j_inReal[(sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j] : pkVal1;
+               tempReal = (((sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j) != pkSlot0) ? sp.win_j_inReal[(sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j] : pkVal0;
                periodSub += tempReal;
                periodSum += tempReal * rw;
                rw += 1;
@@ -679,7 +673,7 @@
           * (must be saved here just in case outReal and
           *  inReal are the same buffer).
           */
-         trailingValue = (sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] : pkVal0;
+         trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
          /* Calculate the WMA for this price bar. */
          cur_outReal = periodSum / sp.divider;
          return cur_outReal;
@@ -716,12 +710,10 @@
       int j = 0;
       int rw = 0;
       double tempReal = 0.0;
+      int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
          return ;
-      }
-      if( sp.ringCap_trailingIdx == 0 ) {
-         sp.ring_trailingIdx_inReal[0] = inReal;
       }
       sp.win_j_inReal[sp.winPos_j] = inReal;
       /* Add the current price bar to the sum
@@ -797,9 +789,10 @@
       sp.cur_outReal = sp.periodSum / sp.divider;
       /* Prepare the periodSum for the next iteration. */
       sp.periodSum -= sp.periodSub;
+      ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
          sp.ringPos_trailingIdx = 0;
       }
       sp.winPos_j = sp.winPos_j + 1;
@@ -828,7 +821,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -1016,7 +1009,7 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = inIdx - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+      if( cap_trailingIdx < 1 || cap_trailingIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -1055,12 +1048,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("WMA openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("WMA openAndFill", inReal.length, startIdx, wmaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("WMA openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("WMA openAndFill: " + retCode, retCode);
+      throw streamFailure("WMA openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind wmaOpen (composition seam). */
    WmaStream wmaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -1076,12 +1066,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("WMA open: history shorter than lookback + 1");
+         throw insufficientHistory("WMA open", inReal.length, startIdx, wmaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("WMA open: internal error", retCode);
-      }
-      throw new TALibArgumentException("WMA open: " + retCode, retCode);
+      throw streamFailure("WMA open", retCode);
    }
    /**
     * Open a live WMA stream over the warm-up history; the handle's
@@ -1120,9 +1107,190 @@
       int guardOutLen = openFillCount("WMA openAndFill", inReal.length, wmaLookback(optInTimePeriod));
       requireLength("WMA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("WMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("WMA openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       return wmaOpenAndFillInternal(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal);
+   }
+   private double wmaStepTape( WmaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      int j = 0;
+      int rw = 0;
+      double tempReal = 0.0;
+      /* Add the current price bar to the sum
+       * who are carried through the iterations.
+       */
+      tempReal = inReal;
+      sp.periodSub += tempReal;
+      sp.periodSub -= sp.trailingValue;
+      sp.periodSum += tempReal * sp.optInTimePeriod;
+      /* Re-anchor: rebuild both totals from the window itself.
+       *
+       * periodSum and periodSub were running totals that were never
+       * recomputed, so each bar's rounding joined a residue no later bar
+       * could subtract, and its size was set by the largest value the totals
+       * had ever held rather than by the current window. That is the defect
+       * #254 fixed in the LINEARREG family, and `periodSum -= periodSub`
+       * below is the same weight-shifting identity as that family's
+       * `SumXY = SumXY + SumY - period*trailingValue` -- which is why WMA has
+       * it and TA_SMA, whose output lives at its own sum's scale, does not.
+       * Measured before the fix: worst range disagreement 1.41e-08 at 200000
+       * bars against a 1e-10 tier, over the tier from ~10000 bars on ordinary
+       * closes or ~1000 with one large print. After: 1.79e-12, flat in call
+       * length.
+       *
+       * ONE TRIGGER, NOT TWO, AND THE INTERVAL IS 8*period NOT 32. The
+       * LINEARREG family also carries an OUTLIER trigger (rebuild when the
+       * departing value outweighs the window) because for a slope the
+       * interval alone FAILS the tier outright, at 2.38e-10. WMA is not in
+       * that position: its weights are bounded by `period` and its divider is
+       * period*(period+1)/2, which dilutes the residue enough that the
+       * interval alone holds. Swept over periods 2, 3, 4, 14, 50, 200, 1000,
+       * 5000 and 20000 on 60000 bars, clean and with a 1000x print, the worst
+       * is 2.2e-11 -- 4.6x inside the band, and the margin does not thin at
+       * either end of the period range. Measured, the trigger bought 1.4e-11 -> 7e-12 and cost 1.17x
+       * here and 1.65x in TA_HMA, whose three fused stages each pay it. The
+       * shorter interval buys most of the accuracy for ~1.1x instead.
+       *
+       * The rebuild walks the window OLDEST FIRST with the weight counting UP
+       * from 1 -- the priming scan's own order and weighting -- so a
+       * re-anchored bar is bit-identical to the same bar computed by a call
+       * that started there. That identity is what the range-stability
+       * contract measures, and what test_wma.c W2/W3 assert.
+       *
+       * The loop start is written INLINE rather than through a `windowStart`
+       * local: only that form is recognised as a rescan window, which is what
+       * keeps this on the stream classifier's primary path. See
+       * docs/ta_codegen_input_code.md.
+       *
+       * Reading the window is safe when outReal aliases inReal: the outputs
+       * written so far occupy [0, outIdx-1], and the window starts at
+       * startIdx-lookbackTotal+outIdx, which is >= outIdx.
+       */
+      sp.barsSinceReseed -= 1;
+      if( sp.barsSinceReseed <= 0 ) {
+         sp.barsSinceReseed = 8 * sp.optInTimePeriod;
+         sp.periodSub = (double)0.0;
+         sp.periodSum = (double)0.0;
+         rw = 1;
+         for( j = sp.lookbackWin; j >= 0; j -= 1 ) {
+            tempReal = tape[(tapeBase - j) & tapeMask];
+            sp.periodSub += tempReal;
+            sp.periodSum += tempReal * rw;
+            rw += 1;
+         }
+      }
+      /* Save the trailing value for being substract at
+       * the next iteration.
+       * (must be saved here just in case outReal and
+       *  inReal are the same buffer).
+       */
+      sp.trailingValue = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+      /* Calculate the WMA for this price bar. */
+      sp.cur_outReal = sp.periodSum / sp.divider;
+      /* Prepare the periodSum for the next iteration. */
+      sp.periodSum -= sp.periodSub;
+      sp.outRangeCount++;
+      return sp.cur_outReal;
+   }
+   private double wmaPeekTape( WmaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      int j = 0;
+      int rw = 0;
+      double tempReal = 0.0;
+      int barsSinceReseed = sp.barsSinceReseed;
+      double cur_outReal = 0.0;
+      double periodSub = sp.periodSub;
+      double periodSum = sp.periodSum;
+      double trailingValue = sp.trailingValue;
+      int pkSlot0 = -1;
+      double pkVal0 = 0.0;
+      pkSlot0 = tapeBase & tapeMask;
+      pkVal0 = inReal;
+      /* Add the current price bar to the sum
+       * who are carried through the iterations.
+       */
+      tempReal = inReal;
+      periodSub += tempReal;
+      periodSub -= trailingValue;
+      periodSum += tempReal * sp.optInTimePeriod;
+      /* Re-anchor: rebuild both totals from the window itself.
+       *
+       * periodSum and periodSub were running totals that were never
+       * recomputed, so each bar's rounding joined a residue no later bar
+       * could subtract, and its size was set by the largest value the totals
+       * had ever held rather than by the current window. That is the defect
+       * #254 fixed in the LINEARREG family, and `periodSum -= periodSub`
+       * below is the same weight-shifting identity as that family's
+       * `SumXY = SumXY + SumY - period*trailingValue` -- which is why WMA has
+       * it and TA_SMA, whose output lives at its own sum's scale, does not.
+       * Measured before the fix: worst range disagreement 1.41e-08 at 200000
+       * bars against a 1e-10 tier, over the tier from ~10000 bars on ordinary
+       * closes or ~1000 with one large print. After: 1.79e-12, flat in call
+       * length.
+       *
+       * ONE TRIGGER, NOT TWO, AND THE INTERVAL IS 8*period NOT 32. The
+       * LINEARREG family also carries an OUTLIER trigger (rebuild when the
+       * departing value outweighs the window) because for a slope the
+       * interval alone FAILS the tier outright, at 2.38e-10. WMA is not in
+       * that position: its weights are bounded by `period` and its divider is
+       * period*(period+1)/2, which dilutes the residue enough that the
+       * interval alone holds. Swept over periods 2, 3, 4, 14, 50, 200, 1000,
+       * 5000 and 20000 on 60000 bars, clean and with a 1000x print, the worst
+       * is 2.2e-11 -- 4.6x inside the band, and the margin does not thin at
+       * either end of the period range. Measured, the trigger bought 1.4e-11 -> 7e-12 and cost 1.17x
+       * here and 1.65x in TA_HMA, whose three fused stages each pay it. The
+       * shorter interval buys most of the accuracy for ~1.1x instead.
+       *
+       * The rebuild walks the window OLDEST FIRST with the weight counting UP
+       * from 1 -- the priming scan's own order and weighting -- so a
+       * re-anchored bar is bit-identical to the same bar computed by a call
+       * that started there. That identity is what the range-stability
+       * contract measures, and what test_wma.c W2/W3 assert.
+       *
+       * The loop start is written INLINE rather than through a `windowStart`
+       * local: only that form is recognised as a rescan window, which is what
+       * keeps this on the stream classifier's primary path. See
+       * docs/ta_codegen_input_code.md.
+       *
+       * Reading the window is safe when outReal aliases inReal: the outputs
+       * written so far occupy [0, outIdx-1], and the window starts at
+       * startIdx-lookbackTotal+outIdx, which is >= outIdx.
+       */
+      barsSinceReseed -= 1;
+      if( barsSinceReseed <= 0 ) {
+         barsSinceReseed = 8 * sp.optInTimePeriod;
+         periodSub = (double)0.0;
+         periodSum = (double)0.0;
+         rw = 1;
+         for( j = sp.lookbackWin; j >= 0; j -= 1 ) {
+            tempReal = (((tapeBase - j) & tapeMask) != pkSlot0) ? tape[(tapeBase - j) & tapeMask] : pkVal0;
+            periodSub += tempReal;
+            periodSum += tempReal * rw;
+            rw += 1;
+         }
+      }
+      /* Save the trailing value for being substract at
+       * the next iteration.
+       * (must be saved here just in case outReal and
+       *  inReal are the same buffer).
+       */
+      trailingValue = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+      /* Calculate the WMA for this price bar. */
+      cur_outReal = periodSum / sp.divider;
+      return cur_outReal;
+   }
+   private int wmaTapeDetach( WmaStream sp )
+   {
+      int reach = 0;
+      sp.ring_trailingIdx_inReal = new double[0];
+      if( sp.ringCap_trailingIdx > reach ) {
+         reach = sp.ringCap_trailingIdx;
+      }
+      sp.win_j_inReal = new double[0];
+      if( sp.winCap_j - 1 > reach ) {
+         reach = sp.winCap_j - 1;
+      }
+      return reach;
    }

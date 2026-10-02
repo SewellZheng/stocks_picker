@@ -137,10 +137,10 @@
       double fama = 0;
       double todayValue = 0;
       double prevPhase = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastLimit == REAL_DEFAULT ) {
@@ -297,7 +297,7 @@
          if( today % 2 == 0 ) {
             /* Do the Hilbert Transforms for even price bar */
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Even[hilbertIdx];
+            detrender = -detrender_Even[hilbertIdx];
             detrender_Even[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Even;
@@ -306,7 +306,7 @@
             prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Even[hilbertIdx];
+            Q1 = -Q1_Even[hilbertIdx];
             Q1_Even[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Even;
@@ -315,7 +315,7 @@
             prev_Q1_input_Even = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForEvenPrev3;
-            jI = 0 - jI_Even[hilbertIdx];
+            jI = -jI_Even[hilbertIdx];
             jI_Even[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Even;
@@ -324,7 +324,7 @@
             prev_jI_input_Even = I1ForEvenPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Even[hilbertIdx];
+            jQ = -jQ_Even[hilbertIdx];
             jQ_Even[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Even;
@@ -354,7 +354,7 @@
          } else {
             /* Do the Hilbert Transforms for odd price bar */
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Odd[hilbertIdx];
+            detrender = -detrender_Odd[hilbertIdx];
             detrender_Odd[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Odd;
@@ -363,7 +363,7 @@
             prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Odd[hilbertIdx];
+            Q1 = -Q1_Odd[hilbertIdx];
             Q1_Odd[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Odd;
@@ -372,7 +372,7 @@
             prev_Q1_input_Odd = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForOddPrev3;
-            jI = 0 - jI_Odd[hilbertIdx];
+            jI = -jI_Odd[hilbertIdx];
             jI_Odd[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Odd;
@@ -381,7 +381,7 @@
             prev_jI_input_Odd = I1ForOddPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Odd[hilbertIdx];
+            jQ = -jQ_Odd[hilbertIdx];
             jQ_Odd[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Odd;
@@ -533,10 +533,10 @@
       double fama = 0;
       double todayValue = 0;
       double prevPhase = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastLimit == REAL_DEFAULT ) {
@@ -656,7 +656,7 @@
          periodWMASum -= periodWMASub;
          if( today % 2 == 0 ) {
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Even[hilbertIdx];
+            detrender = -detrender_Even[hilbertIdx];
             detrender_Even[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Even;
@@ -665,7 +665,7 @@
             prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Even[hilbertIdx];
+            Q1 = -Q1_Even[hilbertIdx];
             Q1_Even[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Even;
@@ -674,7 +674,7 @@
             prev_Q1_input_Even = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForEvenPrev3;
-            jI = 0 - jI_Even[hilbertIdx];
+            jI = -jI_Even[hilbertIdx];
             jI_Even[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Even;
@@ -683,7 +683,7 @@
             prev_jI_input_Even = I1ForEvenPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Even[hilbertIdx];
+            jQ = -jQ_Even[hilbertIdx];
             jQ_Even[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Even;
@@ -705,7 +705,7 @@
             }
          } else {
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Odd[hilbertIdx];
+            detrender = -detrender_Odd[hilbertIdx];
             detrender_Odd[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Odd;
@@ -714,7 +714,7 @@
             prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Odd[hilbertIdx];
+            Q1 = -Q1_Odd[hilbertIdx];
             Q1_Odd[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Odd;
@@ -723,7 +723,7 @@
             prev_Q1_input_Odd = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForOddPrev3;
-            jI = 0 - jI_Odd[hilbertIdx];
+            jI = -jI_Odd[hilbertIdx];
             jI_Odd[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Odd;
@@ -732,7 +732,7 @@
             prev_jI_input_Odd = I1ForOddPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Odd[hilbertIdx];
+            jQ = -jQ_Odd[hilbertIdx];
             jQ_Odd[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Odd;
@@ -808,8 +808,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#mamaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#mamaLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -821,15 +821,17 @@
     *        (default 0.05; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
     *        default).
     * @param outMAMA Adaptive moving average (fast line) Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outFAMA Following adaptive moving average, using half the alpha
     *        (slow line) Pass {@code null} to decline it: it is still computed where
     *        the algorithm needs it, but nothing is written out. Supplied, it must hold
-    *        at least {@code endIdx - startIdx + 1} values.
+    *        at least {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -880,8 +882,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#mamaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#mamaLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -893,15 +895,17 @@
     *        (default 0.05; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
     *        default).
     * @param outMAMA Adaptive moving average (fast line) Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outFAMA Following adaptive moving average, using half the alpha
     *        (slow line) Pass {@code null} to decline it: it is still computed where
     *        the algorithm needs it, but nothing is written out. Supplied, it must hold
-    *        at least {@code endIdx - startIdx + 1} values.
+    *        at least {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -1023,7 +1027,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -1037,12 +1041,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MAMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -1118,16 +1122,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public void update( double inReal, MamaOut out ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MAMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("MAMA update", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("MAMA update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MAMA update", "inReal");
          core.mamaStepImpl(this, inReal);
          this.outRangeCount++;
          out.mama = this.cur_outMAMA;
@@ -1138,16 +1142,14 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, MamaOut out ) {
          requireArgument("MAMA peek", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("MAMA peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MAMA peek", "inReal");
          MamaStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -1186,24 +1188,18 @@
          double prev_jQ_input_Even = sp.prev_jQ_input_Even;
          double prev_jQ_input_Odd = sp.prev_jQ_input_Odd;
          double trailingWMAValue = sp.trailingWMAValue;
-         int pkSlot0 = -1;
-         double pkVal0 = 0.0;
-         if( sp.ringCap_trailingWMAIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inReal;
-         }
          adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
          todayValue = inReal;
          periodWMASub += todayValue;
          periodWMASub -= trailingWMAValue;
          periodWMASum += todayValue * 4.0;
-         trailingWMAValue = (sp.ringPos_trailingWMAIdx != pkSlot0) ? sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] : pkVal0;
+         trailingWMAValue = sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx];
          smoothedValue = periodWMASum * 0.1;
          periodWMASum -= periodWMASub;
          if( sp.streamParity == 0 ) {
             /* Do the Hilbert Transforms for even price bar */
             hilbertTempReal = sp.a * smoothedValue;
-            detrender = 0 - sp.detrender_Even[hilbertIdx];
+            detrender = -sp.detrender_Even[hilbertIdx];
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Even;
             prev_detrender_Even = sp.b * prev_detrender_input_Even;
@@ -1211,7 +1207,7 @@
             prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * detrender;
-            Q1 = 0 - sp.Q1_Even[hilbertIdx];
+            Q1 = -sp.Q1_Even[hilbertIdx];
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Even;
             prev_Q1_Even = sp.b * prev_Q1_input_Even;
@@ -1244,7 +1240,7 @@
          } else {
             /* Do the Hilbert Transforms for odd price bar */
             hilbertTempReal = sp.a * smoothedValue;
-            detrender = 0 - sp.detrender_Odd[hilbertIdx];
+            detrender = -sp.detrender_Odd[hilbertIdx];
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Odd;
             prev_detrender_Odd = sp.b * prev_detrender_input_Odd;
@@ -1252,7 +1248,7 @@
             prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * detrender;
-            Q1 = 0 - sp.Q1_Odd[hilbertIdx];
+            Q1 = -sp.Q1_Odd[hilbertIdx];
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Odd;
             prev_Q1_Odd = sp.b * prev_Q1_input_Odd;
@@ -1372,9 +1368,7 @@
       double Q2 = 0.0;
       double I2 = 0.0;
       double todayValue = 0.0;
-      if( sp.ringCap_trailingWMAIdx == 0 ) {
-         sp.ring_trailingWMAIdx_inReal[0] = inReal;
-      }
+      int ringCapL_trailingWMAIdx = 0;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
       todayValue = inReal;
       sp.periodWMASub += todayValue;
@@ -1386,7 +1380,7 @@
       if( sp.streamParity == 0 ) {
          /* Do the Hilbert Transforms for even price bar */
          hilbertTempReal = sp.a * smoothedValue;
-         detrender = 0 - sp.detrender_Even[sp.hilbertIdx];
+         detrender = -sp.detrender_Even[sp.hilbertIdx];
          sp.detrender_Even[sp.hilbertIdx] = hilbertTempReal;
          detrender += hilbertTempReal;
          detrender -= sp.prev_detrender_Even;
@@ -1395,7 +1389,7 @@
          sp.prev_detrender_input_Even = smoothedValue;
          detrender *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * detrender;
-         Q1 = 0 - sp.Q1_Even[sp.hilbertIdx];
+         Q1 = -sp.Q1_Even[sp.hilbertIdx];
          sp.Q1_Even[sp.hilbertIdx] = hilbertTempReal;
          Q1 += hilbertTempReal;
          Q1 -= sp.prev_Q1_Even;
@@ -1404,7 +1398,7 @@
          sp.prev_Q1_input_Even = detrender;
          Q1 *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
-         jI = 0 - sp.jI_Even[sp.hilbertIdx];
+         jI = -sp.jI_Even[sp.hilbertIdx];
          sp.jI_Even[sp.hilbertIdx] = hilbertTempReal;
          jI += hilbertTempReal;
          jI -= sp.prev_jI_Even;
@@ -1413,7 +1407,7 @@
          sp.prev_jI_input_Even = sp.I1ForEvenPrev3;
          jI *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * Q1;
-         jQ = 0 - sp.jQ_Even[sp.hilbertIdx];
+         jQ = -sp.jQ_Even[sp.hilbertIdx];
          sp.jQ_Even[sp.hilbertIdx] = hilbertTempReal;
          jQ += hilbertTempReal;
          jQ -= sp.prev_jQ_Even;
@@ -1443,7 +1437,7 @@
       } else {
          /* Do the Hilbert Transforms for odd price bar */
          hilbertTempReal = sp.a * smoothedValue;
-         detrender = 0 - sp.detrender_Odd[sp.hilbertIdx];
+         detrender = -sp.detrender_Odd[sp.hilbertIdx];
          sp.detrender_Odd[sp.hilbertIdx] = hilbertTempReal;
          detrender += hilbertTempReal;
          detrender -= sp.prev_detrender_Odd;
@@ -1452,7 +1446,7 @@
          sp.prev_detrender_input_Odd = smoothedValue;
          detrender *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * detrender;
-         Q1 = 0 - sp.Q1_Odd[sp.hilbertIdx];
+         Q1 = -sp.Q1_Odd[sp.hilbertIdx];
          sp.Q1_Odd[sp.hilbertIdx] = hilbertTempReal;
          Q1 += hilbertTempReal;
          Q1 -= sp.prev_Q1_Odd;
@@ -1461,7 +1455,7 @@
          sp.prev_Q1_input_Odd = detrender;
          Q1 *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * sp.I1ForOddPrev3;
-         jI = 0 - sp.jI_Odd[sp.hilbertIdx];
+         jI = -sp.jI_Odd[sp.hilbertIdx];
          sp.jI_Odd[sp.hilbertIdx] = hilbertTempReal;
          jI += hilbertTempReal;
          jI -= sp.prev_jI_Odd;
@@ -1470,7 +1464,7 @@
          sp.prev_jI_input_Odd = sp.I1ForOddPrev3;
          jI *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * Q1;
-         jQ = 0 - sp.jQ_Odd[sp.hilbertIdx];
+         jQ = -sp.jQ_Odd[sp.hilbertIdx];
          sp.jQ_Odd[sp.hilbertIdx] = hilbertTempReal;
          jQ += hilbertTempReal;
          jQ -= sp.prev_jQ_Odd;
@@ -1543,9 +1537,10 @@
       }
       sp.period = Math.fma(0.2, sp.period, 0.8 * tempReal);
       /* Ooof... let's do the next price bar now! */
+      ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
       sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
       sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= sp.ringCap_trailingWMAIdx ) {
+      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
          sp.ringPos_trailingWMAIdx = 0;
       }
       sp.streamParity = 1 - sp.streamParity;
@@ -1618,7 +1613,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInFastLimit == REAL_DEFAULT ) {
@@ -1777,7 +1772,7 @@
          if( today % 2 == 0 ) {
             /* Do the Hilbert Transforms for even price bar */
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Even[hilbertIdx];
+            detrender = -detrender_Even[hilbertIdx];
             detrender_Even[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Even;
@@ -1786,7 +1781,7 @@
             prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Even[hilbertIdx];
+            Q1 = -Q1_Even[hilbertIdx];
             Q1_Even[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Even;
@@ -1795,7 +1790,7 @@
             prev_Q1_input_Even = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForEvenPrev3;
-            jI = 0 - jI_Even[hilbertIdx];
+            jI = -jI_Even[hilbertIdx];
             jI_Even[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Even;
@@ -1804,7 +1799,7 @@
             prev_jI_input_Even = I1ForEvenPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Even[hilbertIdx];
+            jQ = -jQ_Even[hilbertIdx];
             jQ_Even[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Even;
@@ -1834,7 +1829,7 @@
          } else {
             /* Do the Hilbert Transforms for odd price bar */
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Odd[hilbertIdx];
+            detrender = -detrender_Odd[hilbertIdx];
             detrender_Odd[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Odd;
@@ -1843,7 +1838,7 @@
             prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Odd[hilbertIdx];
+            Q1 = -Q1_Odd[hilbertIdx];
             Q1_Odd[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Odd;
@@ -1852,7 +1847,7 @@
             prev_Q1_input_Odd = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForOddPrev3;
-            jI = 0 - jI_Odd[hilbertIdx];
+            jI = -jI_Odd[hilbertIdx];
             jI_Odd[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Odd;
@@ -1861,7 +1856,7 @@
             prev_jI_input_Odd = I1ForOddPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Odd[hilbertIdx];
+            jQ = -jQ_Odd[hilbertIdx];
             jQ_Odd[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Odd;
@@ -1944,7 +1939,7 @@
       outNBElement.value = outIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingWMAIdx = today - trailingWMAIdx;
-      if( cap_trailingWMAIdx < 0 || cap_trailingWMAIdx > historyLen ) {
+      if( cap_trailingWMAIdx < 1 || cap_trailingWMAIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingWMAIdx = (cap_trailingWMAIdx > 0)? cap_trailingWMAIdx : 1;
@@ -2014,12 +2009,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MAMA openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("MAMA openAndFill", inReal.length, startIdx, mamaLookback(optInFastLimit, optInSlowLimit));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MAMA openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("MAMA openAndFill: " + retCode, retCode);
+      throw streamFailure("MAMA openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind mamaOpen (composition seam). */
    MamaStream mamaOpenInternal( double inReal[], int startIdx, double optInFastLimit, double optInSlowLimit )
@@ -2036,12 +2028,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MAMA open: history shorter than lookback + 1");
+         throw insufficientHistory("MAMA open", inReal.length, startIdx, mamaLookback(optInFastLimit, optInSlowLimit));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MAMA open: internal error", retCode);
-      }
-      throw new TALibArgumentException("MAMA open: " + retCode, retCode);
+      throw streamFailure("MAMA open", retCode);
    }
    /**
     * Open a live MAMA stream over the warm-up history; the handle's
@@ -2083,9 +2072,357 @@
       requireLength("MAMA openAndFill", "outMAMA", outMAMA, guardOutLen);
       if( outFAMA != null ) requireLength("MAMA openAndFill", "outFAMA", outFAMA, guardOutLen);
       if( (Object)outMAMA == (Object)inReal || (outFAMA != null && (Object)outFAMA == (Object)inReal) || (outFAMA != null && (Object)outMAMA == (Object)outFAMA) ) {
-         throw new TALibArgumentException("MAMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("MAMA openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       return mamaOpenAndFillInternal(inReal, 0, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA);
+   }
+   private void mamaStepTape( MamaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      double tempReal = 0.0;
+      double tempReal2 = 0.0;
+      double adjustedPrevPeriod = 0.0;
+      double smoothedValue = 0.0;
+      double hilbertTempReal = 0.0;
+      double detrender = 0.0;
+      double Q1 = 0.0;
+      double jI = 0.0;
+      double jQ = 0.0;
+      double Q2 = 0.0;
+      double I2 = 0.0;
+      double todayValue = 0.0;
+      adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
+      todayValue = inReal;
+      sp.periodWMASub += todayValue;
+      sp.periodWMASub -= sp.trailingWMAValue;
+      sp.periodWMASum += todayValue * 4.0;
+      sp.trailingWMAValue = tape[(tapeBase - sp.ringCap_trailingWMAIdx) & tapeMask];
+      smoothedValue = sp.periodWMASum * 0.1;
+      sp.periodWMASum -= sp.periodWMASub;
+      if( sp.streamParity == 0 ) {
+         /* Do the Hilbert Transforms for even price bar */
+         hilbertTempReal = sp.a * smoothedValue;
+         detrender = -sp.detrender_Even[sp.hilbertIdx];
+         sp.detrender_Even[sp.hilbertIdx] = hilbertTempReal;
+         detrender += hilbertTempReal;
+         detrender -= sp.prev_detrender_Even;
+         sp.prev_detrender_Even = sp.b * sp.prev_detrender_input_Even;
+         detrender += sp.prev_detrender_Even;
+         sp.prev_detrender_input_Even = smoothedValue;
+         detrender *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * detrender;
+         Q1 = -sp.Q1_Even[sp.hilbertIdx];
+         sp.Q1_Even[sp.hilbertIdx] = hilbertTempReal;
+         Q1 += hilbertTempReal;
+         Q1 -= sp.prev_Q1_Even;
+         sp.prev_Q1_Even = sp.b * sp.prev_Q1_input_Even;
+         Q1 += sp.prev_Q1_Even;
+         sp.prev_Q1_input_Even = detrender;
+         Q1 *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
+         jI = -sp.jI_Even[sp.hilbertIdx];
+         sp.jI_Even[sp.hilbertIdx] = hilbertTempReal;
+         jI += hilbertTempReal;
+         jI -= sp.prev_jI_Even;
+         sp.prev_jI_Even = sp.b * sp.prev_jI_input_Even;
+         jI += sp.prev_jI_Even;
+         sp.prev_jI_input_Even = sp.I1ForEvenPrev3;
+         jI *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * Q1;
+         jQ = -sp.jQ_Even[sp.hilbertIdx];
+         sp.jQ_Even[sp.hilbertIdx] = hilbertTempReal;
+         jQ += hilbertTempReal;
+         jQ -= sp.prev_jQ_Even;
+         sp.prev_jQ_Even = sp.b * sp.prev_jQ_input_Even;
+         jQ += sp.prev_jQ_Even;
+         sp.prev_jQ_input_Even = Q1;
+         jQ *= adjustedPrevPeriod;
+         if( ++sp.hilbertIdx == 3 ) {
+            sp.hilbertIdx = 0;
+         }
+         Q2 = Math.fma(0.2, Q1 + jI, 0.8 * sp.prevQ2);
+         I2 = Math.fma(0.2, sp.I1ForEvenPrev3 - jQ, 0.8 * sp.prevI2);
+         /* The variable I1 is the detrender delayed for
+          * 3 price bars.
+          *
+          * Save the current detrender value for being
+          * used by the "odd" logic later.
+          */
+         sp.I1ForOddPrev3 = sp.I1ForOddPrev2;
+         sp.I1ForOddPrev2 = detrender;
+         /* Put Alpha in tempReal2 */
+         if( sp.I1ForEvenPrev3 != 0.0 ) {
+            tempReal2 = Math.atan(Q1 / sp.I1ForEvenPrev3) * sp.rad2Deg;
+         } else {
+            tempReal2 = 0.0;
+         }
+      } else {
+         /* Do the Hilbert Transforms for odd price bar */
+         hilbertTempReal = sp.a * smoothedValue;
+         detrender = -sp.detrender_Odd[sp.hilbertIdx];
+         sp.detrender_Odd[sp.hilbertIdx] = hilbertTempReal;
+         detrender += hilbertTempReal;
+         detrender -= sp.prev_detrender_Odd;
+         sp.prev_detrender_Odd = sp.b * sp.prev_detrender_input_Odd;
+         detrender += sp.prev_detrender_Odd;
+         sp.prev_detrender_input_Odd = smoothedValue;
+         detrender *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * detrender;
+         Q1 = -sp.Q1_Odd[sp.hilbertIdx];
+         sp.Q1_Odd[sp.hilbertIdx] = hilbertTempReal;
+         Q1 += hilbertTempReal;
+         Q1 -= sp.prev_Q1_Odd;
+         sp.prev_Q1_Odd = sp.b * sp.prev_Q1_input_Odd;
+         Q1 += sp.prev_Q1_Odd;
+         sp.prev_Q1_input_Odd = detrender;
+         Q1 *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * sp.I1ForOddPrev3;
+         jI = -sp.jI_Odd[sp.hilbertIdx];
+         sp.jI_Odd[sp.hilbertIdx] = hilbertTempReal;
+         jI += hilbertTempReal;
+         jI -= sp.prev_jI_Odd;
+         sp.prev_jI_Odd = sp.b * sp.prev_jI_input_Odd;
+         jI += sp.prev_jI_Odd;
+         sp.prev_jI_input_Odd = sp.I1ForOddPrev3;
+         jI *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * Q1;
+         jQ = -sp.jQ_Odd[sp.hilbertIdx];
+         sp.jQ_Odd[sp.hilbertIdx] = hilbertTempReal;
+         jQ += hilbertTempReal;
+         jQ -= sp.prev_jQ_Odd;
+         sp.prev_jQ_Odd = sp.b * sp.prev_jQ_input_Odd;
+         jQ += sp.prev_jQ_Odd;
+         sp.prev_jQ_input_Odd = Q1;
+         jQ *= adjustedPrevPeriod;
+         Q2 = Math.fma(0.2, Q1 + jI, 0.8 * sp.prevQ2);
+         I2 = Math.fma(0.2, sp.I1ForOddPrev3 - jQ, 0.8 * sp.prevI2);
+         /* The varaiable I1 is the detrender delayed for
+          * 3 price bars.
+          *
+          * Save the current detrender value for being
+          * used by the "odd" logic later.
+          */
+         sp.I1ForEvenPrev3 = sp.I1ForEvenPrev2;
+         sp.I1ForEvenPrev2 = detrender;
+         /* Put Alpha in tempReal2 */
+         if( sp.I1ForOddPrev3 != 0.0 ) {
+            tempReal2 = Math.atan(Q1 / sp.I1ForOddPrev3) * sp.rad2Deg;
+         } else {
+            tempReal2 = 0.0;
+         }
+      }
+      /* Put Delta Phase into tempReal */
+      tempReal = sp.prevPhase - tempReal2;
+      sp.prevPhase = tempReal2;
+      if( tempReal < 1.0 ) {
+         tempReal = 1.0;
+      }
+      /* Put Alpha into tempReal */
+      if( tempReal > 1.0 ) {
+         tempReal = sp.optInFastLimit / tempReal;
+         if( tempReal < sp.optInSlowLimit ) {
+            tempReal = sp.optInSlowLimit;
+         }
+      } else {
+         tempReal = sp.optInFastLimit;
+      }
+      /* Calculate MAMA, FAMA */
+      sp.mama = Math.fma(1 - tempReal, sp.mama, tempReal * todayValue);
+      tempReal *= 0.5;
+      sp.fama = Math.fma(1 - tempReal, sp.fama, tempReal * sp.mama);
+      /* FAMA is nullable (issue #125): its write carries no outIdx advance so
+       * the codegen can NULL-guard it; outMAMA (never NULL) owns the ++.
+       */
+      sp.cur_outFAMA = sp.fama;
+      sp.cur_outMAMA = sp.mama;
+      /* Adjust the period for next price bar */
+      sp.Re = Math.fma(0.8, sp.Re, 0.2 * (Math.fma(I2, sp.prevI2, Q2 * sp.prevQ2)));
+      sp.Im = Math.fma(0.8, sp.Im, 0.2 * (I2 * sp.prevQ2 - Q2 * sp.prevI2));
+      sp.prevQ2 = Q2;
+      sp.prevI2 = I2;
+      tempReal = sp.period;
+      if( sp.Im != 0.0 && sp.Re != 0.0 ) {
+         sp.period = 360.0 / (Math.atan(sp.Im / sp.Re) * sp.rad2Deg);
+      }
+      tempReal2 = 1.5 * tempReal;
+      if( sp.period > tempReal2 ) {
+         sp.period = tempReal2;
+      }
+      tempReal2 = 0.67 * tempReal;
+      if( sp.period < tempReal2 ) {
+         sp.period = tempReal2;
+      }
+      if( sp.period < 6 ) {
+         sp.period = 6;
+      } else if( sp.period > 50 ) {
+         sp.period = 50;
+      }
+      sp.period = Math.fma(0.2, sp.period, 0.8 * tempReal);
+      /* Ooof... let's do the next price bar now! */
+      sp.streamParity = 1 - sp.streamParity;
+      sp.outRangeCount++;
+   }
+   private void mamaPeekTape( MamaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal, MamaOut out )
+   {
+      double tempReal = 0.0;
+      double tempReal2 = 0.0;
+      double adjustedPrevPeriod = 0.0;
+      double smoothedValue = 0.0;
+      double hilbertTempReal = 0.0;
+      double detrender = 0.0;
+      double Q1 = 0.0;
+      double todayValue = 0.0;
+      double I1ForEvenPrev2 = sp.I1ForEvenPrev2;
+      double I1ForEvenPrev3 = sp.I1ForEvenPrev3;
+      double I1ForOddPrev2 = sp.I1ForOddPrev2;
+      double I1ForOddPrev3 = sp.I1ForOddPrev3;
+      double cur_outFAMA = 0.0;
+      double cur_outMAMA = 0.0;
+      double fama = sp.fama;
+      int hilbertIdx = sp.hilbertIdx;
+      double mama = sp.mama;
+      double periodWMASub = sp.periodWMASub;
+      double periodWMASum = sp.periodWMASum;
+      double prevPhase = sp.prevPhase;
+      double prev_Q1_Even = sp.prev_Q1_Even;
+      double prev_Q1_Odd = sp.prev_Q1_Odd;
+      double prev_Q1_input_Even = sp.prev_Q1_input_Even;
+      double prev_Q1_input_Odd = sp.prev_Q1_input_Odd;
+      double prev_detrender_Even = sp.prev_detrender_Even;
+      double prev_detrender_Odd = sp.prev_detrender_Odd;
+      double prev_detrender_input_Even = sp.prev_detrender_input_Even;
+      double prev_detrender_input_Odd = sp.prev_detrender_input_Odd;
+      double prev_jI_Even = sp.prev_jI_Even;
+      double prev_jI_Odd = sp.prev_jI_Odd;
+      double prev_jI_input_Even = sp.prev_jI_input_Even;
+      double prev_jI_input_Odd = sp.prev_jI_input_Odd;
+      double prev_jQ_Even = sp.prev_jQ_Even;
+      double prev_jQ_Odd = sp.prev_jQ_Odd;
+      double prev_jQ_input_Even = sp.prev_jQ_input_Even;
+      double prev_jQ_input_Odd = sp.prev_jQ_input_Odd;
+      double trailingWMAValue = sp.trailingWMAValue;
+      adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
+      todayValue = inReal;
+      periodWMASub += todayValue;
+      periodWMASub -= trailingWMAValue;
+      periodWMASum += todayValue * 4.0;
+      trailingWMAValue = tape[(tapeBase - sp.ringCap_trailingWMAIdx) & tapeMask];
+      smoothedValue = periodWMASum * 0.1;
+      periodWMASum -= periodWMASub;
+      if( sp.streamParity == 0 ) {
+         /* Do the Hilbert Transforms for even price bar */
+         hilbertTempReal = sp.a * smoothedValue;
+         detrender = -sp.detrender_Even[hilbertIdx];
+         detrender += hilbertTempReal;
+         detrender -= prev_detrender_Even;
+         prev_detrender_Even = sp.b * prev_detrender_input_Even;
+         detrender += prev_detrender_Even;
+         prev_detrender_input_Even = smoothedValue;
+         detrender *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * detrender;
+         Q1 = -sp.Q1_Even[hilbertIdx];
+         Q1 += hilbertTempReal;
+         Q1 -= prev_Q1_Even;
+         prev_Q1_Even = sp.b * prev_Q1_input_Even;
+         Q1 += prev_Q1_Even;
+         prev_Q1_input_Even = detrender;
+         Q1 *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * I1ForEvenPrev3;
+         prev_jI_Even = sp.b * prev_jI_input_Even;
+         prev_jI_input_Even = I1ForEvenPrev3;
+         hilbertTempReal = sp.a * Q1;
+         prev_jQ_Even = sp.b * prev_jQ_input_Even;
+         prev_jQ_input_Even = Q1;
+         if( ++hilbertIdx == 3 ) {
+            hilbertIdx = 0;
+         }
+         /* The variable I1 is the detrender delayed for
+          * 3 price bars.
+          *
+          * Save the current detrender value for being
+          * used by the "odd" logic later.
+          */
+         I1ForOddPrev3 = I1ForOddPrev2;
+         I1ForOddPrev2 = detrender;
+         /* Put Alpha in tempReal2 */
+         if( I1ForEvenPrev3 != 0.0 ) {
+            tempReal2 = Math.atan(Q1 / I1ForEvenPrev3) * sp.rad2Deg;
+         } else {
+            tempReal2 = 0.0;
+         }
+      } else {
+         /* Do the Hilbert Transforms for odd price bar */
+         hilbertTempReal = sp.a * smoothedValue;
+         detrender = -sp.detrender_Odd[hilbertIdx];
+         detrender += hilbertTempReal;
+         detrender -= prev_detrender_Odd;
+         prev_detrender_Odd = sp.b * prev_detrender_input_Odd;
+         detrender += prev_detrender_Odd;
+         prev_detrender_input_Odd = smoothedValue;
+         detrender *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * detrender;
+         Q1 = -sp.Q1_Odd[hilbertIdx];
+         Q1 += hilbertTempReal;
+         Q1 -= prev_Q1_Odd;
+         prev_Q1_Odd = sp.b * prev_Q1_input_Odd;
+         Q1 += prev_Q1_Odd;
+         prev_Q1_input_Odd = detrender;
+         Q1 *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * I1ForOddPrev3;
+         prev_jI_Odd = sp.b * prev_jI_input_Odd;
+         prev_jI_input_Odd = I1ForOddPrev3;
+         hilbertTempReal = sp.a * Q1;
+         prev_jQ_Odd = sp.b * prev_jQ_input_Odd;
+         prev_jQ_input_Odd = Q1;
+         /* The varaiable I1 is the detrender delayed for
+          * 3 price bars.
+          *
+          * Save the current detrender value for being
+          * used by the "odd" logic later.
+          */
+         I1ForEvenPrev3 = I1ForEvenPrev2;
+         I1ForEvenPrev2 = detrender;
+         /* Put Alpha in tempReal2 */
+         if( I1ForOddPrev3 != 0.0 ) {
+            tempReal2 = Math.atan(Q1 / I1ForOddPrev3) * sp.rad2Deg;
+         } else {
+            tempReal2 = 0.0;
+         }
+      }
+      /* Put Delta Phase into tempReal */
+      tempReal = prevPhase - tempReal2;
+      prevPhase = tempReal2;
+      if( tempReal < 1.0 ) {
+         tempReal = 1.0;
+      }
+      /* Put Alpha into tempReal */
+      if( tempReal > 1.0 ) {
+         tempReal = sp.optInFastLimit / tempReal;
+         if( tempReal < sp.optInSlowLimit ) {
+            tempReal = sp.optInSlowLimit;
+         }
+      } else {
+         tempReal = sp.optInFastLimit;
+      }
+      /* Calculate MAMA, FAMA */
+      mama = Math.fma(1 - tempReal, mama, tempReal * todayValue);
+      tempReal *= 0.5;
+      fama = Math.fma(1 - tempReal, fama, tempReal * mama);
+      /* FAMA is nullable (issue #125): its write carries no outIdx advance so
+       * the codegen can NULL-guard it; outMAMA (never NULL) owns the ++.
+       */
+      cur_outFAMA = fama;
+      cur_outMAMA = mama;
+      out.mama = cur_outMAMA;
+      out.fama = cur_outFAMA;
+   }
+   private int mamaTapeDetach( MamaStream sp )
+   {
+      int reach = 0;
+      sp.ring_trailingWMAIdx_inReal = new double[0];
+      if( sp.ringCap_trailingWMAIdx > reach ) {
+         reach = sp.ringCap_trailingWMAIdx;
+      }
+      return reach;
    }

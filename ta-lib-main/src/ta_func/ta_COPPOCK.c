@@ -118,9 +118,9 @@ TA_LIB_API TA_RetCode TA_COPPOCK( int    startIdx,
    int sRing_Idx;
    int maxIdx_sRing;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInWMAPeriod == TA_INTEGER_DEFAULT )
@@ -356,9 +356,9 @@ TA_RetCode TA_S_COPPOCK( int    startIdx,
    int sRing_Idx;
    int maxIdx_sRing;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInWMAPeriod == TA_INTEGER_DEFAULT )
@@ -511,6 +511,7 @@ struct TA_COPPOCK_Stream {
    double periodSum;
    double periodSub;
    double trailingValue;
+   double pad_0;
    double divider;
    int sRing_Idx;
    int maxIdx_sRing;
@@ -546,19 +547,13 @@ static void TA_COPPOCK_StepImpl( struct TA_COPPOCK_Stream *sp, double inReal, do
    double base2;
    double roc1;
    double roc2;
+   int ringCapL_roc1Idx;
+   int ringCapL_roc2Idx;
    double periodSum;
    double periodSub;
 
    periodSum = sp->periodSum;
    periodSub = sp->periodSub;
-   if( sp->ringCap_roc1Idx == 0 )
-   {
-      sp->ring_roc1Idx_inReal[0] = inReal;
-   }
-   if( sp->ringCap_roc2Idx == 0 )
-   {
-      sp->ring_roc2Idx_inReal[0] = inReal;
-   }
    base1 = sp->ring_roc1Idx_inReal[sp->ringPos_roc1Idx];
    base2 = sp->ring_roc2Idx_inReal[sp->ringPos_roc2Idx];
    roc1 = (base1 != 0.0) ? (inReal / base1 - 1.0) * 100.0 : 0.0;
@@ -622,15 +617,17 @@ static void TA_COPPOCK_StepImpl( struct TA_COPPOCK_Stream *sp, double inReal, do
    }
    periodSum -= periodSub;
    sp->cur_outReal = *outReal;
+   ringCapL_roc1Idx = sp->ringCap_roc1Idx;
    sp->ring_roc1Idx_inReal[sp->ringPos_roc1Idx] = inReal;
    sp->ringPos_roc1Idx = sp->ringPos_roc1Idx + 1;
-   if( sp->ringPos_roc1Idx >= sp->ringCap_roc1Idx )
+   if( sp->ringPos_roc1Idx >= ringCapL_roc1Idx )
    {
       sp->ringPos_roc1Idx = 0;
    }
+   ringCapL_roc2Idx = sp->ringCap_roc2Idx;
    sp->ring_roc2Idx_inReal[sp->ringPos_roc2Idx] = inReal;
    sp->ringPos_roc2Idx = sp->ringPos_roc2Idx + 1;
-   if( sp->ringPos_roc2Idx >= sp->ringCap_roc2Idx )
+   if( sp->ringPos_roc2Idx >= ringCapL_roc2Idx )
    {
       sp->ringPos_roc2Idx = 0;
    }
@@ -650,7 +647,7 @@ static TA_RetCode TA_COPPOCK_OpenImpl( struct TA_COPPOCK_Stream **stream, const 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInWMAPeriod == TA_INTEGER_DEFAULT )
       optInWMAPeriod = 10;
@@ -886,18 +883,18 @@ static TA_RetCode TA_COPPOCK_OpenImpl( struct TA_COPPOCK_Stream **stream, const 
       sp->sRing_Idx = sRing_Idx;
       sp->maxIdx_sRing = maxIdx_sRing;
       sp->ringCap_roc1Idx = (int)(inIdx - roc1Idx);
-      if( sp->ringCap_roc1Idx < 0 || sp->ringCap_roc1Idx > historyLen ) { TA_COPPOCK_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(421); }
+      if( sp->ringCap_roc1Idx < 1 || sp->ringCap_roc1Idx > historyLen ) { if( sRing != &local_sRing[0] ) { TA_Free( sRing ); } TA_COPPOCK_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(421); }
       { size_t allocN = (size_t)(sp->ringCap_roc1Idx > 0 ? sp->ringCap_roc1Idx : 1);
         sp->ring_roc1Idx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_roc1Idx_inReal ) { TA_COPPOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_roc1Idx_inReal ) { if( sRing != &local_sRing[0] ) { TA_Free( sRing ); } TA_COPPOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_roc1Idx_inReal, inReal + (historyLen - sp->ringCap_roc1Idx), sizeof(double) * (size_t)sp->ringCap_roc1Idx );
       }
       sp->ringPos_roc1Idx = 0;
       sp->ringCap_roc2Idx = (int)(inIdx - roc2Idx);
-      if( sp->ringCap_roc2Idx < 0 || sp->ringCap_roc2Idx > historyLen ) { TA_COPPOCK_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(422); }
+      if( sp->ringCap_roc2Idx < 1 || sp->ringCap_roc2Idx > historyLen ) { if( sRing != &local_sRing[0] ) { TA_Free( sRing ); } TA_COPPOCK_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(422); }
       { size_t allocN = (size_t)(sp->ringCap_roc2Idx > 0 ? sp->ringCap_roc2Idx : 1);
         sp->ring_roc2Idx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_roc2Idx_inReal ) { TA_COPPOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_roc2Idx_inReal ) { if( sRing != &local_sRing[0] ) { TA_Free( sRing ); } TA_COPPOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_roc2Idx_inReal, inReal + (historyLen - sp->ringCap_roc2Idx), sizeof(double) * (size_t)sp->ringCap_roc2Idx );
       }
       sp->ringPos_roc2Idx = 0;
@@ -935,7 +932,7 @@ TA_LIB_API TA_RetCode TA_COPPOCK_Open( TA_COPPOCK_Stream **stream, const double 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_COPPOCK_OpenInternal( stream, inReal, 0, historyLen, optInWMAPeriod, optInROC1Period, optInROC2Period, outReal );
 }
@@ -945,7 +942,7 @@ TA_LIB_API TA_RetCode TA_COPPOCK_OpenAndFill( TA_COPPOCK_Stream **stream, const 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_COPPOCK_OpenAndFillInternal( stream, inReal, 0, historyLen, optInWMAPeriod, optInROC1Period, optInROC2Period, outBegIdx, outNBElement, outReal );
@@ -960,7 +957,7 @@ TA_RetCode TA_COPPOCK_OpenAndFillInternal( struct TA_COPPOCK_Stream **stream, co
 TA_LIB_API TA_RetCode TA_COPPOCK_Update( TA_COPPOCK_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -987,10 +984,6 @@ TA_LIB_API TA_RetCode TA_COPPOCK_Peek( const TA_COPPOCK_Stream *stream, double i
    double *cb_sRing;
    double *ring_roc1Idx_inReal;
    double *ring_roc2Idx_inReal;
-   int pkSlot0 = -1;
-   double pkVal0 = 0.0;
-   int pkSlot1 = -1;
-   double pkVal1 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -1000,18 +993,8 @@ TA_LIB_API TA_RetCode TA_COPPOCK_Peek( const TA_COPPOCK_Stream *stream, double i
    cb_sRing = sp->cb_sRing;
    ring_roc1Idx_inReal = sp->ring_roc1Idx_inReal;
    ring_roc2Idx_inReal = sp->ring_roc2Idx_inReal;
-   if( sp->ringCap_roc1Idx == 0 )
-   {
-      pkSlot0 = 0;
-      pkVal0 = inReal;
-   }
-   if( sp->ringCap_roc2Idx == 0 )
-   {
-      pkSlot1 = 0;
-      pkVal1 = inReal;
-   }
-   base1 = (sp->ringPos_roc1Idx != pkSlot0) ? ring_roc1Idx_inReal[sp->ringPos_roc1Idx] : pkVal0;
-   base2 = (sp->ringPos_roc2Idx != pkSlot1) ? ring_roc2Idx_inReal[sp->ringPos_roc2Idx] : pkVal1;
+   base1 = ring_roc1Idx_inReal[sp->ringPos_roc1Idx];
+   base2 = ring_roc2Idx_inReal[sp->ringPos_roc2Idx];
    roc1 = (base1 != 0.0) ? (inReal / base1 - 1.0) * 100.0 : 0.0;
    roc2 = (base2 != 0.0) ? (inReal / base2 - 1.0) * 100.0 : 0.0;
    tempReal = roc1 + roc2;
@@ -1087,7 +1070,7 @@ TA_LIB_API TA_RetCode TA_COPPOCK_OutRange( const TA_COPPOCK_Stream *stream, int 
 TA_LIB_API TA_RetCode TA_COPPOCK_Advance( TA_COPPOCK_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

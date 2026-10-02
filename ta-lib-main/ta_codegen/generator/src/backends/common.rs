@@ -306,6 +306,7 @@ pub fn expr_directly_contains_candle_call(expr: &Expr) -> bool {
         }
         Expr::Cast(_, inner)
         | Expr::Not(inner)
+        | Expr::Neg(inner)
         | Expr::BitwiseNot(inner)
         | Expr::AddressOf(inner)
         | Expr::PostIncrement(inner)
@@ -397,7 +398,7 @@ pub fn max_output_arity(funcs: &[FuncDef]) -> (usize, usize) {
 }
 
 /// The outputs a caller may decline — the `nullable` flag in the .yaml, rule
-/// B6a of `docs/error-handling-spec.md`.
+/// O5 (`https://ta-lib.org/spec/inputs-outputs/#o5`).
 ///
 /// One source of truth for the four backends: each spells "declined" in its own
 /// way (`NULL` in C, `null` in Java, `None` in Rust, an empty `Span` in C#), but

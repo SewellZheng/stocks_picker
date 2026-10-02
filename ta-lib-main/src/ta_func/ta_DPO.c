@@ -87,9 +87,9 @@ TA_LIB_API TA_RetCode TA_DPO( int    startIdx,
    int dispIdx;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -172,9 +172,9 @@ TA_RetCode TA_S_DPO( int    startIdx,
    int dispIdx;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -258,15 +258,9 @@ static void TA_DPO_StepImpl( struct TA_DPO_Stream *sp, double inReal, double *ou
 {
    double tempReal;
    double dispVal;
+   int ringCapL_dispIdx;
+   int ringCapL_trailingIdx;
 
-   if( sp->ringCap_dispIdx == 0 )
-   {
-      sp->ring_dispIdx_inReal[0] = inReal;
-   }
-   if( sp->ringCap_trailingIdx == 0 )
-   {
-      sp->ring_trailingIdx_inReal[0] = inReal;
-   }
    sp->periodTotal += inReal;
    tempReal = sp->periodTotal;
    sp->periodTotal -= sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx];
@@ -279,15 +273,17 @@ static void TA_DPO_StepImpl( struct TA_DPO_Stream *sp, double inReal, double *ou
    dispVal = sp->ring_dispIdx_inReal[sp->ringPos_dispIdx];
    *outReal= dispVal - tempReal / (double)sp->optInTimePeriod;
    sp->cur_outReal = *outReal;
+   ringCapL_dispIdx = sp->ringCap_dispIdx;
    sp->ring_dispIdx_inReal[sp->ringPos_dispIdx] = inReal;
    sp->ringPos_dispIdx = sp->ringPos_dispIdx + 1;
-   if( sp->ringPos_dispIdx >= sp->ringCap_dispIdx )
+   if( sp->ringPos_dispIdx >= ringCapL_dispIdx )
    {
       sp->ringPos_dispIdx = 0;
    }
+   ringCapL_trailingIdx = sp->ringCap_trailingIdx;
    sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx] = inReal;
    sp->ringPos_trailingIdx = sp->ringPos_trailingIdx + 1;
-   if( sp->ringPos_trailingIdx >= sp->ringCap_trailingIdx )
+   if( sp->ringPos_trailingIdx >= ringCapL_trailingIdx )
    {
       sp->ringPos_trailingIdx = 0;
    }
@@ -301,7 +297,7 @@ static TA_RetCode TA_DPO_OpenImpl( struct TA_DPO_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 20;
@@ -382,7 +378,7 @@ static TA_RetCode TA_DPO_OpenImpl( struct TA_DPO_Stream **stream, const double i
       sp->optInTimePeriod = optInTimePeriod;
       sp->periodTotal = periodTotal;
       sp->ringCap_dispIdx = (int)(i - dispIdx);
-      if( sp->ringCap_dispIdx < 0 || sp->ringCap_dispIdx > historyLen ) { TA_DPO_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(409); }
+      if( sp->ringCap_dispIdx < 1 || sp->ringCap_dispIdx > historyLen ) { TA_DPO_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(409); }
       { size_t allocN = (size_t)(sp->ringCap_dispIdx > 0 ? sp->ringCap_dispIdx : 1);
         sp->ring_dispIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_dispIdx_inReal ) { TA_DPO_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -390,7 +386,7 @@ static TA_RetCode TA_DPO_OpenImpl( struct TA_DPO_Stream **stream, const double i
       }
       sp->ringPos_dispIdx = 0;
       sp->ringCap_trailingIdx = (int)(i - trailingIdx);
-      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_DPO_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(410); }
+      if( sp->ringCap_trailingIdx < 1 || sp->ringCap_trailingIdx > historyLen ) { TA_DPO_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(410); }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
         sp->ring_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingIdx_inReal ) { TA_DPO_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -425,7 +421,7 @@ TA_LIB_API TA_RetCode TA_DPO_Open( TA_DPO_Stream **stream, const double inReal[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_DPO_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -435,7 +431,7 @@ TA_LIB_API TA_RetCode TA_DPO_OpenAndFill( TA_DPO_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_DPO_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -450,7 +446,7 @@ TA_RetCode TA_DPO_OpenAndFillInternal( struct TA_DPO_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_DPO_Update( TA_DPO_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -467,36 +463,22 @@ TA_LIB_API TA_RetCode TA_DPO_Peek( const TA_DPO_Stream *stream, double inReal, d
    double periodTotal;
    double *ring_dispIdx_inReal;
    double *ring_trailingIdx_inReal;
-   int pkSlot0 = -1;
-   double pkVal0 = 0.0;
-   int pkSlot1 = -1;
-   double pkVal1 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    periodTotal = sp->periodTotal;
    ring_dispIdx_inReal = sp->ring_dispIdx_inReal;
    ring_trailingIdx_inReal = sp->ring_trailingIdx_inReal;
-   if( sp->ringCap_dispIdx == 0 )
-   {
-      pkSlot0 = 0;
-      pkVal0 = inReal;
-   }
-   if( sp->ringCap_trailingIdx == 0 )
-   {
-      pkSlot1 = 0;
-      pkVal1 = inReal;
-   }
    periodTotal += inReal;
    tempReal = periodTotal;
-   periodTotal -= (sp->ringPos_trailingIdx != pkSlot1) ? ring_trailingIdx_inReal[sp->ringPos_trailingIdx] : pkVal1;
+   periodTotal -= ring_trailingIdx_inReal[sp->ringPos_trailingIdx];
    /* Both reads precede the store. Either cursor can EQUAL outIdx -- the
     * displaced one whenever startIdx equals the displacement, the trailing
     * one whenever startIdx sits at the lookback -- so a store hoisted above
     * them would read back what it had just overwritten when the caller
     * aliases outReal over inReal.
     */
-   dispVal = (sp->ringPos_dispIdx != pkSlot0) ? ring_dispIdx_inReal[sp->ringPos_dispIdx] : pkVal0;
+   dispVal = ring_dispIdx_inReal[sp->ringPos_dispIdx];
    *outReal= dispVal - tempReal / (double)sp->optInTimePeriod;
    return TA_SUCCESS;
 }
@@ -525,7 +507,7 @@ TA_LIB_API TA_RetCode TA_DPO_OutRange( const TA_DPO_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_DPO_Advance( TA_DPO_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

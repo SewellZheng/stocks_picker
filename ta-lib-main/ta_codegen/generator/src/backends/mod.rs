@@ -6,6 +6,7 @@ pub mod c_stream;
 pub mod cmake_lists;
 pub mod common;
 pub mod cond_fold;
+pub mod divisor_guard;
 pub mod ir_cleanup;
 pub mod csharp;
 pub mod csharp_doc;
@@ -29,11 +30,14 @@ pub mod java_shipped;
 pub mod makefile_am;
 pub mod price_bundle;
 pub mod retcode;
+pub mod select_chain;
 pub mod rust_abstract;
 pub mod rust_doc;
 pub mod rust_enums;
 pub mod rust_lang;
 pub mod rust_phantom_io;
+pub mod rust_respell;
+pub mod rust_window;
 pub mod rust_stream;
 pub mod stmt_walk;
 pub mod stream_frame;
@@ -60,6 +64,9 @@ use std::path::Path;
 pub trait LanguageBackend {
     /// Short backend identifier used on the CLI (`c`, `rust`, `java`, `csharp`).
     fn name(&self) -> &'static str;
+
+    /// The language as a reader names it (`C`, `Rust`, `Java`, `C#`).
+    fn label(&self) -> &'static str;
 
     /// Render the per-indicator source for `func`.
     fn generate(
@@ -178,6 +185,9 @@ impl LanguageBackend for CBackend {
     fn name(&self) -> &'static str {
         "c"
     }
+    fn label(&self) -> &'static str {
+        "C"
+    }
     fn generate(
         &self,
         func: &FuncDef,
@@ -244,6 +254,9 @@ impl LanguageBackend for RustBackend {
     fn name(&self) -> &'static str {
         "rust"
     }
+    fn label(&self) -> &'static str {
+        "Rust"
+    }
     fn generate(
         &self,
         func: &FuncDef,
@@ -279,6 +292,7 @@ impl LanguageBackend for RustBackend {
         // indicator (`RUST_GENERATED_TEST_MODULES`).
         &[
             "types.rs",
+            "c_math.rs",
             "div_zero.rs",
             "scratch_election.rs",
             "stream_finite.rs",
@@ -310,6 +324,9 @@ pub struct JavaBackend;
 impl LanguageBackend for JavaBackend {
     fn name(&self) -> &'static str {
         "java"
+    }
+    fn label(&self) -> &'static str {
+        "Java"
     }
     fn generate(
         &self,
@@ -375,6 +392,9 @@ pub struct CSharpBackend;
 impl LanguageBackend for CSharpBackend {
     fn name(&self) -> &'static str {
         "csharp"
+    }
+    fn label(&self) -> &'static str {
+        "C#"
     }
     fn generate(
         &self,

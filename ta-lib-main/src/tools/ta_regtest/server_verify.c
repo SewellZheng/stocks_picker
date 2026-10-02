@@ -29,6 +29,9 @@
 
 /* ---- Configuration ---- */
 
+/* A request that overflows is sent truncated and fails only under --codegen:
+ * at 16 hex chars per double, all input arrays together must stay well under
+ * 16000 values. */
 #define SV_BUF_SIZE (256 * 1024)   /* 256KB request/response buffers */
 
 /* The transcendental tolerance (CODEGEN_TRANSCENDENTAL_TOL), the
@@ -85,6 +88,10 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     {"RMA",          TA_FUNC_UNST_RMA},
     {"RSI",          TA_FUNC_UNST_RSI},
     {"RVI",          TA_FUNC_UNST_RVI},
+    {"FRAMA",        TA_FUNC_UNST_FRAMA},
+    {"MCGD",         TA_FUNC_UNST_MCGD},
+    {"VIDYA",        TA_FUNC_UNST_VIDYA},
+    {"STC",          TA_FUNC_UNST_STC},
     {"T3",           TA_FUNC_UNST_T3},
 };
 #define NUM_UNSTABLE_MAP (sizeof(UNSTABLE_MAP) / sizeof(UNSTABLE_MAP[0]))
@@ -104,8 +111,9 @@ static TA_FuncUnstId sv_func_unst_id(const char *name)
  * with --xlang-hash); server_verify uses codegen_write_hexbits_array to serialize
  * inputs and codegen_compare_tol to parse+compare the Java-transcendental path. */
 
-/* -1 when the key is absent: ta_ref_serve and any pre-feature build emit no ride
- * fields, and that must read as "not offered" rather than as a reported zero. */
+/* -1 when the key is absent: a ta_ref serve and any pre-feature build emit no
+ * ride fields, and that must read as "not offered" rather than as a reported
+ * zero. */
 static int sv_ride_flag(const char *resp, const char *key)
 {
     const char *q = strstr(resp, key);
@@ -192,7 +200,7 @@ static int          g_unstInitialized[SV_MAX_PIPES];
  * C library was actually holding", and only the library knows that. There is no
  * public getter, so this reads the global the setter writes -- the same thing
  * test_internals.c does. */
-static TA_CandleSetting g_lastCandle[SV_MAX_PIPES][TA_AllCandleSettings];
+static TA_CandleSetting g_lastCandle[SV_MAX_PIPES][TA_NB_CANDLE_SETTING];
 static int              g_candleInitialized[SV_MAX_PIPES];
 static int              g_candleSyncs;   /* non-vacuity: settings pushed, all pipes */
 
@@ -384,7 +392,7 @@ static ErrorNumber sync_candle_settings(int pipeIdx)
          * all. Both were latent only because the first caller happens to be at
          * the defaults already. Snapshot, read, put back, then fall through to
          * the delta loop so the caller's real settings are what gets sent. */
-        TA_CandleSetting saved[TA_AllCandleSettings];
+        TA_CandleSetting saved[TA_NB_CANDLE_SETTING];
         memcpy(saved, TA_Globals->candleSettings, sizeof(saved));
         TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
         memcpy(g_lastCandle[pipeIdx], TA_Globals->candleSettings, sizeof(saved));
@@ -393,7 +401,7 @@ static ErrorNumber sync_candle_settings(int pipeIdx)
         /* deliberately no return: the loop below pushes the caller's deltas */
     }
 
-    for( int i = 0; i < (int)TA_AllCandleSettings; i++ )
+    for( int i = 0; i < TA_NB_CANDLE_SETTING; i++ )
     {
         const TA_CandleSetting *cur  = &TA_Globals->candleSettings[i];
         const TA_CandleSetting *last = &g_lastCandle[pipeIdx][i];
@@ -436,6 +444,27 @@ static ErrorNumber sync_candle_settings(int pipeIdx)
  * returns the arrays, themselves lossless since #257/#258 (the
  * Java-transcendental tolerance path). Returns -1 if the
  * function is not in ta_abstract (graceful skip). */
+static int g_svFloat;
+
+void server_verify_set_float(int on)
+{
+    g_svFloat = on;
+}
+
+/* Rust has no single-precision surface. */
+static int sv_serves_float(const char *lang)
+{
+    return !(lang && strcmp(lang, "rust") == 0);
+}
+
+int server_verify_float_active(void)
+{
+    for( int p = 0; p < g_nbPipes; p++ )
+        if( sv_serves_float(g_pipeLang[p]) )
+            return 1;
+    return 0;
+}
+
 static int build_request(const char *funcName,
                          TA_Integer startIdx, TA_Integer endIdx,
                          int nbBars,
@@ -455,6 +484,8 @@ static int build_request(const char *funcName,
     pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos,
                     "{\"method\":\"TA_%s\",\"params\":{\"startIdx\":%d,\"endIdx\":%d",
                     funcName, (int)startIdx, (int)endIdx);
+    if( g_svFloat )
+        pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos, ",\"use_float\":1");
 
     /* Count real inputs for naming (inReal vs inReal0/inReal1) */
     int nbRealInputs = 0;
@@ -736,7 +767,13 @@ ErrorNumber server_verify(
         /* Shared predicate, not a hardcoded "java": this line and the
          * --xlang-hash server table used to carry the rule separately and
          * drifted apart, leaving C# bitwise here and tolerant there. */
-        int bitwise = !(codegen_lang_needs_transcendental_tol(lang) && isTranscendental);
+        /* The servers take the float path only when returning arrays; an
+         * out_hash is always of the double tier. */
+        int bitwise = !g_svFloat
+                      && !(codegen_lang_needs_transcendental_tol(lang) && isTranscendental);
+
+        if( g_svFloat && !sv_serves_float(lang) )
+            continue;
 
         /* Sync global state (unstable periods + candle settings) */
         ErrorNumber err = sync_unstable_periods(p);
@@ -783,6 +820,13 @@ ErrorNumber server_verify(
             return TA_SV_RETCODE_MISMATCH;
         }
 
+        if( g_svFloat && sv_ride_flag(g_respBuf, "\"used_float\":") != 1 )
+        {
+            printf("  SV FAIL [%s] (pipe %d, %s): server did not acknowledge "
+                   "use_float\n", funcName, p, lang ? lang : "?");
+            return TA_SV_OUTPUT_MISMATCH;
+        }
+
         if( sv_ride_read(funcName, p, lang, g_respBuf) )
             return TA_CODEGEN_RIDE_MISMATCH;
 
@@ -815,10 +859,13 @@ ErrorNumber server_verify(
         }
         else
         {
-            /* Java transcendental: element compare at the narrow tolerance. */
+            /* Element compare: bitwise for the float tier, at the narrow
+             * tolerance for Java transcendentals. */
             err = compare_output_tol(funcName, g_respBuf,
                                      crefRetCode, crefOutBegIdx, crefOutNbElement,
-                                     outReal, outInteger, CODEGEN_TRANSCENDENTAL_TOL);
+                                     outReal, outInteger,
+                                     g_svFloat ? CODEGEN_TOL_BITWISE
+                                               : CODEGEN_TRANSCENDENTAL_TOL);
             if( err != TA_TEST_PASS )
                 return err;
             g_comparisons++;

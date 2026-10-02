@@ -80,7 +80,7 @@ static double g_outBuf3[MAX_POINTS];
 static int g_outIntBuf0[MAX_POINTS];
 static int g_outIntBuf1[MAX_POINTS];
 
-static volatile int g_sink = 0;
+static volatile double g_sink = 0.0;
 
 /* strtok_r and strcasestr are POSIX; the MSVC CRT has neither. strtok_s is the
  * same call with the same reentrancy contract, and the case-insensitive search
@@ -164,7 +164,7 @@ static void icount_AC(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_AC_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ACCBANDS(int iters) {
@@ -225,7 +225,7 @@ static void icount_ACCBANDS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ACCBANDS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ACOS(int iters) {
@@ -276,7 +276,7 @@ static void icount_ACOS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ACOS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_AD(int iters) {
@@ -327,7 +327,7 @@ static void icount_AD(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_AD_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ADD(int iters) {
@@ -378,7 +378,7 @@ static void icount_ADD(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ADD_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ADOSC(int iters) {
@@ -429,7 +429,7 @@ static void icount_ADOSC(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ADOSC_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ADR(int iters) {
@@ -480,7 +480,7 @@ static void icount_ADR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ADR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ADX(int iters) {
@@ -531,7 +531,7 @@ static void icount_ADX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ADX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ADXR(int iters) {
@@ -582,7 +582,58 @@ static void icount_ADXR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ADXR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_ALMA(int iters) {
+    const char *nm = "ALMA";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_ALMA_Stream *st = NULL;
+    TA_ALMA_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_ALMA(0, g_nPoints - 1, g_close, 9, 6.000000000000000, 0.850000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("ALMA/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_ALMA_OpenAndFill(&stf, g_close, g_nPoints, 9, 6.000000000000000, 0.850000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("ALMA/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_ALMA_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_ALMA_Open(&st, g_close, g_nPoints, 9, 6.000000000000000, 0.850000000000000, &v0);
+    ICOUNT_DUMP("ALMA/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ALMA_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("ALMA/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ALMA_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("ALMA/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_ALMA_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_AO(int iters) {
@@ -633,7 +684,7 @@ static void icount_AO(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_AO_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_APO(int iters) {
@@ -684,7 +735,7 @@ static void icount_APO(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_APO_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_AROON(int iters) {
@@ -740,7 +791,7 @@ static void icount_AROON(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_AROON_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_AROONOSC(int iters) {
@@ -791,7 +842,58 @@ static void icount_AROONOSC(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_AROONOSC_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_ASI(int iters) {
+    const char *nm = "ASI";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_ASI_Stream *st = NULL;
+    TA_ASI_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_ASI(0, g_nPoints - 1, g_open, g_high, g_low, g_close, 3.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("ASI/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_ASI_OpenAndFill(&stf, g_open, g_high, g_low, g_close, g_nPoints, 3.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("ASI/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_ASI_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_ASI_Open(&st, g_open, g_high, g_low, g_close, g_nPoints, 3.000000000000000, &v0);
+    ICOUNT_DUMP("ASI/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ASI_Update(st, g_open[it & ICOUNT_MASK], g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("ASI/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ASI_Peek(st, g_open[it & ICOUNT_MASK], g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("ASI/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_ASI_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ASIN(int iters) {
@@ -842,7 +944,7 @@ static void icount_ASIN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ASIN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ATAN(int iters) {
@@ -893,7 +995,7 @@ static void icount_ATAN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ATAN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ATR(int iters) {
@@ -944,7 +1046,7 @@ static void icount_ATR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ATR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_AVGDEV(int iters) {
@@ -995,7 +1097,7 @@ static void icount_AVGDEV(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_AVGDEV_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_AVGPRICE(int iters) {
@@ -1046,7 +1148,7 @@ static void icount_AVGPRICE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_AVGPRICE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_BBANDS(int iters) {
@@ -1107,7 +1209,58 @@ static void icount_BBANDS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_BBANDS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_BBW(int iters) {
+    const char *nm = "BBW";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_BBW_Stream *st = NULL;
+    TA_BBW_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_BBW(0, g_nPoints - 1, g_close, 20, 2.000000000000000, 2.000000000000000, 0, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("BBW/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_BBW_OpenAndFill(&stf, g_close, g_nPoints, 20, 2.000000000000000, 2.000000000000000, 0, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("BBW/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_BBW_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_BBW_Open(&st, g_close, g_nPoints, 20, 2.000000000000000, 2.000000000000000, 0, &v0);
+    ICOUNT_DUMP("BBW/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_BBW_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("BBW/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_BBW_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("BBW/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_BBW_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_BETA(int iters) {
@@ -1158,7 +1311,7 @@ static void icount_BETA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_BETA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_BOP(int iters) {
@@ -1209,7 +1362,7 @@ static void icount_BOP(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_BOP_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CCI(int iters) {
@@ -1260,7 +1413,7 @@ static void icount_CCI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CCI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDL2CROWS(int iters) {
@@ -1311,7 +1464,7 @@ static void icount_CDL2CROWS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDL2CROWS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDL3BLACKCROWS(int iters) {
@@ -1362,7 +1515,7 @@ static void icount_CDL3BLACKCROWS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDL3BLACKCROWS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDL3INSIDE(int iters) {
@@ -1413,7 +1566,7 @@ static void icount_CDL3INSIDE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDL3INSIDE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDL3LINESTRIKE(int iters) {
@@ -1464,7 +1617,7 @@ static void icount_CDL3LINESTRIKE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDL3LINESTRIKE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDL3OUTSIDE(int iters) {
@@ -1515,7 +1668,7 @@ static void icount_CDL3OUTSIDE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDL3OUTSIDE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDL3STARSINSOUTH(int iters) {
@@ -1566,7 +1719,7 @@ static void icount_CDL3STARSINSOUTH(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDL3STARSINSOUTH_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDL3WHITESOLDIERS(int iters) {
@@ -1617,7 +1770,7 @@ static void icount_CDL3WHITESOLDIERS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDL3WHITESOLDIERS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLABANDONEDBABY(int iters) {
@@ -1668,7 +1821,7 @@ static void icount_CDLABANDONEDBABY(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLABANDONEDBABY_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLADVANCEBLOCK(int iters) {
@@ -1719,7 +1872,7 @@ static void icount_CDLADVANCEBLOCK(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLADVANCEBLOCK_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLBELTHOLD(int iters) {
@@ -1770,7 +1923,7 @@ static void icount_CDLBELTHOLD(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLBELTHOLD_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLBREAKAWAY(int iters) {
@@ -1821,7 +1974,7 @@ static void icount_CDLBREAKAWAY(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLBREAKAWAY_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLCLOSINGMARUBOZU(int iters) {
@@ -1872,7 +2025,7 @@ static void icount_CDLCLOSINGMARUBOZU(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLCLOSINGMARUBOZU_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLCONCEALBABYSWALL(int iters) {
@@ -1923,7 +2076,7 @@ static void icount_CDLCONCEALBABYSWALL(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLCONCEALBABYSWALL_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLCOUNTERATTACK(int iters) {
@@ -1974,7 +2127,7 @@ static void icount_CDLCOUNTERATTACK(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLCOUNTERATTACK_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLDARKCLOUDCOVER(int iters) {
@@ -2025,7 +2178,7 @@ static void icount_CDLDARKCLOUDCOVER(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLDARKCLOUDCOVER_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLDOJI(int iters) {
@@ -2076,7 +2229,7 @@ static void icount_CDLDOJI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLDOJI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLDOJISTAR(int iters) {
@@ -2127,7 +2280,7 @@ static void icount_CDLDOJISTAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLDOJISTAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLDRAGONFLYDOJI(int iters) {
@@ -2178,7 +2331,7 @@ static void icount_CDLDRAGONFLYDOJI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLDRAGONFLYDOJI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLENGULFING(int iters) {
@@ -2229,7 +2382,7 @@ static void icount_CDLENGULFING(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLENGULFING_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLEVENINGDOJISTAR(int iters) {
@@ -2280,7 +2433,7 @@ static void icount_CDLEVENINGDOJISTAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLEVENINGDOJISTAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLEVENINGSTAR(int iters) {
@@ -2331,7 +2484,7 @@ static void icount_CDLEVENINGSTAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLEVENINGSTAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLGAPSIDESIDEWHITE(int iters) {
@@ -2382,7 +2535,7 @@ static void icount_CDLGAPSIDESIDEWHITE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLGAPSIDESIDEWHITE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLGRAVESTONEDOJI(int iters) {
@@ -2433,7 +2586,7 @@ static void icount_CDLGRAVESTONEDOJI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLGRAVESTONEDOJI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLHAMMER(int iters) {
@@ -2484,7 +2637,7 @@ static void icount_CDLHAMMER(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLHAMMER_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLHANGINGMAN(int iters) {
@@ -2535,7 +2688,7 @@ static void icount_CDLHANGINGMAN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLHANGINGMAN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLHARAMI(int iters) {
@@ -2586,7 +2739,7 @@ static void icount_CDLHARAMI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLHARAMI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLHARAMICROSS(int iters) {
@@ -2637,7 +2790,7 @@ static void icount_CDLHARAMICROSS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLHARAMICROSS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLHIGHWAVE(int iters) {
@@ -2688,7 +2841,7 @@ static void icount_CDLHIGHWAVE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLHIGHWAVE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLHIKKAKE(int iters) {
@@ -2739,7 +2892,7 @@ static void icount_CDLHIKKAKE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLHIKKAKE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLHIKKAKEMOD(int iters) {
@@ -2790,7 +2943,7 @@ static void icount_CDLHIKKAKEMOD(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLHIKKAKEMOD_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLHOMINGPIGEON(int iters) {
@@ -2841,7 +2994,7 @@ static void icount_CDLHOMINGPIGEON(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLHOMINGPIGEON_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLIDENTICAL3CROWS(int iters) {
@@ -2892,7 +3045,7 @@ static void icount_CDLIDENTICAL3CROWS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLIDENTICAL3CROWS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLINNECK(int iters) {
@@ -2943,7 +3096,7 @@ static void icount_CDLINNECK(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLINNECK_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLINVERTEDHAMMER(int iters) {
@@ -2994,7 +3147,7 @@ static void icount_CDLINVERTEDHAMMER(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLINVERTEDHAMMER_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLKICKING(int iters) {
@@ -3045,7 +3198,7 @@ static void icount_CDLKICKING(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLKICKING_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLKICKINGBYLENGTH(int iters) {
@@ -3096,7 +3249,7 @@ static void icount_CDLKICKINGBYLENGTH(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLKICKINGBYLENGTH_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLLADDERBOTTOM(int iters) {
@@ -3147,7 +3300,7 @@ static void icount_CDLLADDERBOTTOM(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLLADDERBOTTOM_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLLONGLEGGEDDOJI(int iters) {
@@ -3198,7 +3351,7 @@ static void icount_CDLLONGLEGGEDDOJI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLLONGLEGGEDDOJI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLLONGLINE(int iters) {
@@ -3249,7 +3402,7 @@ static void icount_CDLLONGLINE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLLONGLINE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLMARUBOZU(int iters) {
@@ -3300,7 +3453,7 @@ static void icount_CDLMARUBOZU(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLMARUBOZU_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLMATCHINGLOW(int iters) {
@@ -3351,7 +3504,7 @@ static void icount_CDLMATCHINGLOW(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLMATCHINGLOW_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLMATHOLD(int iters) {
@@ -3402,7 +3555,7 @@ static void icount_CDLMATHOLD(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLMATHOLD_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLMORNINGDOJISTAR(int iters) {
@@ -3453,7 +3606,7 @@ static void icount_CDLMORNINGDOJISTAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLMORNINGDOJISTAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLMORNINGSTAR(int iters) {
@@ -3504,7 +3657,7 @@ static void icount_CDLMORNINGSTAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLMORNINGSTAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLONNECK(int iters) {
@@ -3555,7 +3708,7 @@ static void icount_CDLONNECK(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLONNECK_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLPIERCING(int iters) {
@@ -3606,7 +3759,7 @@ static void icount_CDLPIERCING(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLPIERCING_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLRICKSHAWMAN(int iters) {
@@ -3657,7 +3810,7 @@ static void icount_CDLRICKSHAWMAN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLRICKSHAWMAN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLRISEFALL3METHODS(int iters) {
@@ -3708,7 +3861,7 @@ static void icount_CDLRISEFALL3METHODS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLRISEFALL3METHODS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLSEPARATINGLINES(int iters) {
@@ -3759,7 +3912,7 @@ static void icount_CDLSEPARATINGLINES(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLSEPARATINGLINES_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLSHOOTINGSTAR(int iters) {
@@ -3810,7 +3963,7 @@ static void icount_CDLSHOOTINGSTAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLSHOOTINGSTAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLSHORTLINE(int iters) {
@@ -3861,7 +4014,7 @@ static void icount_CDLSHORTLINE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLSHORTLINE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLSPINNINGTOP(int iters) {
@@ -3912,7 +4065,7 @@ static void icount_CDLSPINNINGTOP(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLSPINNINGTOP_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLSTALLEDPATTERN(int iters) {
@@ -3963,7 +4116,7 @@ static void icount_CDLSTALLEDPATTERN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLSTALLEDPATTERN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLSTICKSANDWICH(int iters) {
@@ -4014,7 +4167,7 @@ static void icount_CDLSTICKSANDWICH(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLSTICKSANDWICH_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLTAKURI(int iters) {
@@ -4065,7 +4218,7 @@ static void icount_CDLTAKURI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLTAKURI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLTASUKIGAP(int iters) {
@@ -4116,7 +4269,7 @@ static void icount_CDLTASUKIGAP(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLTASUKIGAP_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLTHRUSTING(int iters) {
@@ -4167,7 +4320,7 @@ static void icount_CDLTHRUSTING(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLTHRUSTING_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLTRISTAR(int iters) {
@@ -4218,7 +4371,7 @@ static void icount_CDLTRISTAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLTRISTAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLUNIQUE3RIVER(int iters) {
@@ -4269,7 +4422,7 @@ static void icount_CDLUNIQUE3RIVER(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLUNIQUE3RIVER_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLUPSIDEGAP2CROWS(int iters) {
@@ -4320,7 +4473,7 @@ static void icount_CDLUPSIDEGAP2CROWS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLUPSIDEGAP2CROWS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CDLXSIDEGAP3METHODS(int iters) {
@@ -4371,7 +4524,7 @@ static void icount_CDLXSIDEGAP3METHODS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CDLXSIDEGAP3METHODS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CEIL(int iters) {
@@ -4422,7 +4575,216 @@ static void icount_CEIL(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CEIL_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_CG(int iters) {
+    const char *nm = "CG";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_CG_Stream *st = NULL;
+    TA_CG_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_CG(0, g_nPoints - 1, g_close, 10, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CG/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_CG_OpenAndFill(&stf, g_close, g_nPoints, 10, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CG/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_CG_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_CG_Open(&st, g_close, g_nPoints, 10, &v0);
+    ICOUNT_DUMP("CG/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CG_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CG/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CG_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CG/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_CG_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_CHOP(int iters) {
+    const char *nm = "CHOP";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_CHOP_Stream *st = NULL;
+    TA_CHOP_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_CHOP(0, g_nPoints - 1, g_high, g_low, g_close, 14, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CHOP/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_CHOP_OpenAndFill(&stf, g_high, g_low, g_close, g_nPoints, 14, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CHOP/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_CHOP_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_CHOP_Open(&st, g_high, g_low, g_close, g_nPoints, 14, &v0);
+    ICOUNT_DUMP("CHOP/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CHOP_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CHOP/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CHOP_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CHOP/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_CHOP_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_CHOPTR(int iters) {
+    const char *nm = "CHOPTR";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_CHOPTR_Stream *st = NULL;
+    TA_CHOPTR_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_CHOPTR(0, g_nPoints - 1, g_high, g_low, g_close, 14, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CHOPTR/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_CHOPTR_OpenAndFill(&stf, g_high, g_low, g_close, g_nPoints, 14, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CHOPTR/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_CHOPTR_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_CHOPTR_Open(&st, g_high, g_low, g_close, g_nPoints, 14, &v0);
+    ICOUNT_DUMP("CHOPTR/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CHOPTR_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CHOPTR/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CHOPTR_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CHOPTR/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_CHOPTR_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_CKSP(int iters) {
+    const char *nm = "CKSP";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_CKSP_Stream *st = NULL;
+    TA_CKSP_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_CKSP(0, g_nPoints - 1, g_high, g_low, g_close, 10, 1.000000000000000, 9, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("CKSP/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+
+    ICOUNT_ZERO();
+    rc = TA_CKSP_OpenAndFill(&stf, g_high, g_low, g_close, g_nPoints, 10, 1.000000000000000, 9, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("CKSP/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    if( stf ) TA_CKSP_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_CKSP_Open(&st, g_high, g_low, g_close, g_nPoints, 10, 1.000000000000000, 9, &v0, &v1);
+    ICOUNT_DUMP("CKSP/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CKSP_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("CKSP/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CKSP_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("CKSP/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_CKSP_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CMF(int iters) {
@@ -4473,7 +4835,7 @@ static void icount_CMF(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CMF_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CMO(int iters) {
@@ -4524,7 +4886,7 @@ static void icount_CMO(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CMO_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CMOU(int iters) {
@@ -4575,7 +4937,7 @@ static void icount_CMOU(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CMOU_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_COPPOCK(int iters) {
@@ -4626,7 +4988,7 @@ static void icount_COPPOCK(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_COPPOCK_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CORREL(int iters) {
@@ -4677,7 +5039,7 @@ static void icount_CORREL(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CORREL_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_COS(int iters) {
@@ -4728,7 +5090,7 @@ static void icount_COS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_COS_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_COSH(int iters) {
@@ -4779,7 +5141,109 @@ static void icount_COSH(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_COSH_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_CRSI(int iters) {
+    const char *nm = "CRSI";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_CRSI_Stream *st = NULL;
+    TA_CRSI_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_CRSI(0, g_nPoints - 1, g_close, 3, 2, 100, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CRSI/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_CRSI_OpenAndFill(&stf, g_close, g_nPoints, 3, 2, 100, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CRSI/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_CRSI_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_CRSI_Open(&st, g_close, g_nPoints, 3, 2, 100, &v0);
+    ICOUNT_DUMP("CRSI/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CRSI_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CRSI/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CRSI_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CRSI/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_CRSI_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_CTI(int iters) {
+    const char *nm = "CTI";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_CTI_Stream *st = NULL;
+    TA_CTI_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_CTI(0, g_nPoints - 1, g_close, 20, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CTI/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_CTI_OpenAndFill(&stf, g_close, g_nPoints, 20, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("CTI/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_CTI_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_CTI_Open(&st, g_close, g_nPoints, 20, &v0);
+    ICOUNT_DUMP("CTI/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CTI_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CTI/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CTI_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("CTI/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_CTI_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CUMSUM(int iters) {
@@ -4830,7 +5294,7 @@ static void icount_CUMSUM(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CUMSUM_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_CVI(int iters) {
@@ -4881,7 +5345,7 @@ static void icount_CVI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_CVI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_DEMA(int iters) {
@@ -4932,7 +5396,7 @@ static void icount_DEMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_DEMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_DIV(int iters) {
@@ -4983,7 +5447,7 @@ static void icount_DIV(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_DIV_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_DONCHIAN(int iters) {
@@ -5044,7 +5508,7 @@ static void icount_DONCHIAN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_DONCHIAN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_DPO(int iters) {
@@ -5095,7 +5559,7 @@ static void icount_DPO(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_DPO_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_DX(int iters) {
@@ -5146,7 +5610,7 @@ static void icount_DX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_DX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_EFI(int iters) {
@@ -5197,7 +5661,7 @@ static void icount_EFI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_EFI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_EMA(int iters) {
@@ -5248,7 +5712,58 @@ static void icount_EMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_EMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_EMV(int iters) {
+    const char *nm = "EMV";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_EMV_Stream *st = NULL;
+    TA_EMV_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_EMV(0, g_nPoints - 1, g_high, g_low, g_volume, 14, 10000.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("EMV/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_EMV_OpenAndFill(&stf, g_high, g_low, g_volume, g_nPoints, 14, 10000.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("EMV/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_EMV_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_EMV_Open(&st, g_high, g_low, g_volume, g_nPoints, 14, 10000.000000000000000, &v0);
+    ICOUNT_DUMP("EMV/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_EMV_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_volume[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("EMV/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_EMV_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_volume[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("EMV/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_EMV_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ER(int iters) {
@@ -5299,7 +5814,7 @@ static void icount_ER(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ER_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ERI(int iters) {
@@ -5355,7 +5870,7 @@ static void icount_ERI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ERI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_EXP(int iters) {
@@ -5406,7 +5921,7 @@ static void icount_EXP(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_EXP_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_FLOOR(int iters) {
@@ -5457,7 +5972,7 @@ static void icount_FLOOR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_FLOOR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_FOSC(int iters) {
@@ -5508,7 +6023,7 @@ static void icount_FOSC(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_FOSC_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_FRACTAL(int iters) {
@@ -5564,7 +6079,58 @@ static void icount_FRACTAL(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_FRACTAL_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_FRAMA(int iters) {
+    const char *nm = "FRAMA";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_FRAMA_Stream *st = NULL;
+    TA_FRAMA_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_FRAMA(0, g_nPoints - 1, g_high, g_low, 16, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("FRAMA/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_FRAMA_OpenAndFill(&stf, g_high, g_low, g_nPoints, 16, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("FRAMA/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_FRAMA_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_FRAMA_Open(&st, g_high, g_low, g_nPoints, 16, &v0);
+    ICOUNT_DUMP("FRAMA/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_FRAMA_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("FRAMA/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_FRAMA_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("FRAMA/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_FRAMA_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_HA(int iters) {
@@ -5630,7 +6196,7 @@ static void icount_HA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_HA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_HMA(int iters) {
@@ -5681,7 +6247,7 @@ static void icount_HMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_HMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_HT_DCPERIOD(int iters) {
@@ -5732,7 +6298,7 @@ static void icount_HT_DCPERIOD(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_HT_DCPERIOD_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_HT_DCPHASE(int iters) {
@@ -5783,7 +6349,7 @@ static void icount_HT_DCPHASE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_HT_DCPHASE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_HT_PHASOR(int iters) {
@@ -5839,7 +6405,7 @@ static void icount_HT_PHASOR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_HT_PHASOR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_HT_SINE(int iters) {
@@ -5895,7 +6461,7 @@ static void icount_HT_SINE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_HT_SINE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_HT_TRENDLINE(int iters) {
@@ -5946,7 +6512,7 @@ static void icount_HT_TRENDLINE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_HT_TRENDLINE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_HT_TRENDMODE(int iters) {
@@ -5997,7 +6563,58 @@ static void icount_HT_TRENDMODE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_HT_TRENDMODE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_IBS(int iters) {
+    const char *nm = "IBS";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_IBS_Stream *st = NULL;
+    TA_IBS_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_IBS(0, g_nPoints - 1, g_high, g_low, g_close, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("IBS/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_IBS_OpenAndFill(&stf, g_high, g_low, g_close, g_nPoints, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("IBS/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_IBS_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_IBS_Open(&st, g_high, g_low, g_close, g_nPoints, &v0);
+    ICOUNT_DUMP("IBS/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_IBS_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("IBS/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_IBS_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("IBS/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_IBS_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_IMI(int iters) {
@@ -6048,7 +6665,7 @@ static void icount_IMI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_IMI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_KAMA(int iters) {
@@ -6099,7 +6716,7 @@ static void icount_KAMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_KAMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_KC(int iters) {
@@ -6160,7 +6777,7 @@ static void icount_KC(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_KC_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_KDJ(int iters) {
@@ -6221,7 +6838,170 @@ static void icount_KDJ(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_KDJ_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_KST(int iters) {
+    const char *nm = "KST";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_KST_Stream *st = NULL;
+    TA_KST_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_KST(0, g_nPoints - 1, g_close, 10, 15, 20, 30, 10, 10, 10, 15, 9, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("KST/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+
+    ICOUNT_ZERO();
+    rc = TA_KST_OpenAndFill(&stf, g_close, g_nPoints, 10, 15, 20, 30, 10, 10, 10, 15, 9, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("KST/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    if( stf ) TA_KST_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_KST_Open(&st, g_close, g_nPoints, 10, 15, 20, 30, 10, 10, 10, 15, 9, &v0, &v1);
+    ICOUNT_DUMP("KST/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_KST_Update(st, g_close[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("KST/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_KST_Peek(st, g_close[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("KST/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_KST_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_KSTEXT(int iters) {
+    const char *nm = "KSTEXT";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_KSTEXT_Stream *st = NULL;
+    TA_KSTEXT_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_KSTEXT(0, g_nPoints - 1, g_close, 10, 15, 20, 30, 10, 10, 10, 15, 9, 0, 0, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("KSTEXT/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+
+    ICOUNT_ZERO();
+    rc = TA_KSTEXT_OpenAndFill(&stf, g_close, g_nPoints, 10, 15, 20, 30, 10, 10, 10, 15, 9, 0, 0, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("KSTEXT/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    if( stf ) TA_KSTEXT_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_KSTEXT_Open(&st, g_close, g_nPoints, 10, 15, 20, 30, 10, 10, 10, 15, 9, 0, 0, &v0, &v1);
+    ICOUNT_DUMP("KSTEXT/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_KSTEXT_Update(st, g_close[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("KSTEXT/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_KSTEXT_Peek(st, g_close[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("KSTEXT/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_KSTEXT_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_KURTOSIS(int iters) {
+    const char *nm = "KURTOSIS";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_KURTOSIS_Stream *st = NULL;
+    TA_KURTOSIS_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_KURTOSIS(0, g_nPoints - 1, g_close, 30, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("KURTOSIS/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_KURTOSIS_OpenAndFill(&stf, g_close, g_nPoints, 30, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("KURTOSIS/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_KURTOSIS_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_KURTOSIS_Open(&st, g_close, g_nPoints, 30, &v0);
+    ICOUNT_DUMP("KURTOSIS/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_KURTOSIS_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("KURTOSIS/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_KURTOSIS_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("KURTOSIS/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_KURTOSIS_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_LINEARREG(int iters) {
@@ -6272,7 +7052,7 @@ static void icount_LINEARREG(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_LINEARREG_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_LINEARREG_ANGLE(int iters) {
@@ -6323,7 +7103,7 @@ static void icount_LINEARREG_ANGLE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_LINEARREG_ANGLE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_LINEARREG_INTERCEPT(int iters) {
@@ -6374,7 +7154,7 @@ static void icount_LINEARREG_INTERCEPT(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_LINEARREG_INTERCEPT_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_LINEARREG_SLOPE(int iters) {
@@ -6425,7 +7205,7 @@ static void icount_LINEARREG_SLOPE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_LINEARREG_SLOPE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_LN(int iters) {
@@ -6476,7 +7256,7 @@ static void icount_LN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_LN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_LOG10(int iters) {
@@ -6527,7 +7307,7 @@ static void icount_LOG10(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_LOG10_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MA(int iters) {
@@ -6578,7 +7358,7 @@ static void icount_MA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MACD(int iters) {
@@ -6639,7 +7419,7 @@ static void icount_MACD(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MACD_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MACDEXT(int iters) {
@@ -6700,7 +7480,7 @@ static void icount_MACDEXT(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MACDEXT_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MACDFIX(int iters) {
@@ -6761,7 +7541,7 @@ static void icount_MACDFIX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MACDFIX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MAMA(int iters) {
@@ -6817,7 +7597,7 @@ static void icount_MAMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MAMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MARKETFI(int iters) {
@@ -6868,7 +7648,7 @@ static void icount_MARKETFI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MARKETFI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MASSI(int iters) {
@@ -6919,7 +7699,7 @@ static void icount_MASSI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MASSI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MAVP(int iters) {
@@ -6970,7 +7750,7 @@ static void icount_MAVP(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MAVP_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MAX(int iters) {
@@ -7021,7 +7801,7 @@ static void icount_MAX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MAX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MAXINDEX(int iters) {
@@ -7072,7 +7852,109 @@ static void icount_MAXINDEX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MAXINDEX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_MCGD(int iters) {
+    const char *nm = "MCGD";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_MCGD_Stream *st = NULL;
+    TA_MCGD_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_MCGD(0, g_nPoints - 1, g_close, 14, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("MCGD/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_MCGD_OpenAndFill(&stf, g_close, g_nPoints, 14, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("MCGD/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_MCGD_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_MCGD_Open(&st, g_close, g_nPoints, 14, &v0);
+    ICOUNT_DUMP("MCGD/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_MCGD_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("MCGD/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_MCGD_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("MCGD/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_MCGD_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_MEDIAN(int iters) {
+    const char *nm = "MEDIAN";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_MEDIAN_Stream *st = NULL;
+    TA_MEDIAN_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_MEDIAN(0, g_nPoints - 1, g_close, 30, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("MEDIAN/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_MEDIAN_OpenAndFill(&stf, g_close, g_nPoints, 30, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("MEDIAN/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_MEDIAN_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_MEDIAN_Open(&st, g_close, g_nPoints, 30, &v0);
+    ICOUNT_DUMP("MEDIAN/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_MEDIAN_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("MEDIAN/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_MEDIAN_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("MEDIAN/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_MEDIAN_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MEDPRICE(int iters) {
@@ -7123,7 +8005,7 @@ static void icount_MEDPRICE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MEDPRICE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MFI(int iters) {
@@ -7174,7 +8056,7 @@ static void icount_MFI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MFI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MIDPOINT(int iters) {
@@ -7225,7 +8107,7 @@ static void icount_MIDPOINT(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MIDPOINT_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MIDPRICE(int iters) {
@@ -7276,7 +8158,7 @@ static void icount_MIDPRICE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MIDPRICE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MIN(int iters) {
@@ -7327,7 +8209,7 @@ static void icount_MIN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MIN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MININDEX(int iters) {
@@ -7378,7 +8260,7 @@ static void icount_MININDEX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MININDEX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MINMAX(int iters) {
@@ -7434,7 +8316,7 @@ static void icount_MINMAX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MINMAX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MINMAXINDEX(int iters) {
@@ -7490,7 +8372,7 @@ static void icount_MINMAXINDEX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MINMAXINDEX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MINUS_DI(int iters) {
@@ -7541,7 +8423,7 @@ static void icount_MINUS_DI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MINUS_DI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MINUS_DM(int iters) {
@@ -7592,7 +8474,7 @@ static void icount_MINUS_DM(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MINUS_DM_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MOM(int iters) {
@@ -7643,7 +8525,7 @@ static void icount_MOM(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MOM_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_MULT(int iters) {
@@ -7694,7 +8576,7 @@ static void icount_MULT(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_MULT_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_NATR(int iters) {
@@ -7745,7 +8627,7 @@ static void icount_NATR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_NATR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_NVI(int iters) {
@@ -7796,7 +8678,7 @@ static void icount_NVI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_NVI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_OBV(int iters) {
@@ -7847,7 +8729,58 @@ static void icount_OBV(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_OBV_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_PERCENTB(int iters) {
+    const char *nm = "PERCENTB";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_PERCENTB_Stream *st = NULL;
+    TA_PERCENTB_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_PERCENTB(0, g_nPoints - 1, g_close, 20, 2.000000000000000, 2.000000000000000, 0, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("PERCENTB/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_PERCENTB_OpenAndFill(&stf, g_close, g_nPoints, 20, 2.000000000000000, 2.000000000000000, 0, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("PERCENTB/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_PERCENTB_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_PERCENTB_Open(&st, g_close, g_nPoints, 20, 2.000000000000000, 2.000000000000000, 0, &v0);
+    ICOUNT_DUMP("PERCENTB/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_PERCENTB_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("PERCENTB/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_PERCENTB_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("PERCENTB/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_PERCENTB_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_PERCENTILE(int iters) {
@@ -7860,20 +8793,20 @@ static void icount_PERCENTILE(int iters) {
     double v0 = 0.0;
 
     ICOUNT_ZERO();
-    rc = TA_PERCENTILE(0, g_nPoints - 1, g_close, 30, 50.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    rc = TA_PERCENTILE(0, g_nPoints - 1, g_close, 100, 50.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
     ICOUNT_DUMP("PERCENTILE/batch");
     icount_row(nm, "batch", 1, rc);
     acc += g_outBuf0[0];
 
     ICOUNT_ZERO();
-    rc = TA_PERCENTILE_OpenAndFill(&stf, g_close, g_nPoints, 30, 50.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    rc = TA_PERCENTILE_OpenAndFill(&stf, g_close, g_nPoints, 100, 50.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
     ICOUNT_DUMP("PERCENTILE/openfill");
     icount_row(nm, "openfill", 1, rc);
     acc += g_outBuf0[0];
     if( stf ) TA_PERCENTILE_Close(stf);
 
     ICOUNT_ZERO();
-    rc = TA_PERCENTILE_Open(&st, g_close, g_nPoints, 30, 50.000000000000000, &v0);
+    rc = TA_PERCENTILE_Open(&st, g_close, g_nPoints, 100, 50.000000000000000, &v0);
     ICOUNT_DUMP("PERCENTILE/open");
     icount_row(nm, "open", 1, rc);
 
@@ -7898,7 +8831,7 @@ static void icount_PERCENTILE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_PERCENTILE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_PERCENTRANK(int iters) {
@@ -7949,7 +8882,7 @@ static void icount_PERCENTRANK(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_PERCENTRANK_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_PLUS_DI(int iters) {
@@ -8000,7 +8933,7 @@ static void icount_PLUS_DI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_PLUS_DI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_PLUS_DM(int iters) {
@@ -8051,7 +8984,7 @@ static void icount_PLUS_DM(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_PLUS_DM_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_PPO(int iters) {
@@ -8102,7 +9035,7 @@ static void icount_PPO(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_PPO_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_PVI(int iters) {
@@ -8153,7 +9086,7 @@ static void icount_PVI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_PVI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_PVO(int iters) {
@@ -8204,7 +9137,7 @@ static void icount_PVO(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_PVO_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_PVT(int iters) {
@@ -8255,7 +9188,7 @@ static void icount_PVT(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_PVT_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_QSTICK(int iters) {
@@ -8306,7 +9239,7 @@ static void icount_QSTICK(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_QSTICK_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_RMA(int iters) {
@@ -8357,7 +9290,7 @@ static void icount_RMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_RMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ROC(int iters) {
@@ -8408,7 +9341,7 @@ static void icount_ROC(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ROC_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ROCP(int iters) {
@@ -8459,7 +9392,7 @@ static void icount_ROCP(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ROCP_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ROCR(int iters) {
@@ -8510,7 +9443,7 @@ static void icount_ROCR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ROCR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ROCR100(int iters) {
@@ -8561,7 +9494,7 @@ static void icount_ROCR100(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ROCR100_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_RSI(int iters) {
@@ -8612,7 +9545,7 @@ static void icount_RSI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_RSI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_RVI(int iters) {
@@ -8663,7 +9596,58 @@ static void icount_RVI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_RVI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_RVIR(int iters) {
+    const char *nm = "RVIR";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_RVIR_Stream *st = NULL;
+    TA_RVIR_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_RVIR(0, g_nPoints - 1, g_high, g_low, 14, 10, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("RVIR/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_RVIR_OpenAndFill(&stf, g_high, g_low, g_nPoints, 14, 10, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("RVIR/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_RVIR_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_RVIR_Open(&st, g_high, g_low, g_nPoints, 14, 10, &v0);
+    ICOUNT_DUMP("RVIR/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_RVIR_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("RVIR/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_RVIR_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("RVIR/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_RVIR_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_RVOL(int iters) {
@@ -8714,7 +9698,7 @@ static void icount_RVOL(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_RVOL_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SAR(int iters) {
@@ -8765,7 +9749,7 @@ static void icount_SAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SAREXT(int iters) {
@@ -8816,7 +9800,58 @@ static void icount_SAREXT(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SAREXT_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_SI(int iters) {
+    const char *nm = "SI";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_SI_Stream *st = NULL;
+    TA_SI_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_SI(0, g_nPoints - 1, g_open, g_high, g_low, g_close, 3.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("SI/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_SI_OpenAndFill(&stf, g_open, g_high, g_low, g_close, g_nPoints, 3.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("SI/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_SI_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_SI_Open(&st, g_open, g_high, g_low, g_close, g_nPoints, 3.000000000000000, &v0);
+    ICOUNT_DUMP("SI/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SI_Update(st, g_open[it & ICOUNT_MASK], g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("SI/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SI_Peek(st, g_open[it & ICOUNT_MASK], g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("SI/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_SI_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SIN(int iters) {
@@ -8867,7 +9902,7 @@ static void icount_SIN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SIN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SINH(int iters) {
@@ -8918,7 +9953,7 @@ static void icount_SINH(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SINH_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SMA(int iters) {
@@ -8969,7 +10004,7 @@ static void icount_SMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SMI(int iters) {
@@ -9025,7 +10060,7 @@ static void icount_SMI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SMI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SQRT(int iters) {
@@ -9076,7 +10111,58 @@ static void icount_SQRT(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SQRT_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_STC(int iters) {
+    const char *nm = "STC";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_STC_Stream *st = NULL;
+    TA_STC_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_STC(0, g_nPoints - 1, g_close, 23, 50, 10, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("STC/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_STC_OpenAndFill(&stf, g_close, g_nPoints, 23, 50, 10, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("STC/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_STC_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_STC_Open(&st, g_close, g_nPoints, 23, 50, 10, &v0);
+    ICOUNT_DUMP("STC/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_STC_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("STC/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_STC_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("STC/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_STC_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_STDDEV(int iters) {
@@ -9127,7 +10213,7 @@ static void icount_STDDEV(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_STDDEV_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_STOCH(int iters) {
@@ -9183,7 +10269,7 @@ static void icount_STOCH(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_STOCH_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_STOCHF(int iters) {
@@ -9239,7 +10325,7 @@ static void icount_STOCHF(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_STOCHF_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_STOCHRSI(int iters) {
@@ -9295,7 +10381,7 @@ static void icount_STOCHRSI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_STOCHRSI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SUB(int iters) {
@@ -9346,7 +10432,7 @@ static void icount_SUB(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SUB_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SUM(int iters) {
@@ -9397,7 +10483,7 @@ static void icount_SUM(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SUM_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_SUPERTREND(int iters) {
@@ -9453,7 +10539,7 @@ static void icount_SUPERTREND(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SUPERTREND_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_T3(int iters) {
@@ -9504,7 +10590,7 @@ static void icount_T3(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_T3_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TAN(int iters) {
@@ -9555,7 +10641,7 @@ static void icount_TAN(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TAN_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TANH(int iters) {
@@ -9606,7 +10692,7 @@ static void icount_TANH(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TANH_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TEMA(int iters) {
@@ -9657,7 +10743,7 @@ static void icount_TEMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TEMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TRANGE(int iters) {
@@ -9708,7 +10794,7 @@ static void icount_TRANGE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TRANGE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TRIMA(int iters) {
@@ -9759,7 +10845,7 @@ static void icount_TRIMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TRIMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TRIX(int iters) {
@@ -9810,7 +10896,7 @@ static void icount_TRIX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TRIX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TSF(int iters) {
@@ -9861,7 +10947,7 @@ static void icount_TSF(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TSF_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TSI(int iters) {
@@ -9912,7 +10998,7 @@ static void icount_TSI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TSI_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_TYPPRICE(int iters) {
@@ -9963,7 +11049,7 @@ static void icount_TYPPRICE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_TYPPRICE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ULTOSC(int iters) {
@@ -10014,7 +11100,7 @@ static void icount_ULTOSC(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ULTOSC_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_VAR(int iters) {
@@ -10065,7 +11151,7 @@ static void icount_VAR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_VAR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_VHF(int iters) {
@@ -10116,7 +11202,58 @@ static void icount_VHF(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_VHF_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
+}
+
+static void icount_VIDYA(int iters) {
+    const char *nm = "VIDYA";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_VIDYA_Stream *st = NULL;
+    TA_VIDYA_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_VIDYA(0, g_nPoints - 1, g_close, 12, 9, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("VIDYA/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_VIDYA_OpenAndFill(&stf, g_close, g_nPoints, 12, 9, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("VIDYA/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_VIDYA_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_VIDYA_Open(&st, g_close, g_nPoints, 12, 9, &v0);
+    ICOUNT_DUMP("VIDYA/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_VIDYA_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("VIDYA/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_VIDYA_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("VIDYA/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_VIDYA_Close(st);
+    g_sink += acc + outNBElement;
 }
 
 static void icount_VORTEX(int iters) {
@@ -10172,7 +11309,7 @@ static void icount_VORTEX(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_VORTEX_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_VWAP(int iters) {
@@ -10223,7 +11360,7 @@ static void icount_VWAP(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_VWAP_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_VWMA(int iters) {
@@ -10274,7 +11411,7 @@ static void icount_VWMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_VWMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_WAD(int iters) {
@@ -10325,7 +11462,7 @@ static void icount_WAD(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_WAD_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_WCLPRICE(int iters) {
@@ -10376,7 +11513,7 @@ static void icount_WCLPRICE(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_WCLPRICE_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_WILLR(int iters) {
@@ -10427,7 +11564,7 @@ static void icount_WILLR(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_WILLR_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_WMA(int iters) {
@@ -10478,7 +11615,7 @@ static void icount_WMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_WMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_ZLEMA(int iters) {
@@ -10529,7 +11666,7 @@ static void icount_ZLEMA(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ZLEMA_Close(st);
-    g_sink += (int)acc + outNBElement;
+    g_sink += acc + outNBElement;
 }
 
 static void icount_all(const char *filter, int iters) {
@@ -10542,16 +11679,19 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "ADR") ) { icount_ADR(iters); fflush(stdout); }
     if( func_matches(filter, "ADX") ) { icount_ADX(iters); fflush(stdout); }
     if( func_matches(filter, "ADXR") ) { icount_ADXR(iters); fflush(stdout); }
+    if( func_matches(filter, "ALMA") ) { icount_ALMA(iters); fflush(stdout); }
     if( func_matches(filter, "AO") ) { icount_AO(iters); fflush(stdout); }
     if( func_matches(filter, "APO") ) { icount_APO(iters); fflush(stdout); }
     if( func_matches(filter, "AROON") ) { icount_AROON(iters); fflush(stdout); }
     if( func_matches(filter, "AROONOSC") ) { icount_AROONOSC(iters); fflush(stdout); }
+    if( func_matches(filter, "ASI") ) { icount_ASI(iters); fflush(stdout); }
     if( func_matches(filter, "ASIN") ) { icount_ASIN(iters); fflush(stdout); }
     if( func_matches(filter, "ATAN") ) { icount_ATAN(iters); fflush(stdout); }
     if( func_matches(filter, "ATR") ) { icount_ATR(iters); fflush(stdout); }
     if( func_matches(filter, "AVGDEV") ) { icount_AVGDEV(iters); fflush(stdout); }
     if( func_matches(filter, "AVGPRICE") ) { icount_AVGPRICE(iters); fflush(stdout); }
     if( func_matches(filter, "BBANDS") ) { icount_BBANDS(iters); fflush(stdout); }
+    if( func_matches(filter, "BBW") ) { icount_BBW(iters); fflush(stdout); }
     if( func_matches(filter, "BETA") ) { icount_BETA(iters); fflush(stdout); }
     if( func_matches(filter, "BOP") ) { icount_BOP(iters); fflush(stdout); }
     if( func_matches(filter, "CCI") ) { icount_CCI(iters); fflush(stdout); }
@@ -10617,6 +11757,10 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "CDLUPSIDEGAP2CROWS") ) { icount_CDLUPSIDEGAP2CROWS(iters); fflush(stdout); }
     if( func_matches(filter, "CDLXSIDEGAP3METHODS") ) { icount_CDLXSIDEGAP3METHODS(iters); fflush(stdout); }
     if( func_matches(filter, "CEIL") ) { icount_CEIL(iters); fflush(stdout); }
+    if( func_matches(filter, "CG") ) { icount_CG(iters); fflush(stdout); }
+    if( func_matches(filter, "CHOP") ) { icount_CHOP(iters); fflush(stdout); }
+    if( func_matches(filter, "CHOPTR") ) { icount_CHOPTR(iters); fflush(stdout); }
+    if( func_matches(filter, "CKSP") ) { icount_CKSP(iters); fflush(stdout); }
     if( func_matches(filter, "CMF") ) { icount_CMF(iters); fflush(stdout); }
     if( func_matches(filter, "CMO") ) { icount_CMO(iters); fflush(stdout); }
     if( func_matches(filter, "CMOU") ) { icount_CMOU(iters); fflush(stdout); }
@@ -10624,6 +11768,8 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "CORREL") ) { icount_CORREL(iters); fflush(stdout); }
     if( func_matches(filter, "COS") ) { icount_COS(iters); fflush(stdout); }
     if( func_matches(filter, "COSH") ) { icount_COSH(iters); fflush(stdout); }
+    if( func_matches(filter, "CRSI") ) { icount_CRSI(iters); fflush(stdout); }
+    if( func_matches(filter, "CTI") ) { icount_CTI(iters); fflush(stdout); }
     if( func_matches(filter, "CUMSUM") ) { icount_CUMSUM(iters); fflush(stdout); }
     if( func_matches(filter, "CVI") ) { icount_CVI(iters); fflush(stdout); }
     if( func_matches(filter, "DEMA") ) { icount_DEMA(iters); fflush(stdout); }
@@ -10633,12 +11779,14 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "DX") ) { icount_DX(iters); fflush(stdout); }
     if( func_matches(filter, "EFI") ) { icount_EFI(iters); fflush(stdout); }
     if( func_matches(filter, "EMA") ) { icount_EMA(iters); fflush(stdout); }
+    if( func_matches(filter, "EMV") ) { icount_EMV(iters); fflush(stdout); }
     if( func_matches(filter, "ER") ) { icount_ER(iters); fflush(stdout); }
     if( func_matches(filter, "ERI") ) { icount_ERI(iters); fflush(stdout); }
     if( func_matches(filter, "EXP") ) { icount_EXP(iters); fflush(stdout); }
     if( func_matches(filter, "FLOOR") ) { icount_FLOOR(iters); fflush(stdout); }
     if( func_matches(filter, "FOSC") ) { icount_FOSC(iters); fflush(stdout); }
     if( func_matches(filter, "FRACTAL") ) { icount_FRACTAL(iters); fflush(stdout); }
+    if( func_matches(filter, "FRAMA") ) { icount_FRAMA(iters); fflush(stdout); }
     if( func_matches(filter, "HA") ) { icount_HA(iters); fflush(stdout); }
     if( func_matches(filter, "HMA") ) { icount_HMA(iters); fflush(stdout); }
     if( func_matches(filter, "HT_DCPERIOD") ) { icount_HT_DCPERIOD(iters); fflush(stdout); }
@@ -10647,10 +11795,14 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "HT_SINE") ) { icount_HT_SINE(iters); fflush(stdout); }
     if( func_matches(filter, "HT_TRENDLINE") ) { icount_HT_TRENDLINE(iters); fflush(stdout); }
     if( func_matches(filter, "HT_TRENDMODE") ) { icount_HT_TRENDMODE(iters); fflush(stdout); }
+    if( func_matches(filter, "IBS") ) { icount_IBS(iters); fflush(stdout); }
     if( func_matches(filter, "IMI") ) { icount_IMI(iters); fflush(stdout); }
     if( func_matches(filter, "KAMA") ) { icount_KAMA(iters); fflush(stdout); }
     if( func_matches(filter, "KC") ) { icount_KC(iters); fflush(stdout); }
     if( func_matches(filter, "KDJ") ) { icount_KDJ(iters); fflush(stdout); }
+    if( func_matches(filter, "KST") ) { icount_KST(iters); fflush(stdout); }
+    if( func_matches(filter, "KSTEXT") ) { icount_KSTEXT(iters); fflush(stdout); }
+    if( func_matches(filter, "KURTOSIS") ) { icount_KURTOSIS(iters); fflush(stdout); }
     if( func_matches(filter, "LINEARREG") ) { icount_LINEARREG(iters); fflush(stdout); }
     if( func_matches(filter, "LINEARREG_ANGLE") ) { icount_LINEARREG_ANGLE(iters); fflush(stdout); }
     if( func_matches(filter, "LINEARREG_INTERCEPT") ) { icount_LINEARREG_INTERCEPT(iters); fflush(stdout); }
@@ -10667,6 +11819,8 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "MAVP") ) { icount_MAVP(iters); fflush(stdout); }
     if( func_matches(filter, "MAX") ) { icount_MAX(iters); fflush(stdout); }
     if( func_matches(filter, "MAXINDEX") ) { icount_MAXINDEX(iters); fflush(stdout); }
+    if( func_matches(filter, "MCGD") ) { icount_MCGD(iters); fflush(stdout); }
+    if( func_matches(filter, "MEDIAN") ) { icount_MEDIAN(iters); fflush(stdout); }
     if( func_matches(filter, "MEDPRICE") ) { icount_MEDPRICE(iters); fflush(stdout); }
     if( func_matches(filter, "MFI") ) { icount_MFI(iters); fflush(stdout); }
     if( func_matches(filter, "MIDPOINT") ) { icount_MIDPOINT(iters); fflush(stdout); }
@@ -10682,6 +11836,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "NATR") ) { icount_NATR(iters); fflush(stdout); }
     if( func_matches(filter, "NVI") ) { icount_NVI(iters); fflush(stdout); }
     if( func_matches(filter, "OBV") ) { icount_OBV(iters); fflush(stdout); }
+    if( func_matches(filter, "PERCENTB") ) { icount_PERCENTB(iters); fflush(stdout); }
     if( func_matches(filter, "PERCENTILE") ) { icount_PERCENTILE(iters); fflush(stdout); }
     if( func_matches(filter, "PERCENTRANK") ) { icount_PERCENTRANK(iters); fflush(stdout); }
     if( func_matches(filter, "PLUS_DI") ) { icount_PLUS_DI(iters); fflush(stdout); }
@@ -10698,14 +11853,17 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "ROCR100") ) { icount_ROCR100(iters); fflush(stdout); }
     if( func_matches(filter, "RSI") ) { icount_RSI(iters); fflush(stdout); }
     if( func_matches(filter, "RVI") ) { icount_RVI(iters); fflush(stdout); }
+    if( func_matches(filter, "RVIR") ) { icount_RVIR(iters); fflush(stdout); }
     if( func_matches(filter, "RVOL") ) { icount_RVOL(iters); fflush(stdout); }
     if( func_matches(filter, "SAR") ) { icount_SAR(iters); fflush(stdout); }
     if( func_matches(filter, "SAREXT") ) { icount_SAREXT(iters); fflush(stdout); }
+    if( func_matches(filter, "SI") ) { icount_SI(iters); fflush(stdout); }
     if( func_matches(filter, "SIN") ) { icount_SIN(iters); fflush(stdout); }
     if( func_matches(filter, "SINH") ) { icount_SINH(iters); fflush(stdout); }
     if( func_matches(filter, "SMA") ) { icount_SMA(iters); fflush(stdout); }
     if( func_matches(filter, "SMI") ) { icount_SMI(iters); fflush(stdout); }
     if( func_matches(filter, "SQRT") ) { icount_SQRT(iters); fflush(stdout); }
+    if( func_matches(filter, "STC") ) { icount_STC(iters); fflush(stdout); }
     if( func_matches(filter, "STDDEV") ) { icount_STDDEV(iters); fflush(stdout); }
     if( func_matches(filter, "STOCH") ) { icount_STOCH(iters); fflush(stdout); }
     if( func_matches(filter, "STOCHF") ) { icount_STOCHF(iters); fflush(stdout); }
@@ -10726,6 +11884,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "ULTOSC") ) { icount_ULTOSC(iters); fflush(stdout); }
     if( func_matches(filter, "VAR") ) { icount_VAR(iters); fflush(stdout); }
     if( func_matches(filter, "VHF") ) { icount_VHF(iters); fflush(stdout); }
+    if( func_matches(filter, "VIDYA") ) { icount_VIDYA(iters); fflush(stdout); }
     if( func_matches(filter, "VORTEX") ) { icount_VORTEX(iters); fflush(stdout); }
     if( func_matches(filter, "VWAP") ) { icount_VWAP(iters); fflush(stdout); }
     if( func_matches(filter, "VWMA") ) { icount_VWMA(iters); fflush(stdout); }
@@ -10795,7 +11954,7 @@ int main(int argc, char *argv[]) {
            g_corpus.refPeriod, g_corpus.trendStrength);
     fflush(stdout);
     icount_all(func_filter, n_iters);
-    printf("# rows=%d measured=%d skipped=%d sink=%d\n", g_rows, g_measured, g_skipped, g_sink);
+    printf("# rows=%d measured=%d skipped=%d sink=%g\n", g_rows, g_measured, g_skipped, g_sink);
     free(g_open); free(g_high); free(g_low); free(g_close); free(g_volume); free(g_oi); free(g_periods);
     return 0;
 }

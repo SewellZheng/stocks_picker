@@ -206,12 +206,12 @@ public class CoreApiTest {
             open[i] = 100.0; close[i] = 104.0; high[i] = 105.0; low[i] = 99.0;
         }
 
-        for (int avgPeriod : new int[] { 0, 1, 5, n - 1, n, 100, Core.MAX_INDEX }) {
+        for (int avgPeriod : new int[] { 0, 1, 5, n - 1, n, 100, Core.INDEX_MAX }) {
             Core core = Core.builder()
                 .candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, avgPeriod, 0.1)
                 .build();
             int lookback = core.cdldojiLookback();
-            check(lookback >= 0 && lookback <= Core.MAX_INDEX,
+            check(lookback >= 0 && lookback <= Core.INDEX_MAX,
                   "avgPeriod " + avgPeriod + ": lookback " + lookback + " is a real index count");
 
             int[] out = new int[n];
@@ -341,18 +341,18 @@ public class CoreApiTest {
             () -> Core.builder().unstablePeriod(FuncUnstId.RSI, -1), "negative period -> IAE");
         // The period is added to a lookback that is then used as an index, so an
         // unbounded one overflows that lookback negative and the function indexes
-        // past its input. C rejects anything above TA_MAX_INDEX
+        // past its input. C rejects anything above TA_INDEX_MAX
         // (src/ta_func/ta_utility.c) and Java must agree, on the single-id path
         // and on the set-all wildcard alike.
         checkThrows(IllegalArgumentException.class,
-            () -> Core.builder().unstablePeriod(FuncUnstId.RSI, Core.MAX_INDEX + 1),
-            "period above MAX_INDEX -> IAE");
+            () -> Core.builder().unstablePeriod(FuncUnstId.RSI, Core.INDEX_MAX + 1),
+            "period above INDEX_MAX -> IAE");
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().unstablePeriod(FuncUnstId.RSI, Integer.MAX_VALUE),
             "Integer.MAX_VALUE period -> IAE");
         checkThrows(IllegalArgumentException.class,
-            () -> Core.builder().unstablePeriod(FuncUnstId.ALL, Core.MAX_INDEX + 1),
-            "wildcard period above MAX_INDEX -> IAE");
+            () -> Core.builder().unstablePeriod(FuncUnstId.ALL, Core.INDEX_MAX + 1),
+            "wildcard period above INDEX_MAX -> IAE");
         checkThrows(NullPointerException.class,
             () -> Core.builder().candleSetting(null, RangeType.HIGH_LOW, 1, 1.0),
             "null CandleSettingType -> NPE");
@@ -368,8 +368,8 @@ public class CoreApiTest {
             "negative avgPeriod -> IAE");
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().candleSetting(
-                CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, Core.MAX_INDEX + 1, 1.0),
-            "avgPeriod above MAX_INDEX -> IAE");
+                CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, Core.INDEX_MAX + 1, 1.0),
+            "avgPeriod above INDEX_MAX -> IAE");
         checkThrows(IllegalArgumentException.class,
             () -> Core.builder().candleSetting(
                 CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, Integer.MAX_VALUE, 1.0),
@@ -392,10 +392,18 @@ public class CoreApiTest {
         checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.unstablePeriod(FuncUnstId.ALL),
             "FuncUnstId.ALL has no single value to read -> IAE");
-        // The writer accepts All (set-all wildcard) but must reject None the same
-        // way the reader does, rather than indexing off the end of the array.
-        check(FuncUnstId.ALL.value() == 65535 && FuncUnstId.COUNT == FuncUnstId.values().length - 1,
-            "FuncUnstId.ALL is pinned at 65535 and COUNT covers every function id");
+        FuncUnstId[] ids = FuncUnstId.values();
+        boolean idsIndexTheTable = FuncUnstId.ALL.value() == 65535
+            && ids[ids.length - 1] == FuncUnstId.ALL;
+        for (FuncUnstId id : ids) {
+            if (id != FuncUnstId.ALL) {
+                idsIndexTheTable &= id.value() == id.ordinal();
+            }
+        }
+        check(idsIndexTheTable,
+            "FuncUnstId.ALL is pinned at 65535 and every other id indexes the table by its value");
+        check(CandleSettingType.ALL_CANDLE_SETTINGS.ordinal() == 11,
+            "ALL_CANDLE_SETTINGS is pinned at C's 11");
     }
 
     /**
@@ -454,21 +462,21 @@ public class CoreApiTest {
      * implementation that threw <em>after</em> writing.
      */
     static void unstablePeriodBoundIsABoundNotAnOffByOne() {
-        // MAX_INDEX itself is legal — C accepts it and rejects MAX_INDEX + 1.
-        final Core ceiling = Core.builder().unstablePeriod(FuncUnstId.RSI, Core.MAX_INDEX).build();
-        check(ceiling.unstablePeriod(FuncUnstId.RSI) == Core.MAX_INDEX,
-            "the MAX_INDEX ceiling is accepted, not rejected");
+        // INDEX_MAX itself is legal — C accepts it and rejects INDEX_MAX + 1.
+        final Core ceiling = Core.builder().unstablePeriod(FuncUnstId.RSI, Core.INDEX_MAX).build();
+        check(ceiling.unstablePeriod(FuncUnstId.RSI) == Core.INDEX_MAX,
+            "the INDEX_MAX ceiling is accepted, not rejected");
 
         // A rejected call writes nothing: set a good value, have the next call be
         // refused, and the good value must survive untouched.
         final CoreBuilder b = Core.builder().unstablePeriod(FuncUnstId.EMA, 7);
         checkThrows(IllegalArgumentException.class,
-            () -> b.unstablePeriod(FuncUnstId.EMA, Core.MAX_INDEX + 1),
+            () -> b.unstablePeriod(FuncUnstId.EMA, Core.INDEX_MAX + 1),
             "the rejected overwrite still throws");
         check(b.build().unstablePeriod(FuncUnstId.EMA) == 7,
             "a rejected unstablePeriod leaves the previous value in place");
 
-        // The wildcard path writes 24 slots, so a rejection there must not have
+        // The wildcard path writes every slot, so a rejection there must not have
         // filled any of them before noticing.
         final CoreBuilder w = Core.builder().unstablePeriod(FuncUnstId.ALL, 3);
         checkThrows(IllegalArgumentException.class,
@@ -481,7 +489,7 @@ public class CoreApiTest {
                 allIntact = false;
             }
         }
-        check(allIntact, "a rejected wildcard leaves all 24 slots at their previous value");
+        check(allIntact, "a rejected wildcard leaves every slot at its previous value");
     }
 
     public static void main(String[] args) throws Exception {

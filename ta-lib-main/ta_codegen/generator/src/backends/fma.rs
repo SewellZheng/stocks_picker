@@ -33,12 +33,14 @@
 /// Deliberately not accompanied by a count: a number written next to a list
 /// that grows is a comment that goes stale on the next indicator.
 pub const FUSING_INVENTORY: &[&str] = &[
-    "adosc", "atr", "bbands", "cdlabandonedbaby", "cdlmorningdojistar",
-    "cdlmorningstar", "cdlpiercing", "cdlthrusting", "cvi", "dema", "efi",
-    "ema", "eri", "fosc", "ht_dcperiod", "ht_dcphase", "ht_phasor", "ht_sine",
-    "ht_trendline", "ht_trendmode", "kama", "linearreg", "macd", "macdfix",
-    "mama", "massi", "natr", "rma", "rvi", "sar", "sarext", "smi", "supertrend",
-    "t3", "tema", "trix", "tsf", "tsi", "wclprice", "zlema",
+    "adosc", "apo", "atr", "bbands", "bbw", "cdlabandonedbaby",
+    "cdlmorningdojistar", "cdlmorningstar", "cdlpiercing", "cdlthrusting", "cksp",
+    "cvi",
+    "dema", "efi", "ema", "eri", "fosc", "frama", "ht_dcperiod", "ht_dcphase", "ht_phasor", "ht_sine",
+    "ht_trendline", "ht_trendmode", "kama", "kst", "kstext", "kurtosis", "linearreg", "macd",
+    "macdfix", "mama", "massi", "natr", "percentb", "ppo", "pvo", "rma", "rvi",
+    "sar", "sarext", "smi", "stc", "supertrend",
+    "t3", "tema", "trix", "tsf", "tsi", "vidya", "wclprice", "zlema",
 ];
 
 use std::collections::HashSet;
@@ -52,7 +54,7 @@ use super::rust_lang::{collect_sentinel_vars, collect_signed_int_vars, collect_v
 ///
 /// This flag is also the fusion-site enumeration oracle: set it `false`, run
 /// `generate`, and diff the generated code to see every site that fuses (and to
-/// confirm the pre-FMA output is byte-identical to the frozen v0.6.4 reference),
+/// confirm the pre-FMA output is byte-identical to v0.6.4),
 /// then revert. Because all four backends route through this module, one flip
 /// enumerates them all.
 pub const EMIT_FMA: bool = true;
@@ -66,7 +68,6 @@ pub const INDEX_PARAM_SEEDS: [&str; 4] = ["startIdx", "endIdx", "outBegIdx", "ou
 pub const GUARDED_INDEX_SEEDS: [&str; 2] = ["startIdx", "endIdx"];
 
 /// Borrowing view of the variable-type name-sets the fusion predicate consults.
-/// Rust builds this from its `RustRenderCtx`; C/Java from an owned [`FmaVarSets`].
 pub struct FmaCtx<'a> {
     pub real_vars: &'a HashSet<String>,
     pub index_vars: &'a HashSet<String>,
@@ -75,15 +76,16 @@ pub struct FmaCtx<'a> {
     pub sentinel_vars: &'a HashSet<String>,
 }
 
-/// Owned name-sets for the backends (C, Java) that do not otherwise track
-/// per-variable types (they emit typed declarations and let the compiler infer
-/// arithmetic types). Built by [`build_fma_var_sets`].
+/// Owned name-sets, for a renderer that does not otherwise track per-variable
+/// types. Built by [`build_fma_var_sets`].
 pub struct FmaVarSets {
     pub real_vars: HashSet<String>,
     pub index_vars: HashSet<String>,
     pub real_array_vars: HashSet<String>,
     pub int_output_names: HashSet<String>,
     pub sentinel_vars: HashSet<String>,
+    /// [`super::select_chain::recurrent_select_targets`] of the same body.
+    pub recurrent_select_targets: HashSet<String>,
 }
 
 impl FmaVarSets {
@@ -141,6 +143,7 @@ pub fn build_fma_var_sets(
         real_array_vars,
         int_output_names,
         sentinel_vars,
+        recurrent_select_targets: super::select_chain::recurrent_select_targets(body),
     }
 }
 
@@ -151,7 +154,7 @@ pub fn build_fma_var_sets(
 /// operand is misclassified non-float and the site is silently left unfused,
 /// diverging ~1 ULP from the fused batch — e.g. BBANDS's `cur_tempBuffer2 *
 /// sp->optInNbDevUp` with unequal deviations). A no-op for batch names.
-fn stream_base(name: &str) -> &str {
+pub(crate) fn stream_base(name: &str) -> &str {
     let n = name
         .strip_prefix("sp->")
         .or_else(|| name.strip_prefix("sp.")) // Rust/Java stream state prefix
@@ -172,7 +175,7 @@ pub(crate) fn is_definitely_integer(expr: &Expr, ctx: &FmaCtx) -> bool {
                 || ctx.int_output_names.contains(name)
         }
         Expr::BinOp(a, _, b) => is_definitely_integer(a, ctx) || is_definitely_integer(b, ctx),
-        Expr::BitwiseNot(i) => is_definitely_integer(i, ctx),
+        Expr::BitwiseNot(i) | Expr::Neg(i) => is_definitely_integer(i, ctx),
         // IntLiteral and everything else: not definitely integer (literals coerce to f64).
         _ => false,
     }
@@ -185,6 +188,7 @@ pub(crate) fn is_definitely_integer(expr: &Expr, ctx: &FmaCtx) -> bool {
 pub(crate) fn expr_is_float_typed(expr: &Expr, ctx: Option<&FmaCtx>) -> bool {
     match expr {
         Expr::Literal(_) | Expr::Cast(VarType::Real, _) => true,
+        Expr::Neg(inner) => expr_is_float_typed(inner, ctx),
         Expr::Var(name) => {
             // Classify by the underlying batch name so the streamed recurrence
             // (which qualifies operands as `sp->X` / `cur_X`) fuses the same
@@ -345,6 +349,7 @@ fn expr_references(e: &Expr, name: &str) -> bool {
         Expr::Cast(_, i)
         | Expr::Not(i)
         | Expr::BitwiseNot(i)
+        | Expr::Neg(i)
         | Expr::AddressOf(i)
         | Expr::PostIncrement(i)
         | Expr::PostDecrement(i)

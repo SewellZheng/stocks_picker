@@ -27,7 +27,7 @@
     * output.
     *
     * @param optInStartValue Initial SAR/direction: 0 auto, &gt;0 start long at
-    *        value, &lt;0 start short at |value| (default 0; {@link Core#REAL_DEFAULT}
+    *        value, &lt;0 start short at -value (default 0; {@link Core#REAL_DEFAULT}
     *        selects the default).
     * @param optInOffsetOnReverse Fractional offset applied to the stop on each
     *        reversal (default 0; minimum 0; {@link Core#REAL_DEFAULT} selects the
@@ -124,10 +124,10 @@
       double ep = 0;
       double sar = 0;
       double[] ep_temp = new double[1];
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInStartValue == REAL_DEFAULT ) {
@@ -341,7 +341,7 @@
                if( optInOffsetOnReverse != 0.0 ) {
                   sar += sar * optInOffsetOnReverse;
                }
-               outReal[outIdx++] = 0 - sar;
+               outReal[outIdx++] = -sar;
                /* Adjust afShort and ep */
                afShort = optInAccelerationInitShort;
                ep = newLow;
@@ -416,7 +416,7 @@
          } else {
             /* No switch */
             /* Output the SAR (was calculated in the previous iteration) */
-            outReal[outIdx++] = 0 - sar;
+            outReal[outIdx++] = -sar;
             /* Adjust afShort and ep. */
             if( newLow < ep ) {
                ep = newLow;
@@ -471,10 +471,10 @@
       double ep = 0;
       double sar = 0;
       double[] ep_temp = new double[1];
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInStartValue == REAL_DEFAULT ) {
@@ -597,7 +597,7 @@
                if( optInOffsetOnReverse != 0.0 ) {
                   sar += sar * optInOffsetOnReverse;
                }
-               outReal[outIdx++] = 0 - sar;
+               outReal[outIdx++] = -sar;
                afShort = optInAccelerationInitShort;
                ep = newLow;
                sar = Math.fma(afShort, ep - sar, sar);
@@ -647,7 +647,7 @@
                sar = newLow;
             }
          } else {
-            outReal[outIdx++] = 0 - sar;
+            outReal[outIdx++] = -sar;
             if( newLow < ep ) {
                ep = newLow;
                afShort += optInAccelerationShort;
@@ -678,15 +678,15 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#sarextLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#sarextLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inHigh High price of each bar.
     * @param inLow Low price of each bar.
     * @param optInStartValue Initial SAR/direction: 0 auto, &gt;0 start long at
-    *        value, &lt;0 start short at |value| (default 0; {@link Core#REAL_DEFAULT}
+    *        value, &lt;0 start short at -value (default 0; {@link Core#REAL_DEFAULT}
     *        selects the default).
     * @param optInOffsetOnReverse Fractional offset applied to the stop on each
     *        reversal (default 0; minimum 0; {@link Core#REAL_DEFAULT} selects the
@@ -704,11 +704,12 @@
     * @param optInAccelerationMaxShort Cap on the short acceleration factor
     *        (default 0.2; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal SAR stop level; positive while long, negative while short.
-    *        Must hold at least {@code endIdx - startIdx + 1} values.
+    *        Must hold at least {@code endIdx - max(startIdx, sarextLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -765,15 +766,15 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#sarextLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#sarextLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inHigh High price of each bar.
     * @param inLow Low price of each bar.
     * @param optInStartValue Initial SAR/direction: 0 auto, &gt;0 start long at
-    *        value, &lt;0 start short at |value| (default 0; {@link Core#REAL_DEFAULT}
+    *        value, &lt;0 start short at -value (default 0; {@link Core#REAL_DEFAULT}
     *        selects the default).
     * @param optInOffsetOnReverse Fractional offset applied to the stop on each
     *        reversal (default 0; minimum 0; {@link Core#REAL_DEFAULT} selects the
@@ -791,11 +792,12 @@
     * @param optInAccelerationMaxShort Cap on the short acceleration factor
     *        (default 0.2; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal SAR stop level; positive while long, negative while short.
-    *        Must hold at least {@code endIdx - startIdx + 1} values.
+    *        Must hold at least {@code endIdx - max(startIdx, sarextLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -887,7 +889,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -901,12 +903,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("SAREXT advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -947,15 +949,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inHigh, double inLow ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("SAREXT update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TALibArgumentException("SAREXT update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("SAREXT update", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
          core.sarextStepImpl(this, inHigh, inLow);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -965,15 +967,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TALibArgumentException("SAREXT peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("SAREXT peek", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
          SarextStream sp = this;
          double prevHigh = 0.0;
          double prevLow = 0.0;
@@ -1008,7 +1008,7 @@
                if( sp.optInOffsetOnReverse != 0.0 ) {
                   sar += sar * sp.optInOffsetOnReverse;
                }
-               cur_outReal = 0 - sar;
+               cur_outReal = -sar;
                /* Adjust afShort and ep */
                afShort = sp.optInAccelerationInitShort;
                ep = newLow;
@@ -1083,7 +1083,7 @@
          } else {
             /* No switch */
             /* Output the SAR (was calculated in the previous iteration) */
-            cur_outReal = 0 - sar;
+            cur_outReal = -sar;
             /* Adjust afShort and ep. */
             if( newLow < ep ) {
                ep = newLow;
@@ -1160,7 +1160,7 @@
             if( sp.optInOffsetOnReverse != 0.0 ) {
                sp.sar += sp.sar * sp.optInOffsetOnReverse;
             }
-            sp.cur_outReal = 0 - sp.sar;
+            sp.cur_outReal = -sp.sar;
             /* Adjust afShort and ep */
             sp.afShort = sp.optInAccelerationInitShort;
             sp.ep = sp.newLow;
@@ -1235,7 +1235,7 @@
       } else {
          /* No switch */
          /* Output the SAR (was calculated in the previous iteration) */
-         sp.cur_outReal = 0 - sp.sar;
+         sp.cur_outReal = -sp.sar;
          /* Adjust afShort and ep. */
          if( sp.newLow < sp.ep ) {
             sp.ep = sp.newLow;
@@ -1278,7 +1278,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length ) {
@@ -1500,7 +1500,7 @@
                if( optInOffsetOnReverse != 0.0 ) {
                   sar += sar * optInOffsetOnReverse;
                }
-               outReal[outIdx++ * outStride] = 0 - sar;
+               outReal[outIdx++ * outStride] = -sar;
                /* Adjust afShort and ep */
                afShort = optInAccelerationInitShort;
                ep = newLow;
@@ -1575,7 +1575,7 @@
          } else {
             /* No switch */
             /* Output the SAR (was calculated in the previous iteration) */
-            outReal[outIdx++ * outStride] = 0 - sar;
+            outReal[outIdx++ * outStride] = -sar;
             /* Adjust afShort and ep. */
             if( newLow < ep ) {
                ep = newLow;
@@ -1628,12 +1628,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("SAREXT openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("SAREXT openAndFill", inHigh.length, startIdx, sarextLookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("SAREXT openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("SAREXT openAndFill: " + retCode, retCode);
+      throw streamFailure("SAREXT openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind sarextOpen (composition seam). */
    SarextStream sarextOpenInternal( double inHigh[], double inLow[], int startIdx, double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort )
@@ -1649,12 +1646,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("SAREXT open: history shorter than lookback + 1");
+         throw insufficientHistory("SAREXT open", inHigh.length, startIdx, sarextLookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("SAREXT open: internal error", retCode);
-      }
-      throw new TALibArgumentException("SAREXT open: " + retCode, retCode);
+      throw streamFailure("SAREXT open", retCode);
    }
    /**
     * Open a live SAREXT stream over the warm-up history; the handle's
@@ -1697,7 +1691,7 @@
       requireHistoryLength("SAREXT openAndFill", "inLow", inLow.length, inHigh.length);
       requireLength("SAREXT openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
-         throw new TALibArgumentException("SAREXT openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("SAREXT openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

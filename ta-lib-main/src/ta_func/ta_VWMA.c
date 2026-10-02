@@ -56,6 +56,8 @@
  *  -------------------------------------------------------------------
  *  072026 MF,CC  First version (#131).
  *  080926 MF,CC  Allow period of 1. Just copy input into output.
+ *  092526 MF,CC  #446 exact zero sums on a dead volume window.
+ *  092626 MF,CC  #446 branch-free zero count.
  */
 
 TA_LIB_API int TA_VWMA_Lookback( int optInTimePeriod )
@@ -81,14 +83,16 @@ TA_LIB_API TA_RetCode TA_VWMA( int    startIdx,
    double tempPV;
    double tempV;
    double tempReal;
+   double trailingVolume;
    int i;
    int outIdx;
    int trailingIdx;
    int lookbackTotal;
+   int zeroCount;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -149,6 +153,12 @@ TA_LIB_API TA_RetCode TA_VWMA( int    startIdx,
    sumPV = 0.0;
    sumV = 0.0;
    trailingIdx = startIdx - lookbackTotal;
+   /* Zero-volume bars in the window. Once they fill it both sums are exactly
+    * zero, where add-then-subtract would leave the rounding residue of the bars
+    * that departed, of either sign. The test is fabs(v) <= 0.0 rather than
+    * == 0.0: the same result, NaN included, from one flag instead of two.
+    */
+   zeroCount = 0;
    i = trailingIdx;
    if( optInTimePeriod > 1 )
    {
@@ -157,6 +167,7 @@ TA_LIB_API TA_RetCode TA_VWMA( int    startIdx,
          tempReal = inReal[i] * inVolume[i];
          sumPV += tempReal;
          sumV += inVolume[i];
+         zeroCount += (fabs(inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
       }
    }
@@ -170,20 +181,40 @@ TA_LIB_API TA_RetCode TA_VWMA( int    startIdx,
       tempReal = inReal[i] * inVolume[i];
       sumPV += tempReal;
       sumV += inVolume[i];
+      zeroCount += (fabs(inVolume[i]) <= 0.0) ? 1 : 0;
       i = i + 1;
-      /* Snapshot both sums before removing the trailing bar, mirroring the
-       * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-       * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-       */
-      tempPV = sumPV;
-      tempV = sumV;
       /* Read the trailing values before writing the output, since the caller
        * may pass the same buffer for an input and the output.
        */
-      tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
-      sumPV -= tempReal;
-      sumV -= inVolume[trailingIdx];
-      outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+      trailingVolume = inVolume[trailingIdx];
+      tempReal = inReal[trailingIdx] * trailingVolume;
+      /* Each branch writes its own output: a branch that only zeroes the sums
+       * is if-converted into a mask on their dependency chain.
+       */
+      if( zeroCount >= optInTimePeriod )
+      {
+         /* Zero, then subtract the departing bar: a non-finite price times its
+          * zero volume is NaN, not zero.
+          */
+         tempPV = 0.0;
+         tempV = 0.0;
+         sumPV = 0.0 - tempReal;
+         sumV = 0.0 - trailingVolume;
+         outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+      } else 
+      {
+         /* Snapshot both sums before removing the trailing bar, mirroring the
+          * add-new / snapshot / subtract-old order of TA_SMA. Up to the first
+          * dead window, that order is what makes this bit-identical to
+          * SMA(inReal*inVolume)/SMA(inVolume).
+          */
+         tempPV = sumPV;
+         tempV = sumV;
+         sumPV -= tempReal;
+         sumV -= trailingVolume;
+         outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+      }
+      zeroCount -= (fabs(trailingVolume) <= 0.0) ? 1 : 0;
       trailingIdx = trailingIdx + 1;
       outIdx = outIdx + 1;
    }
@@ -207,14 +238,16 @@ TA_RetCode TA_S_VWMA( int    startIdx,
    double tempPV;
    double tempV;
    double tempReal;
+   double trailingVolume;
    int i;
    int outIdx;
    int trailingIdx;
    int lookbackTotal;
+   int zeroCount;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -256,6 +289,7 @@ TA_RetCode TA_S_VWMA( int    startIdx,
    sumPV = 0.0;
    sumV = 0.0;
    trailingIdx = startIdx - lookbackTotal;
+   zeroCount = 0;
    i = trailingIdx;
    if( optInTimePeriod > 1 )
    {
@@ -264,6 +298,7 @@ TA_RetCode TA_S_VWMA( int    startIdx,
          tempReal = (double)inReal[i] * (double)inVolume[i];
          sumPV += tempReal;
          sumV += (double)inVolume[i];
+         zeroCount += (fabs((double)inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
       }
    }
@@ -273,13 +308,26 @@ TA_RetCode TA_S_VWMA( int    startIdx,
       tempReal = (double)inReal[i] * (double)inVolume[i];
       sumPV += tempReal;
       sumV += (double)inVolume[i];
+      zeroCount += (fabs((double)inVolume[i]) <= 0.0) ? 1 : 0;
       i = i + 1;
-      tempPV = sumPV;
-      tempV = sumV;
-      tempReal = (double)inReal[trailingIdx] * (double)inVolume[trailingIdx];
-      sumPV -= tempReal;
-      sumV -= (double)inVolume[trailingIdx];
-      outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+      trailingVolume = (double)inVolume[trailingIdx];
+      tempReal = (double)inReal[trailingIdx] * trailingVolume;
+      if( zeroCount >= optInTimePeriod )
+      {
+         tempPV = 0.0;
+         tempV = 0.0;
+         sumPV = 0.0 - tempReal;
+         sumV = 0.0 - trailingVolume;
+         outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+      } else 
+      {
+         tempPV = sumPV;
+         tempV = sumV;
+         sumPV -= tempReal;
+         sumV -= trailingVolume;
+         outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+      }
+      zeroCount -= (fabs(trailingVolume) <= 0.0) ? 1 : 0;
       trailingIdx = trailingIdx + 1;
       outIdx = outIdx + 1;
    }
@@ -299,6 +347,7 @@ struct TA_VWMA_Stream {
    int optInTimePeriod;
    double sumPV;
    double sumV;
+   int zeroCount;
    int ringPos_trailingIdx;
    int ringCap_trailingIdx;
    double *ring_trailingIdx_inReal;
@@ -320,6 +369,8 @@ static void TA_VWMA_StepImpl( struct TA_VWMA_Stream *sp, double inReal, double i
    double tempPV;
    double tempV;
    double tempReal;
+   double trailingVolume;
+   int ringCapL_trailingIdx;
 
    if( sp->optInTimePeriod == 1 )
    {
@@ -327,32 +378,48 @@ static void TA_VWMA_StepImpl( struct TA_VWMA_Stream *sp, double inReal, double i
       sp->cur_outReal = *outReal;
       return;
    }
-   if( sp->ringCap_trailingIdx == 0 )
-   {
-      sp->ring_trailingIdx_inReal[0] = inReal;
-      sp->ring_trailingIdx_inVolume[0] = inVolume;
-   }
    tempReal = inReal * inVolume;
    sp->sumPV += tempReal;
    sp->sumV += inVolume;
-   /* Snapshot both sums before removing the trailing bar, mirroring the
-    * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-    * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-    */
-   tempPV = sp->sumPV;
-   tempV = sp->sumV;
+   sp->zeroCount += (fabs(inVolume) <= 0.0) ? 1 : 0;
    /* Read the trailing values before writing the output, since the caller
     * may pass the same buffer for an input and the output.
     */
-   tempReal = sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx] * sp->ring_trailingIdx_inVolume[sp->ringPos_trailingIdx];
-   sp->sumPV -= tempReal;
-   sp->sumV -= sp->ring_trailingIdx_inVolume[sp->ringPos_trailingIdx];
-   *outReal= tempPV / (double)sp->optInTimePeriod / (tempV / (double)sp->optInTimePeriod);
+   trailingVolume = sp->ring_trailingIdx_inVolume[sp->ringPos_trailingIdx];
+   tempReal = sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx] * trailingVolume;
+   /* Each branch writes its own output: a branch that only zeroes the sums
+    * is if-converted into a mask on their dependency chain.
+    */
+   if( sp->zeroCount >= sp->optInTimePeriod )
+   {
+      /* Zero, then subtract the departing bar: a non-finite price times its
+       * zero volume is NaN, not zero.
+       */
+      tempPV = 0.0;
+      tempV = 0.0;
+      sp->sumPV = 0.0 - tempReal;
+      sp->sumV = 0.0 - trailingVolume;
+      *outReal= tempPV / (double)sp->optInTimePeriod / (tempV / (double)sp->optInTimePeriod);
+   } else 
+   {
+      /* Snapshot both sums before removing the trailing bar, mirroring the
+       * add-new / snapshot / subtract-old order of TA_SMA. Up to the first
+       * dead window, that order is what makes this bit-identical to
+       * SMA(inReal*inVolume)/SMA(inVolume).
+       */
+      tempPV = sp->sumPV;
+      tempV = sp->sumV;
+      sp->sumPV -= tempReal;
+      sp->sumV -= trailingVolume;
+      *outReal= tempPV / (double)sp->optInTimePeriod / (tempV / (double)sp->optInTimePeriod);
+   }
+   sp->zeroCount -= (fabs(trailingVolume) <= 0.0) ? 1 : 0;
    sp->cur_outReal = *outReal;
+   ringCapL_trailingIdx = sp->ringCap_trailingIdx;
    sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx] = inReal;
    sp->ring_trailingIdx_inVolume[sp->ringPos_trailingIdx] = inVolume;
    sp->ringPos_trailingIdx = sp->ringPos_trailingIdx + 1;
-   if( sp->ringPos_trailingIdx >= sp->ringCap_trailingIdx )
+   if( sp->ringPos_trailingIdx >= ringCapL_trailingIdx )
    {
       sp->ringPos_trailingIdx = 0;
    }
@@ -366,7 +433,7 @@ static TA_RetCode TA_VWMA_OpenImpl( struct TA_VWMA_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -434,10 +501,12 @@ static TA_RetCode TA_VWMA_OpenImpl( struct TA_VWMA_Stream **stream, const double
       double tempPV;
       double tempV;
       double tempReal;
+      double trailingVolume;
       int i;
       int outIdx;
       int trailingIdx;
       int lookbackTotal;
+      int zeroCount = 0;
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
@@ -466,6 +535,12 @@ static TA_RetCode TA_VWMA_OpenImpl( struct TA_VWMA_Stream **stream, const double
       sumPV = 0.0;
       sumV = 0.0;
       trailingIdx = startIdx - lookbackTotal;
+      /* Zero-volume bars in the window. Once they fill it both sums are exactly
+       * zero, where add-then-subtract would leave the rounding residue of the bars
+       * that departed, of either sign. The test is fabs(v) <= 0.0 rather than
+       * == 0.0: the same result, NaN included, from one flag instead of two.
+       */
+      zeroCount = 0;
       i = trailingIdx;
       if( optInTimePeriod > 1 )
       {
@@ -474,6 +549,7 @@ static TA_RetCode TA_VWMA_OpenImpl( struct TA_VWMA_Stream **stream, const double
             tempReal = inReal[i] * inVolume[i];
             sumPV += tempReal;
             sumV += inVolume[i];
+            zeroCount += (fabs(inVolume[i]) <= 0.0) ? 1 : 0;
             i = i + 1;
          }
       }
@@ -487,20 +563,40 @@ static TA_RetCode TA_VWMA_OpenImpl( struct TA_VWMA_Stream **stream, const double
          tempReal = inReal[i] * inVolume[i];
          sumPV += tempReal;
          sumV += inVolume[i];
+         zeroCount += (fabs(inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
-         /* Snapshot both sums before removing the trailing bar, mirroring the
-          * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-          * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-          */
-         tempPV = sumPV;
-         tempV = sumV;
          /* Read the trailing values before writing the output, since the caller
           * may pass the same buffer for an input and the output.
           */
-         tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
-         sumPV -= tempReal;
-         sumV -= inVolume[trailingIdx];
-         outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         trailingVolume = inVolume[trailingIdx];
+         tempReal = inReal[trailingIdx] * trailingVolume;
+         /* Each branch writes its own output: a branch that only zeroes the sums
+          * is if-converted into a mask on their dependency chain.
+          */
+         if( zeroCount >= optInTimePeriod )
+         {
+            /* Zero, then subtract the departing bar: a non-finite price times its
+             * zero volume is NaN, not zero.
+             */
+            tempPV = 0.0;
+            tempV = 0.0;
+            sumPV = 0.0 - tempReal;
+            sumV = 0.0 - trailingVolume;
+            outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         } else 
+         {
+            /* Snapshot both sums before removing the trailing bar, mirroring the
+             * add-new / snapshot / subtract-old order of TA_SMA. Up to the first
+             * dead window, that order is what makes this bit-identical to
+             * SMA(inReal*inVolume)/SMA(inVolume).
+             */
+            tempPV = sumPV;
+            tempV = sumV;
+            sumPV -= tempReal;
+            sumV -= trailingVolume;
+            outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         }
+         zeroCount -= (fabs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          outIdx = outIdx + 1;
       }
@@ -515,8 +611,9 @@ static TA_RetCode TA_VWMA_OpenImpl( struct TA_VWMA_Stream **stream, const double
       sp->optInTimePeriod = optInTimePeriod;
       sp->sumPV = sumPV;
       sp->sumV = sumV;
+      sp->zeroCount = zeroCount;
       sp->ringCap_trailingIdx = (int)(i - trailingIdx);
-      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_VWMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(395); }
+      if( sp->ringCap_trailingIdx < 1 || sp->ringCap_trailingIdx > historyLen ) { TA_VWMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(395); }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
         sp->ring_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingIdx_inReal ) { TA_VWMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -554,7 +651,7 @@ TA_LIB_API TA_RetCode TA_VWMA_Open( TA_VWMA_Stream **stream, const double inReal
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_VWMA_OpenInternal( stream, inReal, inVolume, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -564,7 +661,7 @@ TA_LIB_API TA_RetCode TA_VWMA_OpenAndFill( TA_VWMA_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    return TA_VWMA_OpenAndFillInternal( stream, inReal, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -579,7 +676,7 @@ TA_RetCode TA_VWMA_OpenAndFillInternal( struct TA_VWMA_Stream **stream, const do
 TA_LIB_API TA_RetCode TA_VWMA_Update( TA_VWMA_Stream *stream, double inReal, double inVolume, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
@@ -594,19 +691,18 @@ TA_LIB_API TA_RetCode TA_VWMA_Peek( const TA_VWMA_Stream *stream, double inReal,
    double tempPV;
    double tempV;
    double tempReal;
+   double trailingVolume;
    double sumPV;
    double sumV;
+   int zeroCount;
    double *ring_trailingIdx_inReal;
    double *ring_trailingIdx_inVolume;
-   int pkSlot0 = -1;
-   double pkVal0 = 0.0;
-   int pkSlot1 = -1;
-   double pkVal1 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    sumPV = sp->sumPV;
    sumV = sp->sumV;
+   zeroCount = sp->zeroCount;
    ring_trailingIdx_inReal = sp->ring_trailingIdx_inReal;
    ring_trailingIdx_inVolume = sp->ring_trailingIdx_inVolume;
    if( sp->optInTimePeriod == 1 )
@@ -614,29 +710,41 @@ TA_LIB_API TA_RetCode TA_VWMA_Peek( const TA_VWMA_Stream *stream, double inReal,
       *outReal= inReal;
       return TA_SUCCESS;
    }
-   if( sp->ringCap_trailingIdx == 0 )
-   {
-      pkSlot0 = 0;
-      pkVal0 = inReal;
-      pkSlot1 = 0;
-      pkVal1 = inVolume;
-   }
    tempReal = inReal * inVolume;
    sumPV += tempReal;
    sumV += inVolume;
-   /* Snapshot both sums before removing the trailing bar, mirroring the
-    * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-    * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-    */
-   tempPV = sumPV;
-   tempV = sumV;
+   zeroCount += (fabs(inVolume) <= 0.0) ? 1 : 0;
    /* Read the trailing values before writing the output, since the caller
     * may pass the same buffer for an input and the output.
     */
-   tempReal = ((sp->ringPos_trailingIdx != pkSlot0) ? ring_trailingIdx_inReal[sp->ringPos_trailingIdx] : pkVal0) * ((sp->ringPos_trailingIdx != pkSlot1) ? ring_trailingIdx_inVolume[sp->ringPos_trailingIdx] : pkVal1);
-   sumPV -= tempReal;
-   sumV -= (sp->ringPos_trailingIdx != pkSlot1) ? ring_trailingIdx_inVolume[sp->ringPos_trailingIdx] : pkVal1;
-   *outReal= tempPV / (double)sp->optInTimePeriod / (tempV / (double)sp->optInTimePeriod);
+   trailingVolume = ring_trailingIdx_inVolume[sp->ringPos_trailingIdx];
+   tempReal = ring_trailingIdx_inReal[sp->ringPos_trailingIdx] * trailingVolume;
+   /* Each branch writes its own output: a branch that only zeroes the sums
+    * is if-converted into a mask on their dependency chain.
+    */
+   if( zeroCount >= sp->optInTimePeriod )
+   {
+      /* Zero, then subtract the departing bar: a non-finite price times its
+       * zero volume is NaN, not zero.
+       */
+      tempPV = 0.0;
+      tempV = 0.0;
+      sumPV = 0.0 - tempReal;
+      sumV = 0.0 - trailingVolume;
+      *outReal= tempPV / (double)sp->optInTimePeriod / (tempV / (double)sp->optInTimePeriod);
+   } else 
+   {
+      /* Snapshot both sums before removing the trailing bar, mirroring the
+       * add-new / snapshot / subtract-old order of TA_SMA. Up to the first
+       * dead window, that order is what makes this bit-identical to
+       * SMA(inReal*inVolume)/SMA(inVolume).
+       */
+      tempPV = sumPV;
+      tempV = sumV;
+      sumPV -= tempReal;
+      sumV -= trailingVolume;
+      *outReal= tempPV / (double)sp->optInTimePeriod / (tempV / (double)sp->optInTimePeriod);
+   }
    return TA_SUCCESS;
 }
 
@@ -664,7 +772,7 @@ TA_LIB_API TA_RetCode TA_VWMA_OutRange( const TA_VWMA_Stream *stream, int *outBe
 TA_LIB_API TA_RetCode TA_VWMA_Advance( TA_VWMA_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

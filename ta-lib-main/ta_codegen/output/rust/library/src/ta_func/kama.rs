@@ -148,10 +148,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -218,6 +218,7 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inReal = &inReal[..=endIdx];
         // Initialize the variables by going through
         // the lookback period.
         sumROC1 = 0.0;
@@ -396,15 +397,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -446,10 +447,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.kama_lookback(optInTimePeriod)?;
@@ -522,13 +523,11 @@ impl Core {
         let mut tempReal: f64 = 0.0_f64;
         let mut tempReal2: f64 = 0.0_f64;
         let mut periodROC: f64 = 0.0_f64;
+        let mut ringCapL_trailingIdx: usize = 0_usize;
         if sp.optInTimePeriod == 1 {
             (*outReal) = inReal;
             sp.cur_outReal = (*outReal);
             return;
-        }
-        if sp.ringCap_trailingIdx == 0 {
-            sp.ring_trailingIdx_inReal[0] = inReal;
         }
         tempReal = inReal;
         tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
@@ -573,11 +572,61 @@ impl Core {
         (*outReal) = sp.prevKAMA;
         sp.cur_outReal = (*outReal);
         sp.lag1_inReal = inReal;
+        ringCapL_trailingIdx = sp.ringCap_trailingIdx;
         sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
         sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-        if sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx {
+        if sp.ringPos_trailingIdx >= ringCapL_trailingIdx {
             sp.ringPos_trailingIdx = 0;
         }
+    }
+
+    fn kama_step_tape_impl(sp: &mut KamaStreamState, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64, outReal: &mut f64) {
+        let mut tempReal: f64 = 0.0_f64;
+        let mut tempReal2: f64 = 0.0_f64;
+        let mut periodROC: f64 = 0.0_f64;
+        tempReal = inReal;
+        tempReal2 = tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize];
+        periodROC = tempReal - tempReal2;
+        // Adjust sumROC1:
+        //  - Remove trailing ROC1
+        //  - Add new ROC1
+        sp.sumROC1 -= (sp.trailingValue - tempReal2).abs();
+        sp.sumROC1 += (tempReal - sp.lag1_inReal).abs();
+        // Once a whole window of flat bars has gone by, every 1-day change it
+        // spans is exactly zero, so the sum is known to be exactly zero and the
+        // residue can be dropped. That is what lets the efficiency ratio be
+        // decided by `sumROC1 <= periodROC` alone: a window that flat has
+        // periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+        if tempReal - sp.lag1_inReal == 0.0 {
+            sp.nullRun += 1;
+        } else {
+            sp.nullRun = 0;
+        }
+        if sp.nullRun >= ((sp.optInTimePeriod) as usize) {
+            sp.nullRun = (sp.optInTimePeriod) as usize;
+            sp.sumROC1 = 0.0;
+        }
+        // Save the trailing value. Do this because inReal
+        // and outReal can be pointers to the same buffer.
+        sp.trailingValue = tempReal2;
+        // Calculate the efficiency ratio
+        if sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC {
+            tempReal = 1.0;
+        } else {
+            tempReal = (periodROC / sp.sumROC1).abs();
+            if tempReal > 1.0 {
+                tempReal = 1.0;
+            }
+        }
+        // Calculate the smoothing constant
+        tempReal = (tempReal as f64).mul_add(sp.constDiff, sp.constMax);
+        tempReal *= tempReal;
+        // Calculate the KAMA like an EMA, using the
+        // smoothing constant as the adaptive factor.
+        sp.prevKAMA = (inReal - sp.prevKAMA as f64).mul_add(tempReal, sp.prevKAMA);
+        (*outReal) = sp.prevKAMA;
+        sp.cur_outReal = (*outReal);
+        sp.lag1_inReal = inReal;
     }
 
     /// The single whole-history transcription behind [`Core::kama_open_internal`]
@@ -588,7 +637,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -829,7 +878,7 @@ impl Core {
 
         // Capture the live batch state into the handle.
         let cap_trailingIdx: i64 = (today as i64) - (trailingIdx as i64);
-        if cap_trailingIdx < 0 || cap_trailingIdx > historyLen as i64 {
+        if cap_trailingIdx < 1 || cap_trailingIdx > historyLen as i64 {
             return Err(RetCode::InternalError);
         }
         let allocN_trailingIdx: usize = if cap_trailingIdx > 0 { cap_trailingIdx as usize } else { 1 };
@@ -930,7 +979,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.kama_lookback(optInTimePeriod)?;
@@ -960,7 +1009,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl KamaStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -978,11 +1027,11 @@ impl KamaStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_KAMA_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() {
@@ -997,16 +1046,15 @@ impl KamaStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_KAMA_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -1023,18 +1071,12 @@ impl KamaStream {
             let mut prevKAMA = sp.prevKAMA;
             let mut sumROC1 = sp.sumROC1;
             let mut trailingValue = sp.trailingValue;
-            let mut pkSlot0: usize = usize::MAX;
-            let mut pkVal0: f64 = 0.0_f64;
             if sp.optInTimePeriod == 1 {
                 (*outReal) = inReal;
                 return Ok((*outReal));
             }
-            if sp.ringCap_trailingIdx == 0 {
-                pkSlot0 = 0;
-                pkVal0 = inReal;
-            }
             tempReal = inReal;
-            tempReal2 = (if (sp.ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] } else { pkVal0 });
+            tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
             periodROC = tempReal - tempReal2;
             // Adjust sumROC1:
             //  - Remove trailing ROC1
@@ -1101,7 +1143,7 @@ impl KamaStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_KAMA_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1119,15 +1161,95 @@ impl KamaStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_KAMA_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;
         Ok(())
+    }
+}
+
+#[allow(non_snake_case)]
+#[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
+impl KamaStream {
+    pub(crate) fn step_tape(&mut self, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64) -> f64 {
+        let mut outReal: f64 = 0.0_f64;
+        Core::kama_step_tape_impl(&mut self.state, tape, tapeBase, tapeMask, inReal, &mut outReal);
+        self.out.count += 1;
+        outReal
+    }
+
+    pub(crate) fn peek_tape(&self, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64) -> Result<f64, RetCode> {
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut tempReal2: f64 = 0.0_f64;
+            let mut periodROC: f64 = 0.0_f64;
+            let mut nullRun = sp.nullRun;
+            let mut prevKAMA = sp.prevKAMA;
+            let mut sumROC1 = sp.sumROC1;
+            let mut trailingValue = sp.trailingValue;
+            tempReal = inReal;
+            tempReal2 = tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize];
+            periodROC = tempReal - tempReal2;
+            // Adjust sumROC1:
+            //  - Remove trailing ROC1
+            //  - Add new ROC1
+            sumROC1 -= (trailingValue - tempReal2).abs();
+            sumROC1 += (tempReal - sp.lag1_inReal).abs();
+            // Once a whole window of flat bars has gone by, every 1-day change it
+            // spans is exactly zero, so the sum is known to be exactly zero and the
+            // residue can be dropped. That is what lets the efficiency ratio be
+            // decided by `sumROC1 <= periodROC` alone: a window that flat has
+            // periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+            if tempReal - sp.lag1_inReal == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
+            if nullRun >= ((sp.optInTimePeriod) as usize) {
+                nullRun = (sp.optInTimePeriod) as usize;
+                sumROC1 = 0.0;
+            }
+            // Save the trailing value. Do this because inReal
+            // and outReal can be pointers to the same buffer.
+            trailingValue = tempReal2;
+            // Calculate the efficiency ratio
+            if sumROC1 <= 0.0 || sumROC1 <= periodROC {
+                tempReal = 1.0;
+            } else {
+                tempReal = (periodROC / sumROC1).abs();
+                if tempReal > 1.0 {
+                    tempReal = 1.0;
+                }
+            }
+            // Calculate the smoothing constant
+            tempReal = (tempReal as f64).mul_add(sp.constDiff, sp.constMax);
+            tempReal *= tempReal;
+            // Calculate the KAMA like an EMA, using the
+            // smoothing constant as the adaptive factor.
+            prevKAMA = (inReal - prevKAMA as f64).mul_add(tempReal, prevKAMA);
+            (*outReal) = prevKAMA;
+        }
+        Ok(outReal)
+    }
+
+    pub(crate) fn tape_detach(&mut self) -> usize {
+        let mut reach: usize = 0;
+        self.state.ring_trailingIdx_inReal = Vec::new();
+        if self.state.ringCap_trailingIdx > reach {
+            reach = self.state.ringCap_trailingIdx;
+        }
+        reach
     }
 }
 

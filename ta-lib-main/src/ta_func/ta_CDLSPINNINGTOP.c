@@ -79,9 +79,9 @@ TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP( int    startIdx,
    int lookbackTotal;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -138,7 +138,7 @@ TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP( int    startIdx,
    {
       if( (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) > fabs(inClose[i] - inOpen[i]) && (((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) > fabs(inClose[i] - inOpen[i]) && fabs(inClose[i] - inOpen[i]) < TA_CANDLEAVERAGE(BodyShort,BodyPeriodTotal,i) )
       {
-         outInteger[outIdx++] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
+         outInteger[outIdx++] = ((inClose[i] >= inOpen[i]) ? 1 : -1) * 100;
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -173,9 +173,9 @@ TA_RetCode TA_S_CDLSPINNINGTOP( int    startIdx,
    int lookbackTotal;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -215,7 +215,7 @@ TA_RetCode TA_S_CDLSPINNINGTOP( int    startIdx,
    {
       if( ((double)inHigh[i] - (((double)inClose[i] >= (double)inOpen[i]) ? (double)inClose[i] : (double)inOpen[i])) > fabs((double)inClose[i] - (double)inOpen[i]) && ((((double)inClose[i] >= (double)inOpen[i]) ? (double)inOpen[i] : (double)inClose[i]) - (double)inLow[i]) > fabs((double)inClose[i] - (double)inOpen[i]) && fabs((double)inClose[i] - (double)inOpen[i]) < TA_CANDLEAVERAGE(BodyShort,BodyPeriodTotal,i) )
       {
-         outInteger[outIdx++] = (((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) * 100;
+         outInteger[outIdx++] = (((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) * 100;
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -260,7 +260,7 @@ static void TA_CDLSPINNINGTOP_StepImpl( struct TA_CDLSPINNINGTOP_Stream *sp, dou
    }
    if( (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) > fabs(inClose - inOpen) && (((inClose >= inOpen) ? inOpen : inClose) - inLow) > fabs(inClose - inOpen) && fabs(inClose - inOpen) < TA_STREAM_CANDLEAVERAGE(BodyShort,sp->BodyPeriodTotal,inOpen,inHigh,inLow,inClose) )
    {
-      *outInteger= ((inClose >= inOpen) ? 1 : 0 - 1) * 100;
+      *outInteger= ((inClose >= inOpen) ? 1 : -1) * 100;
    } else 
    {
       *outInteger= 0;
@@ -286,7 +286,7 @@ static TA_RetCode TA_CDLSPINNINGTOP_OpenImpl( struct TA_CDLSPINNINGTOP_Stream **
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
@@ -345,7 +345,7 @@ static TA_RetCode TA_CDLSPINNINGTOP_OpenImpl( struct TA_CDLSPINNINGTOP_Stream **
       {
          if( (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) > fabs(inClose[i] - inOpen[i]) && (((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) > fabs(inClose[i] - inOpen[i]) && fabs(inClose[i] - inOpen[i]) < TA_CANDLEAVERAGE(BodyShort,BodyPeriodTotal,i) )
          {
-            outInteger[outIdx++ * outStride] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
+            outInteger[outIdx++ * outStride] = ((inClose[i] >= inOpen[i]) ? 1 : -1) * 100;
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -405,7 +405,7 @@ TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_Open( TA_CDLSPINNINGTOP_Stream **stream,
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLSPINNINGTOP_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
@@ -415,7 +415,7 @@ TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_OpenAndFill( TA_CDLSPINNINGTOP_Stream **
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLSPINNINGTOP_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
@@ -430,7 +430,7 @@ TA_RetCode TA_CDLSPINNINGTOP_OpenAndFillInternal( struct TA_CDLSPINNINGTOP_Strea
 TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_Update( TA_CDLSPINNINGTOP_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -447,7 +447,7 @@ TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_Peek( const TA_CDLSPINNINGTOP_Stream *st
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    if( (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) > fabs(inClose - inOpen) && (((inClose >= inOpen) ? inOpen : inClose) - inLow) > fabs(inClose - inOpen) && fabs(inClose - inOpen) < TA_STREAM_CANDLEAVERAGE(BodyShort,sp->BodyPeriodTotal,inOpen,inHigh,inLow,inClose) )
    {
-      *outInteger= ((inClose >= inOpen) ? 1 : 0 - 1) * 100;
+      *outInteger= ((inClose >= inOpen) ? 1 : -1) * 100;
    } else 
    {
       *outInteger= 0;
@@ -479,7 +479,7 @@ TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_OutRange( const TA_CDLSPINNINGTOP_Stream
 TA_LIB_API TA_RetCode TA_CDLSPINNINGTOP_Advance( TA_CDLSPINNINGTOP_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

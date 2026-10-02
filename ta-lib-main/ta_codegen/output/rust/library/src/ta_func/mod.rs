@@ -4,6 +4,8 @@
 // Types and Core struct are in types.rs (hand-written, not generated).
 mod types;
 pub use types::*;
+mod c_math;
+pub(crate) use c_math::*;
 
 /// Moving-average type selected by an `optInMAType` parameter.
 ///
@@ -42,6 +44,10 @@ pub enum MAType {
     ZLEMA = 12,
     /// The `TA_MAType_RMA` moving average.
     RMA = 13,
+    /// The `TA_MAType_VIDYA` moving average.
+    VIDYA = 14,
+    /// The `TA_MAType_ALMA` moving average.
+    ALMA = 15,
 }
 
 impl TryFrom<i32> for MAType {
@@ -75,6 +81,8 @@ impl TryFrom<i32> for MAType {
             11 => Self::DEFAULT,
             12 => Self::ZLEMA,
             13 => Self::RMA,
+            14 => Self::VIDYA,
+            15 => Self::ALMA,
             i32::MIN => Self::DEFAULT,
             _ => return Err(RetCode::BadParam),
         })
@@ -105,16 +113,19 @@ mod adosc;
 mod adr;
 mod adx;
 mod adxr;
+mod alma;
 mod ao;
 mod apo;
 mod aroon;
 mod aroonosc;
+mod asi;
 mod asin;
 mod atan;
 mod atr;
 mod avgdev;
 mod avgprice;
 mod bbands;
+mod bbw;
 mod beta;
 mod bop;
 mod cci;
@@ -180,6 +191,10 @@ mod cdlunique3river;
 mod cdlupsidegap2crows;
 mod cdlxsidegap3methods;
 mod ceil;
+mod cg;
+mod chop;
+mod choptr;
+mod cksp;
 mod cmf;
 mod cmo;
 mod cmou;
@@ -187,6 +202,8 @@ mod coppock;
 mod correl;
 mod cos;
 mod cosh;
+mod crsi;
+mod cti;
 mod cumsum;
 mod cvi;
 mod dema;
@@ -196,12 +213,14 @@ mod dpo;
 mod dx;
 mod efi;
 mod ema;
+mod emv;
 mod er;
 mod eri;
 mod exp;
 mod floor;
 mod fosc;
 mod fractal;
+mod frama;
 mod ha;
 mod hma;
 mod ht_dcperiod;
@@ -210,10 +229,14 @@ mod ht_phasor;
 mod ht_sine;
 mod ht_trendline;
 mod ht_trendmode;
+mod ibs;
 mod imi;
 mod kama;
 mod kc;
 mod kdj;
+mod kst;
+mod kstext;
+mod kurtosis;
 mod linearreg;
 mod linearreg_angle;
 mod linearreg_intercept;
@@ -230,6 +253,8 @@ mod massi;
 mod mavp;
 mod max;
 mod maxindex;
+mod mcgd;
+mod median;
 mod medprice;
 mod mfi;
 mod midpoint;
@@ -245,6 +270,7 @@ mod mult;
 mod natr;
 mod nvi;
 mod obv;
+mod percentb;
 mod percentile;
 mod percentrank;
 mod plus_di;
@@ -261,14 +287,17 @@ mod rocr;
 mod rocr100;
 mod rsi;
 mod rvi;
+mod rvir;
 mod rvol;
 mod sar;
 mod sarext;
+mod si;
 mod sin;
 mod sinh;
 mod sma;
 mod smi;
 mod sqrt;
+mod stc;
 mod stddev;
 mod stoch;
 mod stochf;
@@ -289,6 +318,7 @@ mod typprice;
 mod ultosc;
 mod var;
 mod vhf;
+mod vidya;
 mod vortex;
 mod vwap;
 mod vwma;
@@ -308,16 +338,19 @@ pub use adosc::AdoscStream;
 pub use adr::AdrStream;
 pub use adx::AdxStream;
 pub use adxr::AdxrStream;
+pub use alma::AlmaStream;
 pub use ao::AoStream;
 pub use apo::ApoStream;
 pub use aroon::AroonStream;
 pub use aroonosc::AroonoscStream;
+pub use asi::AsiStream;
 pub use asin::AsinStream;
 pub use atan::AtanStream;
 pub use atr::AtrStream;
 pub use avgdev::AvgdevStream;
 pub use avgprice::AvgpriceStream;
 pub use bbands::BbandsStream;
+pub use bbw::BbwStream;
 pub use beta::BetaStream;
 pub use bop::BopStream;
 pub use cci::CciStream;
@@ -383,6 +416,10 @@ pub use cdlunique3river::Cdlunique3riverStream;
 pub use cdlupsidegap2crows::Cdlupsidegap2crowsStream;
 pub use cdlxsidegap3methods::Cdlxsidegap3methodsStream;
 pub use ceil::CeilStream;
+pub use cg::CgStream;
+pub use chop::ChopStream;
+pub use choptr::ChoptrStream;
+pub use cksp::CkspStream;
 pub use cmf::CmfStream;
 pub use cmo::CmoStream;
 pub use cmou::CmouStream;
@@ -390,6 +427,8 @@ pub use coppock::CoppockStream;
 pub use correl::CorrelStream;
 pub use cos::CosStream;
 pub use cosh::CoshStream;
+pub use crsi::CrsiStream;
+pub use cti::CtiStream;
 pub use cumsum::CumsumStream;
 pub use cvi::CviStream;
 pub use dema::DemaStream;
@@ -399,12 +438,14 @@ pub use dpo::DpoStream;
 pub use dx::DxStream;
 pub use efi::EfiStream;
 pub use ema::EmaStream;
+pub use emv::EmvStream;
 pub use er::ErStream;
 pub use eri::EriStream;
 pub use exp::ExpStream;
 pub use floor::FloorStream;
 pub use fosc::FoscStream;
 pub use fractal::FractalStream;
+pub use frama::FramaStream;
 pub use ha::HaStream;
 pub use hma::HmaStream;
 pub use ht_dcperiod::HtDcperiodStream;
@@ -413,10 +454,14 @@ pub use ht_phasor::HtPhasorStream;
 pub use ht_sine::HtSineStream;
 pub use ht_trendline::HtTrendlineStream;
 pub use ht_trendmode::HtTrendmodeStream;
+pub use ibs::IbsStream;
 pub use imi::ImiStream;
 pub use kama::KamaStream;
 pub use kc::KcStream;
 pub use kdj::KdjStream;
+pub use kst::KstStream;
+pub use kstext::KstextStream;
+pub use kurtosis::KurtosisStream;
 pub use linearreg::LinearregStream;
 pub use linearreg_angle::LinearregAngleStream;
 pub use linearreg_intercept::LinearregInterceptStream;
@@ -433,6 +478,8 @@ pub use massi::MassiStream;
 pub use mavp::MavpStream;
 pub use max::MaxStream;
 pub use maxindex::MaxindexStream;
+pub use mcgd::McgdStream;
+pub use median::MedianStream;
 pub use medprice::MedpriceStream;
 pub use mfi::MfiStream;
 pub use midpoint::MidpointStream;
@@ -448,6 +495,7 @@ pub use mult::MultStream;
 pub use natr::NatrStream;
 pub use nvi::NviStream;
 pub use obv::ObvStream;
+pub use percentb::PercentbStream;
 pub use percentile::PercentileStream;
 pub use percentrank::PercentrankStream;
 pub use plus_di::PlusDiStream;
@@ -464,14 +512,17 @@ pub use rocr::RocrStream;
 pub use rocr100::Rocr100Stream;
 pub use rsi::RsiStream;
 pub use rvi::RviStream;
+pub use rvir::RvirStream;
 pub use rvol::RvolStream;
 pub use sar::SarStream;
 pub use sarext::SarextStream;
+pub use si::SiStream;
 pub use sin::SinStream;
 pub use sinh::SinhStream;
 pub use sma::SmaStream;
 pub use smi::SmiStream;
 pub use sqrt::SqrtStream;
+pub use stc::StcStream;
 pub use stddev::StddevStream;
 pub use stoch::StochStream;
 pub use stochf::StochfStream;
@@ -492,6 +543,7 @@ pub use typprice::TyppriceStream;
 pub use ultosc::UltoscStream;
 pub use var::VarStream;
 pub use vhf::VhfStream;
+pub use vidya::VidyaStream;
 pub use vortex::VortexStream;
 pub use vwap::VwapStream;
 pub use vwma::VwmaStream;

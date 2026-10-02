@@ -1398,10 +1398,9 @@ static double d2_non_default( const TA_OptInputParameterInfo *oi, unsigned int s
     }
 }
 
-/* Values outside the declared range. BOTH bounds, not the first that fits: every
- * shipped integer range is [1,100000] or [2,100000], so returning on the first
- * branch probed only `min-1` and a backend that dropped `|| value > max` passed
- * for all 79 functions. Reals are included too -- #148 was the Rust backend
+/* Values outside the declared range. BOTH bounds, not the first that fits:
+ * returning on the first branch probed only `min-1`, and a backend that dropped
+ * `|| value > max` passed. Reals are included too -- #148 was the Rust backend
  * emitting NO validation for real params, so skipping them omits exactly the
  * class the historical defect lived in. Returns how many probes were written. */
 static int d2_out_of_range( const TA_OptInputParameterInfo *oi, double out[2] )
@@ -2677,9 +2676,9 @@ static ErrorNumber checkOutputAliasRejected( const TA_FuncInfo *funcInfo )
           * no longer true of the corpus either, now that SUPERTREND (#272) ships
           * a real output beside an integer one. C's guard compares the pair
           * through `const void *`; this is what proves it does. Only C can be
-          * asked: Java and Rust cannot express the comparison and C# has no
-          * `Overlaps` across element types, so the rule they are held to is the
-          * same-typed one (Appendix E).
+          * asked here: Java and safe Rust cannot build the case, and C# compares
+          * by byte range but is not reachable through this sweep (B6,
+          * https://ta-lib.org/spec/errors/#b6).
           */
          TA_GetOutputParameterInfo( handle, oa, &outInfoA );
          TA_GetOutputParameterInfo( handle, ob, &outInfoB );
@@ -2765,21 +2764,21 @@ static void testOutputAlias( const TA_FuncInfo *funcInfo, void *opaqueData )
       *errorNumber = err;
 }
 
-/* TA_MAX_INDEX bounds the API domain: an index above it is rejected rather than
+/* TA_INDEX_MAX bounds the API domain: an index above it is rejected rather than
  * computed, identically in all four backends. The guard is generated into every
  * function's prologue, so this drives it over every function ta_abstract
  * reports. (Issue #180.)
  *
  * Every case here returns from the prologue BEFORE any input is dereferenced,
  * and that constraint is what shapes the boundary rows. An index near
- * TA_MAX_INDEX with buffers to match would be 800 MB per array, so a *successful*
+ * TA_INDEX_MAX with buffers to match would be 800 MB per array, so a *successful*
  * call at the boundary is not affordable in this suite and the accepting side
  * has to be observed some other way:
  *
- *  - startIdx == TA_MAX_INDEX accepted: pair it with a smaller endIdx. Answering
+ *  - startIdx == TA_INDEX_MAX accepted: pair it with a smaller endIdx. Answering
  *    _END_INDEX proves the start check let it through; a `>=` off-by-one would
  *    answer _START_INDEX instead.
- *  - endIdx == TA_MAX_INDEX accepted: reach the NEXT check in the prologue.
+ *  - endIdx == TA_INDEX_MAX accepted: reach the NEXT check in the prologue.
  *    An out-of-range optional parameter answers TA_BAD_PARAM, which is only
  *    reachable once both range checks have passed.
  *
@@ -2798,12 +2797,12 @@ typedef struct
 static const TA_IndexRangeCase TA_INDEX_RANGE_CASES[] =
 {
    { -1,               10,                 0, TA_OUT_OF_RANGE_START_INDEX, "startIdx < 0" },
-   { TA_MAX_INDEX+1,   TA_MAX_INDEX+1,     0, TA_OUT_OF_RANGE_START_INDEX, "startIdx > TA_MAX_INDEX" },
+   { TA_INDEX_MAX+1,   TA_INDEX_MAX+1,     0, TA_OUT_OF_RANGE_START_INDEX, "startIdx > TA_INDEX_MAX" },
    { 0,                -1,                 0, TA_OUT_OF_RANGE_END_INDEX,   "endIdx < 0" },
-   { 0,                TA_MAX_INDEX+1,     0, TA_OUT_OF_RANGE_END_INDEX,   "endIdx > TA_MAX_INDEX" },
+   { 0,                TA_INDEX_MAX+1,     0, TA_OUT_OF_RANGE_END_INDEX,   "endIdx > TA_INDEX_MAX" },
    { 10,               9,                  0, TA_OUT_OF_RANGE_END_INDEX,   "endIdx < startIdx" },
-   { TA_MAX_INDEX,     TA_MAX_INDEX-1,     0, TA_OUT_OF_RANGE_END_INDEX,   "startIdx == TA_MAX_INDEX accepted" },
-   { TA_MAX_INDEX,     TA_MAX_INDEX,       1, TA_BAD_PARAM,                "endIdx == TA_MAX_INDEX accepted" }
+   { TA_INDEX_MAX,     TA_INDEX_MAX-1,     0, TA_OUT_OF_RANGE_END_INDEX,   "startIdx == TA_INDEX_MAX accepted" },
+   { TA_INDEX_MAX,     TA_INDEX_MAX,       1, TA_BAD_PARAM,                "endIdx == TA_INDEX_MAX accepted" }
 };
 
 static int indexRangeNbFuncs;        /* functions enumerated                 */
@@ -2813,7 +2812,7 @@ static int indexRangeNbNoProbe;      /* functions with no usable probe       */
 
 /* The boundary-accept row needs an optional-parameter value the prologue is
  * CERTAIN to reject, because the row's safety depends on it: the call is made
- * at startIdx == endIdx == TA_MAX_INDEX, so if validation let the value
+ * at startIdx == endIdx == TA_INDEX_MAX, so if validation let the value
  * through, the body would run and read ~1e8 elements past a 2000-element array.
  * "Certain" therefore means the range the generated prologue enforces is the
  * same range ta_abstract advertises -- true for IntegerRange and RealRange,
@@ -3703,7 +3702,7 @@ static ErrorNumber test_default_calls(void)
    if( errNumber == TA_TEST_PASS )
       TA_ForEachFunc( testOutputAlias, &errNumber );
 
-   /* Every function must bound startIdx/endIdx by TA_MAX_INDEX (issue #180). */
+   /* Every function must bound startIdx/endIdx by TA_INDEX_MAX (issue #180). */
    if( errNumber == TA_TEST_PASS )
    {
       indexRangeNbFuncs = indexRangeNbChecked = 0;

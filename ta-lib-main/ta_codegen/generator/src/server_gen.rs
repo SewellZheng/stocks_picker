@@ -290,6 +290,25 @@ pub fn generate_c_stream_private_header(funcs: &[FuncDef]) -> String {
     }
     s.push('\n');
 
+    // A period bank's slots step through the dispatcher's and the arms' tape
+    // entries (#445), each defined in its own translation unit.
+    s.push_str("/* Period-bank tape entries */\n");
+    let tape_set = crate::streaming::tape_set_of(funcs);
+    for func in funcs
+        .iter()
+        .filter(|f| tape_set.contains(&f.name.to_lowercase()))
+    {
+        for sig in [
+            crate::backends::c_stream::step_tape_signature(func),
+            crate::backends::c_stream::peek_tape_signature(func),
+            crate::backends::c_stream::tape_detach_signature(func),
+        ] {
+            s.push_str(&sig);
+            s.push_str(";\n");
+        }
+    }
+    s.push('\n');
+
     s.push_str("#endif /* TA_FUNC_STREAM_PRIVATE_H */\n");
     s
 }
@@ -361,7 +380,7 @@ pub fn generate_c_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) ->
     // (docs/streaming-api-design.md, Verification). fuzz_data.h is included
     // HERE — after the indicator code — because its file-scope
     // `#pragma STDC FP_CONTRACT OFF` must not alter indicator contraction.
-    // Absent entirely under TA_REF_SERVE (frozen libs have no stream symbols).
+    // Absent under TA_REF_SERVE, where ta_ref/ta_ref_serve.c includes it.
     s.push_str("#ifndef TA_REF_SERVE\n#include \"fuzz_data.h\"\n#endif\n\n");
     s.push_str(&crate::stream_verify_gen::c::generate_c_stream_verify(funcs, enums));
 
@@ -436,7 +455,7 @@ static int json_appendc(char *buf, int buf_size, int pos, char c) {
  * asked for -- while the Rust and Java servers, which range-check a 64-bit
  * parse, rejected the same request. Saturating fails closed instead: no
  * parameter in the library has a legal domain reaching INT_MAX (the widest
- * integer range is 100000, and the index ceiling is TA_MAX_INDEX = 1e8), so a
+ * integer range is 100000, and the index ceiling is TA_INDEX_MAX = 1e8), so a
  * saturated value is refused by whatever validation the field already has.
  *
  * INT_MIN is deliberately NOT the negative clamp: it is TA_INTEGER_DEFAULT,
@@ -456,6 +475,23 @@ static int json_find_int(const char *json, const char *field) {
     if( v > (long long)INT_MAX ) return INT_MAX;
     if( v < (long long)INT_MIN ) return INT_MIN + 1;
     return (int)v;
+}
+
+static int json_has_field(const char *json, const char *field) {
+    char pattern[256];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", field);
+    return strstr(json, pattern) != NULL;
+}
+
+/* An absent MA-type field asks for the function's default. A frozen release
+ * older than TA_MAType_DEFAULT rejects it, but resolves TA_INTEGER_DEFAULT. */
+static TA_MAType json_find_matype(const char *json, const char *field) {
+    if( json_has_field(json, field) ) return (TA_MAType)json_find_int(json, field);
+#ifdef TA_REF_SERVE
+    return (TA_MAType)TA_INTEGER_DEFAULT;
+#else
+    return TA_MAType_DEFAULT;
+#endif
 }
 
 static double json_find_double(const char *json, const char *field) {
@@ -773,12 +809,11 @@ fn emit_c_warmup_arms(s: &mut String, func: &FuncDef, input_names: &[String]) {
             real_idx += 1;
         }
     }
-    // Compiled out for the frozen reference server, whose library predates the
-    // streaming API and exports no TA_<N>_Open / _Close / _OpenAndFill to link
-    // against -- the same guard every other stream-touching handler here carries.
-    // The `bench_mode != 0` early return above is what keeps that honest: without
-    // it this chain would fall through with rc untouched and report the batch
-    // timing as a warm-up number.
+    // Compiled out of a frozen-release serve, like every other stream-touching
+    // handler here: a release's stream tier is private to it, and a function added
+    // since has only batch stubs to link against. The `bench_mode != 0` early
+    // return above is what keeps that honest: without it this chain would fall
+    // through with rc untouched and report the batch timing as a warm-up number.
     s.push_str("#ifndef TA_REF_SERVE\n");
     s.push_str("        else if( bench_mode == 1 ) {\n");
     s.push_str(&format!("            TA_{n}_Stream *_h = NULL;\n"));
@@ -814,6 +849,11 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
     );
     s.push_str("        return;\n");
     s.push_str("    }\n\n");
+
+    s.push_str("#ifdef TA_REF_SERVE\n");
+    s.push_str("    if( ta_ref_handle(json, method, methodLen, resp, resp_size) )\n");
+    s.push_str("        return;\n");
+    s.push_str("#endif /* TA_REF_SERVE */\n\n");
 
     // Handle load_data for perftest pre-loading
     s.push_str("    if ( methodLen == 9 && strncmp(method, \"load_data\", 9) == 0 ) {\n");
@@ -884,7 +924,7 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
                 ));
             } else if matches!(&opt.param_type, ParamType::Enum(_)) {
                 s.push_str(&format!(
-                    "        TA_MAType {} = (TA_MAType)json_find_int(json, \"{}\");\n",
+                    "        TA_MAType {} = json_find_matype(json, \"{}\");\n",
                     opt.name, opt.name
                 ));
             } else {
@@ -917,10 +957,9 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
         // every iteration or a 168-function sweep leaks one per iteration, and
         // the free is nanoseconds against a whole-history replay.
         s.push_str("        int bench_mode = json_find_int(json, \"bench_mode\");\n");
-        // The frozen reference server has no streaming API to warm up, exactly as
-        // the C# backend has none -- so it gives the same answer C# does rather
-        // than timing the batch call and reporting it as a warm-up. ta_bench drops
-        // timing_ns 0 as a non-measurement, so the cref column reads blank.
+        // A frozen-release serve has its stream tier compiled out, so it answers
+        // unsupported rather than timing the batch call and reporting it as a
+        // warm-up. ta_bench drops timing_ns 0 as a non-measurement.
         s.push_str("#ifdef TA_REF_SERVE\n");
         s.push_str("        if( bench_mode != 0 ) {\n");
         s.push_str("            snprintf(resp, resp_size, \"{\\\"retCode\\\":0,\\\"timing_ns\\\":0,\\\"unsupported_mode\\\":1}\");\n");
@@ -1000,9 +1039,8 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
         // a full-precision FNV digest of the raw output bytes instead of the arrays
         // themselves, so a same-input C-vs-C build-flag drift is ONE value to
         // compare rather than outNBElement of them.
-        // fuzz_hash_* live in fuzz_data.h, only present when not TA_REF_SERVE; the
-        // frozen reference server never receives want_hash (server_verify drives
-        // the four generated servers, not ta_ref_serve).
+        // Compiled out of a frozen-release serve: server_verify drives only the
+        // four generated servers.
         s.push_str("#ifndef TA_REF_SERVE\n");
         s.push_str("        if( json_find_int(json, \"want_hash\") && !json_find_int(json, \"full_output\") ) {\n");
         s.push_str("            unsigned long long _oh = fuzz_hash_init();\n");
@@ -1047,11 +1085,8 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
 
         // Float-variant leg: with "use_float":1 the call is re-run through the
         // single-precision TA_S_ API (inputs converted to float) and the
-        // response carries the S-variant result instead. The frozen reference
-        // library also exports the guarded TA_S_ functions, so ta_ref_serve
-        // answers this too — giving S-vs-S comparison against the reference.
-        // Mirrors the double flow: guarded first, then (outside ta_ref_serve)
-        // the S variant over the same buffers.
+        // response carries the S-variant result instead. Mirrors the double flow:
+        // guarded first, then the S variant over the same buffers.
         s.push_str("        int usedFloat = 0;\n");
         s.push_str("        if( json_find_int(json, \"use_float\") ) {\n");
         for (j, _name) in input_names.iter().enumerate() {
@@ -1162,7 +1197,7 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
                 ));
             } else if matches!(&opt.param_type, ParamType::Enum(_)) {
                 s.push_str(&format!(
-                    "        TA_MAType {} = (TA_MAType)json_find_int(json, \"{}\");\n",
+                    "        TA_MAType {} = json_find_matype(json, \"{}\");\n",
                     opt.name, opt.name
                 ));
             } else {
@@ -1459,7 +1494,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    static final int INTEGER_DEFAULT = Integer.MIN_VALUE;\n");
     s.push_str("    static final int INTEGER_MIN = Integer.MIN_VALUE + 1;\n");
     s.push_str("    static final int INTEGER_MAX = Integer.MAX_VALUE;\n");
-    s.push_str("    static final int MAX_INDEX = 100000000;\n");
+    s.push_str("    static final int INDEX_MAX = 100000000;\n");
     // Sized by the id count, so the wildcard gets no slot -- matching the
     // shipped CoreBuilder (#144).
     s.push_str("    int[] unstablePeriod = new int[FuncUnstId.COUNT];\n");
@@ -1494,7 +1529,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("                      + \"outputs sharing one array)\", retCode);\n");
     s.push_str("            case ALLOC_ERR: return new TALibStateException(where + \"allocation failed\", retCode);\n");
     s.push_str("            case INTERNAL_ERROR: return new TALibStateException(where + \"internal error\", retCode);\n");
-    s.push_str("            case INSUFFICIENT_HISTORY: return new InsufficientHistoryException(where + \"history shorter than the lookback\");\n");
+    s.push_str("            case INSUFFICIENT_HISTORY: return new InsufficientHistoryException(where + \"history shorter than lookback + 1\");\n");
     s.push_str("            default: return new TALibStateException(where + retCode, retCode);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
@@ -1525,10 +1560,10 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     s.push_str("    static void requireIndexRange(String funcName, int startIdx, int endIdx) {\n");
-    s.push_str("        if (startIdx < 0 || startIdx > MAX_INDEX) {\n");
+    s.push_str("        if (startIdx < 0 || startIdx > INDEX_MAX) {\n");
     s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_START_INDEX);\n");
     s.push_str("        }\n");
-    s.push_str("        if (endIdx < 0 || endIdx > MAX_INDEX || endIdx < startIdx) {\n");
+    s.push_str("        if (endIdx < 0 || endIdx > INDEX_MAX || endIdx < startIdx) {\n");
     s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_END_INDEX);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
@@ -1548,9 +1583,26 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        if (historyLen < 1) {\n");
     s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_START_INDEX);\n");
     s.push_str("        }\n");
-    s.push_str("        if (historyLen > MAX_INDEX + 1) {\n");
+    s.push_str("        if (historyLen > INDEX_MAX + 1) {\n");
     s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_END_INDEX);\n");
     s.push_str("        }\n");
+    s.push_str("    }\n\n");
+    s.push_str("    static InsufficientHistoryException insufficientHistory(String funcName, int historyLen, int startIdx, int lookback) {\n");
+    s.push_str("        return new InsufficientHistoryException(funcName + \": history has length \" + historyLen\n");
+    s.push_str("              + \", needs \" + (Math.max(startIdx, lookback) + 1));\n");
+    s.push_str("    }\n\n");
+    s.push_str("    static RuntimeException streamFailure(String funcName, RetCode retCode) {\n");
+    s.push_str("        String where = funcName + \": \";\n");
+    s.push_str("        switch (retCode) {\n");
+    s.push_str("            case BAD_PARAM: return new TALibArgumentException(where + \"bad parameter\", retCode);\n");
+    s.push_str("            case INSUFFICIENT_HISTORY: return new InsufficientHistoryException(where + \"history shorter than lookback + 1\");\n");
+    s.push_str("            case INTERNAL_ERROR: return new TALibStateException(where + \"internal error\", retCode);\n");
+    s.push_str("            default: return new TALibArgumentException(where + retCode, retCode);\n");
+    s.push_str("        }\n");
+    s.push_str("    }\n\n");
+    s.push_str("    static TALibArgumentException nonFiniteBar(String funcName, String argName) {\n");
+    s.push_str("        return new TALibArgumentException(funcName + \": \" + argName + \" is not finite\",\n");
+    s.push_str("              RetCode.BAD_PARAM);\n");
     s.push_str("    }\n\n");
     s.push_str("    static void requireArgument(String funcName, String argName, Object argument) {\n");
     s.push_str("        if (argument == null) {\n");
@@ -1719,7 +1771,27 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // ta_abstract metadata table + introspection RPC handlers (issue #114).
     s.push_str(&crate::backends::java_abstract::generate(funcs, enums));
 
-    // Dispatch method
+    s.push_str("    static final String[] FUNC_NAMES = {\n");
+    for func in funcs {
+        let _ = writeln!(s, "        \"TA_{}\",", func.name);
+    }
+    s.push_str("    };\n");
+    s.push_str("    static final java.util.HashMap<String, Integer> FUNC_INDEX = new java.util.HashMap<>();\n");
+    s.push_str("    static { for (int i = 0; i < FUNC_NAMES.length; i++) FUNC_INDEX.put(FUNC_NAMES[i], i); }\n\n");
+
+    // HotSpot silently never compiles a method over 8000 bytecode bytes
+    // (HugeMethodLimit), and every request goes through handleRequest and this
+    // switch: keep per-function code to one case line here and none in
+    // handleRequest.
+    s.push_str("    static String dispatchFunction(int i, String json) {\n");
+    s.push_str("        switch (i) {\n");
+    for (i, func) in funcs.iter().enumerate() {
+        let _ = writeln!(s, "            case {i}: return handle_{}(json);", func.name);
+    }
+    s.push_str("            default: return null;\n");
+    s.push_str("        }\n");
+    s.push_str("    }\n\n");
+
     s.push_str("    static String handleRequest(String json) {\n");
 
     // Handle load_data for perftest pre-loading
@@ -1740,28 +1812,17 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            return \"{\\\"status\\\":\\\"ok\\\",\\\"n\\\":\" + refN + \"}\";\n");
     s.push_str("        }\n");
 
-    // stream_verify MUST dispatch before the per-function chain: its funcName
-    // is TA_-prefixed, so the contains("\"TA_<NAME>\"") probes below would
-    // misroute it to handle_<NAME> (the C server orders the same way).
     s.push_str("        else if (json.contains(\"\\\"stream_verify\\\"\")) return handle_stream_verify(json);\n");
     s.push_str("        else if (json.contains(\"\\\"fuzz_in_hash\\\"\")) return handle_fuzz_in_hash(json);\n");
-
-    // Thin dispatch: each indicator delegates to its own static handle_XXX method.
-    // This keeps handleRequest small enough for HotSpot C2 to JIT-compile it.
-    for func in funcs {
-        let method_name = format!("TA_{}", func.name);
-        s.push_str(&format!(
-            "        else if (json.contains(\"\\\"{method_name}\\\"\")) return handle_{}(json);\n",
-            func.name
-        ));
-    }
+    s.push_str("        Integer _fi = FUNC_INDEX.get(jsonString(json, \"method\"));\n");
+    s.push_str("        if (_fi != null) return dispatchFunction(_fi, json);\n");
 
     // gencode_digest — the two stamps ta_regtest compares. Java only: every other
     // backend's server compiles or links the shipped artifact, so it has no second
     // text that could drift (#322). Reads the SHIPPED constant off the loaded
     // class, never a source file, which is what makes a stale class directory
     // visible here.
-    s.push_str("        else if (json.contains(\"\\\"gencode_digest\\\"\")) {\n");
+    s.push_str("        if (json.contains(\"\\\"gencode_digest\\\"\")) {\n");
     s.push_str("            return \"{\\\"spliced\\\":\\\"\" + SPLICED_GENCODE_DIGEST\n");
     s.push_str("                 + \"\\\",\\\"shipped\\\":\\\"\" + io.github.talib.BuildStamp.GENCODE_DIGEST\n");
     s.push_str("                 + \"\\\"}\";\n");
@@ -1770,12 +1831,10 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // list_functions method — returns {"functions":["TA_SMA","TA_RSI",...]}
     s.push_str("        else if (json.contains(\"\\\"list_functions\\\"\")) {\n");
     s.push_str("            StringBuilder sb = new StringBuilder(\"{\\\"functions\\\":[\");\n");
-    for (i, func) in funcs.iter().enumerate() {
-        if i > 0 {
-            s.push_str("            sb.append(\",\");\n");
-        }
-        s.push_str(&format!("            sb.append(\"\\\"TA_{}\\\"\");\n", func.name));
-    }
+    s.push_str("            for (int i = 0; i < FUNC_NAMES.length; i++) {\n");
+    s.push_str("                if (i > 0) sb.append(',');\n");
+    s.push_str("                sb.append('\"').append(FUNC_NAMES[i]).append('\"');\n");
+    s.push_str("            }\n");
     s.push_str("            sb.append(\"]}\");\n");
     s.push_str("            return sb.toString();\n");
     s.push_str("        }\n");
@@ -1785,9 +1844,9 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            rideGen++;\n");
     s.push_str("            int id = jsonInt(json, \"id\");\n");
     s.push_str("            int period = jsonInt(json, \"period\");\n");
-    // The same 0..=MAX_INDEX domain the C library enforces. Checked before any
+    // The same 0..=INDEX_MAX domain the C library enforces. Checked before any
     // store, so a rejected call leaves every slot as it was (#186).
-    s.push_str("            if (period < 0 || period > Core.MAX_INDEX) {\n");
+    s.push_str("            if (period < 0 || period > Core.INDEX_MAX) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid unstable period value\\\"}\"; \n");
     s.push_str("            }\n");
     // FuncUnstId.ALL is the "set all" sentinel (matches C TA_SetUnstablePeriod).
@@ -1815,13 +1874,14 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            int rangeType = jsonInt(json, \"rangeType\");\n");
     s.push_str("            int avgPeriod = jsonInt(json, \"avgPeriod\");\n");
     s.push_str("            double factor = jsonF64Bits(json, \"factorBits\", 1.0);\n");
-    s.push_str("            if (settingType < 0 || settingType >= CandleSettingType.ALL_CANDLE_SETTINGS.ordinal()) {\n");
+    s.push_str("            if (settingType == CandleSettingType.ALL_CANDLE_SETTINGS.ordinal()\n");
+    s.push_str("                || settingType < 0 || settingType >= core.candleSettings.length) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting\\\"}\";\n");
     s.push_str("            }\n");
     s.push_str("            if (rangeType < 0 || rangeType > RangeType.SHADOWS.ordinal()) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting\\\"}\";\n");
     s.push_str("            }\n");
-    s.push_str("            if (avgPeriod < 0 || avgPeriod > Core.MAX_INDEX) {\n");
+    s.push_str("            if (avgPeriod < 0 || avgPeriod > Core.INDEX_MAX) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting\\\"}\";\n");
     s.push_str("            }\n");
     s.push_str("            if (Double.isNaN(factor)) {\n");
@@ -1837,12 +1897,11 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        else if (json.contains(\"\\\"restore_candle_default_settings\\\"\")) {\n");
     s.push_str("            rideGen++;\n");
     s.push_str("            int settingType = jsonInt(json, \"settingType\");\n");
-    s.push_str("            if (settingType < 0 || settingType > CandleSettingType.ALL_CANDLE_SETTINGS.ordinal()) {\n");
-    s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting type\\\"}\";\n");
-    s.push_str("            }\n");
     s.push_str("            if (settingType == CandleSettingType.ALL_CANDLE_SETTINGS.ordinal()) {\n");
     s.push_str("                System.arraycopy(Core.DEFAULT_CANDLE_SETTINGS, 0, core.candleSettings, 0,\n");
     s.push_str("                    core.candleSettings.length);\n");
+    s.push_str("            } else if (settingType < 0 || settingType >= core.candleSettings.length) {\n");
+    s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting type\\\"}\";\n");
     s.push_str("            } else {\n");
     s.push_str("                core.candleSettings[settingType] = Core.DEFAULT_CANDLE_SETTINGS[settingType];\n");
     s.push_str("            }\n");
@@ -1916,9 +1975,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
         // Parse input arrays or use pre-loaded data
         for name in &input_names {
-            s.push_str(&format!(
-                "        double[] {name} = new double[MAX_ARRAY_SIZE];\n"
-            ));
+            s.push_str(&format!("        double[] {name};\n"));
         }
         s.push_str("        if (use_preloaded != 0 && refN > 0) {\n");
         for (j, name) in input_names.iter().enumerate() {
@@ -1930,16 +1987,14 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                 "refHigh".to_string()
             };
             s.push_str(&format!(
-                "            System.arraycopy({ref_src}, 0, {name}, 0, refN);\n"
+                "            {name} = new double[MAX_ARRAY_SIZE];\n\
+                 \x20           System.arraycopy({ref_src}, 0, {name}, 0, refN);\n"
             ));
         }
         s.push_str("        } else {\n");
         for name in &input_names {
             s.push_str(&format!(
-                "            double[] _tmp_{name} = jsonDoubleArray(json, \"{name}\");\n"
-            ));
-            s.push_str(&format!(
-                "            {name} = _tmp_{name};\n"
+                "            {name} = jsonDoubleArray(json, \"{name}\");\n"
             ));
         }
         s.push_str("        }\n");
@@ -1967,7 +2022,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                 // `_optRejected` is what actually forces the BadParam response
                 // below, and the placeholder is never observed in one.
                 s.push_str(&format!(
-                    "        int _raw_{0} = jsonInt(json, \"{0}\");\n\
+                    "        int _raw_{0} = json.contains(\"\\\"{0}\\\"\") ? jsonInt(json, \"{0}\") : {1}.DEFAULT.ordinal();\n\
                      \x20       if (_raw_{0} < 0 || _raw_{0} >= {1}.values().length) _optRejected = true;\n\
                      \x20       {1} {0} = {1}.values()[_optRejected ? 0 : _raw_{0}];\n",
                     opt.name, enum_name
@@ -2351,6 +2406,9 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             io.github.talib.metadata.OptInputInfo o = f.optInputs().get(i);
             switch (o.type()) {
                 case REAL_RANGE, REAL_LIST -> h.setOptInput(i, jsonDouble(json, o.paramName()));
+                case INTEGER_LIST -> {
+                    if (json.contains("\"" + o.paramName() + "\"")) h.setOptInput(i, jsonInt(json, o.paramName()));
+                }
                 default -> h.setOptInput(i, jsonInt(json, o.paramName()));
             }
         }
@@ -2505,6 +2563,8 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("using TALib.Metadata;\n\n");
 
     s.push_str("public class TaCodegenServe {\n");
+    // Never Core.Default: the unstable-period RPCs write this Core's array in
+    // place, which would then reach every later CreateCall() in the process.
     s.push_str("    static Core core = new Core();\n");
     s.push_str("    const int MAX_ARRAY_SIZE = 200000;\n");
     s.push_str("    static double[] refOpen = new double[MAX_ARRAY_SIZE];\n");
@@ -2682,17 +2742,17 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("                rideGen++;\n");
     s.push_str("                int id = GetInt(p, \"id\", -1);\n");
     s.push_str("                int period = GetInt(p, \"period\", 0);\n");
-    // The same 0..=MaxIndex domain the C library enforces. Checked before any
+    // The same 0..=IndexMax domain the C library enforces. Checked before any
     // store, so a rejected call leaves every slot as it was (#186).
-    s.push_str("                if (period < 0 || period > Core.MaxIndex) {\n");
+    s.push_str("                if (period < 0 || period > Core.IndexMax) {\n");
     s.push_str("                    return \"{\\\"error\\\":\\\"Invalid unstable period value\\\"}\";\n");
     s.push_str("                }\n");
     s.push_str("                if (id == (int)FuncUnstId.ALL) {\n");
-    s.push_str("                    for (int i = 0; i < core.unstablePeriod.Length; i++) core.unstablePeriod[i] = period;\n");
+    s.push_str("                    for (int i = 0; i < core._unstablePeriod.Length; i++) core._unstablePeriod[i] = period;\n");
     s.push_str("                    return \"{\\\"status\\\":\\\"ok\\\"}\";\n");
     s.push_str("                }\n");
-    s.push_str("                if (id >= 0 && id < core.unstablePeriod.Length) {\n");
-    s.push_str("                    core.unstablePeriod[id] = period;\n");
+    s.push_str("                if (id >= 0 && id < core._unstablePeriod.Length) {\n");
+    s.push_str("                    core._unstablePeriod[id] = period;\n");
     s.push_str("                    return \"{\\\"status\\\":\\\"ok\\\"}\";\n");
     s.push_str("                }\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid id\\\"}\";\n");
@@ -2793,9 +2853,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("            else if (method == \"abstract_for_each_func\") return AbsForEachFunc();\n");
     s.push_str("            else if (method == \"TA_FunctionDescriptionXML\") return AbsDescriptionXml();\n");
     s.push_str("            else if (method == \"abstract_call\") return AbsCall(p);\n");
-    // stream_verify: C# stream vs C# batch, bitwise, in-process. Drives the
-    // ta_regtest stream pass the moment the capability probe answers
-    // "not_streamable" — see the TODO(S9) in generate_csharp_stream_verify.
+    // stream_verify: C# stream vs C# batch, bitwise, in-process.
     s.push_str("            else if (method == \"stream_verify\") return HandleStreamVerify(p);\n");
     s.push_str("            else if (method == \"fuzz_in_hash\") return HandleFuzzInHash(p);\n");
     // Unknown method: an error RESPONSE (not a crash) — this is the driver's
@@ -2811,12 +2869,12 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
 
     // The stream-verification section: the bit-compare helpers, the fuzz input
     // generator, one sv_<NAME> per streaming function, and the dispatcher.
-    // `funcs` is already Lang::CSharp-resolved by the caller, which matters —
-    // six functions carry a PRAGMA TA_ALT body claiming the STREAM tier.
+    // `funcs` is already Lang::CSharp-resolved by the caller, which matters
+    // wherever a PRAGMA TA_ALT body claims the STREAM tier.
     s.push_str(&crate::stream_verify_gen::csharp::generate_csharp_stream_verify(funcs, enums));
     s.push_str(&crate::ride_gen::csharp::generate_csharp_ridealong(funcs));
 
-    // ComputeLookback: parse a function's opt params (same JSON keys and 0/0.0
+    // ComputeLookback: parse a function's opt params (same JSON keys and
     // absent-field fallbacks as the per-function handlers) and call its guarded
     // <Name>Lookback. Mirrors the Java server's computeLookback.
     //
@@ -2838,7 +2896,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
                     name = opt.name
                 )),
                 ParamType::Enum(enum_name) => s.push_str(&format!(
-                    "            {ty} {name} = ({ty})GetInt(p, \"{name}\", 0);\n",
+                    "            {ty} {name} = ({ty})GetInt(p, \"{name}\", (int){ty}.DEFAULT);\n",
                     ty = enum_name,
                     name = opt.name
                 )),
@@ -2909,7 +2967,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
         // outside the timing loop. Guarded on bench_mode, same as Java's
         // null-when-unused: endIdx+1 can exceed the array's real length on
         // purpose (the index-range boundary sweep sends endIdx near
-        // TA_MAX_INDEX on a small array to prove the batch call's OWN
+        // TA_INDEX_MAX on a small array to prove the batch call's OWN
         // validation rejects it) -- AsSpan's own bounds check would throw
         // ArgumentOutOfRangeException before that validation ever runs if
         // this were unconditional, on every plain batch call, not just the
@@ -2925,9 +2983,8 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
         }
 
         // Optional params (enum params read as int, cast to the enum type).
-        // An absent field defaults to 0/0.0, matching the C and Java servers
-        // exactly — the driver always sends every param, and a divergent
-        // fallback here could mask a driver bug behind a YAML default.
+        // An absent numeric field reads 0/0.0, as in the C and Java servers; an
+        // absent enum field reads DEFAULT, as in every server.
         for opt in &func.optional_inputs {
             match &opt.param_type {
                 ParamType::Real => {
@@ -2938,7 +2995,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
                 }
                 ParamType::Enum(enum_name) => {
                     s.push_str(&format!(
-                        "        {ty} {name} = ({ty})GetInt(p, \"{name}\", 0);\n",
+                        "        {ty} {name} = ({ty})GetInt(p, \"{name}\", (int){ty}.DEFAULT);\n",
                         ty = enum_name,
                         name = opt.name
                     ));
@@ -2960,7 +3017,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
         // the ta-lib-python #752 failure mode.)
         if func_unst_id(&func.name, enums).is_some() {
             s.push_str(&format!(
-                "        core.unstablePeriod[(int)FunctionCatalog.Default[\"{name}\"].UnstableId!.Value] = GetInt(p, \"unstablePeriod\", 0);\n",
+                "        core._unstablePeriod[(int)FunctionCatalog.Default[\"{name}\"].UnstableId!.Value] = GetInt(p, \"unstablePeriod\", 0);\n",
                 name = func.name
             ));
         }
@@ -3261,7 +3318,7 @@ pub fn csharp_server_csproj() -> String {
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>14.0</LangVersion>
     <!-- Pin invariant culture so double.ToString() cannot vary by locale. -->
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
@@ -3405,10 +3462,6 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    }\n");
     s.push_str("}\n\n");
 
-    // Helper: RetCode to integer. Delegates to the library, whose match is total
-    // -- re-spelling it here would need a `_` arm (`RetCode` is `#[non_exhaustive]`
-    // and this is a downstream crate), and a new variant would then be reported to
-    // the driver as whatever that arm said instead of failing to compile.
     s.push_str("fn retcode_to_int(rc: RetCode) -> i32 {\n");
     s.push_str("    rc.as_c_int()\n");
     s.push_str("}\n\n");
@@ -3613,12 +3666,22 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            format!(\"{{\\\"status\\\":\\\"ok\\\",\\\"n\\\":{}}}\", ref_data.n)\n");
     s.push_str("        }\n");
 
-    // Per-function dispatch
+    // Per-function dispatch. Each handler is its own function in its
+    // indicator's module: rustc partitions codegen units by module, so one
+    // match holding every body, or one module holding every function, compiles
+    // on a single core however many codegen units the profile allows.
+    let mut per_func: Vec<(String, String)> = Vec::new();
     for func in funcs {
         let method_name = format!("TA_{}", func.name);
         let fn_name = crate::backends::common::snake_words(&func.name);
 
-        s.push_str(&format!("        \"{method_name}\" => {{\n"));
+        s.push_str(&format!(
+            "        \"{method_name}\" => rpc_{fn_name}(core, ref_data, params),\n"
+        ));
+        let mut s = String::new();
+        s.push_str(&format!(
+            "pub(super) fn rpc_{fn_name}(core: &mut Core, ref_data: &mut RefData, params: &Value) -> String {{\n"
+        ));
 
         // Parse startIdx, endIdx
         s.push_str(
@@ -3741,7 +3804,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                         .and_then(|e| e.variants.first())
                         .map_or_else(|| "0".to_string(), |v| format!("{enum_name}::{}", v.name));
                     s.push_str(&format!(
-                        "            let {n}_raw = params[\"{n}\"].as_i64().unwrap_or({default_i}) as i32;\n",
+                        "            let {n}_raw = params[\"{n}\"].as_i64().unwrap_or({enum_name}::DEFAULT as i64) as i32;\n",
                         n = opt.name
                     ));
                     s.push_str(&format!(
@@ -3992,7 +4055,8 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         }
         s.push_str("            resp.push('}');\n");
         s.push_str("            resp\n");
-        s.push_str("        }\n");
+        s.push_str("}\n\n");
+        per_func.push((fn_name, s));
     }
 
     // list_functions method
@@ -4157,9 +4221,21 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    }\n");
     s.push_str("}\n");
 
-    // Stream verify section (sv_<name> per streamable function + dispatcher).
-    s.push_str(&crate::stream_verify_gen::rust_lang::generate_rust_stream_verify(funcs, enums));
-    s.push_str(&crate::ride_gen::rust_lang::generate_rust_ridealong(funcs));
+    s.push_str(&crate::stream_verify_gen::rust_lang::generate_rust_stream_verify(funcs));
+    s.push_str(&crate::ride_gen::rust_lang::generate_rust_ridealong());
+
+    let lookup = crate::streaming::FuncsLookup(funcs);
+    for (func, (fn_name, rpc)) in funcs.iter().zip(&per_func) {
+        s.push_str(&format!("mod f_{fn_name} {{\nuse super::*;\n\n"));
+        s.push_str(rpc);
+        if crate::backends::rust_stream::emits_stream(func, &lookup) {
+            s.push_str(&crate::stream_verify_gen::rust_lang::emit_rust_sv_func(func, funcs, enums));
+        }
+        if func.streaming {
+            s.push_str(&crate::ride_gen::rust_lang::emit_rust_ridealong_fn(func));
+        }
+        s.push_str(&format!("}}\nuse f_{fn_name}::*;\n\n"));
+    }
 
     s
 }
@@ -4316,11 +4392,11 @@ fn abs_call(core: &Core, params: &Value) -> String {
     // clamping, and the driver compares retCodes.
     let raw_start = params["startIdx"].as_i64().unwrap_or(0);
     let raw_end = params["endIdx"].as_i64().unwrap_or(0);
-    if raw_start < 0 || raw_start > Core::MAX_INDEX as i64 {
+    if raw_start < 0 || raw_start > Core::INDEX_MAX as i64 {
         return format!("{{\"binder\":1,\"lookback\":-1,\"retCode\":{},\"outBegIdx\":0,\"outNBElement\":0}}",
                        retcode_to_int(RetCode::OutOfRangeStartIndex));
     }
-    if raw_end < 0 || raw_end > Core::MAX_INDEX as i64 || raw_end < raw_start {
+    if raw_end < 0 || raw_end > Core::INDEX_MAX as i64 || raw_end < raw_start {
         return format!("{{\"binder\":1,\"lookback\":-1,\"retCode\":{},\"outBegIdx\":0,\"outNBElement\":0}}",
                        retcode_to_int(RetCode::OutOfRangeEndIndex));
     }
@@ -4533,13 +4609,10 @@ would silently drop the other property.\n\
 FLOORED AT ONE, deliberately. Zero is what the formula gives for a rejected call\n\
 (the lookback is -1, or usize::MAX in Rust, for an out-of-range parameter) and\n\
 for a range shorter than the lookback, where the output bound switches off and\n\
-the spec says any length will do, including none. It does not: two EMPTY output\n\
-buffers are rejected as aliased by C# (an explicit IsEmpty clause) and by Rust\n\
-(the empty Vec the server hands each output shares one dangling as_ptr()), and\n\
-accepted by C and Java -- a four-way divergence on a call the specification says\n\
-all four accept. Sizing to zero here would reach it on every multi-output\n\
-function, which is a semantic question, not a harness one. Recorded as\n\
-error-handling-spec, open item 11.\n\
+the spec says any length will do, including none. Sizing to zero here would put\n\
+every multi-output function on the empty-buffer aliasing edge of\n\
+error-handling-spec Appendix D item 11 (fixed), which each backend's own suite\n\
+probes.\n\
 The C server keeps its MAX_ARRAY_SIZE statics: C is handed bare pointers, has no\n\
 sizes and cannot make the check, so an exact buffer would test nothing there.";
 
@@ -4748,9 +4821,9 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         // `n` below drives every output allocation, so validating after it
         // would turn an out-of-range request into an 800MB-per-output
         // allocation and take the server down instead of returning a code.
-        if (startIdx < 0 || startIdx > Core.MaxIndex)
+        if (startIdx < 0 || startIdx > Core.IndexMax)
             return "{\"binder\":1,\"lookback\":-1,\"retCode\":12,\"outBegIdx\":0,\"outNBElement\":0}";
-        if (endIdx < 0 || endIdx > Core.MaxIndex || endIdx < startIdx)
+        if (endIdx < 0 || endIdx > Core.IndexMax || endIdx < startIdx)
             return "{\"binder\":1,\"lookback\":-1,\"retCode\":13,\"outBegIdx\":0,\"outNBElement\":0}";
         int n = endIdx - startIdx + 1;
         if (n < 1) n = 1;
@@ -4773,7 +4846,7 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
         }
 
         if (f.UnstableId is FuncUnstId unstId) {
-            core.unstablePeriod[(int)unstId] = GetInt(p, "unstablePeriod", 0);
+            core._unstablePeriod[(int)unstId] = GetInt(p, "unstablePeriod", 0);
         }
 
         for (int i = 0; i < f.OptInputs.Length; i++) {

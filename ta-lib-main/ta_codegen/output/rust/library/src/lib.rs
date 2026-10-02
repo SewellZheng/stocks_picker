@@ -39,7 +39,7 @@
 //! * Every call returns [`Result`]`<`[`OutRange`]`, `[`RetCode`]`>`, so it composes with
 //!   `?`. [`OutRange`] says where the values start ([`beg_idx`](OutRange::beg_idx), in the
 //!   input series' coordinates) and how many there are ([`count`](OutRange::count)).
-//!   A range shorter than the lookback is a **success with no values**, not an error.
+//!   A range that ends before the lookback is a **success with no values**, not an error.
 //!
 //! [`Core`] is immutable after construction: its per-instance settings — unstable
 //! period and candlestick thresholds — are chosen up front with
@@ -65,22 +65,21 @@
 //!
 //! The crate is `#![forbid(unsafe_code)]`: a bounds violation panics, it never
 //! triggers undefined behavior. On x86-64, the batch entry
-//! points of indicators built on fused multiply-adds are compiled twice and the
+//! points of indicators built on fused multiply-adds, and the stream `update`
+//! of those with enough fused arithmetic per bar, are compiled twice and the
 //! hardware-FMA clone is selected at runtime (the same dispatch the C library
 //! performs via `target_clones`); both paths are correctly rounded, so results
 //! are bit-identical either way. Calling that clone is the one `unsafe` in the
 //! crate's shipped dependency graph: it lives in `ta-lib-dispatch`, inside the
 //! `is_x86_feature_detected!("fma")` test that has just proved it sound, and
 //! `forbid` here does not see it because it expands from another crate's macro.
-//! The streaming tier stays single-path.
 //!
 //! # Live data
 //!
 //! The calls above take a whole series at once. For a feed that arrives one bar
 //! at a time, each indicator also has a *streaming* form: an `*_open` method
 //! ([`Core::sma_open`], [`Core::rsi_open`], …) warms a handle up on the history
-//! you already have, and from then on one bar in gives that bar's value out,
-//! with no re-scan of the series and no allocation per bar.
+//! you already have, and from then on one bar in gives that bar's value out.
 //!
 //! ```
 //! use ta_lib::Core;
@@ -176,7 +175,7 @@
 //! * [`TAN`](Core::tan) — Vector Trigonometric Tan
 //! * [`TANH`](Core::tanh) — Vector Trigonometric Tanh
 //!
-//! ## Momentum Indicators (47)
+//! ## Momentum Indicators (58)
 //!
 //! * [`AC`](Core::ac) — Accelerator/Decelerator Oscillator
 //! * [`ADX`](Core::adx) — Average Directional Movement Index
@@ -185,19 +184,28 @@
 //! * [`APO`](Core::apo) — Absolute Price Oscillator
 //! * [`AROON`](Core::aroon) — Aroon
 //! * [`AROONOSC`](Core::aroonosc) — Aroon Oscillator
+//! * [`ASI`](Core::asi) — Wilder Accumulative Swing Index
 //! * [`BOP`](Core::bop) — Balance Of Power
 //! * [`CCI`](Core::cci) — Commodity Channel Index
+//! * [`CG`](Core::cg) — Center of Gravity Oscillator
+//! * [`CHOP`](Core::chop) — Choppiness Index
+//! * [`CHOPTR`](Core::choptr) — Choppiness Index (True Range Box)
 //! * [`CMO`](Core::cmo) — Chande Momentum Oscillator
 //! * [`CMOU`](Core::cmou) — Chande Momentum Oscillator (Unsmoothed)
 //! * [`COPPOCK`](Core::coppock) — Coppock Curve
+//! * [`CRSI`](Core::crsi) — Connors Relative Strength Index
+//! * [`CTI`](Core::cti) — Correlation Trend Indicator
 //! * [`DPO`](Core::dpo) — Detrended Price Oscillator
 //! * [`DX`](Core::dx) — Directional Movement Index
 //! * [`ER`](Core::er) — Kaufman Efficiency Ratio
 //! * [`ERI`](Core::eri) — Elder Ray Index (Bull Power / Bear Power)
 //! * [`FOSC`](Core::fosc) — Forecast Oscillator
 //! * [`FRACTAL`](Core::fractal) — Williams Fractal
+//! * [`IBS`](Core::ibs) — Internal Bar Strength
 //! * [`IMI`](Core::imi) — Intraday Momentum Index
 //! * [`KDJ`](Core::kdj) — KDJ Stochastic
+//! * [`KST`](Core::kst) — Know Sure Thing (Pring)
+//! * [`KSTEXT`](Core::kstext) — Know Sure Thing with controllable MA type
 //! * [`MACD`](Core::macd) — Moving Average Convergence/Divergence
 //! * [`MACDEXT`](Core::macdext) — MACD with controllable MA type
 //! * [`MACDFIX`](Core::macdfix) — Moving Average Convergence/Divergence Fix 12/26
@@ -214,7 +222,9 @@
 //! * [`ROCR`](Core::rocr) — Rate of change ratio: (price/prevPrice)
 //! * [`ROCR100`](Core::rocr100) — Rate of change ratio 100 scale: (price/prevPrice)*100
 //! * [`RSI`](Core::rsi) — Relative Strength Index
+//! * [`SI`](Core::si) — Wilder Swing Index
 //! * [`SMI`](Core::smi) — Stochastic Momentum Index
+//! * [`STC`](Core::stc) — Schaff Trend Cycle
 //! * [`STOCH`](Core::stoch) — Stochastic
 //! * [`STOCHF`](Core::stochf) — Stochastic Fast
 //! * [`STOCHRSI`](Core::stochrsi) — Stochastic Relative Strength Index
@@ -226,13 +236,16 @@
 //! * [`WAD`](Core::wad) — Williams' Accumulation/Distribution
 //! * [`WILLR`](Core::willr) — Williams' %R
 //!
-//! ## Overlap Studies (25)
+//! ## Overlap Studies (30)
 //!
 //! * [`ACCBANDS`](Core::accbands) — Acceleration Bands
+//! * [`ALMA`](Core::alma) — Arnaud Legoux Moving Average
 //! * [`BBANDS`](Core::bbands) — Bollinger Bands
+//! * [`CKSP`](Core::cksp) — Chande Kroll Stop
 //! * [`DEMA`](Core::dema) — Double Exponential Moving Average
 //! * [`DONCHIAN`](Core::donchian) — Donchian Channels
 //! * [`EMA`](Core::ema) — Exponential Moving Average
+//! * [`FRAMA`](Core::frama) — Fractal Adaptive Moving Average
 //! * [`HMA`](Core::hma) — Hull Moving Average
 //! * [`HT_TRENDLINE`](Core::ht_trendline) — Hilbert Transform - Instantaneous Trendline
 //! * [`KAMA`](Core::kama) — Kaufman Adaptive Moving Average
@@ -240,6 +253,7 @@
 //! * [`MA`](Core::ma) — Moving average
 //! * [`MAMA`](Core::mama) — MESA Adaptive Moving Average
 //! * [`MAVP`](Core::mavp) — Moving average with variable period
+//! * [`MCGD`](Core::mcgd) — McGinley Dynamic
 //! * [`MIDPOINT`](Core::midpoint) — MidPoint over period
 //! * [`MIDPRICE`](Core::midprice) — Midpoint Price over period
 //! * [`RMA`](Core::rma) — Wilder's Smoothed Moving Average
@@ -250,6 +264,7 @@
 //! * [`T3`](Core::t3) — Triple Exponential Moving Average (T3)
 //! * [`TEMA`](Core::tema) — Triple Exponential Moving Average
 //! * [`TRIMA`](Core::trima) — Triangular Moving Average
+//! * [`VIDYA`](Core::vidya) — Variable Index Dynamic Average
 //! * [`VWMA`](Core::vwma) — Volume Weighted Moving Average
 //! * [`WMA`](Core::wma) — Weighted Moving Average
 //! * [`ZLEMA`](Core::zlema) — Zero-Lag Exponential Moving Average
@@ -327,36 +342,42 @@
 //! * [`TYPPRICE`](Core::typprice) — Typical Price
 //! * [`WCLPRICE`](Core::wclprice) — Weighted Close Price
 //!
-//! ## Statistic Functions (11)
+//! ## Statistic Functions (13)
 //!
 //! * [`BETA`](Core::beta) — Beta
 //! * [`CORREL`](Core::correl) — Pearson's Correlation Coefficient (r)
+//! * [`KURTOSIS`](Core::kurtosis) — Rolling Excess Kurtosis
 //! * [`LINEARREG`](Core::linearreg) — Linear Regression
 //! * [`LINEARREG_ANGLE`](Core::linearreg_angle) — Linear Regression Angle
 //! * [`LINEARREG_INTERCEPT`](Core::linearreg_intercept) — Linear Regression Intercept
 //! * [`LINEARREG_SLOPE`](Core::linearreg_slope) — Linear Regression Slope
+//! * [`MEDIAN`](Core::median) — Rolling Median
 //! * [`PERCENTILE`](Core::percentile) — Percentile (nearest rank)
 //! * [`PERCENTRANK`](Core::percentrank) — Percent Rank
 //! * [`STDDEV`](Core::stddev) — Standard Deviation
 //! * [`TSF`](Core::tsf) — Time Series Forecast
 //! * [`VAR`](Core::var) — Variance
 //!
-//! ## Volatility Indicators (7)
+//! ## Volatility Indicators (10)
 //!
 //! * [`ADR`](Core::adr) — Average Day Range
 //! * [`ATR`](Core::atr) — Average True Range
+//! * [`BBW`](Core::bbw) — Bollinger BandWidth
 //! * [`CVI`](Core::cvi) — Chaikin's Volatility
 //! * [`MASSI`](Core::massi) — Mass Index
 //! * [`NATR`](Core::natr) — Normalized Average True Range
+//! * [`PERCENTB`](Core::percentb) — Bollinger Bands %B
 //! * [`RVI`](Core::rvi) — Relative Volatility Index
+//! * [`RVIR`](Core::rvir) — Relative Volatility Index, refined high/low form
 //! * [`TRANGE`](Core::trange) — True Range
 //!
-//! ## Volume Indicators (12)
+//! ## Volume Indicators (13)
 //!
 //! * [`AD`](Core::ad) — Chaikin A/D Line
 //! * [`ADOSC`](Core::adosc) — Chaikin A/D Oscillator
 //! * [`CMF`](Core::cmf) — Chaikin Money Flow
 //! * [`EFI`](Core::efi) — Elder's Force Index
+//! * [`EMV`](Core::emv) — Arms Ease of Movement
 //! * [`MARKETFI`](Core::marketfi) — Market Facilitation Index
 //! * [`NVI`](Core::nvi) — Negative Volume Index
 //! * [`OBV`](Core::obv) — On Balance Volume
@@ -380,6 +401,7 @@
 // than applied. `too_many_arguments` is inherent to the C API arity.
 #![allow(clippy::all, clippy::pedantic)]
 #![allow(clippy::approx_constant)] // PI (180/3.141592653589793) is copied verbatim from the C source.
+#![deny(clippy::disallowed_methods)] // clippy.toml: the f64 methods that are not C's.
 // Private, so every public type has exactly one path. `ta_func` is the C source
 // directory's name, and `ta_lib::ta_func::Core` would stutter; the glob below is
 // the only way in (#179 C5).

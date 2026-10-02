@@ -91,9 +91,9 @@ TA_LIB_API TA_RetCode TA_CDLHANGINGMAN( int    startIdx,
    int ShadowLong_avgPeriod = TA_Globals->candleSettings[TA_ShadowLong].avgPeriod;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -180,7 +180,7 @@ TA_LIB_API TA_RetCode TA_CDLHANGINGMAN( int    startIdx,
           (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i) && /* very short upper shadow */
           min(inClose[i],inOpen[i]) >= inHigh[i - 1] - TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) ) /* rb near the prior candle's highs */
       {
-         outInteger[outIdx++] = 0 - 100;
+         outInteger[outIdx++] = -100;
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -230,9 +230,9 @@ TA_RetCode TA_S_CDLHANGINGMAN( int    startIdx,
    int ShadowLong_avgPeriod = TA_Globals->candleSettings[TA_ShadowLong].avgPeriod;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -297,7 +297,7 @@ TA_RetCode TA_S_CDLHANGINGMAN( int    startIdx,
    {
       if( fabs((double)inClose[i] - (double)inOpen[i]) < TA_CANDLEAVERAGE(BodyShort,BodyPeriodTotal,i) && ((((double)inClose[i] >= (double)inOpen[i]) ? (double)inOpen[i] : (double)inClose[i]) - (double)inLow[i]) > TA_CANDLEAVERAGE(ShadowLong,ShadowLongPeriodTotal,i) && ((double)inHigh[i] - (((double)inClose[i] >= (double)inOpen[i]) ? (double)inClose[i] : (double)inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i) && min((double)inClose[i],(double)inOpen[i]) >= (double)inHigh[i - 1] - TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) )
       {
-         outInteger[outIdx++] = 0 - 100;
+         outInteger[outIdx++] = -100;
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -382,7 +382,7 @@ static void TA_CDLHANGINGMAN_StepImpl( struct TA_CDLHANGINGMAN_Stream *sp, doubl
        (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal,inOpen,inHigh,inLow,inClose) && /* very short upper shadow */
        min(inClose,inOpen) >= sp->lag1_inHigh - TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) ) /* rb near the prior candle's highs */
    {
-      *outInteger= 0 - 100;
+      *outInteger= -100;
    } else 
    {
       *outInteger= 0;
@@ -433,7 +433,7 @@ static TA_RetCode TA_CDLHANGINGMAN_OpenImpl( struct TA_CDLHANGINGMAN_Stream **st
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
@@ -531,7 +531,7 @@ static TA_RetCode TA_CDLHANGINGMAN_OpenImpl( struct TA_CDLHANGINGMAN_Stream **st
              (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i) && /* very short upper shadow */
              min(inClose[i],inOpen[i]) >= inHigh[i - 1] - TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) ) /* rb near the prior candle's highs */
          {
-            outInteger[outIdx++ * outStride] = 0 - 100;
+            outInteger[outIdx++ * outStride] = -100;
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -637,7 +637,7 @@ TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_Open( TA_CDLHANGINGMAN_Stream **stream, c
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLHANGINGMAN_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
@@ -647,7 +647,7 @@ TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_OpenAndFill( TA_CDLHANGINGMAN_Stream **st
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLHANGINGMAN_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
@@ -662,7 +662,7 @@ TA_RetCode TA_CDLHANGINGMAN_OpenAndFillInternal( struct TA_CDLHANGINGMAN_Stream 
 TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_Update( TA_CDLHANGINGMAN_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -682,7 +682,7 @@ TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_Peek( const TA_CDLHANGINGMAN_Stream *stre
        (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal,inOpen,inHigh,inLow,inClose) && /* very short upper shadow */
        min(inClose,inOpen) >= sp->lag1_inHigh - TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) ) /* rb near the prior candle's highs */
    {
-      *outInteger= 0 - 100;
+      *outInteger= -100;
    } else 
    {
       *outInteger= 0;
@@ -714,7 +714,7 @@ TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_OutRange( const TA_CDLHANGINGMAN_Stream *
 TA_LIB_API TA_RetCode TA_CDLHANGINGMAN_Advance( TA_CDLHANGINGMAN_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

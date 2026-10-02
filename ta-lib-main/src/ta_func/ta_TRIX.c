@@ -93,9 +93,9 @@ TA_LIB_API TA_RetCode TA_TRIX( int    startIdx,
    int lookbackEMA;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -240,9 +240,9 @@ TA_RetCode TA_S_TRIX( int    startIdx,
    int lookbackEMA;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -343,11 +343,12 @@ struct TA_TRIX_Stream {
    double prevEMA1;
    double prevEMA2;
    double prevEMA3;
+   double pad_0;
    double optInK_1;
 };
 
 /* Private function, not in public API. */
-static void TA_TRIX_StepImpl( struct TA_TRIX_Stream *sp, double inReal, double *outReal )
+static TA_FMA_STEP_INLINE void TA_TRIX_StepImpl( struct TA_TRIX_Stream *sp, double inReal, double *outReal )
 {
    double tempReal;
 
@@ -373,7 +374,7 @@ static TA_RetCode TA_TRIX_OpenImpl( struct TA_TRIX_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -545,7 +546,7 @@ TA_LIB_API TA_RetCode TA_TRIX_Open( TA_TRIX_Stream **stream, const double inReal
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_TRIX_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -555,7 +556,7 @@ TA_LIB_API TA_RetCode TA_TRIX_OpenAndFill( TA_TRIX_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_TRIX_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -567,10 +568,11 @@ TA_RetCode TA_TRIX_OpenAndFillInternal( struct TA_TRIX_Stream **stream, const do
    return TA_TRIX_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_TRIX_Update( TA_TRIX_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -631,7 +633,7 @@ TA_LIB_API TA_RetCode TA_TRIX_OutRange( const TA_TRIX_Stream *stream, int *outBe
 TA_LIB_API TA_RetCode TA_TRIX_Advance( TA_TRIX_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

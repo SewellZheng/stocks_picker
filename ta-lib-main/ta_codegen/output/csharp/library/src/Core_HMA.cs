@@ -136,10 +136,10 @@ public partial class Core
       double[] dRing;
       int dRing_Idx = 0;
       int maxIdx_dRing = (50)-1;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -491,10 +491,10 @@ public partial class Core
       double[] dRing;
       int dRing_Idx = 0;
       int maxIdx_dRing = (50)-1;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -758,8 +758,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>HmaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>HmaLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -768,26 +773,35 @@ public partial class Core
    /// <param name="optInTimePeriod">Number of bars in the full-period WMA; the half and square-root periods
    /// derive from it (default 20; range 1..100000; <c>int.MinValue</c> selects
    /// the default).</param>
-   /// <param name="outReal">Hull moving average of the input. Must hold at least <c>endIdx - startIdx
-   /// + 1</c> values.</param>
+   /// <param name="outReal">Hull moving average of the input. Must hold at least <c>endIdx -
+   /// max(startIdx, HmaLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Wma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Hma( int startIdx,
                         int endIdx,
                         ReadOnlySpan<double> inReal,
@@ -843,8 +857,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>HmaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>HmaLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -853,28 +872,37 @@ public partial class Core
    /// <param name="optInTimePeriod">Number of bars in the full-period WMA; the half and square-root periods
    /// derive from it (default 20; range 1..100000; <c>int.MinValue</c> selects
    /// the default).</param>
-   /// <param name="outReal">Hull moving average of the input. Must hold at least <c>endIdx - startIdx
-   /// + 1</c> values.</param>
+   /// <param name="outReal">Hull moving average of the input. Must hold at least <c>endIdx -
+   /// max(startIdx, HmaLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Wma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Hma( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inReal,
@@ -965,7 +993,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -978,13 +1006,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("HMA", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -1041,7 +1069,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -1052,7 +1079,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -1060,9 +1087,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("HMA", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("HMA", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("HMA", "update", nameof(inReal));
          core.HmaStepImpl(this, inReal);
          outRangeCount++;
          return cur_outReal;
@@ -1074,16 +1101,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public double Peek( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("HMA", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("HMA", "peek", nameof(inReal));
          HmaStream sp = this;
          double cur_outReal = 0.0;
          if( sp.optInTimePeriod == 1 ) {
@@ -1102,14 +1128,8 @@ public partial class Core
             double trailingFull = sp.trailingFull;
             int pkSlot0 = -1;
             double pkVal0 = 0.0;
-            int pkSlot1 = -1;
-            double pkVal1 = 0.0;
-            if( sp.ringCap_trailingIdxFull == 0 ) {
-               pkSlot0 = 0;
-               pkVal0 = inReal;
-            }
-            pkSlot1 = sp.winPos_jFull;
-            pkVal1 = inReal;
+            pkSlot0 = sp.winPos_jFull;
+            pkVal0 = inReal;
             tempReal = inReal;
             periodSubFull += tempReal;
             periodSubFull -= trailingFull;
@@ -1121,13 +1141,13 @@ public partial class Core
                periodSumFull = 0.0;
                rw = 1;
                for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
-                  tempReal2 = (((sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull) != pkSlot1) ? sp.win_jFull_inReal[(sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull] : pkVal1;
+                  tempReal2 = (((sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull) != pkSlot0) ? sp.win_jFull_inReal[(sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull] : pkVal0;
                   periodSubFull += tempReal2;
                   periodSumFull += tempReal2 * rw;
                   rw += 1;
                }
             }
-            trailingFull = (sp.ringPos_trailingIdxFull != pkSlot0) ? sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] : pkVal0;
+            trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
             fullOut = periodSumFull / sp.dividerFull;
             periodSumFull -= periodSubFull;
             cur_outReal = 2.0 * tempReal - fullOut;
@@ -1159,22 +1179,10 @@ public partial class Core
             double pkVal0 = 0.0;
             int pkSlot1 = -1;
             double pkVal1 = 0.0;
-            int pkSlot2 = -1;
-            double pkVal2 = 0.0;
-            int pkSlot3 = -1;
-            double pkVal3 = 0.0;
-            if( sp.ringCap_trailingIdxFull == 0 ) {
-               pkSlot0 = 0;
-               pkVal0 = inReal;
-            }
-            if( sp.ringCap_trailingIdxHalf == 0 ) {
-               pkSlot1 = 0;
-               pkVal1 = inReal;
-            }
-            pkSlot2 = sp.winPos_jFull;
-            pkVal2 = inReal;
-            pkSlot3 = sp.winPos_jHalf;
-            pkVal3 = inReal;
+            pkSlot0 = sp.winPos_jFull;
+            pkVal0 = inReal;
+            pkSlot1 = sp.winPos_jHalf;
+            pkVal1 = inReal;
             tempReal = inReal;
             periodSubFull += tempReal;
             periodSubFull -= trailingFull;
@@ -1186,13 +1194,13 @@ public partial class Core
                periodSumFull = 0.0;
                rw = 1;
                for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
-                  tempReal2 = (((sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull) != pkSlot2) ? sp.win_jFull_inReal[(sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull] : pkVal2;
+                  tempReal2 = (((sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull) != pkSlot0) ? sp.win_jFull_inReal[(sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull] : pkVal0;
                   periodSubFull += tempReal2;
                   periodSumFull += tempReal2 * rw;
                   rw += 1;
                }
             }
-            trailingFull = (sp.ringPos_trailingIdxFull != pkSlot0) ? sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] : pkVal0;
+            trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
             fullOut = periodSumFull / sp.dividerFull;
             periodSumFull -= periodSubFull;
             periodSubHalf += tempReal;
@@ -1205,13 +1213,13 @@ public partial class Core
                periodSumHalf = 0.0;
                rw = 1;
                for( jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 ) {
-                  tempReal2 = (((sp.winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : sp.winPos_jHalf + sp.winCap_jHalf - jHalf) != pkSlot3) ? sp.win_jHalf_inReal[(sp.winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : sp.winPos_jHalf + sp.winCap_jHalf - jHalf] : pkVal3;
+                  tempReal2 = (((sp.winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : sp.winPos_jHalf + sp.winCap_jHalf - jHalf) != pkSlot1) ? sp.win_jHalf_inReal[(sp.winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : sp.winPos_jHalf + sp.winCap_jHalf - jHalf] : pkVal1;
                   periodSubHalf += tempReal2;
                   periodSumHalf += tempReal2 * rw;
                   rw += 1;
                }
             }
-            trailingHalf = (sp.ringPos_trailingIdxHalf != pkSlot1) ? sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf] : pkVal1;
+            trailingHalf = sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf];
             halfOut = periodSumHalf / sp.dividerHalf;
             periodSumHalf -= periodSubHalf;
             diffReal = 2.0 * halfOut - fullOut;
@@ -1271,7 +1279,7 @@ public partial class Core
       }
    }
 
-   internal void HmaStepImpl( HmaStream sp, double inReal )
+   private void HmaStepImpl( HmaStream sp, double inReal )
    {
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -1283,9 +1291,7 @@ public partial class Core
          int jFull = 0;
          int rw = 0;
          double tempReal2 = 0.0;
-         if( sp.ringCap_trailingIdxFull == 0 ) {
-            sp.ring_trailingIdxFull_inReal[0] = inReal;
-         }
+         int ringCapL_trailingIdxFull = 0;
          sp.win_jFull_inReal[sp.winPos_jFull] = inReal;
          tempReal = inReal;
          sp.periodSubFull += tempReal;
@@ -1308,9 +1314,10 @@ public partial class Core
          fullOut = sp.periodSumFull / sp.dividerFull;
          sp.periodSumFull -= sp.periodSubFull;
          sp.cur_outReal = 2.0 * tempReal - fullOut;
+         ringCapL_trailingIdxFull = sp.ringCap_trailingIdxFull;
          sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
          sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
-         if( sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
+         if( sp.ringPos_trailingIdxFull >= ringCapL_trailingIdxFull ) {
             sp.ringPos_trailingIdxFull = 0;
          }
          sp.winPos_jFull = sp.winPos_jFull + 1;
@@ -1328,12 +1335,8 @@ public partial class Core
          int rw = 0;
          int ringWalk = 0;
          double tempReal2 = 0.0;
-         if( sp.ringCap_trailingIdxFull == 0 ) {
-            sp.ring_trailingIdxFull_inReal[0] = inReal;
-         }
-         if( sp.ringCap_trailingIdxHalf == 0 ) {
-            sp.ring_trailingIdxHalf_inReal[0] = inReal;
-         }
+         int ringCapL_trailingIdxFull = 0;
+         int ringCapL_trailingIdxHalf = 0;
          sp.win_jFull_inReal[sp.winPos_jFull] = inReal;
          sp.win_jHalf_inReal[sp.winPos_jHalf] = inReal;
          tempReal = inReal;
@@ -1413,14 +1416,16 @@ public partial class Core
          }
          sp.cur_outReal = sp.periodSumSqrt / sp.dividerSqrt;
          sp.periodSumSqrt -= sp.periodSubSqrt;
+         ringCapL_trailingIdxFull = sp.ringCap_trailingIdxFull;
          sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
          sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
-         if( sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
+         if( sp.ringPos_trailingIdxFull >= ringCapL_trailingIdxFull ) {
             sp.ringPos_trailingIdxFull = 0;
          }
+         ringCapL_trailingIdxHalf = sp.ringCap_trailingIdxHalf;
          sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf] = inReal;
          sp.ringPos_trailingIdxHalf = sp.ringPos_trailingIdxHalf + 1;
-         if( sp.ringPos_trailingIdxHalf >= sp.ringCap_trailingIdxHalf ) {
+         if( sp.ringPos_trailingIdxHalf >= ringCapL_trailingIdxHalf ) {
             sp.ringPos_trailingIdxHalf = 0;
          }
          sp.winPos_jFull = sp.winPos_jFull + 1;
@@ -1443,7 +1448,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1648,7 +1653,7 @@ public partial class Core
          outNBElement = outIdx;
          /* Capture the live batch state into the handle. */
          int cap_trailingIdxFull = today - trailingIdxFull;
-         if( cap_trailingIdxFull < 0 || cap_trailingIdxFull > historyLen ) {
+         if( cap_trailingIdxFull < 1 || cap_trailingIdxFull > historyLen ) {
             return RetCode.InternalError;
          }
          int allocN_trailingIdxFull = (cap_trailingIdxFull > 0)? cap_trailingIdxFull : 1;
@@ -1976,14 +1981,14 @@ public partial class Core
          outNBElement = outIdx;
          /* Capture the live batch state into the handle. */
          int cap_trailingIdxFull = today - trailingIdxFull;
-         if( cap_trailingIdxFull < 0 || cap_trailingIdxFull > historyLen ) {
+         if( cap_trailingIdxFull < 1 || cap_trailingIdxFull > historyLen ) {
             return RetCode.InternalError;
          }
          int allocN_trailingIdxFull = (cap_trailingIdxFull > 0)? cap_trailingIdxFull : 1;
          double[] capRing_trailingIdxFull_inReal = new double[allocN_trailingIdxFull];
          inReal.Slice(historyLen - cap_trailingIdxFull, cap_trailingIdxFull).CopyTo(capRing_trailingIdxFull_inReal);
          int cap_trailingIdxHalf = today - trailingIdxHalf;
-         if( cap_trailingIdxHalf < 0 || cap_trailingIdxHalf > historyLen ) {
+         if( cap_trailingIdxHalf < 1 || cap_trailingIdxHalf > historyLen ) {
             return RetCode.InternalError;
          }
          int allocN_trailingIdxHalf = (cap_trailingIdxHalf > 0)? cap_trailingIdxHalf : 1;
@@ -2057,6 +2062,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("HMA", "openAndFill", nameof(inReal), inReal.Length, startIdx, HmaLookback(optInTimePeriod));
+      }
       throw StreamFailure("HMA", "openAndFill", retCode);
    }
 
@@ -2070,6 +2078,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("HMA", "open", nameof(inReal), inReal.Length, startIdx, HmaLookback(optInTimePeriod));
       }
       throw StreamFailure("HMA", "open", retCode);
    }
@@ -2090,12 +2101,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>HmaLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public HmaStream HmaOpen( ReadOnlySpan<double> inReal, int optInTimePeriod )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "HMA open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "HMA open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "HMA open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return HmaOpenInternal(inReal, 0, optInTimePeriod);
    }
 
@@ -2125,17 +2136,306 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public HmaStream HmaOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "HMA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "HMA openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "HMA openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("HMA", "openAndFill", inReal.Length, HmaLookback(optInTimePeriod));
       RequireFillLength("HMA", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inReal) ) {
          throw StreamFailure("HMA", "openAndFill", RetCode.BadParam);
       }
       return HmaOpenAndFillInternal(inReal, 0, optInTimePeriod, out _, out _, outReal);
+   }
+
+   private double HmaStepTape( HmaStream sp, ReadOnlySpan<double> tape, int tapeBase, int tapeMask, double inReal )
+   {
+      if( sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 ) {
+         double tempReal = 0.0;
+         double fullOut = 0.0;
+         int jFull = 0;
+         int rw = 0;
+         double tempReal2 = 0.0;
+         tempReal = inReal;
+         sp.periodSubFull += tempReal;
+         sp.periodSubFull -= sp.trailingFull;
+         sp.periodSumFull += tempReal * sp.optInTimePeriod;
+         sp.barsSinceReseedFull -= 1;
+         if( sp.barsSinceReseedFull <= 0 ) {
+            sp.barsSinceReseedFull = 8 * sp.optInTimePeriod;
+            sp.periodSubFull = 0.0;
+            sp.periodSumFull = 0.0;
+            rw = 1;
+            for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+               tempReal2 = tape[(tapeBase - jFull) & tapeMask];
+               sp.periodSubFull += tempReal2;
+               sp.periodSumFull += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         sp.trailingFull = tape[(tapeBase - sp.ringCap_trailingIdxFull) & tapeMask];
+         fullOut = sp.periodSumFull / sp.dividerFull;
+         sp.periodSumFull -= sp.periodSubFull;
+         sp.cur_outReal = 2.0 * tempReal - fullOut;
+      } else {
+         double tempReal = 0.0;
+         double fullOut = 0.0;
+         double halfOut = 0.0;
+         double diffReal = 0.0;
+         int jFull = 0;
+         int jHalf = 0;
+         int q = 0;
+         int rw = 0;
+         int ringWalk = 0;
+         double tempReal2 = 0.0;
+         tempReal = inReal;
+         sp.periodSubFull += tempReal;
+         sp.periodSubFull -= sp.trailingFull;
+         sp.periodSumFull += tempReal * sp.optInTimePeriod;
+         sp.barsSinceReseedFull -= 1;
+         if( sp.barsSinceReseedFull <= 0 ) {
+            sp.barsSinceReseedFull = 8 * sp.optInTimePeriod;
+            sp.periodSubFull = 0.0;
+            sp.periodSumFull = 0.0;
+            rw = 1;
+            for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+               tempReal2 = tape[(tapeBase - jFull) & tapeMask];
+               sp.periodSubFull += tempReal2;
+               sp.periodSumFull += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         sp.trailingFull = tape[(tapeBase - sp.ringCap_trailingIdxFull) & tapeMask];
+         fullOut = sp.periodSumFull / sp.dividerFull;
+         sp.periodSumFull -= sp.periodSubFull;
+         sp.periodSubHalf += tempReal;
+         sp.periodSubHalf -= sp.trailingHalf;
+         sp.periodSumHalf += tempReal * sp.halfPeriod;
+         sp.barsSinceReseedHalf -= 1;
+         if( sp.barsSinceReseedHalf <= 0 ) {
+            sp.barsSinceReseedHalf = 8 * sp.halfPeriod;
+            sp.periodSubHalf = 0.0;
+            sp.periodSumHalf = 0.0;
+            rw = 1;
+            for( jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 ) {
+               tempReal2 = tape[(tapeBase - jHalf) & tapeMask];
+               sp.periodSubHalf += tempReal2;
+               sp.periodSumHalf += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         sp.trailingHalf = tape[(tapeBase - sp.ringCap_trailingIdxHalf) & tapeMask];
+         halfOut = sp.periodSumHalf / sp.dividerHalf;
+         sp.periodSumHalf -= sp.periodSubHalf;
+         diffReal = 2.0 * halfOut - fullOut;
+         sp.periodSubSqrt += diffReal;
+         sp.periodSubSqrt -= sp.trailingSqrt;
+         sp.periodSumSqrt += diffReal * sp.sqrtPeriod;
+         /* The outer WMA consumes a DERIVED series that is never
+          * materialised, so its rescan walks the de-lag ring: dRing_Idx is
+          * the oldest slot (the one about to expire) and diffReal is the
+          * newest value, which together are the whole window. Oldest first,
+          * weight counting up from 1 -- the priming order above.
+          */
+         sp.barsSinceReseedSqrt -= 1;
+         if( sp.barsSinceReseedSqrt <= 0 ) {
+            sp.barsSinceReseedSqrt = 8 * sp.sqrtPeriod;
+            sp.periodSubSqrt = 0.0;
+            sp.periodSumSqrt = 0.0;
+            rw = 1;
+            ringWalk = sp.dRing_Idx;
+            for( q = 0; q < sp.ringSize; q += 1 ) {
+               tempReal2 = sp.cb_dRing[ringWalk];
+               sp.periodSubSqrt += tempReal2;
+               sp.periodSumSqrt += tempReal2 * rw;
+               rw += 1;
+               ringWalk += 1;
+               if( ringWalk >= sp.ringSize ) {
+                  ringWalk = 0;
+               }
+            }
+            sp.periodSubSqrt += diffReal;
+            sp.periodSumSqrt += diffReal * sp.sqrtPeriod;
+         }
+         sp.trailingSqrt = sp.cb_dRing[sp.dRing_Idx];
+         sp.cb_dRing[sp.dRing_Idx] = diffReal;
+         sp.dRing_Idx = sp.dRing_Idx + 1;
+         if( sp.dRing_Idx > sp.maxIdx_dRing ) {
+            sp.dRing_Idx = 0;
+         }
+         sp.cur_outReal = sp.periodSumSqrt / sp.dividerSqrt;
+         sp.periodSumSqrt -= sp.periodSubSqrt;
+      }
+      sp.outRangeCount++;
+      return sp.cur_outReal;
+   }
+
+   private double HmaPeekTape( HmaStream sp, ReadOnlySpan<double> tape, int tapeBase, int tapeMask, double inReal )
+   {
+      double cur_outReal = 0.0;
+      if( sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 ) {
+         double tempReal = 0.0;
+         double fullOut = 0.0;
+         int jFull = 0;
+         int rw = 0;
+         double tempReal2 = 0.0;
+         int barsSinceReseedFull = sp.barsSinceReseedFull;
+         double periodSubFull = sp.periodSubFull;
+         double periodSumFull = sp.periodSumFull;
+         double trailingFull = sp.trailingFull;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         pkSlot0 = tapeBase & tapeMask;
+         pkVal0 = inReal;
+         tempReal = inReal;
+         periodSubFull += tempReal;
+         periodSubFull -= trailingFull;
+         periodSumFull += tempReal * sp.optInTimePeriod;
+         barsSinceReseedFull -= 1;
+         if( barsSinceReseedFull <= 0 ) {
+            barsSinceReseedFull = 8 * sp.optInTimePeriod;
+            periodSubFull = 0.0;
+            periodSumFull = 0.0;
+            rw = 1;
+            for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+               tempReal2 = (((tapeBase - jFull) & tapeMask) != pkSlot0) ? tape[(tapeBase - jFull) & tapeMask] : pkVal0;
+               periodSubFull += tempReal2;
+               periodSumFull += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         trailingFull = tape[(tapeBase - sp.ringCap_trailingIdxFull) & tapeMask];
+         fullOut = periodSumFull / sp.dividerFull;
+         periodSumFull -= periodSubFull;
+         cur_outReal = 2.0 * tempReal - fullOut;
+      } else {
+         double tempReal = 0.0;
+         double fullOut = 0.0;
+         double halfOut = 0.0;
+         double diffReal = 0.0;
+         int jFull = 0;
+         int jHalf = 0;
+         int q = 0;
+         int rw = 0;
+         int ringWalk = 0;
+         double tempReal2 = 0.0;
+         int barsSinceReseedFull = sp.barsSinceReseedFull;
+         int barsSinceReseedHalf = sp.barsSinceReseedHalf;
+         int barsSinceReseedSqrt = sp.barsSinceReseedSqrt;
+         int dRing_Idx = sp.dRing_Idx;
+         double periodSubFull = sp.periodSubFull;
+         double periodSubHalf = sp.periodSubHalf;
+         double periodSubSqrt = sp.periodSubSqrt;
+         double periodSumFull = sp.periodSumFull;
+         double periodSumHalf = sp.periodSumHalf;
+         double periodSumSqrt = sp.periodSumSqrt;
+         double trailingFull = sp.trailingFull;
+         double trailingHalf = sp.trailingHalf;
+         double trailingSqrt = sp.trailingSqrt;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         pkSlot0 = tapeBase & tapeMask;
+         pkVal0 = inReal;
+         tempReal = inReal;
+         periodSubFull += tempReal;
+         periodSubFull -= trailingFull;
+         periodSumFull += tempReal * sp.optInTimePeriod;
+         barsSinceReseedFull -= 1;
+         if( barsSinceReseedFull <= 0 ) {
+            barsSinceReseedFull = 8 * sp.optInTimePeriod;
+            periodSubFull = 0.0;
+            periodSumFull = 0.0;
+            rw = 1;
+            for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+               tempReal2 = (((tapeBase - jFull) & tapeMask) != pkSlot0) ? tape[(tapeBase - jFull) & tapeMask] : pkVal0;
+               periodSubFull += tempReal2;
+               periodSumFull += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         trailingFull = tape[(tapeBase - sp.ringCap_trailingIdxFull) & tapeMask];
+         fullOut = periodSumFull / sp.dividerFull;
+         periodSumFull -= periodSubFull;
+         periodSubHalf += tempReal;
+         periodSubHalf -= trailingHalf;
+         periodSumHalf += tempReal * sp.halfPeriod;
+         barsSinceReseedHalf -= 1;
+         if( barsSinceReseedHalf <= 0 ) {
+            barsSinceReseedHalf = 8 * sp.halfPeriod;
+            periodSubHalf = 0.0;
+            periodSumHalf = 0.0;
+            rw = 1;
+            for( jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 ) {
+               tempReal2 = (((tapeBase - jHalf) & tapeMask) != pkSlot0) ? tape[(tapeBase - jHalf) & tapeMask] : pkVal0;
+               periodSubHalf += tempReal2;
+               periodSumHalf += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         trailingHalf = tape[(tapeBase - sp.ringCap_trailingIdxHalf) & tapeMask];
+         halfOut = periodSumHalf / sp.dividerHalf;
+         periodSumHalf -= periodSubHalf;
+         diffReal = 2.0 * halfOut - fullOut;
+         periodSubSqrt += diffReal;
+         periodSubSqrt -= trailingSqrt;
+         periodSumSqrt += diffReal * sp.sqrtPeriod;
+         /* The outer WMA consumes a DERIVED series that is never
+          * materialised, so its rescan walks the de-lag ring: dRing_Idx is
+          * the oldest slot (the one about to expire) and diffReal is the
+          * newest value, which together are the whole window. Oldest first,
+          * weight counting up from 1 -- the priming order above.
+          */
+         barsSinceReseedSqrt -= 1;
+         if( barsSinceReseedSqrt <= 0 ) {
+            barsSinceReseedSqrt = 8 * sp.sqrtPeriod;
+            periodSubSqrt = 0.0;
+            periodSumSqrt = 0.0;
+            rw = 1;
+            ringWalk = dRing_Idx;
+            for( q = 0; q < sp.ringSize; q += 1 ) {
+               tempReal2 = sp.cb_dRing[ringWalk];
+               periodSubSqrt += tempReal2;
+               periodSumSqrt += tempReal2 * rw;
+               rw += 1;
+               ringWalk += 1;
+               if( ringWalk >= sp.ringSize ) {
+                  ringWalk = 0;
+               }
+            }
+            periodSubSqrt += diffReal;
+            periodSumSqrt += diffReal * sp.sqrtPeriod;
+         }
+         trailingSqrt = sp.cb_dRing[dRing_Idx];
+         dRing_Idx = dRing_Idx + 1;
+         if( dRing_Idx > sp.maxIdx_dRing ) {
+            dRing_Idx = 0;
+         }
+         cur_outReal = periodSumSqrt / sp.dividerSqrt;
+      }
+      return cur_outReal;
+   }
+
+   private int HmaTapeDetach( HmaStream sp )
+   {
+      int reach = 0;
+      sp.ring_trailingIdxFull_inReal = [];
+      if( sp.ringCap_trailingIdxFull > reach ) {
+         reach = sp.ringCap_trailingIdxFull;
+      }
+      sp.win_jFull_inReal = [];
+      if( sp.winCap_jFull - 1 > reach ) {
+         reach = sp.winCap_jFull - 1;
+      }
+      sp.ring_trailingIdxHalf_inReal = [];
+      if( sp.ringCap_trailingIdxHalf > reach ) {
+         reach = sp.ringCap_trailingIdxHalf;
+      }
+      sp.win_jHalf_inReal = [];
+      if( sp.winCap_jHalf - 1 > reach ) {
+         reach = sp.winCap_jHalf - 1;
+      }
+      return reach;
    }
 }

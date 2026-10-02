@@ -59,6 +59,7 @@ public partial class Core
     *  052603 MF     Adapt code to compile with .NET Managed C++
     *  071726 MF,CC  #118 cancellation-free variance (shifted sums + reseed); fixes bug 90.
     *  082326 MF,CC  #243 reseed floor is scale-relative, not `variance < 0`.
+    *  092226 MF,CC  #434 rebuild against the peak sum of squares; re-anchor a flat window.
     */
    /// <summary>
    /// Number of leading input bars <c>Var</c> consumes before it can produce its
@@ -107,6 +108,7 @@ public partial class Core
       double meanValue1 = 0;
       double variance = 0;
       double invPeriod = 0;
+      double peakTotal2 = 0;
       int i = 0;
       int j = 0;
       int outIdx = 0;
@@ -114,10 +116,10 @@ public partial class Core
       int windowStart = 0;
       int nbInitialElementNeeded = 0;
       int barsSinceReseed = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -170,12 +172,14 @@ public partial class Core
       i = startIdx;
       outIdx = 0;
       barsSinceReseed = 32 * optInTimePeriod;
+      peakTotal2 = periodTotal2;
       do {
          /* Add the incoming value, measured against the shift. */
          tempReal = inReal[i] - shift;
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = MaxGt(periodTotal2, peakTotal2);
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          /* Remove the trailing value (prepares the next window). */
@@ -184,21 +188,17 @@ public partial class Core
          tempReal *= tempReal;
          periodTotal2 -= tempReal;
          trailingIdx += 1;
-         /* Re-anchor the shift and rebuild the running sums with a fresh two-pass
-          * when the shift is stale enough that the subtraction loses digits - i.e.
-          * the variance has shrunk below 1e-6 of the mean squared deviation it is
-          * extracted from (that ratio bounds the cancellation error to ~eps/1e-6 ~
-          * 2e-10, so partial cancellation, not just total collapse, is caught); OR
-          * when the value just removed sat so far from the shift that its squared term
-          * (tempReal) dwarfs the surviving sum (a large outlier passing through the
-          * window buries the small terms below its ulp, and the residual left when it
-          * leaves is cancellation garbage); OR at least every 32 windows so a slow
-          * drift stays bounded regardless of the series length. The strict `<` also
-          * leaves an exactly-constant window (variance 0, scale 0) alone instead of
-          * reseeding it every bar. Guarantees a non-negative output.
+         /* Rebuild with a fresh two-pass when the variance has shrunk below 1e-6
+          * of the LARGEST mean squared deviation held since the last rebuild, or at
+          * least every 32 windows. Measure against that peak, not the current sum:
+          * the rounding the running sums carry scales with the peak, so once a
+          * series settles back near the shift, or an outlier leaves the window,
+          * the current sum holds nothing but that rounding. The collapse is seen
+          * on the first bar whose sums carry it, and the rebuild recomputes that
+          * bar.
           */
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInTimePeriod;
             windowStart = i - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -216,58 +216,33 @@ public partial class Core
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-            /* Floor the fresh figure at the same ratio the trigger above uses, now
-             * measured against the RE-ANCHORED sums. With the shift AT the window
-             * mean the deviations sum to ~0, so a real window has variance ~
-             * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
-             * only when every deviation is the same value, i.e. when the spread is
-             * at or under the rounding error of the mean itself. There is then no
-             * spread the anchor could resolve, the surviving digits are noise, and
-             * the honest answer is 0.
-             *
-             * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
-             * difference is load-bearing. periodTotal2*invPeriod is not the
-             * variance here: it is variance + e^2, where e is the rounding error of
-             * the reseed's own left-to-right sum for the mean -- exactly the term
-             * the two-pass subtraction then cancels out. So the ratio measures how
-             * badly that sum rounded, not how much signal survives, and matching
-             * the trigger's 1e-6 fired ten orders before cancellation eats any
-             * digits. It zeroed a variance the line above had just computed to nine
-             * correct significant figures: 100011 bars at 31498938283.624615 with
-             * two small outliers at period 99991 gives 1.0219900060103338e-09
-             * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
-             * survives and every intended bit-zero still zeroes -- the live ratios
-             * on flat data are 0 or ~1e-16, six orders the other side.
-             *
-             * This is the ONE dead-zone in the var/stddev/bbands family, and it is
-             * relative rather than the `variance < 0.0` it replaced because two
-             * things ride on it:
-             *
-             *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
-             *    side is >= 0 and any negative variance is clamped unconditionally -
-             *    where `< 0.0` needed the three-case argument below to know that a
-             *    negative one ever reaches this line.
-             *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
-             *    anything under a fixed TA_EPSILON first. That compares a SQUARED
-             *    quantity to 1e-14, which is a cliff at a price level and not a
-             *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
-             *    variance around 1e-16 and came back exactly 0 on every bar (#243).
-             *    Expressed here in the window's own units, the floor lets both of
-             *    them square-root what they are handed unconditionally.
-             *
-             * Clamping HERE and not at the output write is what keeps this off the
-             * per-bar path, and it is sufficient because a negative variance always
-             * reseeds on the same bar - the guard above covers all three cases:
-             * periodTotal2 > 0 makes its first disjunct `negative < positive`;
-             * periodTotal2 < 0 makes the second disjunct's right side negative,
-             * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
-             * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
-             * THIS - the alternative is an unconditional clamp at the output write,
-             * which needs no such argument but does cost ~3%.
+            /* A window flat to within the rounding of its own mean leaves the
+             * variance at that rounding, which would fire the trigger again on
+             * every bar. Anchored on one of its own values it cannot: the variance
+             * is then at least 1/(2n) of the mean square it is extracted from.
              */
-            if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
-               variance = 0.0;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = inReal[i];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= i; j += 1 ) {
+                  tempReal = inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             }
+            /* Before the re-remove below: the peak must hold the whole window. */
+            peakTotal2 = periodTotal2;
+            /* After the re-anchor a window with any spread sits orders above this
+             * floor, so it catches only a variance that rounding left at or below
+             * 0. That keeps the output non-negative, which lets STDDEV and BBANDS
+             * square-root it unconditionally (#243). A negative variance always
+             * gets here: the peak is never negative, so the trigger fires on it.
+             */
+            variance = ZeroIfLt(variance, 0.000000000001 * (periodTotal2 * invPeriod), variance);
             /* Re-remove the trailing value under the new shift so the carried state
              * matches the non-reseed path.
              */
@@ -302,6 +277,7 @@ public partial class Core
       double meanValue1 = 0;
       double variance = 0;
       double invPeriod = 0;
+      double peakTotal2 = 0;
       int i = 0;
       int j = 0;
       int outIdx = 0;
@@ -309,10 +285,10 @@ public partial class Core
       int windowStart = 0;
       int nbInitialElementNeeded = 0;
       int barsSinceReseed = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -351,11 +327,13 @@ public partial class Core
       i = startIdx;
       outIdx = 0;
       barsSinceReseed = 32 * optInTimePeriod;
+      peakTotal2 = periodTotal2;
       do {
          tempReal = (double)inReal[i] - shift;
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = MaxGt(periodTotal2, peakTotal2);
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = (double)inReal[trailingIdx] - shift;
@@ -364,7 +342,7 @@ public partial class Core
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInTimePeriod;
             windowStart = i - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -382,9 +360,21 @@ public partial class Core
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-            if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
-               variance = 0.0;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = (double)inReal[i];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= i; j += 1 ) {
+                  tempReal = (double)inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             }
+            peakTotal2 = periodTotal2;
+            variance = ZeroIfLt(variance, 0.000000000001 * (periodTotal2 * invPeriod), variance);
             tempReal = (double)inReal[windowStart] - shift;
             periodTotal1 -= tempReal;
             tempReal *= tempReal;
@@ -415,8 +405,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>VarLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>VarLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -426,26 +421,32 @@ public partial class Core
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">Deviation count accepted by the API but never used in the computation
    /// (default 1; <see cref="Core.RealDefault"/> selects the default).</param>
-   /// <param name="outReal">Rolling population variance. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">Rolling population variance. Must hold at least <c>endIdx - max(startIdx,
+   /// VarLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Stddev(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
    public OutRange Var( int startIdx,
                         int endIdx,
                         ReadOnlySpan<double> inReal,
@@ -488,8 +489,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>VarLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>VarLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -499,28 +505,34 @@ public partial class Core
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">Deviation count accepted by the API but never used in the computation
    /// (default 1; <see cref="Core.RealDefault"/> selects the default).</param>
-   /// <param name="outReal">Rolling population variance. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">Rolling population variance. Must hold at least <c>endIdx - max(startIdx,
+   /// VarLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Stddev(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
    public OutRange Var( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inReal,
@@ -566,6 +578,7 @@ public partial class Core
       internal double periodTotal1;
       internal double periodTotal2;
       internal double invPeriod;
+      internal double peakTotal2;
       internal int trailingIdx;
       internal int nbInitialElementNeeded;
       internal int barsSinceReseed;
@@ -589,7 +602,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -602,13 +615,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("VAR", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -622,6 +635,7 @@ public partial class Core
          this.periodTotal1 = other.periodTotal1;
          this.periodTotal2 = other.periodTotal2;
          this.invPeriod = other.invPeriod;
+         this.peakTotal2 = other.peakTotal2;
          this.trailingIdx = other.trailingIdx;
          this.nbInitialElementNeeded = other.nbInitialElementNeeded;
          this.barsSinceReseed = other.barsSinceReseed;
@@ -638,7 +652,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -649,7 +662,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -657,9 +670,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("VAR", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("VAR", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("VAR", "update", nameof(inReal));
          core.VarStepImpl(this, inReal);
          outRangeCount++;
          return cur_outReal;
@@ -671,16 +684,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public double Peek( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("VAR", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("VAR", "peek", nameof(inReal));
          VarStream sp = this;
          double tempReal = 0.0;
          double meanValue1 = 0.0;
@@ -688,6 +700,7 @@ public partial class Core
          int barsSinceReseed = sp.barsSinceReseed;
          double cur_outReal = 0.0;
          int j = sp.j;
+         double peakTotal2 = sp.peakTotal2;
          double periodTotal1 = sp.periodTotal1;
          double periodTotal2 = sp.periodTotal2;
          double shift = sp.shift;
@@ -702,6 +715,7 @@ public partial class Core
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = MaxGt(periodTotal2, peakTotal2);
          meanValue1 = periodTotal1 * sp.invPeriod;
          variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
          /* Remove the trailing value (prepares the next window). */
@@ -710,21 +724,17 @@ public partial class Core
          tempReal *= tempReal;
          periodTotal2 -= tempReal;
          trailingIdx += 1;
-         /* Re-anchor the shift and rebuild the running sums with a fresh two-pass
-          * when the shift is stale enough that the subtraction loses digits - i.e.
-          * the variance has shrunk below 1e-6 of the mean squared deviation it is
-          * extracted from (that ratio bounds the cancellation error to ~eps/1e-6 ~
-          * 2e-10, so partial cancellation, not just total collapse, is caught); OR
-          * when the value just removed sat so far from the shift that its squared term
-          * (tempReal) dwarfs the surviving sum (a large outlier passing through the
-          * window buries the small terms below its ulp, and the residual left when it
-          * leaves is cancellation garbage); OR at least every 32 windows so a slow
-          * drift stays bounded regardless of the series length. The strict `<` also
-          * leaves an exactly-constant window (variance 0, scale 0) alone instead of
-          * reseeding it every bar. Guarantees a non-negative output.
+         /* Rebuild with a fresh two-pass when the variance has shrunk below 1e-6
+          * of the LARGEST mean squared deviation held since the last rebuild, or at
+          * least every 32 windows. Measure against that peak, not the current sum:
+          * the rounding the running sums carry scales with the peak, so once a
+          * series settles back near the shift, or an outlier leaves the window,
+          * the current sum holds nothing but that rounding. The collapse is seen
+          * on the first bar whose sums carry it, and the rebuild recomputes that
+          * bar.
           */
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * sp.invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * sp.optInTimePeriod;
             windowStart = sp.i - sp.nbInitialElementNeeded;
             tempReal = 0.0;
@@ -742,58 +752,33 @@ public partial class Core
             }
             meanValue1 = periodTotal1 * sp.invPeriod;
             variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
-            /* Floor the fresh figure at the same ratio the trigger above uses, now
-             * measured against the RE-ANCHORED sums. With the shift AT the window
-             * mean the deviations sum to ~0, so a real window has variance ~
-             * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
-             * only when every deviation is the same value, i.e. when the spread is
-             * at or under the rounding error of the mean itself. There is then no
-             * spread the anchor could resolve, the surviving digits are noise, and
-             * the honest answer is 0.
-             *
-             * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
-             * difference is load-bearing. periodTotal2*invPeriod is not the
-             * variance here: it is variance + e^2, where e is the rounding error of
-             * the reseed's own left-to-right sum for the mean -- exactly the term
-             * the two-pass subtraction then cancels out. So the ratio measures how
-             * badly that sum rounded, not how much signal survives, and matching
-             * the trigger's 1e-6 fired ten orders before cancellation eats any
-             * digits. It zeroed a variance the line above had just computed to nine
-             * correct significant figures: 100011 bars at 31498938283.624615 with
-             * two small outliers at period 99991 gives 1.0219900060103338e-09
-             * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
-             * survives and every intended bit-zero still zeroes -- the live ratios
-             * on flat data are 0 or ~1e-16, six orders the other side.
-             *
-             * This is the ONE dead-zone in the var/stddev/bbands family, and it is
-             * relative rather than the `variance < 0.0` it replaced because two
-             * things ride on it:
-             *
-             *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
-             *    side is >= 0 and any negative variance is clamped unconditionally -
-             *    where `< 0.0` needed the three-case argument below to know that a
-             *    negative one ever reaches this line.
-             *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
-             *    anything under a fixed TA_EPSILON first. That compares a SQUARED
-             *    quantity to 1e-14, which is a cliff at a price level and not a
-             *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
-             *    variance around 1e-16 and came back exactly 0 on every bar (#243).
-             *    Expressed here in the window's own units, the floor lets both of
-             *    them square-root what they are handed unconditionally.
-             *
-             * Clamping HERE and not at the output write is what keeps this off the
-             * per-bar path, and it is sufficient because a negative variance always
-             * reseeds on the same bar - the guard above covers all three cases:
-             * periodTotal2 > 0 makes its first disjunct `negative < positive`;
-             * periodTotal2 < 0 makes the second disjunct's right side negative,
-             * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
-             * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
-             * THIS - the alternative is an unconditional clamp at the output write,
-             * which needs no such argument but does cost ~3%.
+            /* A window flat to within the rounding of its own mean leaves the
+             * variance at that rounding, which would fire the trigger again on
+             * every bar. Anchored on one of its own values it cannot: the variance
+             * is then at least 1/(2n) of the mean square it is extracted from.
              */
-            if( variance < 0.000000000001 * (periodTotal2 * sp.invPeriod) ) {
-               variance = 0.0;
+            if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) ) {
+               shift = ((sp.i & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.i & sp.xMask] : pkVal0;
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= sp.i; j += 1 ) {
+                  tempReal = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0) - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * sp.invPeriod;
+               variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
             }
+            /* Before the re-remove below: the peak must hold the whole window. */
+            peakTotal2 = periodTotal2;
+            /* After the re-anchor a window with any spread sits orders above this
+             * floor, so it catches only a variance that rounding left at or below
+             * 0. That keeps the output non-negative, which lets STDDEV and BBANDS
+             * square-root it unconditionally (#243). A negative variance always
+             * gets here: the peak is never negative, so the trigger fires on it.
+             */
+            variance = ZeroIfLt(variance, 0.000000000001 * (periodTotal2 * sp.invPeriod), variance);
             /* Re-remove the trailing value under the new shift so the carried state
              * matches the non-reseed path.
              */
@@ -823,7 +808,7 @@ public partial class Core
       }
    }
 
-   internal void VarStepImpl( VarStream sp, double inReal )
+   private void VarStepImpl( VarStream sp, double inReal )
    {
       double tempReal = 0.0;
       double meanValue1 = 0.0;
@@ -834,6 +819,7 @@ public partial class Core
       sp.periodTotal1 += tempReal;
       tempReal *= tempReal;
       sp.periodTotal2 += tempReal;
+      sp.peakTotal2 = MaxGt(sp.periodTotal2, sp.peakTotal2);
       meanValue1 = sp.periodTotal1 * sp.invPeriod;
       variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
       /* Remove the trailing value (prepares the next window). */
@@ -842,21 +828,17 @@ public partial class Core
       tempReal *= tempReal;
       sp.periodTotal2 -= tempReal;
       sp.trailingIdx += 1;
-      /* Re-anchor the shift and rebuild the running sums with a fresh two-pass
-       * when the shift is stale enough that the subtraction loses digits - i.e.
-       * the variance has shrunk below 1e-6 of the mean squared deviation it is
-       * extracted from (that ratio bounds the cancellation error to ~eps/1e-6 ~
-       * 2e-10, so partial cancellation, not just total collapse, is caught); OR
-       * when the value just removed sat so far from the shift that its squared term
-       * (tempReal) dwarfs the surviving sum (a large outlier passing through the
-       * window buries the small terms below its ulp, and the residual left when it
-       * leaves is cancellation garbage); OR at least every 32 windows so a slow
-       * drift stays bounded regardless of the series length. The strict `<` also
-       * leaves an exactly-constant window (variance 0, scale 0) alone instead of
-       * reseeding it every bar. Guarantees a non-negative output.
+      /* Rebuild with a fresh two-pass when the variance has shrunk below 1e-6
+       * of the LARGEST mean squared deviation held since the last rebuild, or at
+       * least every 32 windows. Measure against that peak, not the current sum:
+       * the rounding the running sums carry scales with the peak, so once a
+       * series settles back near the shift, or an outlier leaves the window,
+       * the current sum holds nothing but that rounding. The collapse is seen
+       * on the first bar whose sums carry it, and the rebuild recomputes that
+       * bar.
        */
       sp.barsSinceReseed -= 1;
-      if( variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * sp.periodTotal2 || sp.barsSinceReseed <= 0 ) {
+      if( variance < 0.000001 * (sp.peakTotal2 * sp.invPeriod) || sp.barsSinceReseed <= 0 ) {
          sp.barsSinceReseed = 32 * sp.optInTimePeriod;
          sp.windowStart = sp.i - sp.nbInitialElementNeeded;
          tempReal = 0.0;
@@ -874,58 +856,33 @@ public partial class Core
          }
          meanValue1 = sp.periodTotal1 * sp.invPeriod;
          variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
-         /* Floor the fresh figure at the same ratio the trigger above uses, now
-          * measured against the RE-ANCHORED sums. With the shift AT the window
-          * mean the deviations sum to ~0, so a real window has variance ~
-          * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
-          * only when every deviation is the same value, i.e. when the spread is
-          * at or under the rounding error of the mean itself. There is then no
-          * spread the anchor could resolve, the surviving digits are noise, and
-          * the honest answer is 0.
-          *
-          * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
-          * difference is load-bearing. periodTotal2*invPeriod is not the
-          * variance here: it is variance + e^2, where e is the rounding error of
-          * the reseed's own left-to-right sum for the mean -- exactly the term
-          * the two-pass subtraction then cancels out. So the ratio measures how
-          * badly that sum rounded, not how much signal survives, and matching
-          * the trigger's 1e-6 fired ten orders before cancellation eats any
-          * digits. It zeroed a variance the line above had just computed to nine
-          * correct significant figures: 100011 bars at 31498938283.624615 with
-          * two small outliers at period 99991 gives 1.0219900060103338e-09
-          * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
-          * survives and every intended bit-zero still zeroes -- the live ratios
-          * on flat data are 0 or ~1e-16, six orders the other side.
-          *
-          * This is the ONE dead-zone in the var/stddev/bbands family, and it is
-          * relative rather than the `variance < 0.0` it replaced because two
-          * things ride on it:
-          *
-          *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
-          *    side is >= 0 and any negative variance is clamped unconditionally -
-          *    where `< 0.0` needed the three-case argument below to know that a
-          *    negative one ever reaches this line.
-          *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
-          *    anything under a fixed TA_EPSILON first. That compares a SQUARED
-          *    quantity to 1e-14, which is a cliff at a price level and not a
-          *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
-          *    variance around 1e-16 and came back exactly 0 on every bar (#243).
-          *    Expressed here in the window's own units, the floor lets both of
-          *    them square-root what they are handed unconditionally.
-          *
-          * Clamping HERE and not at the output write is what keeps this off the
-          * per-bar path, and it is sufficient because a negative variance always
-          * reseeds on the same bar - the guard above covers all three cases:
-          * periodTotal2 > 0 makes its first disjunct `negative < positive`;
-          * periodTotal2 < 0 makes the second disjunct's right side negative,
-          * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
-          * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
-          * THIS - the alternative is an unconditional clamp at the output write,
-          * which needs no such argument but does cost ~3%.
+         /* A window flat to within the rounding of its own mean leaves the
+          * variance at that rounding, which would fire the trigger again on
+          * every bar. Anchored on one of its own values it cannot: the variance
+          * is then at least 1/(2n) of the mean square it is extracted from.
           */
-         if( variance < 0.000000000001 * (sp.periodTotal2 * sp.invPeriod) ) {
-            variance = 0.0;
+         if( variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) ) {
+            sp.shift = sp.x_inReal[sp.i & sp.xMask];
+            sp.periodTotal1 = 0.0;
+            sp.periodTotal2 = 0.0;
+            for( sp.j = sp.windowStart; sp.j <= sp.i; sp.j += 1 ) {
+               tempReal = sp.x_inReal[sp.j & sp.xMask] - sp.shift;
+               sp.periodTotal1 += tempReal;
+               tempReal *= tempReal;
+               sp.periodTotal2 += tempReal;
+            }
+            meanValue1 = sp.periodTotal1 * sp.invPeriod;
+            variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
          }
+         /* Before the re-remove below: the peak must hold the whole window. */
+         sp.peakTotal2 = sp.periodTotal2;
+         /* After the re-anchor a window with any spread sits orders above this
+          * floor, so it catches only a variance that rounding left at or below
+          * 0. That keeps the output non-negative, which lets STDDEV and BBANDS
+          * square-root it unconditionally (#243). A negative variance always
+          * gets here: the peak is never negative, so the trigger fires on it.
+          */
+         variance = ZeroIfLt(variance, 0.000000000001 * (sp.periodTotal2 * sp.invPeriod), variance);
          /* Re-remove the trailing value under the new shift so the carried state
           * matches the non-reseed path.
           */
@@ -949,6 +906,7 @@ public partial class Core
       double meanValue1 = 0;
       double variance = 0;
       double invPeriod = 0;
+      double peakTotal2 = 0;
       int i = 0;
       int j = 0;
       int outIdx = 0;
@@ -961,7 +919,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1016,12 +974,14 @@ public partial class Core
       i = startIdx;
       outIdx = 0;
       barsSinceReseed = 32 * optInTimePeriod;
+      peakTotal2 = periodTotal2;
       do {
          /* Add the incoming value, measured against the shift. */
          tempReal = inReal[i] - shift;
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = MaxGt(periodTotal2, peakTotal2);
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          /* Remove the trailing value (prepares the next window). */
@@ -1030,21 +990,17 @@ public partial class Core
          tempReal *= tempReal;
          periodTotal2 -= tempReal;
          trailingIdx += 1;
-         /* Re-anchor the shift and rebuild the running sums with a fresh two-pass
-          * when the shift is stale enough that the subtraction loses digits - i.e.
-          * the variance has shrunk below 1e-6 of the mean squared deviation it is
-          * extracted from (that ratio bounds the cancellation error to ~eps/1e-6 ~
-          * 2e-10, so partial cancellation, not just total collapse, is caught); OR
-          * when the value just removed sat so far from the shift that its squared term
-          * (tempReal) dwarfs the surviving sum (a large outlier passing through the
-          * window buries the small terms below its ulp, and the residual left when it
-          * leaves is cancellation garbage); OR at least every 32 windows so a slow
-          * drift stays bounded regardless of the series length. The strict `<` also
-          * leaves an exactly-constant window (variance 0, scale 0) alone instead of
-          * reseeding it every bar. Guarantees a non-negative output.
+         /* Rebuild with a fresh two-pass when the variance has shrunk below 1e-6
+          * of the LARGEST mean squared deviation held since the last rebuild, or at
+          * least every 32 windows. Measure against that peak, not the current sum:
+          * the rounding the running sums carry scales with the peak, so once a
+          * series settles back near the shift, or an outlier leaves the window,
+          * the current sum holds nothing but that rounding. The collapse is seen
+          * on the first bar whose sums carry it, and the rebuild recomputes that
+          * bar.
           */
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInTimePeriod;
             windowStart = i - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -1062,58 +1018,33 @@ public partial class Core
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-            /* Floor the fresh figure at the same ratio the trigger above uses, now
-             * measured against the RE-ANCHORED sums. With the shift AT the window
-             * mean the deviations sum to ~0, so a real window has variance ~
-             * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
-             * only when every deviation is the same value, i.e. when the spread is
-             * at or under the rounding error of the mean itself. There is then no
-             * spread the anchor could resolve, the surviving digits are noise, and
-             * the honest answer is 0.
-             *
-             * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
-             * difference is load-bearing. periodTotal2*invPeriod is not the
-             * variance here: it is variance + e^2, where e is the rounding error of
-             * the reseed's own left-to-right sum for the mean -- exactly the term
-             * the two-pass subtraction then cancels out. So the ratio measures how
-             * badly that sum rounded, not how much signal survives, and matching
-             * the trigger's 1e-6 fired ten orders before cancellation eats any
-             * digits. It zeroed a variance the line above had just computed to nine
-             * correct significant figures: 100011 bars at 31498938283.624615 with
-             * two small outliers at period 99991 gives 1.0219900060103338e-09
-             * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
-             * survives and every intended bit-zero still zeroes -- the live ratios
-             * on flat data are 0 or ~1e-16, six orders the other side.
-             *
-             * This is the ONE dead-zone in the var/stddev/bbands family, and it is
-             * relative rather than the `variance < 0.0` it replaced because two
-             * things ride on it:
-             *
-             *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
-             *    side is >= 0 and any negative variance is clamped unconditionally -
-             *    where `< 0.0` needed the three-case argument below to know that a
-             *    negative one ever reaches this line.
-             *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
-             *    anything under a fixed TA_EPSILON first. That compares a SQUARED
-             *    quantity to 1e-14, which is a cliff at a price level and not a
-             *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
-             *    variance around 1e-16 and came back exactly 0 on every bar (#243).
-             *    Expressed here in the window's own units, the floor lets both of
-             *    them square-root what they are handed unconditionally.
-             *
-             * Clamping HERE and not at the output write is what keeps this off the
-             * per-bar path, and it is sufficient because a negative variance always
-             * reseeds on the same bar - the guard above covers all three cases:
-             * periodTotal2 > 0 makes its first disjunct `negative < positive`;
-             * periodTotal2 < 0 makes the second disjunct's right side negative,
-             * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
-             * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
-             * THIS - the alternative is an unconditional clamp at the output write,
-             * which needs no such argument but does cost ~3%.
+            /* A window flat to within the rounding of its own mean leaves the
+             * variance at that rounding, which would fire the trigger again on
+             * every bar. Anchored on one of its own values it cannot: the variance
+             * is then at least 1/(2n) of the mean square it is extracted from.
              */
-            if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
-               variance = 0.0;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = inReal[i];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= i; j += 1 ) {
+                  tempReal = inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             }
+            /* Before the re-remove below: the peak must hold the whole window. */
+            peakTotal2 = periodTotal2;
+            /* After the re-anchor a window with any spread sits orders above this
+             * floor, so it catches only a variance that rounding left at or below
+             * 0. That keeps the output non-negative, which lets STDDEV and BBANDS
+             * square-root it unconditionally (#243). A negative variance always
+             * gets here: the peak is never negative, so the trigger fires on it.
+             */
+            variance = ZeroIfLt(variance, 0.000000000001 * (periodTotal2 * invPeriod), variance);
             /* Re-remove the trailing value under the new shift so the carried state
              * matches the non-reseed path.
              */
@@ -1147,6 +1078,7 @@ public partial class Core
       sp.periodTotal1 = periodTotal1;
       sp.periodTotal2 = periodTotal2;
       sp.invPeriod = invPeriod;
+      sp.peakTotal2 = peakTotal2;
       sp.trailingIdx = trailingIdx;
       sp.nbInitialElementNeeded = nbInitialElementNeeded;
       sp.barsSinceReseed = barsSinceReseed;
@@ -1169,6 +1101,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("VAR", "openAndFill", nameof(inReal), inReal.Length, startIdx, VarLookback(optInTimePeriod, optInNbDev));
+      }
       throw StreamFailure("VAR", "openAndFill", retCode);
    }
 
@@ -1182,6 +1117,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("VAR", "open", nameof(inReal), inReal.Length, startIdx, VarLookback(optInTimePeriod, optInNbDev));
       }
       throw StreamFailure("VAR", "open", retCode);
    }
@@ -1203,12 +1141,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>VarLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public VarStream VarOpen( ReadOnlySpan<double> inReal, int optInTimePeriod, double optInNbDev )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "VAR open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "VAR open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "VAR open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return VarOpenInternal(inReal, 0, optInTimePeriod, optInNbDev);
    }
 
@@ -1239,12 +1177,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public VarStream VarOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, double optInNbDev, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "VAR openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "VAR openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "VAR openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("VAR", "openAndFill", inReal.Length, VarLookback(optInTimePeriod, optInNbDev));
       RequireFillLength("VAR", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inReal) ) {

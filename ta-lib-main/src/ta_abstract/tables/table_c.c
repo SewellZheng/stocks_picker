@@ -1503,6 +1503,181 @@ DEF_FUNCTION( CEIL,
              );
 /* CEIL END */
 
+/* CG BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_CG_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   10,
+   "Number of bars in the window",
+
+   NULL
+};
+
+static const TA_InputParameterInfo    *TA_CG_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_CG_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_CG_OptInputs[] =
+{ &TA_DEF_UI_D_CG_TimePeriod,
+  NULL
+};
+
+DEF_FUNCTION( CG,
+              TA_GroupId_MomentumIndicators,
+              "Center of Gravity Oscillator",
+              TA_FUNC_FLG_STREAM
+             );
+/* CG END */
+
+/* CHOP BEGIN */
+static const TA_InputParameterInfo    *TA_CHOP_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Price_HLC,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_CHOP_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_CHOP_OptInputs[] =
+{ &TA_DEF_UI_TimePeriod_14_MINIMUM2,
+  NULL
+};
+
+DEF_FUNCTION( CHOP,
+              TA_GroupId_MomentumIndicators,
+              "Choppiness Index",
+              TA_FUNC_FLG_STREAM
+             );
+/* CHOP END */
+
+/* CHOPTR BEGIN */
+static const TA_InputParameterInfo    *TA_CHOPTR_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Price_HLC,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_CHOPTR_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_CHOPTR_OptInputs[] =
+{ &TA_DEF_UI_TimePeriod_14_MINIMUM2,
+  NULL
+};
+
+DEF_FUNCTION( CHOPTR,
+              TA_GroupId_MomentumIndicators,
+              "Choppiness Index (True Range Box)",
+              TA_FUNC_FLG_STREAM
+             );
+/* CHOPTR END */
+
+/* CKSP BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_CKSP_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   10,
+   "ATR and extreme window",
+
+   NULL
+};
+
+static const TA_RealRange TA_DEF_CKSP_Multiplier =
+{
+   0.0,
+   TA_REAL_MAX,
+   2,
+   0.5,
+   5.0,
+   0.5
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_CKSP_Multiplier =
+{
+   TA_OptInput_RealRange,
+   "optInMultiplier",
+   0,
+
+   "Multiplier",
+   (const void *)&TA_DEF_CKSP_Multiplier,
+   1.0,
+   "ATR multiplier",
+
+   NULL
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_CKSP_StopPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInStopPeriod",
+   0,
+
+   "Stop Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   9,
+   "Stop window",
+
+   NULL
+};
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_CKSP_outHighStop =
+                               { TA_Output_Real, "outHighStop", TA_OUT_LINE };
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_CKSP_outLowStop =
+                               { TA_Output_Real, "outLowStop", TA_OUT_LINE };
+
+static const TA_InputParameterInfo    *TA_CKSP_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Price_HLC,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_CKSP_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real_CKSP_outHighStop,
+  &TA_DEF_UI_Output_Real_CKSP_outLowStop,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_CKSP_OptInputs[] =
+{ &TA_DEF_UI_D_CKSP_TimePeriod,
+  &TA_DEF_UI_D_CKSP_Multiplier,
+  &TA_DEF_UI_D_CKSP_StopPeriod,
+  NULL
+};
+
+DEF_FUNCTION( CKSP,
+              TA_GroupId_OverlapStudies,
+              "Chande Kroll Stop",
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
+             );
+/* CKSP END */
+
 /* CMF BEGIN */
 static const TA_InputParameterInfo    *TA_CMF_Inputs[]    =
 {
@@ -1719,6 +1894,150 @@ DEF_FUNCTION( COSH,
              );
 /* COSH END */
 
+/* CRSI BEGIN */
+static const TA_IntegerRange TA_DEF_CRSI_TimePeriod =
+{
+   2,
+   100000,
+   2,
+   20,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_CRSI_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_CRSI_TimePeriod,
+   3,
+   "Time period",
+
+   NULL
+};
+
+static const TA_IntegerRange TA_DEF_CRSI_StreakPeriod =
+{
+   2,
+   100000,
+   2,
+   20,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_CRSI_StreakPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInStreakPeriod",
+   0,
+
+   "Streak Period",
+   (const void *)&TA_DEF_CRSI_StreakPeriod,
+   2,
+   "Time period of the RSI of the up/down streak",
+
+   NULL
+};
+
+static const TA_IntegerRange TA_DEF_CRSI_RankPeriod =
+{
+   2,
+   10000,
+   20,
+   200,
+   20
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_CRSI_RankPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInRankPeriod",
+   0,
+
+   "Rank Period",
+   (const void *)&TA_DEF_CRSI_RankPeriod,
+   100,
+   "Number of previous one-bar returns the current one is ranked against",
+
+   NULL
+};
+
+static const TA_InputParameterInfo    *TA_CRSI_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_CRSI_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_CRSI_OptInputs[] =
+{ &TA_DEF_UI_D_CRSI_TimePeriod,
+  &TA_DEF_UI_D_CRSI_StreakPeriod,
+  &TA_DEF_UI_D_CRSI_RankPeriod,
+  NULL
+};
+
+DEF_FUNCTION( CRSI,
+              TA_GroupId_MomentumIndicators,
+              "Connors Relative Strength Index",
+              TA_FUNC_FLG_STREAM
+             );
+/* CRSI END */
+
+/* CTI BEGIN */
+static const TA_IntegerRange TA_DEF_CTI_TimePeriod =
+{
+   2,
+   100000,
+   5,
+   50,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_CTI_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_CTI_TimePeriod,
+   20,
+   "Number of bars correlated against the ramp",
+
+   NULL
+};
+
+static const TA_InputParameterInfo    *TA_CTI_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_CTI_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_CTI_OptInputs[] =
+{ &TA_DEF_UI_D_CTI_TimePeriod,
+  NULL
+};
+
+DEF_FUNCTION( CTI,
+              TA_GroupId_MomentumIndicators,
+              "Correlation Trend Indicator",
+              TA_FUNC_FLG_STREAM
+             );
+/* CTI END */
+
 /* CUMSUM BEGIN */
 static const TA_InputParameterInfo    *TA_CUMSUM_Inputs[]    =
 {
@@ -1874,6 +2193,10 @@ const TA_FuncDef *TA_DEF_TableC[] =
    ADD_TO_TABLE(CDLUPSIDEGAP2CROWS),
    ADD_TO_TABLE(CDLXSIDEGAP3METHODS),
    ADD_TO_TABLE(CEIL),
+   ADD_TO_TABLE(CG),
+   ADD_TO_TABLE(CHOP),
+   ADD_TO_TABLE(CHOPTR),
+   ADD_TO_TABLE(CKSP),
    ADD_TO_TABLE(CMF),
    ADD_TO_TABLE(CMO),
    ADD_TO_TABLE(CMOU),
@@ -1881,6 +2204,8 @@ const TA_FuncDef *TA_DEF_TableC[] =
    ADD_TO_TABLE(CORREL),
    ADD_TO_TABLE(COS),
    ADD_TO_TABLE(COSH),
+   ADD_TO_TABLE(CRSI),
+   ADD_TO_TABLE(CTI),
    ADD_TO_TABLE(CUMSUM),
    ADD_TO_TABLE(CVI),
    NULL

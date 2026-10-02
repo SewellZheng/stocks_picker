@@ -60,7 +60,7 @@ TA_LIB_API int TA_PERCENTRANK_Lookback( int optInTimePeriod )
 {
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 100;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 10000 )
       return -1;
    return optInTimePeriod;
 }
@@ -80,14 +80,14 @@ TA_LIB_API TA_RetCode TA_PERCENTRANK( int    startIdx,
    int count;
    double current;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 100;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 10000 )
       return TA_BAD_PARAM;
    if( !inReal )
       return TA_BAD_PARAM;
@@ -148,14 +148,14 @@ TA_RetCode TA_S_PERCENTRANK( int    startIdx,
    int count;
    double current;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 100;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 10000 )
       return TA_BAD_PARAM;
    if( !inReal )
       return TA_BAD_PARAM;
@@ -256,11 +256,11 @@ static TA_RetCode TA_PERCENTRANK_OpenImpl( struct TA_PERCENTRANK_Stream **stream
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 100;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 10000 )
       return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
@@ -352,7 +352,7 @@ TA_LIB_API TA_RetCode TA_PERCENTRANK_Open( TA_PERCENTRANK_Stream **stream, const
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_PERCENTRANK_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -362,7 +362,7 @@ TA_LIB_API TA_RetCode TA_PERCENTRANK_OpenAndFill( TA_PERCENTRANK_Stream **stream
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_PERCENTRANK_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -377,7 +377,7 @@ TA_RetCode TA_PERCENTRANK_OpenAndFillInternal( struct TA_PERCENTRANK_Stream **st
 TA_LIB_API TA_RetCode TA_PERCENTRANK_Update( TA_PERCENTRANK_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -441,7 +441,7 @@ TA_LIB_API TA_RetCode TA_PERCENTRANK_OutRange( const TA_PERCENTRANK_Stream *stre
 TA_LIB_API TA_RetCode TA_PERCENTRANK_Advance( TA_PERCENTRANK_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

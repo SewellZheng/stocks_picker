@@ -80,9 +80,9 @@ TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL( int    startIdx,
    int lookbackTotal;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -145,19 +145,19 @@ TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL( int    startIdx,
    outIdx = 0;
    do
    {
-      if( ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : 0 - 1) == 0 - 1 && /* 1st black */
-          ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && /* 2nd black */
-          ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && /* 3rd black */
-          ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 0 - 1 &&         /* 4th black */
+      if( ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : -1) == -1 && /* 1st black */
+          ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 && /* 2nd black */
+          ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == -1 && /* 3rd black */
+          ((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 &&         /* 4th black */
           (((inClose[i - 3] >= inOpen[i - 3]) ? inOpen[i - 3] : inClose[i - 3]) - inLow[i - 3]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[3],i - 3) && /* 1st: marubozu */
           (inHigh[i - 3] - ((inClose[i - 3] >= inOpen[i - 3]) ? inClose[i - 3] : inOpen[i - 3])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[3],i - 3) &&
           (((inClose[i - 2] >= inOpen[i - 2]) ? inOpen[i - 2] : inClose[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[2],i - 2) && /* 2nd: marubozu */
           (inHigh[i - 2] - ((inClose[i - 2] >= inOpen[i - 2]) ? inClose[i - 2] : inOpen[i - 2])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[2],i - 2) &&
           ((max(inOpen[i - 1],inClose[i - 1]) < min(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) && /* 3rd: opens gapping down */
           (inHigh[i - 1] - ((inClose[i - 1] >= inOpen[i - 1]) ? inClose[i - 1] : inOpen[i - 1])) > TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[1],i - 1) && /* and HAS an upper shadow */
-          inHigh[i - 1] > inClose[i - 2] &&                           /* that extends into the prior body */
+          inHigh[i - 1] > inClose[i - 2] &&                     /* that extends into the prior body */
           inHigh[i] > inHigh[i - 1] &&
-          inLow[i] < inLow[i - 1] )                                   /* 4th: engulfs the 3rd including the shadows */
+          inLow[i] < inLow[i - 1] )                             /* 4th: engulfs the 3rd including the shadows */
       {
          outInteger[outIdx++] = 100;
       } else 
@@ -198,9 +198,9 @@ TA_RetCode TA_S_CDLCONCEALBABYSWALL( int    startIdx,
    int lookbackTotal;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -243,7 +243,7 @@ TA_RetCode TA_S_CDLCONCEALBABYSWALL( int    startIdx,
    outIdx = 0;
    do
    {
-      if( (((double)inClose[i - 3] >= (double)inOpen[i - 3]) ? 1 : 0 - 1) == 0 - 1 && (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) == 0 - 1 && ((((double)inClose[i - 3] >= (double)inOpen[i - 3]) ? (double)inOpen[i - 3] : (double)inClose[i - 3]) - (double)inLow[i - 3]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[3],i - 3) && ((double)inHigh[i - 3] - (((double)inClose[i - 3] >= (double)inOpen[i - 3]) ? (double)inClose[i - 3] : (double)inOpen[i - 3])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[3],i - 3) && ((((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? (double)inOpen[i - 2] : (double)inClose[i - 2]) - (double)inLow[i - 2]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[2],i - 2) && ((double)inHigh[i - 2] - (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? (double)inClose[i - 2] : (double)inOpen[i - 2])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[2],i - 2) && ((max((double)inOpen[i - 1],(double)inClose[i - 1]) < min((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) && ((double)inHigh[i - 1] - (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? (double)inClose[i - 1] : (double)inOpen[i - 1])) > TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[1],i - 1) && (double)inHigh[i - 1] > (double)inClose[i - 2] && (double)inHigh[i] > (double)inHigh[i - 1] && (double)inLow[i] < (double)inLow[i - 1] )
+      if( (((double)inClose[i - 3] >= (double)inOpen[i - 3]) ? 1 : -1) == -1 && (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : -1) == -1 && (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : -1) == -1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) == -1 && ((((double)inClose[i - 3] >= (double)inOpen[i - 3]) ? (double)inOpen[i - 3] : (double)inClose[i - 3]) - (double)inLow[i - 3]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[3],i - 3) && ((double)inHigh[i - 3] - (((double)inClose[i - 3] >= (double)inOpen[i - 3]) ? (double)inClose[i - 3] : (double)inOpen[i - 3])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[3],i - 3) && ((((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? (double)inOpen[i - 2] : (double)inClose[i - 2]) - (double)inLow[i - 2]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[2],i - 2) && ((double)inHigh[i - 2] - (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? (double)inClose[i - 2] : (double)inOpen[i - 2])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[2],i - 2) && ((max((double)inOpen[i - 1],(double)inClose[i - 1]) < min((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) && ((double)inHigh[i - 1] - (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? (double)inClose[i - 1] : (double)inOpen[i - 1])) > TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[1],i - 1) && (double)inHigh[i - 1] > (double)inClose[i - 2] && (double)inHigh[i] > (double)inHigh[i - 1] && (double)inLow[i] < (double)inLow[i - 1] )
       {
          outInteger[outIdx++] = 100;
       } else 
@@ -303,19 +303,19 @@ static void TA_CDLCONCEALBABYSWALL_StepImpl( struct TA_CDLCONCEALBABYSWALL_Strea
    int totIdx;
 
    sp->ring_ShadowVeryShortTrailingIdx_derived[sp->ringPos_ShadowVeryShortTrailingIdx] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen,inHigh,inLow,inClose);
-   if( ((sp->lag3_inClose >= sp->lag3_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 1st black */
-       ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 2nd black */
-       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 3rd black */
-       ((inClose >= inOpen) ? 1 : 0 - 1) == 0 - 1 &&                   /* 4th black */
+   if( ((sp->lag3_inClose >= sp->lag3_inOpen) ? 1 : -1) == -1 && /* 1st black */
+       ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : -1) == -1 && /* 2nd black */
+       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) == -1 && /* 3rd black */
+       ((inClose >= inOpen) ? 1 : -1) == -1 &&                   /* 4th black */
        (((sp->lag3_inClose >= sp->lag3_inOpen) ? sp->lag3_inOpen : sp->lag3_inClose) - sp->lag3_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[3],sp->lag3_inOpen,sp->lag3_inHigh,sp->lag3_inLow,sp->lag3_inClose) && /* 1st: marubozu */
        (sp->lag3_inHigh - ((sp->lag3_inClose >= sp->lag3_inOpen) ? sp->lag3_inClose : sp->lag3_inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[3],sp->lag3_inOpen,sp->lag3_inHigh,sp->lag3_inLow,sp->lag3_inClose) &&
        (((sp->lag2_inClose >= sp->lag2_inOpen) ? sp->lag2_inOpen : sp->lag2_inClose) - sp->lag2_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* 2nd: marubozu */
        (sp->lag2_inHigh - ((sp->lag2_inClose >= sp->lag2_inOpen) ? sp->lag2_inClose : sp->lag2_inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) &&
        ((max(sp->lag1_inOpen,sp->lag1_inClose) < min(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) && /* 3rd: opens gapping down */
        (sp->lag1_inHigh - ((sp->lag1_inClose >= sp->lag1_inOpen) ? sp->lag1_inClose : sp->lag1_inOpen)) > TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* and HAS an upper shadow */
-       sp->lag1_inHigh > sp->lag2_inClose &&                           /* that extends into the prior body */
+       sp->lag1_inHigh > sp->lag2_inClose &&                     /* that extends into the prior body */
        inHigh > sp->lag1_inHigh &&
-       inLow < sp->lag1_inLow )                                        /* 4th: engulfs the 3rd including the shadows */
+       inLow < sp->lag1_inLow )                                  /* 4th: engulfs the 3rd including the shadows */
    {
       *outInteger= 100;
    } else 
@@ -357,7 +357,7 @@ static TA_RetCode TA_CDLCONCEALBABYSWALL_OpenImpl( struct TA_CDLCONCEALBABYSWALL
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
@@ -423,19 +423,19 @@ static TA_RetCode TA_CDLCONCEALBABYSWALL_OpenImpl( struct TA_CDLCONCEALBABYSWALL
       outIdx = 0;
       do
       {
-         if( ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : 0 - 1) == 0 - 1 && /* 1st black */
-             ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && /* 2nd black */
-             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && /* 3rd black */
-             ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 0 - 1 &&         /* 4th black */
+         if( ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : -1) == -1 && /* 1st black */
+             ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 && /* 2nd black */
+             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == -1 && /* 3rd black */
+             ((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 &&         /* 4th black */
              (((inClose[i - 3] >= inOpen[i - 3]) ? inOpen[i - 3] : inClose[i - 3]) - inLow[i - 3]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[3],i - 3) && /* 1st: marubozu */
              (inHigh[i - 3] - ((inClose[i - 3] >= inOpen[i - 3]) ? inClose[i - 3] : inOpen[i - 3])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[3],i - 3) &&
              (((inClose[i - 2] >= inOpen[i - 2]) ? inOpen[i - 2] : inClose[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[2],i - 2) && /* 2nd: marubozu */
              (inHigh[i - 2] - ((inClose[i - 2] >= inOpen[i - 2]) ? inClose[i - 2] : inOpen[i - 2])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[2],i - 2) &&
              ((max(inOpen[i - 1],inClose[i - 1]) < min(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) && /* 3rd: opens gapping down */
              (inHigh[i - 1] - ((inClose[i - 1] >= inOpen[i - 1]) ? inClose[i - 1] : inOpen[i - 1])) > TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[1],i - 1) && /* and HAS an upper shadow */
-             inHigh[i - 1] > inClose[i - 2] &&                           /* that extends into the prior body */
+             inHigh[i - 1] > inClose[i - 2] &&                     /* that extends into the prior body */
              inHigh[i] > inHigh[i - 1] &&
-             inLow[i] < inLow[i - 1] )                                   /* 4th: engulfs the 3rd including the shadows */
+             inLow[i] < inLow[i - 1] )                             /* 4th: engulfs the 3rd including the shadows */
          {
             outInteger[outIdx++ * outStride] = 100;
          } else 
@@ -513,7 +513,7 @@ TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_Open( TA_CDLCONCEALBABYSWALL_Stream
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLCONCEALBABYSWALL_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
@@ -523,7 +523,7 @@ TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_OpenAndFill( TA_CDLCONCEALBABYSWALL
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLCONCEALBABYSWALL_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
@@ -538,7 +538,7 @@ TA_RetCode TA_CDLCONCEALBABYSWALL_OpenAndFillInternal( struct TA_CDLCONCEALBABYS
 TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_Update( TA_CDLCONCEALBABYSWALL_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -553,19 +553,19 @@ TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_Peek( const TA_CDLCONCEALBABYSWALL_
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   if( ((sp->lag3_inClose >= sp->lag3_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 1st black */
-       ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 2nd black */
-       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 3rd black */
-       ((inClose >= inOpen) ? 1 : 0 - 1) == 0 - 1 &&                   /* 4th black */
+   if( ((sp->lag3_inClose >= sp->lag3_inOpen) ? 1 : -1) == -1 && /* 1st black */
+       ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : -1) == -1 && /* 2nd black */
+       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) == -1 && /* 3rd black */
+       ((inClose >= inOpen) ? 1 : -1) == -1 &&                   /* 4th black */
        (((sp->lag3_inClose >= sp->lag3_inOpen) ? sp->lag3_inOpen : sp->lag3_inClose) - sp->lag3_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[3],sp->lag3_inOpen,sp->lag3_inHigh,sp->lag3_inLow,sp->lag3_inClose) && /* 1st: marubozu */
        (sp->lag3_inHigh - ((sp->lag3_inClose >= sp->lag3_inOpen) ? sp->lag3_inClose : sp->lag3_inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[3],sp->lag3_inOpen,sp->lag3_inHigh,sp->lag3_inLow,sp->lag3_inClose) &&
        (((sp->lag2_inClose >= sp->lag2_inOpen) ? sp->lag2_inOpen : sp->lag2_inClose) - sp->lag2_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* 2nd: marubozu */
        (sp->lag2_inHigh - ((sp->lag2_inClose >= sp->lag2_inOpen) ? sp->lag2_inClose : sp->lag2_inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) &&
        ((max(sp->lag1_inOpen,sp->lag1_inClose) < min(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) && /* 3rd: opens gapping down */
        (sp->lag1_inHigh - ((sp->lag1_inClose >= sp->lag1_inOpen) ? sp->lag1_inClose : sp->lag1_inOpen)) > TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* and HAS an upper shadow */
-       sp->lag1_inHigh > sp->lag2_inClose &&                           /* that extends into the prior body */
+       sp->lag1_inHigh > sp->lag2_inClose &&                     /* that extends into the prior body */
        inHigh > sp->lag1_inHigh &&
-       inLow < sp->lag1_inLow )                                        /* 4th: engulfs the 3rd including the shadows */
+       inLow < sp->lag1_inLow )                                  /* 4th: engulfs the 3rd including the shadows */
    {
       *outInteger= 100;
    } else 
@@ -599,7 +599,7 @@ TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_OutRange( const TA_CDLCONCEALBABYSW
 TA_LIB_API TA_RetCode TA_CDLCONCEALBABYSWALL_Advance( TA_CDLCONCEALBABYSWALL_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

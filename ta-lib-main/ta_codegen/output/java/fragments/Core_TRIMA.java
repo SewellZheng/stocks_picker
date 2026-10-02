@@ -60,10 +60,10 @@
       int middleIdx = 0;
       double factor = 0;
       double tempReal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -341,10 +341,10 @@
       int middleIdx = 0;
       double factor = 0;
       double tempReal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -458,8 +458,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#trimaLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#trimaLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -467,11 +467,12 @@
     * @param optInTimePeriod Number of bars in the averaging window (default 30;
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Triangular moving average. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, trimaLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -524,8 +525,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#trimaLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#trimaLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -533,11 +534,12 @@
     * @param optInTimePeriod Number of bars in the averaging window (default 30;
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Triangular moving average. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, trimaLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -618,7 +620,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -632,12 +634,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("TRIMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -675,15 +677,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("TRIMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("TRIMA update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("TRIMA update", "inReal");
          core.trimaStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -693,15 +695,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("TRIMA peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("TRIMA peek", "inReal");
          TrimaStream sp = this;
          double cur_outReal = 0.0;
          if( sp.optInTimePeriod % 2 == 1 ) {
@@ -741,22 +741,10 @@
             double numeratorAdd = sp.numeratorAdd;
             double numeratorSub = sp.numeratorSub;
             double tempReal = sp.tempReal;
-            int pkSlot0 = -1;
-            double pkVal0 = 0.0;
-            int pkSlot1 = -1;
-            double pkVal1 = 0.0;
-            if( sp.ringCap_middleIdx == 0 ) {
-               pkSlot0 = 0;
-               pkVal0 = inReal;
-            }
-            if( sp.ringCap_trailingIdx == 0 ) {
-               pkSlot1 = 0;
-               pkVal1 = inReal;
-            }
             /* Step (1) */
             numerator -= numeratorSub;
             numeratorSub -= tempReal;
-            tempReal = (sp.ringPos_middleIdx != pkSlot0) ? sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] : pkVal0;
+            tempReal = sp.ring_middleIdx_inReal[sp.ringPos_middleIdx];
             numeratorSub += tempReal;
             /* Step (2) */
             numeratorAdd -= tempReal;
@@ -766,7 +754,7 @@
             /* Step (3) */
             numerator += tempReal;
             /* Step (4) */
-            tempReal = (sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] : pkVal1;
+            tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
             cur_outReal = numerator * sp.factor;
          }
          return cur_outReal;
@@ -833,12 +821,8 @@
             sp.ringPos_trailingIdx = 0;
          }
       } else {
-         if( sp.ringCap_middleIdx == 0 ) {
-            sp.ring_middleIdx_inReal[0] = inReal;
-         }
-         if( sp.ringCap_trailingIdx == 0 ) {
-            sp.ring_trailingIdx_inReal[0] = inReal;
-         }
+         int ringCapL_middleIdx = 0;
+         int ringCapL_trailingIdx = 0;
          /* Step (1) */
          sp.numerator -= sp.numeratorSub;
          sp.numeratorSub -= sp.tempReal;
@@ -854,14 +838,16 @@
          /* Step (4) */
          sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
          sp.cur_outReal = sp.numerator * sp.factor;
+         ringCapL_middleIdx = sp.ringCap_middleIdx;
          sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] = inReal;
          sp.ringPos_middleIdx = sp.ringPos_middleIdx + 1;
-         if( sp.ringPos_middleIdx >= sp.ringCap_middleIdx ) {
+         if( sp.ringPos_middleIdx >= ringCapL_middleIdx ) {
             sp.ringPos_middleIdx = 0;
          }
+         ringCapL_trailingIdx = sp.ringCap_trailingIdx;
          sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
          sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-         if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+         if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
             sp.ringPos_trailingIdx = 0;
          }
       }
@@ -873,7 +859,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -1286,14 +1272,14 @@
          outBegIdx.value = startIdx;
          /* Capture the live batch state into the handle. */
          int cap_middleIdx = todayIdx - middleIdx;
-         if( cap_middleIdx < 0 || cap_middleIdx > historyLen ) {
+         if( cap_middleIdx < 1 || cap_middleIdx > historyLen ) {
             return RetCode.INTERNAL_ERROR;
          }
          int allocN_middleIdx = (cap_middleIdx > 0)? cap_middleIdx : 1;
          double[] capRing_middleIdx_inReal = new double[allocN_middleIdx];
          System.arraycopy(inReal, historyLen - cap_middleIdx, capRing_middleIdx_inReal, 0, cap_middleIdx);
          int cap_trailingIdx = todayIdx - trailingIdx;
-         if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+         if( cap_trailingIdx < 1 || cap_trailingIdx > historyLen ) {
             return RetCode.INTERNAL_ERROR;
          }
          int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -1326,12 +1312,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("TRIMA openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("TRIMA openAndFill", inReal.length, startIdx, trimaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("TRIMA openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("TRIMA openAndFill: " + retCode, retCode);
+      throw streamFailure("TRIMA openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind trimaOpen (composition seam). */
    TrimaStream trimaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -1347,12 +1330,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("TRIMA open: history shorter than lookback + 1");
+         throw insufficientHistory("TRIMA open", inReal.length, startIdx, trimaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("TRIMA open: internal error", retCode);
-      }
-      throw new TALibArgumentException("TRIMA open: " + retCode, retCode);
+      throw streamFailure("TRIMA open", retCode);
    }
    /**
     * Open a live TRIMA stream over the warm-up history; the handle's
@@ -1391,9 +1371,110 @@
       int guardOutLen = openFillCount("TRIMA openAndFill", inReal.length, trimaLookback(optInTimePeriod));
       requireLength("TRIMA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("TRIMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("TRIMA openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       return trimaOpenAndFillInternal(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal);
+   }
+   private double trimaStepTape( TrimaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      if( sp.optInTimePeriod % 2 == 1 ) {
+         /* Step (1) */
+         sp.numerator -= sp.numeratorSub;
+         sp.numeratorSub -= sp.tempReal;
+         sp.tempReal = tape[(tapeBase - sp.ringCap_middleIdx) & tapeMask];
+         sp.numeratorSub += sp.tempReal;
+         /* Step (2) */
+         sp.numerator += sp.numeratorAdd;
+         sp.numeratorAdd -= sp.tempReal;
+         sp.tempReal = inReal;
+         sp.numeratorAdd += sp.tempReal;
+         /* Step (3) */
+         sp.numerator += sp.tempReal;
+         /* Step (4) */
+         sp.tempReal = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+         sp.cur_outReal = sp.numerator * sp.factor;
+      } else {
+         /* Step (1) */
+         sp.numerator -= sp.numeratorSub;
+         sp.numeratorSub -= sp.tempReal;
+         sp.tempReal = tape[(tapeBase - sp.ringCap_middleIdx) & tapeMask];
+         sp.numeratorSub += sp.tempReal;
+         /* Step (2) */
+         sp.numeratorAdd -= sp.tempReal;
+         sp.numerator += sp.numeratorAdd;
+         sp.tempReal = inReal;
+         sp.numeratorAdd += sp.tempReal;
+         /* Step (3) */
+         sp.numerator += sp.tempReal;
+         /* Step (4) */
+         sp.tempReal = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+         sp.cur_outReal = sp.numerator * sp.factor;
+      }
+      sp.outRangeCount++;
+      return sp.cur_outReal;
+   }
+   private double trimaPeekTape( TrimaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      double cur_outReal = 0.0;
+      if( sp.optInTimePeriod % 2 == 1 ) {
+         double numerator = sp.numerator;
+         double numeratorAdd = sp.numeratorAdd;
+         double numeratorSub = sp.numeratorSub;
+         double tempReal = sp.tempReal;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         pkSlot0 = tapeBase & tapeMask;
+         pkVal0 = inReal;
+         /* Step (1) */
+         numerator -= numeratorSub;
+         numeratorSub -= tempReal;
+         tempReal = (((tapeBase - sp.ringCap_middleIdx) & tapeMask) != pkSlot0) ? tape[(tapeBase - sp.ringCap_middleIdx) & tapeMask] : pkVal0;
+         numeratorSub += tempReal;
+         /* Step (2) */
+         numerator += numeratorAdd;
+         numeratorAdd -= tempReal;
+         tempReal = inReal;
+         numeratorAdd += tempReal;
+         /* Step (3) */
+         numerator += tempReal;
+         /* Step (4) */
+         tempReal = (((tapeBase - sp.ringCap_trailingIdx) & tapeMask) != pkSlot0) ? tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask] : pkVal0;
+         cur_outReal = numerator * sp.factor;
+      } else {
+         double numerator = sp.numerator;
+         double numeratorAdd = sp.numeratorAdd;
+         double numeratorSub = sp.numeratorSub;
+         double tempReal = sp.tempReal;
+         /* Step (1) */
+         numerator -= numeratorSub;
+         numeratorSub -= tempReal;
+         tempReal = tape[(tapeBase - sp.ringCap_middleIdx) & tapeMask];
+         numeratorSub += tempReal;
+         /* Step (2) */
+         numeratorAdd -= tempReal;
+         numerator += numeratorAdd;
+         tempReal = inReal;
+         numeratorAdd += tempReal;
+         /* Step (3) */
+         numerator += tempReal;
+         /* Step (4) */
+         tempReal = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+         cur_outReal = numerator * sp.factor;
+      }
+      return cur_outReal;
+   }
+   private int trimaTapeDetach( TrimaStream sp )
+   {
+      int reach = 0;
+      sp.ring_middleIdx_inReal = new double[0];
+      if( sp.ringCap_middleIdx > reach ) {
+         reach = sp.ringCap_middleIdx;
+      }
+      sp.ring_trailingIdx_inReal = new double[0];
+      if( sp.ringCap_trailingIdx > reach ) {
+         reach = sp.ringCap_trailingIdx;
+      }
+      return reach;
    }

@@ -105,9 +105,9 @@ TA_LIB_API TA_RetCode TA_AC( int    startIdx,
    int oscBuffer_Idx;
    int maxIdx_oscBuffer;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
@@ -320,9 +320,9 @@ TA_RetCode TA_S_AC( int    startIdx,
    int oscBuffer_Idx;
    int maxIdx_oscBuffer;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
@@ -477,15 +477,9 @@ static void TA_AC_StepImpl( struct TA_AC_Stream *sp, double inHigh, double inLow
    double medianPrice;
    double osc;
    double tempReal;
+   int ringCapL_trailingFastIdx;
+   int ringCapL_trailingSlowIdx;
 
-   if( sp->ringCap_trailingFastIdx == 0 )
-   {
-      sp->ring_trailingFastIdx_derived[0] = (inHigh + inLow) / 2.0;
-   }
-   if( sp->ringCap_trailingSlowIdx == 0 )
-   {
-      sp->ring_trailingSlowIdx_derived[0] = (inHigh + inLow) / 2.0;
-   }
    medianPrice = (inHigh + inLow) / 2.0;
    sp->sumFast += medianPrice;
    sp->sumSlow += medianPrice;
@@ -519,15 +513,17 @@ static void TA_AC_StepImpl( struct TA_AC_Stream *sp, double inHigh, double inLow
     */
    *outReal= tempReal;
    sp->cur_outReal = *outReal;
+   ringCapL_trailingFastIdx = sp->ringCap_trailingFastIdx;
    sp->ring_trailingFastIdx_derived[sp->ringPos_trailingFastIdx] = (inHigh + inLow) / 2.0;
    sp->ringPos_trailingFastIdx = sp->ringPos_trailingFastIdx + 1;
-   if( sp->ringPos_trailingFastIdx >= sp->ringCap_trailingFastIdx )
+   if( sp->ringPos_trailingFastIdx >= ringCapL_trailingFastIdx )
    {
       sp->ringPos_trailingFastIdx = 0;
    }
+   ringCapL_trailingSlowIdx = sp->ringCap_trailingSlowIdx;
    sp->ring_trailingSlowIdx_derived[sp->ringPos_trailingSlowIdx] = (inHigh + inLow) / 2.0;
    sp->ringPos_trailingSlowIdx = sp->ringPos_trailingSlowIdx + 1;
-   if( sp->ringPos_trailingSlowIdx >= sp->ringCap_trailingSlowIdx )
+   if( sp->ringPos_trailingSlowIdx >= ringCapL_trailingSlowIdx )
    {
       sp->ringPos_trailingSlowIdx = 0;
    }
@@ -545,7 +541,7 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 5;
@@ -752,10 +748,10 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
       sp->oscBuffer_Idx = oscBuffer_Idx;
       sp->maxIdx_oscBuffer = maxIdx_oscBuffer;
       sp->ringCap_trailingFastIdx = (int)(i - trailingFastIdx);
-      if( sp->ringCap_trailingFastIdx < 0 || sp->ringCap_trailingFastIdx > historyLen ) { TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(182); }
+      if( sp->ringCap_trailingFastIdx < 1 || sp->ringCap_trailingFastIdx > historyLen ) { if( oscBuffer != &local_oscBuffer[0] ) { TA_Free( oscBuffer ); } TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(182); }
       { size_t allocN = (size_t)(sp->ringCap_trailingFastIdx > 0 ? sp->ringCap_trailingFastIdx : 1);
         sp->ring_trailingFastIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingFastIdx_derived ) { TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingFastIdx_derived ) { if( oscBuffer != &local_oscBuffer[0] ) { TA_Free( oscBuffer ); } TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_trailingFastIdx; fillJ < historyLen; fillJ++ )
              sp->ring_trailingFastIdx_derived[fillJ - (historyLen - sp->ringCap_trailingFastIdx)] = (inHigh[fillJ] + inLow[fillJ]) / 2.0;
@@ -763,10 +759,10 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
       }
       sp->ringPos_trailingFastIdx = 0;
       sp->ringCap_trailingSlowIdx = (int)(i - trailingSlowIdx);
-      if( sp->ringCap_trailingSlowIdx < 0 || sp->ringCap_trailingSlowIdx > historyLen ) { TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(183); }
+      if( sp->ringCap_trailingSlowIdx < 1 || sp->ringCap_trailingSlowIdx > historyLen ) { if( oscBuffer != &local_oscBuffer[0] ) { TA_Free( oscBuffer ); } TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(183); }
       { size_t allocN = (size_t)(sp->ringCap_trailingSlowIdx > 0 ? sp->ringCap_trailingSlowIdx : 1);
         sp->ring_trailingSlowIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingSlowIdx_derived ) { TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingSlowIdx_derived ) { if( oscBuffer != &local_oscBuffer[0] ) { TA_Free( oscBuffer ); } TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_trailingSlowIdx; fillJ < historyLen; fillJ++ )
              sp->ring_trailingSlowIdx_derived[fillJ - (historyLen - sp->ringCap_trailingSlowIdx)] = (inHigh[fillJ] + inLow[fillJ]) / 2.0;
@@ -807,7 +803,7 @@ TA_LIB_API TA_RetCode TA_AC_Open( TA_AC_Stream **stream, const double inHigh[], 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_AC_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outReal );
 }
@@ -817,7 +813,7 @@ TA_LIB_API TA_RetCode TA_AC_OpenAndFill( TA_AC_Stream **stream, const double inH
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_AC_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outReal );
@@ -832,7 +828,7 @@ TA_RetCode TA_AC_OpenAndFillInternal( struct TA_AC_Stream **stream, const double
 TA_LIB_API TA_RetCode TA_AC_Update( TA_AC_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
@@ -856,10 +852,6 @@ TA_LIB_API TA_RetCode TA_AC_Peek( const TA_AC_Stream *stream, double inHigh, dou
    double *ring_trailingSlowIdx_derived;
    int pkSlot0 = -1;
    double pkVal0 = 0.0;
-   int pkSlot1 = -1;
-   double pkVal1 = 0.0;
-   int pkSlot2 = -1;
-   double pkVal2 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
@@ -870,16 +862,6 @@ TA_LIB_API TA_RetCode TA_AC_Peek( const TA_AC_Stream *stream, double inHigh, dou
    cb_oscBuffer = sp->cb_oscBuffer;
    ring_trailingFastIdx_derived = sp->ring_trailingFastIdx_derived;
    ring_trailingSlowIdx_derived = sp->ring_trailingSlowIdx_derived;
-   if( sp->ringCap_trailingFastIdx == 0 )
-   {
-      pkSlot0 = 0;
-      pkVal0 = (inHigh + inLow) / 2.0;
-   }
-   if( sp->ringCap_trailingSlowIdx == 0 )
-   {
-      pkSlot1 = 0;
-      pkVal1 = (inHigh + inLow) / 2.0;
-   }
    medianPrice = (inHigh + inLow) / 2.0;
    sumFast += medianPrice;
    sumSlow += medianPrice;
@@ -887,15 +869,15 @@ TA_LIB_API TA_RetCode TA_AC_Peek( const TA_AC_Stream *stream, double inHigh, dou
     * mirroring the add-new / snapshot / subtract-old order of TA_SMA.
     */
    osc = sumFast / (double)sp->optInFastPeriod - sumSlow / (double)sp->optInSlowPeriod;
-   sumFast -= (sp->ringPos_trailingFastIdx != pkSlot0) ? ring_trailingFastIdx_derived[sp->ringPos_trailingFastIdx] : pkVal0;
-   sumSlow -= (sp->ringPos_trailingSlowIdx != pkSlot1) ? ring_trailingSlowIdx_derived[sp->ringPos_trailingSlowIdx] : pkVal1;
+   sumFast -= ring_trailingFastIdx_derived[sp->ringPos_trailingFastIdx];
+   sumSlow -= ring_trailingSlowIdx_derived[sp->ringPos_trailingSlowIdx];
    /* Today's oscillator enters the signal window at its own slot, and the
     * bar leaving that window is read only after the ring has advanced onto
     * it -- writing first is what makes the slot the loop is about to
     * overwrite the newest value rather than the oldest one.
     */
-   pkSlot2 = oscBuffer_Idx;
-   pkVal2 = osc;
+   pkSlot0 = oscBuffer_Idx;
+   pkVal0 = osc;
    sumSignal += osc;
    tempReal = osc - sumSignal / (double)sp->optInSignalPeriod;
    oscBuffer_Idx = oscBuffer_Idx + 1;
@@ -903,7 +885,7 @@ TA_LIB_API TA_RetCode TA_AC_Peek( const TA_AC_Stream *stream, double inHigh, dou
    {
       oscBuffer_Idx = 0;
    }
-   sumSignal -= (oscBuffer_Idx != pkSlot2) ? cb_oscBuffer[oscBuffer_Idx] : pkVal2;
+   sumSignal -= (oscBuffer_Idx != pkSlot0) ? cb_oscBuffer[oscBuffer_Idx] : pkVal0;
    /* Every input read for this bar is done above, so the store is safe
     * when the caller aliases outReal over inHigh or inLow. Unlike ao.c
     * there is slack here -- the signal window puts both trailing indices
@@ -940,7 +922,7 @@ TA_LIB_API TA_RetCode TA_AC_OutRange( const TA_AC_Stream *stream, int *outBegIdx
 TA_LIB_API TA_RetCode TA_AC_Advance( TA_AC_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

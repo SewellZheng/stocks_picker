@@ -8,7 +8,7 @@ project(ta-lib)
 # Written by scripts/sync.py from VERSION; do not edit.
 set(TA_LIB_VERSION_MAJOR 0)
 set(TA_LIB_VERSION_MINOR 8)
-set(TA_LIB_VERSION_PATCH 1)
+set(TA_LIB_VERSION_PATCH 2)
 
 set(PROJECT_VERSION "${TA_LIB_VERSION_MAJOR}.${TA_LIB_VERSION_MINOR}.${TA_LIB_VERSION_PATCH}")
 
@@ -101,6 +101,23 @@ if(NOT MSVC)
     if(TA_HAS_NO_MATH_ERRNO)
         add_compile_options(-fno-math-errno)
     endif()
+endif()
+
+# -falign-functions=64 -falign-loops=64 (issue #437): every function, and every
+# hot loop gcc enters by falling through, starts a 64-byte line. A function's code
+# layout then depends only on its own code after inlining, so a relink no longer
+# moves it; without the flags a relink alone moves a small-window scan by up to
+# 45%. Performance knobs that change no value. They pin
+# each function at one layout, not always the fastest one, and grow .text ~8%.
+# x86 only, where they were measured. Clang drops -falign-loops under LTO.
+if(NOT MSVC AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64|x86|i[3-6]86")
+    foreach(flag -falign-functions=64 -falign-loops=64)
+        string(MAKE_C_IDENTIFIER "TA_HAS${flag}" has_flag)
+        check_c_compiler_flag(${flag} ${has_flag})
+        if(${has_flag})
+            add_compile_options(${flag})
+        endif()
+    endforeach()
 endif()
 
 # Default to Release config
@@ -304,16 +321,19 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADX.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ADXR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ALMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AO.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_APO.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AROON.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AROONOSC.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ASI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ASIN.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ATAN.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ATR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AVGDEV.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_AVGPRICE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BBANDS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BBW.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BETA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_BOP.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CCI.c"
@@ -379,6 +399,10 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLUPSIDEGAP2CROWS.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CDLXSIDEGAP3METHODS.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CEIL.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CG.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CHOP.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CHOPTR.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CKSP.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CMF.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CMO.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CMOU.c"
@@ -386,6 +410,8 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CORREL.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_COS.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_COSH.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CRSI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CTI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CUMSUM.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_CVI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_DEMA.c"
@@ -395,12 +421,14 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_DX.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_EFI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_EMA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_EMV.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ER.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ERI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_EXP.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_FLOOR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_FOSC.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_FRACTAL.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_FRAMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_DCPERIOD.c"
@@ -409,10 +437,14 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_SINE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_TRENDLINE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_TRENDMODE.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_IBS.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_IMI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KAMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KC.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KDJ.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KST.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KSTEXT.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KURTOSIS.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_ANGLE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_INTERCEPT.c"
@@ -429,6 +461,8 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAVP.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAX.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MAXINDEX.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MCGD.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MEDIAN.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MEDPRICE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MFI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_MIDPOINT.c"
@@ -444,6 +478,7 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_NATR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_NVI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_OBV.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PERCENTB.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PERCENTILE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PERCENTRANK.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_PLUS_DI.c"
@@ -460,14 +495,17 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ROCR100.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_RSI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_RVI.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_RVIR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_RVOL.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SAR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SAREXT.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SIN.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SINH.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SMI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SQRT.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STC.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STDDEV.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCH.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCHF.c"
@@ -488,6 +526,7 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ULTOSC.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_VAR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_VHF.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_VIDYA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_VORTEX.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_VWAP.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_VWMA.c"
@@ -735,6 +774,7 @@ if(_TA_BUILD_TOOLS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_bbands.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_imi.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_ma.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_median.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_macd.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_minmax.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_rolling_extremum.c"
@@ -750,6 +790,7 @@ if(_TA_BUILD_TOOLS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_sar.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_stddev.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_correl.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_cti.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_beta.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_linearreg.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_wma.c"
@@ -766,11 +807,17 @@ if(_TA_BUILD_TOOLS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_composite1.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_composite2.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_marketfi.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_emv.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_kst.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_kstext.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_chop.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_vwap.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_cmf.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_kc.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_kurtosis.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_donchian.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_rma.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_cksp.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_supertrend.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_mfi.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_cmou.c"
@@ -780,6 +827,13 @@ if(_TA_BUILD_TOOLS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_zlema.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_vhf.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_rvi.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_rvir.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_ibs.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_frama.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_mcgd.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_vidya.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_alma.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_stc.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_fractal.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_ha.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_tsi.c"
@@ -787,6 +841,11 @@ if(_TA_BUILD_TOOLS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_fosc.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_dpo.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_percentrank.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_crsi.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_bbw.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_cg.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_percentb.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_si.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_percentile.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_cvi.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_massi.c"

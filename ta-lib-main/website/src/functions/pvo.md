@@ -33,7 +33,7 @@ The standard form is exponential with periods 12 and 26 — ((12-day EMA of Volu
 | `optInSlowPeriod` | integer | 26 | 2–100000 | Period of the slow MA |
 | `optInMAType` | MAType | EMA (1) | any MAType | Moving average type used for both MAs |
 
-*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED · 11 DEFAULT · 12 ZLEMA · 13 RMA*
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED · 11 DEFAULT · 12 ZLEMA · 13 RMA · 14 VIDYA · 15 ALMA*
 
 ## Properties
 
@@ -60,6 +60,7 @@ TA-Lib Definition: [`pvo.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | C | [`ta_PVO.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_PVO.c) |
 | Rust | [`pvo.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/pvo.rs) |
 | Java | [`Core_PVO.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_PVO.java) |
+| C# | [`Core_PVO.cs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/csharp/library/src/Core_PVO.cs) |
 
 TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 

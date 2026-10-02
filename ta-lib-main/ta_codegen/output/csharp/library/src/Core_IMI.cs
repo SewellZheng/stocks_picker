@@ -63,6 +63,7 @@ public partial class Core
     *  071326 MF,CC  Fix #112: an all-flat window (every close==open) leaves
     *                upsum==downsum==0, so 100*(0/0) emitted NaN from a *successful*
     *                call. Guard the divide, returning IMI's neutral center 50.0.
+    *  092426 MF,CC  #440 ratio once per bar, not per element; branch-free split.
     */
    /// <summary>
    /// Number of leading input bars <c>Imi</c> consumes before it can produce its
@@ -99,10 +100,10 @@ public partial class Core
       outNBElement = 0;
       int lookback = 0;
       int outIdx = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -130,19 +131,20 @@ public partial class Core
          double downsum = 0.0;
          int i;
          for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
-            double close = inClose[i];
-            double open = inOpen[i];
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-             * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-             * oscillator, so no up/down bias returns its neutral center, 50.0.
+            double diff = inClose[i] - inOpen[i];
+            /* max(diff, 0) spelled with fabs is branch-free in every backend. Java
+             * compiles a ternary to a branch and gcc an if/else; either mispredicts
+             * on random data, though the if/else retires fewer instructions.
              */
-            outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            double up = (diff + Math.Abs(diff)) * 0.5;
+            upsum += up;
+            downsum += up - diff;
          }
+         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+          * oscillator, so no up/down bias returns its neutral center, 50.0.
+          */
+         outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          startIdx += 1;
          outIdx += 1;
       }
@@ -162,10 +164,10 @@ public partial class Core
       outNBElement = 0;
       int lookback = 0;
       int outIdx = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -192,15 +194,12 @@ public partial class Core
          double downsum = 0.0;
          int i;
          for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
-            double close = (double)inClose[i];
-            double open = (double)inOpen[i];
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            double diff = (double)inClose[i] - (double)inOpen[i];
+            double up = (diff + Math.Abs(diff)) * 0.5;
+            upsum += up;
+            downsum += up - diff;
          }
+         outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          startIdx += 1;
          outIdx += 1;
       }
@@ -221,8 +220,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>ImiLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>ImiLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -231,26 +235,32 @@ public partial class Core
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="optInTimePeriod">Rolling window length for the up/down body sums (default 14; range
    /// 2..100000; <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">IMI oscillator value, 0-100. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">IMI oscillator value, 0-100. Must hold at least <c>endIdx - max(startIdx,
+   /// ImiLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Rsi(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Imi( int startIdx,
                         int endIdx,
                         ReadOnlySpan<double> inOpen,
@@ -290,8 +300,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>ImiLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>ImiLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -300,28 +315,34 @@ public partial class Core
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="optInTimePeriod">Rolling window length for the up/down body sums (default 14; range
    /// 2..100000; <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">IMI oscillator value, 0-100. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">IMI oscillator value, 0-100. Must hold at least <c>endIdx - max(startIdx,
+   /// ImiLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Rsi(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Imi( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inOpen,
@@ -382,7 +403,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -395,13 +416,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("IMI", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -423,7 +444,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -434,7 +454,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -443,9 +463,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inOpen, double inClose )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("IMI", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inOpen) || !double.IsFinite(inClose) ) throw Core.StreamFailure("IMI", "update", RetCode.BadParam);
+         if( !double.IsFinite(inOpen) || !double.IsFinite(inClose) ) throw Core.NonFiniteBar("IMI", "update", !double.IsFinite(inOpen) ? nameof(inOpen) : nameof(inClose));
          core.ImiStepImpl(this, inOpen, inClose);
          outRangeCount++;
          return cur_outReal;
@@ -457,9 +477,8 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inOpen">This bar's open price.</param>
       /// <param name="inClose">This bar's close price.</param>
@@ -467,14 +486,14 @@ public partial class Core
       /// it.</returns>
       public double Peek( double inOpen, double inClose )
       {
-         if( !double.IsFinite(inOpen) || !double.IsFinite(inClose) ) throw Core.StreamFailure("IMI", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inOpen) || !double.IsFinite(inClose) ) throw Core.NonFiniteBar("IMI", "peek", !double.IsFinite(inOpen) ? nameof(inOpen) : nameof(inClose));
          ImiStream sp = this;
          double upsum = 0.0;
          double downsum = 0.0;
          int i = 0;
-         double close = 0.0;
-         double open = 0.0;
-         double cur_outReal = sp.cur_outReal;
+         double diff = 0.0;
+         double up = 0.0;
+         double cur_outReal = 0.0;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
@@ -486,19 +505,20 @@ public partial class Core
          upsum = 0.0;
          downsum = 0.0;
          for( i = sp.optInTimePeriod - 1; i >= 0; i -= 1 ) {
-            close = (((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot1) ? sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal1;
-            open = (((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot0) ? sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal0;
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-             * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-             * oscillator, so no up/down bias returns its neutral center, 50.0.
+            diff = ((((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot1) ? sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal1) - ((((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot0) ? sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal0);
+            /* max(diff, 0) spelled with fabs is branch-free in every backend. Java
+             * compiles a ternary to a branch and gcc an if/else; either mispredicts
+             * on random data, though the if/else retires fewer instructions.
              */
-            cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            up = (diff + Math.Abs(diff)) * 0.5;
+            upsum += up;
+            downsum += up - diff;
          }
+         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+          * oscillator, so no up/down bias returns its neutral center, 50.0.
+          */
+         cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          return cur_outReal;
       }
 
@@ -519,31 +539,32 @@ public partial class Core
       }
    }
 
-   internal void ImiStepImpl( ImiStream sp, double inOpen, double inClose )
+   private void ImiStepImpl( ImiStream sp, double inOpen, double inClose )
    {
       double upsum = 0.0;
       double downsum = 0.0;
       int i = 0;
-      double close = 0.0;
-      double open = 0.0;
+      double diff = 0.0;
+      double up = 0.0;
       sp.win_i_inOpen[sp.winPos_i] = inOpen;
       sp.win_i_inClose[sp.winPos_i] = inClose;
       upsum = 0.0;
       downsum = 0.0;
       for( i = sp.optInTimePeriod - 1; i >= 0; i -= 1 ) {
-         close = sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
-         open = sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
-         if( close > open ) {
-            upsum += close - open;
-         } else {
-            downsum += open - close;
-         }
-         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-          * oscillator, so no up/down bias returns its neutral center, 50.0.
+         diff = sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] - sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
+         /* max(diff, 0) spelled with fabs is branch-free in every backend. Java
+          * compiles a ternary to a branch and gcc an if/else; either mispredicts
+          * on random data, though the if/else retires fewer instructions.
           */
-         sp.cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+         up = (diff + Math.Abs(diff)) * 0.5;
+         upsum += up;
+         downsum += up - diff;
       }
+      /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+       * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+       * oscillator, so no up/down bias returns its neutral center, 50.0.
+       */
+      sp.cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
       sp.winPos_i = sp.winPos_i + 1;
       if( sp.winPos_i >= sp.winCap_i ) {
          sp.winPos_i = 0;
@@ -561,7 +582,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inClose.Length != inOpen.Length ) {
@@ -594,19 +615,20 @@ public partial class Core
          double downsum = 0.0;
          int i;
          for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
-            double close = inClose[i];
-            double open = inOpen[i];
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-             * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-             * oscillator, so no up/down bias returns its neutral center, 50.0.
+            double diff = inClose[i] - inOpen[i];
+            /* max(diff, 0) spelled with fabs is branch-free in every backend. Java
+             * compiles a ternary to a branch and gcc an if/else; either mispredicts
+             * on random data, though the if/else retires fewer instructions.
              */
-            outReal[outIdx * outStride] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            double up = (diff + Math.Abs(diff)) * 0.5;
+            upsum += up;
+            downsum += up - diff;
          }
+         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+          * oscillator, so no up/down bias returns its neutral center, 50.0.
+          */
+         outReal[outIdx * outStride] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          startIdx += 1;
          outIdx += 1;
       }
@@ -639,6 +661,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("IMI", "openAndFill", nameof(inOpen), inOpen.Length, startIdx, ImiLookback(optInTimePeriod));
+      }
       throw StreamFailure("IMI", "openAndFill", retCode);
    }
 
@@ -652,6 +677,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("IMI", "open", nameof(inOpen), inOpen.Length, startIdx, ImiLookback(optInTimePeriod));
       }
       throw StreamFailure("IMI", "open", retCode);
    }
@@ -673,12 +701,12 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public ImiStream ImiOpen( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int optInTimePeriod )
    {
       if( inOpen.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "IMI open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inOpen.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "IMI open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inOpen.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "IMI open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inClose.IsEmpty ) throw new TALibArgumentException("IMI open: inClose is empty", nameof(inClose), RetCode.BadParam);
       RequireHistoryLength("IMI", "open", "inClose", inClose.Length, inOpen.Length);
       return ImiOpenInternal(inOpen, inClose, 0, optInTimePeriod);
@@ -710,12 +738,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public ImiStream ImiOpenAndFill( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outReal )
    {
       if( inOpen.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "IMI openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inOpen.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "IMI openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inOpen.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "IMI openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inClose.IsEmpty ) throw new TALibArgumentException("IMI openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
       int guardOutLen = OpenFillCount("IMI", "openAndFill", inOpen.Length, ImiLookback(optInTimePeriod));
       RequireHistoryLength("IMI", "openAndFill", "inClose", inClose.Length, inOpen.Length);

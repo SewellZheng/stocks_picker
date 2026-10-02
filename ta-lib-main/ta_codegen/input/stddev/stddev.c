@@ -32,12 +32,12 @@ TA_RetCode stddev(int startIdx, int endIdx,
    int i;
    TA_RetCode retCode;
 
-   /* Nothing to produce: the range is shorter than the lookback. Return before
+   /* Nothing to produce: the range ends before the lookback. Return before
     * touching anything.
     *
     * Same shape as the guard in apo and bbands: the variance below runs on the
     * same range and its lookback IS stddev's, so it declines and yields 0,0
-    * without reading. Observably identical, but it makes "a range shorter than
+    * without reading. Observably identical, but it makes "a range that ends before
     * the lookback reads nothing" true of stddev itself rather than only of var.
     * Pinned by the zero-length no-I/O probe over every guarded core.
     */
@@ -61,9 +61,8 @@ TA_RetCode stddev(int startIdx, int endIdx,
     *
     * Multiply also by the ratio specified.
     *
-    * Unconditional. var owns the dead-zone and owns the sign: it returns a
-    * non-negative variance, already floored to exactly 0 on any window whose
-    * re-anchored spread sat under its own rounding noise (var.c). What used to
+    * Unconditional. var owns the sign: it returns a non-negative variance,
+    * exactly 0 on a window of identical values (var.c). What used to
     * stand here instead - zero the output wherever the variance fell under
     * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
     * at a price level rather than a noise floor: a $100.00 instrument quoted in

@@ -953,9 +953,9 @@ fn gen_func_inner(
     // Validation prologue. Omitted for the `_Private` variant, whose callers are
     // the guarded bodies that have already validated.
     if name_override.is_none() {
-        out.push_str("   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )\n");
+        out.push_str("   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )\n");
         out.push_str("      return TA_OUT_OF_RANGE_START_INDEX;\n");
-        out.push_str("   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )\n");
+        out.push_str("   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )\n");
         out.push_str("      return TA_OUT_OF_RANGE_END_INDEX;\n");
         out.push('\n');
 
@@ -995,7 +995,7 @@ fn gen_func_inner(
         // A CROSS-TYPED pair is compared too, through `const void *`: `double * ==
         // int *` is the constraint violation, not the question, and the cast is
         // well defined. Reachable since SUPERTREND (#272) made the corpus mix the
-        // two. Appendix E of docs/error-handling-spec.md, #262.
+        // two. Rationale B6 in docs/error-handling-spec.md, #262.
         if func.outputs.len() >= 2 {
             let mut pairs: Vec<String> = Vec::new();
             for i in 0..func.outputs.len() {
@@ -1947,6 +1947,7 @@ fn render_assign_target(
         | Expr::BinOp(_, _, _)
         | Expr::Cast(_, _)
         | Expr::Not(_)
+        | Expr::Neg(_)
         | Expr::BitwiseNot(_)
         | Expr::FuncCall(_, _)
         | Expr::PointerDeref(_)

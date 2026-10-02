@@ -8,7 +8,7 @@ the state shape, the tier — is derived from the IR, and
 `ta_codegen stream-census` prints what each function derives today.
 
 This file is the contract and the shape. The error model is
-`docs/error-handling-spec.md`; the gates are `src/tools/ta_regtest/CLAUDE.md`.
+https://ta-lib.org/spec/errors/; the gates are `src/tools/ta_regtest/CLAUDE.md`.
 
 ## Lifecycle
 
@@ -20,8 +20,7 @@ This file is the contract and the shape. The error model is
    `TA_INSUFFICIENT_HISTORY` — the library's one recoverable condition, which is
    why it carries its own code. The history may be freed afterwards.
 2. **`update(handle, bar) → value`** — once per CLOSED bar. Always produces the
-   new value, at a cost that does not grow with the period: the handle is sized at
-   open.
+   new value; the handle is sized at open.
 3. **`peek(handle, bar) → value`** — a provisional bar, evaluated without
    committing. Call it as often as the forming bar is revised.
 4. **`close(handle)`** — explicit in C, nothing in the managed backends.
@@ -35,10 +34,10 @@ contract.
 **The handle reports its own `OutRange`** — `[begIdx, begIdx + count)`, the bars
 it has an output for, in the input series' coordinates: `TA_<N>_OutRange`,
 `out_range()`, `outRange()`, `OutRange`. It is the batch tier's range and lives
-in the batch tier's domain, so the last bar a handle can reach is `MAX_INDEX`:
+in the batch tier's domain, so the last bar a handle can reach is `INDEX_MAX`:
 past it `update` and `advance` refuse, permanently. Which calls move
-it, and how the refusal is spelled, are `docs/error-handling-spec.md` §2.4's
-business.
+it is rules U4, H4 and H5 (https://ta-lib.org/spec/streaming/#u4); how the
+refusal is spelled, https://ta-lib.org/spec/#failures.
 
 **`Advance` counts a bar the handle was not fed** — `TA_<N>_Advance`,
 `advance()`, `advance()`, `Advance()`, emitted per handle class in all four
@@ -46,7 +45,7 @@ backends as `OutRange` is. It moves the count by one and nothing else, so
 the skipped bar's output is the previous one, held. It exists because a rejected
 `update` changes nothing: a caller with a corrected value re-feeds the bar, and
 one without says so here rather than letting two handles on one feed drift a bar
-apart. The `MAX_INDEX` ceiling is what makes it fallible in the three
+apart. The `INDEX_MAX` ceiling is what makes it fallible in the three
 backends where it was not already: C's has always returned a `TA_RetCode`, Rust's
 became `Result<(), RetCode>`, and Java's and C#'s stay `void` and throw.
 
@@ -63,12 +62,11 @@ a handle buffer becomes two locals — the slot it targeted and the value it hel
 can reach this bar is deleted outright. Nothing else about the body changes, so
 it is the same numbers in the same order.
 
-What that buys is the cost model. No backend copies a handle's BUFFERS: peek's
-overhead is a fixed number of bytes where the buffers are a function of the
-period, which is the difference between a peek that is flat in the period and
-one that is not. No backend copies the struct either: a state field the frame
-writes becomes a local of the same name, seeded from the handle, and in C the
-handle is bound `const` so a frame that stored through it would not compile.
+What that buys is the cost model. No backend copies a handle's BUFFERS, so the
+frame's own overhead is a fixed number of bytes whatever the period. No backend
+copies the struct either: a state field the frame writes becomes a local of the
+same name, seeded from the handle, and in C the handle is bound `const` so a
+frame that stored through it would not compile.
 Java and C# additionally offer the accumulators to the shadow
 rewrite, because a managed array field is a reference and localizing one means
 cloning it; a clone survives only where the rewrite refuses, which no shipped
@@ -241,7 +239,7 @@ Shape rules that are not visible in those lines:
   separately), and the `TALibArgumentException` / `TALibIndexException` /
   `TALibStateException` family — each carrying its `RetCode` — for everything
   else. Messages carry the stable prefix `"<NAME> open:"` / `"<NAME> update:"` /
-  `"<NAME> peek:"`. `docs/error-handling-spec.md` §2.3–2.5 is the rule-by-rule
+  `"<NAME> peek:"`. https://ta-lib.org/spec/streaming/ is the rule-by-rule
   source.
 - `value()` re-reads the value(s) at the last bar the stream counted, without
   recomputing.
@@ -348,7 +346,9 @@ One rule holds in every language, each enforcing it its own way:
      (candle-settings reads in CDL update bodies mirror batch's own), no
      index-variable leakage, and the plan must match the analyzed shape.
 5. **Composition goes through public stream handles**, never cross-TU internals,
-   and its bit-exactness composes by induction: each sub-stream is bit-exact
+   with one exception: a period bank (MAVP) steps its slots through private,
+   unchecked tape entries, so that one tape holds the price history they all
+   read. Bit-exactness composes by induction: each sub-stream is bit-exact
    against its own batch over the full intermediate series, which is exactly what
    the composed batch computes. `open` opens each sub-stream on its source series
    at the sub-call's own start argument, passed VERBATIM — the callee clamps it

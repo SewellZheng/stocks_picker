@@ -88,10 +88,10 @@ impl Core {
         outHALow: &mut [f64],
         outHAClose: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.ha_lookback().unwrap_or(usize::MAX);
@@ -130,6 +130,10 @@ impl Core {
         if startIdx > endIdx {
             return RetCode::Success;
         }
+        let inOpen = &inOpen[..=endIdx];
+        let inHigh = &inHigh[..=endIdx];
+        let inLow = &inLow[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         // The summation order ((O+H)+L)+C is the bit-exactness contract with every
         // external implementation of this indicator. TA_AVGPRICE is documented as
         // the same quantity but sums ((H+L)+C)+O, which is a different double on
@@ -140,71 +144,73 @@ impl Core {
         today += 1;
         // Skip the unstable period.
         i = lookbackTotal;
-        while i != 0 {
-            // haOpen consumes the PREVIOUS candle on both sides of the midpoint, so
-            // it must advance before haClose is overwritten. Swapping these two
-            // still yields a plausible smoothed series.
-            haOpen = (haOpen + haClose) / 2.0;
-            haClose = (inOpen[today] + inHigh[today] + inLow[today] + inClose[today]) / 4.0;
-            today += 1;
-            i -= 1;
+        if i != 0 {
+            let _wn: usize = i;
+            let _w0 = &inClose[today..][.._wn];
+            let _w1 = &inHigh[today..][.._wn];
+            let _w2 = &inLow[today..][.._wn];
+            let _w3 = &inOpen[today..][.._wn];
+            for _wk in 0.._wn {
+                // haOpen consumes the PREVIOUS candle on both sides of the midpoint, so
+                // it must advance before haClose is overwritten. Swapping these two
+                // still yields a plausible smoothed series.
+                haOpen = (haOpen + haClose) / 2.0;
+                haClose = (_w3[_wk] + _w1[_wk] + _w2[_wk] + _w0[_wk]) / 4.0;
+                today += 1;
+                i -= 1;
+            }
         }
         tempHigh = inHigh[startIdx];
         tempLow = inLow[startIdx];
         // The three-way extremum is spelled with plain comparisons, never the
-        // max/min builtins: C's macros return their SECOND operand on a tie where
-        // Rust, Java and .NET return the negative zero, so a bar of signed zeros
+        // max/min builtins: C's macros return their SECOND operand on a tie and
+        // Rust's and Java's builtins do not, so a bar of signed zeros
         // emits different bytes per backend and the cross-language gate compares
         // bytes. Measured on (O,H,L,C) = (-0.0, +0.0, -0.0, -0.0).
         haHigh = tempHigh;
-        if haOpen > haHigh {
-            haHigh = haOpen;
-        }
-        if haClose > haHigh {
-            haHigh = haClose;
-        }
+        haHigh = c_max(haOpen, haHigh);
+        haHigh = c_max(haClose, haHigh);
         haLow = tempLow;
-        if haOpen < haLow {
-            haLow = haOpen;
-        }
-        if haClose < haLow {
-            haLow = haClose;
-        }
+        haLow = c_min(haOpen, haLow);
+        haLow = c_min(haClose, haLow);
         outHAOpen[0] = haOpen;
         outHAHigh[0] = haHigh;
         outHALow[0] = haLow;
         outHAClose[0] = haClose;
         outIdx = 1;
-        while today <= endIdx {
-            // Every price of the bar is read into a local before any output is
-            // written, which is what lets an output alias any input: at startIdx 0
-            // the store lands on the very slot the high and low were just read from.
-            tempOpen = inOpen[today];
-            tempHigh = inHigh[today];
-            tempLow = inLow[today];
-            tempClose = inClose[today];
-            haOpen = (haOpen + haClose) / 2.0;
-            haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
-            haHigh = tempHigh;
-            if haOpen > haHigh {
-                haHigh = haOpen;
+        if today <= endIdx {
+            let _wn: usize = endIdx - today + 1;
+            let _w0 = &inClose[today..][.._wn];
+            let _w1 = &inHigh[today..][.._wn];
+            let _w2 = &inLow[today..][.._wn];
+            let _w3 = &inOpen[today..][.._wn];
+            let _w4 = &mut outHAClose[outIdx..][.._wn];
+            let _w5 = &mut outHAHigh[outIdx..][.._wn];
+            let _w6 = &mut outHALow[outIdx..][.._wn];
+            let _w7 = &mut outHAOpen[outIdx..][.._wn];
+            for _wk in 0.._wn {
+                // Every price of the bar is read into a local before any output is
+                // written, which is what lets an output alias any input: at startIdx 0
+                // the store lands on the very slot the high and low were just read from.
+                tempOpen = _w3[_wk];
+                tempHigh = _w1[_wk];
+                tempLow = _w2[_wk];
+                tempClose = _w0[_wk];
+                haOpen = (haOpen + haClose) / 2.0;
+                haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
+                haHigh = tempHigh;
+                haHigh = c_max(haOpen, haHigh);
+                haHigh = c_max(haClose, haHigh);
+                haLow = tempLow;
+                haLow = c_min(haOpen, haLow);
+                haLow = c_min(haClose, haLow);
+                _w7[_wk] = haOpen;
+                _w5[_wk] = haHigh;
+                _w6[_wk] = haLow;
+                _w4[_wk] = haClose;
+                outIdx += 1;
+                today += 1;
             }
-            if haClose > haHigh {
-                haHigh = haClose;
-            }
-            haLow = tempLow;
-            if haOpen < haLow {
-                haLow = haOpen;
-            }
-            if haClose < haLow {
-                haLow = haClose;
-            }
-            outHAOpen[outIdx] = haOpen;
-            outHAHigh[outIdx] = haHigh;
-            outHALow[outIdx] = haLow;
-            outHAClose[outIdx] = haClose;
-            outIdx += 1;
-            today += 1;
         }
         (*outBegIdx) = startIdx;
         (*outNBElement) = outIdx;
@@ -239,14 +245,14 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
-    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// [`Core::INDEX_MAX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range that ends before the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -313,10 +319,10 @@ impl Core {
         outHALow: &mut [f64],
         outHAClose: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.ha_lookback()?;
@@ -419,19 +425,11 @@ impl Core {
         sp.haOpen = (sp.haOpen + sp.haClose) / 2.0;
         sp.haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
         haHigh = tempHigh;
-        if sp.haOpen > haHigh {
-            haHigh = sp.haOpen;
-        }
-        if sp.haClose > haHigh {
-            haHigh = sp.haClose;
-        }
+        haHigh = c_max(sp.haOpen, haHigh);
+        haHigh = c_max(sp.haClose, haHigh);
         haLow = tempLow;
-        if sp.haOpen < haLow {
-            haLow = sp.haOpen;
-        }
-        if sp.haClose < haLow {
-            haLow = sp.haClose;
-        }
+        haLow = c_min(sp.haOpen, haLow);
+        haLow = c_min(sp.haClose, haLow);
         (*outHAOpen) = sp.haOpen;
         (*outHAHigh) = haHigh;
         (*outHALow) = haLow;
@@ -450,7 +448,7 @@ impl Core {
         if inOpen.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inOpen.len() > Self::MAX_INDEX + 1 {
+        if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
@@ -510,24 +508,16 @@ impl Core {
         tempHigh = inHigh[startIdx];
         tempLow = inLow[startIdx];
         // The three-way extremum is spelled with plain comparisons, never the
-        // max/min builtins: C's macros return their SECOND operand on a tie where
-        // Rust, Java and .NET return the negative zero, so a bar of signed zeros
+        // max/min builtins: C's macros return their SECOND operand on a tie and
+        // Rust's and Java's builtins do not, so a bar of signed zeros
         // emits different bytes per backend and the cross-language gate compares
         // bytes. Measured on (O,H,L,C) = (-0.0, +0.0, -0.0, -0.0).
         haHigh = tempHigh;
-        if haOpen > haHigh {
-            haHigh = haOpen;
-        }
-        if haClose > haHigh {
-            haHigh = haClose;
-        }
+        haHigh = c_max(haOpen, haHigh);
+        haHigh = c_max(haClose, haHigh);
         haLow = tempLow;
-        if haOpen < haLow {
-            haLow = haOpen;
-        }
-        if haClose < haLow {
-            haLow = haClose;
-        }
+        haLow = c_min(haOpen, haLow);
+        haLow = c_min(haClose, haLow);
         outHAOpen[(0 * outStride) as usize] = haOpen;
         outHAHigh[(0 * outStride) as usize] = haHigh;
         outHALow[(0 * outStride) as usize] = haLow;
@@ -544,19 +534,11 @@ impl Core {
             haOpen = (haOpen + haClose) / 2.0;
             haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
             haHigh = tempHigh;
-            if haOpen > haHigh {
-                haHigh = haOpen;
-            }
-            if haClose > haHigh {
-                haHigh = haClose;
-            }
+            haHigh = c_max(haOpen, haHigh);
+            haHigh = c_max(haClose, haHigh);
             haLow = tempLow;
-            if haOpen < haLow {
-                haLow = haOpen;
-            }
-            if haClose < haLow {
-                haLow = haClose;
-            }
+            haLow = c_min(haOpen, haLow);
+            haLow = c_min(haClose, haLow);
             outHAOpen[(outIdx * outStride) as usize] = haOpen;
             outHAHigh[(outIdx * outStride) as usize] = haHigh;
             outHALow[(outIdx * outStride) as usize] = haLow;
@@ -688,7 +670,7 @@ impl Core {
         if inOpen.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inOpen.len() > Self::MAX_INDEX + 1 {
+        if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.ha_lookback()?;
@@ -730,7 +712,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl HaStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -748,11 +730,11 @@ impl HaStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_HA_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64, f64, f64), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -770,16 +752,15 @@ impl HaStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_HA_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64, f64, f64), RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -813,19 +794,11 @@ impl HaStream {
             haOpen = (haOpen + haClose) / 2.0;
             haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
             haHigh = tempHigh;
-            if haOpen > haHigh {
-                haHigh = haOpen;
-            }
-            if haClose > haHigh {
-                haHigh = haClose;
-            }
+            haHigh = c_max(haOpen, haHigh);
+            haHigh = c_max(haClose, haHigh);
             haLow = tempLow;
-            if haOpen < haLow {
-                haLow = haOpen;
-            }
-            if haClose < haLow {
-                haLow = haClose;
-            }
+            haLow = c_min(haOpen, haLow);
+            haLow = c_min(haClose, haLow);
             (*outHAOpen) = haOpen;
             (*outHAHigh) = haHigh;
             (*outHALow) = haLow;
@@ -857,7 +830,7 @@ impl HaStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_HA_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -875,11 +848,11 @@ impl HaStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_HA_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

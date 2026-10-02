@@ -69,6 +69,7 @@
  *  082326 MF,CC Fix #244. Detect an empty window by counting bars, not by
  *               testing the money-flow sum against a literal 1.0; classify
  *               branchlessly; clamp the emitted ratio into [0,100].
+ *  092526 MF,CC #442. Allocate the money-flow ring only when there is output.
  */
 
 TA_LIB_API int TA_MFI_Lookback( int optInTimePeriod )
@@ -113,9 +114,9 @@ TA_LIB_API TA_RetCode TA_MFI( int    startIdx,
    int mflow_Idx;
    int maxIdx_mflow;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -136,6 +137,19 @@ TA_LIB_API TA_RetCode TA_MFI( int    startIdx,
       return TA_BAD_PARAM;
 
    /* Id, Type, Static Size */
+   *outBegIdx= 0;
+   *outNBElement= 0;
+   /* Adjust startIdx to account for the lookback period. */
+   lookbackTotal = optInTimePeriod;
+   if( startIdx < lookbackTotal )
+   {
+      startIdx = lookbackTotal;
+   }
+   /* Make sure there is still something to evaluate. */
+   if( startIdx > endIdx )
+   {
+      return TA_SUCCESS;
+   }
    if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(351);
    if( (int)optInTimePeriod > (int)(sizeof(local_mflow_positive)/sizeof(double)) )
    {
@@ -158,21 +172,6 @@ TA_LIB_API TA_RetCode TA_MFI( int    startIdx,
    }
    maxIdx_mflow = (optInTimePeriod-1);
    mflow_Idx = 0;
-   *outBegIdx= 0;
-   *outNBElement= 0;
-   /* Adjust startIdx to account for the lookback period. */
-   lookbackTotal = optInTimePeriod;
-   if( startIdx < lookbackTotal )
-   {
-      startIdx = lookbackTotal;
-   }
-   /* Make sure there is still something to evaluate. */
-   if( startIdx > endIdx )
-   {
-      if( mflow_positive != &local_mflow_positive[0] ) { TA_Free( mflow_positive ); mflow_positive = &local_mflow_positive[0]; }
-      if( mflow_negative != &local_mflow_negative[0] ) { TA_Free( mflow_negative ); mflow_negative = &local_mflow_negative[0]; }
-      return TA_SUCCESS;
-   }
    outIdx = 0;
    /* Index into the output. */
    /* Accumulate the positive and negative money flow
@@ -344,9 +343,9 @@ TA_RetCode TA_S_MFI( int    startIdx,
    int mflow_Idx;
    int maxIdx_mflow;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -366,6 +365,17 @@ TA_RetCode TA_S_MFI( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
+   *outBegIdx= 0;
+   *outNBElement= 0;
+   lookbackTotal = optInTimePeriod;
+   if( startIdx < lookbackTotal )
+   {
+      startIdx = lookbackTotal;
+   }
+   if( startIdx > endIdx )
+   {
+      return TA_SUCCESS;
+   }
    if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(351);
    if( (int)optInTimePeriod > (int)(sizeof(local_mflow_positive)/sizeof(double)) )
    {
@@ -388,19 +398,6 @@ TA_RetCode TA_S_MFI( int    startIdx,
    }
    maxIdx_mflow = (optInTimePeriod-1);
    mflow_Idx = 0;
-   *outBegIdx= 0;
-   *outNBElement= 0;
-   lookbackTotal = optInTimePeriod;
-   if( startIdx < lookbackTotal )
-   {
-      startIdx = lookbackTotal;
-   }
-   if( startIdx > endIdx )
-   {
-      if( mflow_positive != &local_mflow_positive[0] ) { TA_Free( mflow_positive ); mflow_positive = &local_mflow_positive[0]; }
-      if( mflow_negative != &local_mflow_negative[0] ) { TA_Free( mflow_negative ); mflow_negative = &local_mflow_negative[0]; }
-      return TA_SUCCESS;
-   }
    outIdx = 0;
    today = startIdx - lookbackTotal;
    prevValue = ((double)inHigh[today] + (double)inLow[today] + (double)inClose[today]) / 3.0;
@@ -584,7 +581,7 @@ static TA_RetCode TA_MFI_OpenImpl( struct TA_MFI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
@@ -616,6 +613,19 @@ static TA_RetCode TA_MFI_OpenImpl( struct TA_MFI_Stream **stream, const double i
       int today;
       int nullRun = 0;
       /* Id, Type, Static Size */
+      *outBegIdx= 0;
+      *outNBElement= 0;
+      /* Adjust startIdx to account for the lookback period. */
+      lookbackTotal = optInTimePeriod;
+      if( startIdx < lookbackTotal )
+      {
+         startIdx = lookbackTotal;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx )
+      {
+         return TA_INSUFFICIENT_HISTORY;
+      }
       if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(351);
       if( (int)optInTimePeriod > (int)(sizeof(local_mflow_positive)/sizeof(double)) )
       {
@@ -638,21 +648,6 @@ static TA_RetCode TA_MFI_OpenImpl( struct TA_MFI_Stream **stream, const double i
       }
       maxIdx_mflow = (optInTimePeriod-1);
       mflow_Idx = 0;
-      *outBegIdx= 0;
-      *outNBElement= 0;
-      /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = optInTimePeriod;
-      if( startIdx < lookbackTotal )
-      {
-         startIdx = lookbackTotal;
-      }
-      /* Make sure there is still something to evaluate. */
-      if( startIdx > endIdx )
-      {
-         if( mflow_positive != &local_mflow_positive[0] ) { TA_Free( mflow_positive ); mflow_positive = &local_mflow_positive[0]; }
-         if( mflow_negative != &local_mflow_negative[0] ) { TA_Free( mflow_negative ); mflow_negative = &local_mflow_negative[0]; }
-         return TA_INSUFFICIENT_HISTORY;
-      }
       outIdx = 0;
       /* Index into the output. */
       /* Accumulate the positive and negative money flow
@@ -835,7 +830,7 @@ TA_LIB_API TA_RetCode TA_MFI_Open( TA_MFI_Stream **stream, const double inHigh[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_MFI_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -845,7 +840,7 @@ TA_LIB_API TA_RetCode TA_MFI_OpenAndFill( TA_MFI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    return TA_MFI_OpenAndFillInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -860,7 +855,7 @@ TA_RetCode TA_MFI_OpenAndFillInternal( struct TA_MFI_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_MFI_Update( TA_MFI_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
@@ -952,7 +947,7 @@ TA_LIB_API TA_RetCode TA_MFI_OutRange( const TA_MFI_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_MFI_Advance( TA_MFI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

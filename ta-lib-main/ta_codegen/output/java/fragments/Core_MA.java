@@ -19,6 +19,8 @@
  *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
  *  090426 MF,CC Add ZLEMA (issue #347).
  *  090426 MF,CC Add RMA (issue #348).
+ *  092926 MF,CC Add VIDYA (issue #474).
+ *  092926 MF,CC Add ALMA (issue #475).
  */
 
    /**
@@ -32,8 +34,8 @@
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Which moving-average algorithm to dispatch to (default
     *        0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA,
-    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
-    *        {@code MAType.DEFAULT} selects the default).
+    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA,
+    *        15=ALMA; {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int maLookback( int optInTimePeriod, MAType optInMAType )
@@ -88,6 +90,12 @@
       case RMA:
          retValue = rmaLookback(optInTimePeriod);
          break;
+      case VIDYA:
+         retValue = vidyaLookback(optInTimePeriod, (3 * optInTimePeriod + 2) / 4);
+         break;
+      case ALMA:
+         retValue = almaLookback(optInTimePeriod, 6.0, 0.85);
+         break;
       default:
          retValue = 0;
          break;
@@ -108,10 +116,10 @@
       int nbElement = 0;
       int outIdx = 0;
       int todayIdx = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -122,7 +130,7 @@
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
       }
-      /* Nothing to produce: the range is shorter than the lookback. Answer here
+      /* Nothing to produce: the range ends before the lookback. Answer here
        * rather than forwarding.
        *
        * The VALUE is the same either way: ma_lookback returns exactly the lookback
@@ -242,6 +250,21 @@
          outNBElement.value = _xr11.count();
          retCode = RetCode.SUCCESS;
          break;
+      case VIDYA:
+         /* The one period is the EMA length; the CMO period is round(3n/4),
+          * Chande's 12:9 ratio.
+          */
+         OutRange _xr12 = vidya(startIdx, endIdx, inReal, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal);
+         outBegIdx.value = _xr12.begIdx();
+         outNBElement.value = _xr12.count();
+         retCode = RetCode.SUCCESS;
+         break;
+      case ALMA:
+         OutRange _xr13 = alma(startIdx, endIdx, inReal, optInTimePeriod, 6.0, 0.85, outReal);
+         outBegIdx.value = _xr13.begIdx();
+         outNBElement.value = _xr13.count();
+         retCode = RetCode.SUCCESS;
+         break;
       default:
          retCode = RetCode.BAD_PARAM;
          break;
@@ -261,10 +284,10 @@
       int nbElement = 0;
       int outIdx = 0;
       int todayIdx = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -363,6 +386,18 @@
          outNBElement.value = _xr11.count();
          retCode = RetCode.SUCCESS;
          break;
+      case VIDYA:
+         OutRange _xr12 = vidya(startIdx, endIdx, inReal, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal);
+         outBegIdx.value = _xr12.begIdx();
+         outNBElement.value = _xr12.count();
+         retCode = RetCode.SUCCESS;
+         break;
+      case ALMA:
+         OutRange _xr13 = alma(startIdx, endIdx, inReal, optInTimePeriod, 6.0, 0.85, outReal);
+         outBegIdx.value = _xr13.begIdx();
+         outNBElement.value = _xr13.count();
+         retCode = RetCode.SUCCESS;
+         break;
       default:
          retCode = RetCode.BAD_PARAM;
          break;
@@ -384,8 +419,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#maLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#maLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -394,14 +429,15 @@
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Which moving-average algorithm to dispatch to (default
     *        0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA,
-    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
-    *        {@code MAType.DEFAULT} selects the default).
+    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA,
+    *        15=ALMA; {@code MAType.DEFAULT} selects the default).
     * @param outReal Selected moving average of the input. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, maLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -424,6 +460,8 @@
     * @see Core#hma
     * @see Core#zlema
     * @see Core#rma
+    * @see Core#vidya
+    * @see Core#alma
     */
    public OutRange ma( int startIdx,
                        int endIdx,
@@ -465,8 +503,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#maLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#maLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -475,14 +513,15 @@
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Which moving-average algorithm to dispatch to (default
     *        0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA,
-    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
-    *        {@code MAType.DEFAULT} selects the default).
+    *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA,
+    *        15=ALMA; {@code MAType.DEFAULT} selects the default).
     * @param outReal Selected moving average of the input. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, maLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -505,6 +544,8 @@
     * @see Core#hma
     * @see Core#zlema
     * @see Core#rma
+    * @see Core#vidya
+    * @see Core#alma
     */
    public OutRange ma( int startIdx,
                        int endIdx,
@@ -549,8 +590,10 @@
       private int optInTimePeriod;
       private MAType optInMAType;
       private double cur_outReal;
-      // Sub-stream, tagged by optInMAType; null on the identity path.
+      // The sub-stream optInMAType picked at open, and its arm's tag, which every
+      // per-bar frame routes on; null and -1 on the identity path.
       private Object sub;
+      private int arm;
       private int outRangeBegIdx;
       private int outRangeCount;
 
@@ -566,7 +609,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -580,12 +623,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -595,6 +638,7 @@
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInMAType = other.optInMAType;
          this.cur_outReal = other.cur_outReal;
+         this.arm = other.arm;
          if( other.sub == null ) {
             this.sub = null;
          } else {
@@ -636,6 +680,12 @@
             case RMA:
                this.sub = new RmaStream((RmaStream) other.sub);
                break;
+            case VIDYA:
+               this.sub = new VidyaStream((VidyaStream) other.sub);
+               break;
+            case ALMA:
+               this.sub = new AlmaStream((AlmaStream) other.sub);
+               break;
             default:
                throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
             }
@@ -658,15 +708,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("MA update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MA update", "inReal");
          core.maStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -676,58 +726,62 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("MA peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MA peek", "inReal");
          MaStream sp = this;
-         if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
-            return inReal;
-         }
-         switch( sp.optInMAType )
+         Object sub = sp.sub;
+         switch( sp.arm )
          {
-         case SMA: {
-            return ((SmaStream) sp.sub).peek(inReal);
+         case -1:
+            return inReal;
+         case 0: {
+            return ((SmaStream) sub).peek(inReal);
          }
-         case EMA: {
-            return ((EmaStream) sp.sub).peek(inReal);
+         case 1: {
+            return ((EmaStream) sub).peek(inReal);
          }
-         case WMA: {
-            return ((WmaStream) sp.sub).peek(inReal);
+         case 2: {
+            return ((WmaStream) sub).peek(inReal);
          }
-         case DEMA: {
-            return ((DemaStream) sp.sub).peek(inReal);
+         case 3: {
+            return ((DemaStream) sub).peek(inReal);
          }
-         case TEMA: {
-            return ((TemaStream) sp.sub).peek(inReal);
+         case 4: {
+            return ((TemaStream) sub).peek(inReal);
          }
-         case TRIMA: {
-            return ((TrimaStream) sp.sub).peek(inReal);
+         case 5: {
+            return ((TrimaStream) sub).peek(inReal);
          }
-         case KAMA: {
-            return ((KamaStream) sp.sub).peek(inReal);
+         case 6: {
+            return ((KamaStream) sub).peek(inReal);
          }
-         case MAMA: {
+         case 7: {
             MamaOut subValue = new MamaOut();
-            ((MamaStream) sp.sub).peek(inReal, subValue);
+            ((MamaStream) sub).peek(inReal, subValue);
             return subValue.mama;
          }
-         case T3: {
-            return ((T3Stream) sp.sub).peek(inReal);
+         case 8: {
+            return ((T3Stream) sub).peek(inReal);
          }
-         case HMA: {
-            return ((HmaStream) sp.sub).peek(inReal);
+         case 9: {
+            return ((HmaStream) sub).peek(inReal);
          }
-         case ZLEMA: {
-            return ((ZlemaStream) sp.sub).peek(inReal);
+         case 10: {
+            return ((ZlemaStream) sub).peek(inReal);
          }
-         case RMA: {
-            return ((RmaStream) sp.sub).peek(inReal);
+         case 11: {
+            return ((RmaStream) sub).peek(inReal);
+         }
+         case 12: {
+            return ((VidyaStream) sub).peek(inReal);
+         }
+         case 13: {
+            return ((AlmaStream) sub).peek(inReal);
          }
          default:
             throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
@@ -762,60 +816,78 @@
    }
    private void maStepImpl( MaStream sp, double inReal )
    {
-      if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
+      Object sub = sp.sub;
+      switch( sp.arm )
+      {
+      case -1:
          sp.cur_outReal = inReal;
          return;
+      case 0: {
+         sp.cur_outReal = ((SmaStream) sub).update(inReal);
+         return;
       }
-      switch( sp.optInMAType )
+      case 1: {
+         sp.cur_outReal = ((EmaStream) sub).update(inReal);
+         return;
+      }
+      case 2: {
+         sp.cur_outReal = ((WmaStream) sub).update(inReal);
+         return;
+      }
+      case 3: {
+         sp.cur_outReal = ((DemaStream) sub).update(inReal);
+         return;
+      }
+      case 4: {
+         sp.cur_outReal = ((TemaStream) sub).update(inReal);
+         return;
+      }
+      case 5: {
+         sp.cur_outReal = ((TrimaStream) sub).update(inReal);
+         return;
+      }
+      case 6: {
+         sp.cur_outReal = ((KamaStream) sub).update(inReal);
+         return;
+      }
+      default:
+         maStepImplRest(sp, inReal);
+         return;
+      }
+   }
+   private void maStepImplRest( MaStream sp, double inReal )
+   {
+      Object sub = sp.sub;
+      switch( sp.arm )
       {
-      case SMA: {
-         sp.cur_outReal = ((SmaStream) sp.sub).update(inReal);
-         return;
-      }
-      case EMA: {
-         sp.cur_outReal = ((EmaStream) sp.sub).update(inReal);
-         return;
-      }
-      case WMA: {
-         sp.cur_outReal = ((WmaStream) sp.sub).update(inReal);
-         return;
-      }
-      case DEMA: {
-         sp.cur_outReal = ((DemaStream) sp.sub).update(inReal);
-         return;
-      }
-      case TEMA: {
-         sp.cur_outReal = ((TemaStream) sp.sub).update(inReal);
-         return;
-      }
-      case TRIMA: {
-         sp.cur_outReal = ((TrimaStream) sp.sub).update(inReal);
-         return;
-      }
-      case KAMA: {
-         sp.cur_outReal = ((KamaStream) sp.sub).update(inReal);
-         return;
-      }
-      case MAMA: {
+      case 7: {
          MamaOut subOut = new MamaOut();
-         ((MamaStream) sp.sub).update(inReal, subOut);
+         ((MamaStream) sub).update(inReal, subOut);
          sp.cur_outReal = subOut.mama;
          return;
       }
-      case T3: {
-         sp.cur_outReal = ((T3Stream) sp.sub).update(inReal);
+      case 8: {
+         sp.cur_outReal = ((T3Stream) sub).update(inReal);
          return;
       }
-      case HMA: {
-         sp.cur_outReal = ((HmaStream) sp.sub).update(inReal);
+      case 9: {
+         sp.cur_outReal = ((HmaStream) sub).update(inReal);
          return;
       }
-      case ZLEMA: {
-         sp.cur_outReal = ((ZlemaStream) sp.sub).update(inReal);
+      case 10: {
+         sp.cur_outReal = ((ZlemaStream) sub).update(inReal);
          return;
       }
-      case RMA: {
-         sp.cur_outReal = ((RmaStream) sp.sub).update(inReal);
+      case 11: {
+         sp.cur_outReal = ((RmaStream) sub).update(inReal);
+         return;
+      }
+      case 12: {
+         sp.cur_outReal = ((VidyaStream) sub).update(inReal);
+         return;
+      }
+      case 13: {
+         sp.cur_outReal = ((AlmaStream) sub).update(inReal);
          return;
       }
       default:
@@ -828,7 +900,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -849,6 +921,7 @@
          sp.optInTimePeriod = optInTimePeriod;
          sp.optInMAType = optInMAType;
          sp.sub = null;
+         sp.arm = -1;
          sp.cur_outReal = inReal[historyLen - 1];
          int fillLb = maLookback(optInTimePeriod, optInMAType);
          if( startIdx > fillLb ) fillLb = startIdx;
@@ -866,6 +939,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 0;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -874,6 +948,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 1;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -882,6 +957,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 2;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -890,6 +966,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 3;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -898,6 +975,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 4;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -906,6 +984,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 5;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -914,6 +993,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 6;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -922,6 +1002,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 7;
          sp.cur_outReal = sub.cur_outMAMA;
          break;
       }
@@ -930,6 +1011,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 8;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -938,6 +1020,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 9;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -946,6 +1029,7 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 10;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -954,6 +1038,25 @@
          sp.outRangeBegIdx = sub.outRangeBegIdx;
          sp.outRangeCount = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 11;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case VIDYA: {
+         VidyaStream sub = vidyaOpenInternal(inReal, startIdx, optInTimePeriod, (3 * optInTimePeriod + 2) / 4);
+         sp.outRangeBegIdx = sub.outRangeBegIdx;
+         sp.outRangeCount = sub.outRangeCount;
+         sp.sub = sub;
+         sp.arm = 12;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case ALMA: {
+         AlmaStream sub = almaOpenInternal(inReal, startIdx, optInTimePeriod, 6.0, 0.85);
+         sp.outRangeBegIdx = sub.outRangeBegIdx;
+         sp.outRangeCount = sub.outRangeCount;
+         sp.sub = sub;
+         sp.arm = 13;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -970,7 +1073,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -994,6 +1097,7 @@
          sp.optInTimePeriod = optInTimePeriod;
          sp.optInMAType = optInMAType;
          sp.sub = null;
+         sp.arm = -1;
          int fillLb = maLookback(optInTimePeriod, optInMAType);
          outBegIdx.value = fillLb;
          outNBElement.value = historyLen - fillLb;
@@ -1010,6 +1114,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 0;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1018,6 +1123,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 1;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1026,6 +1132,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 2;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1034,6 +1141,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 3;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1042,6 +1150,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 4;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1050,6 +1159,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 5;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1058,6 +1168,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 6;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1066,6 +1177,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 7;
          sp.cur_outReal = sub.cur_outMAMA;
          break;
       }
@@ -1074,6 +1186,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 8;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1082,6 +1195,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 9;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1090,6 +1204,7 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 10;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1098,6 +1213,25 @@
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
+         sp.arm = 11;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case VIDYA: {
+         VidyaStream sub = vidyaOpenAndFill(inReal, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal);
+         outBegIdx.value = sub.outRangeBegIdx;
+         outNBElement.value = sub.outRangeCount;
+         sp.sub = sub;
+         sp.arm = 12;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case ALMA: {
+         AlmaStream sub = almaOpenAndFill(inReal, optInTimePeriod, 6.0, 0.85, outReal);
+         outBegIdx.value = sub.outRangeBegIdx;
+         outNBElement.value = sub.outRangeCount;
+         sp.sub = sub;
+         sp.arm = 13;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1114,7 +1248,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -1135,6 +1269,7 @@
          sp.optInTimePeriod = optInTimePeriod;
          sp.optInMAType = optInMAType;
          sp.sub = null;
+         sp.arm = -1;
          int fillLb = maLookback(optInTimePeriod, optInMAType);
          if( startIdx > fillLb ) fillLb = startIdx;
          if( historyLen < fillLb + 1 ) {
@@ -1153,72 +1288,98 @@
       case SMA: {
          SmaStream sub = smaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 0;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case EMA: {
          EmaStream sub = emaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 1;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case WMA: {
          WmaStream sub = wmaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 2;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case DEMA: {
          DemaStream sub = demaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 3;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case TEMA: {
          TemaStream sub = temaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 4;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case TRIMA: {
          TrimaStream sub = trimaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 5;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case KAMA: {
          KamaStream sub = kamaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 6;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case MAMA: {
          MamaStream sub = mamaOpenAndFillInternal(inReal, startIdx, 0.5, 0.05, outBegIdx, outNBElement, outReal, null);
          sp.sub = sub;
+         sp.arm = 7;
          sp.cur_outReal = sub.cur_outMAMA;
          break;
       }
       case T3: {
          T3Stream sub = t3OpenAndFillInternal(inReal, startIdx, optInTimePeriod, 0.7, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 8;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case HMA: {
          HmaStream sub = hmaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 9;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case ZLEMA: {
          ZlemaStream sub = zlemaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 10;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
       case RMA: {
          RmaStream sub = rmaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
          sp.sub = sub;
+         sp.arm = 11;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case VIDYA: {
+         VidyaStream sub = vidyaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.arm = 12;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case ALMA: {
+         AlmaStream sub = almaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, 6.0, 0.85, outBegIdx, outNBElement, outReal);
+         sp.sub = sub;
+         sp.arm = 13;
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
@@ -1238,12 +1399,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MA open: history shorter than lookback + 1");
+         throw insufficientHistory("MA open", inReal.length, startIdx, maLookback(optInTimePeriod, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MA open: internal error", retCode);
-      }
-      throw new TALibArgumentException("MA open: " + retCode, retCode);
+      throw streamFailure("MA open", retCode);
    }
    /**
     * Open a live MA stream over the warm-up history; the handle's
@@ -1293,12 +1451,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MA openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("MA openAndFill", inReal.length, 0, maLookback(optInTimePeriod, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MA openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("MA openAndFill: " + retCode, retCode);
+      throw streamFailure("MA openAndFill", retCode);
    }
    /* maOpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MaStream maOpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
@@ -1311,10 +1466,152 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MA openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("MA openAndFill", inReal.length, startIdx, maLookback(optInTimePeriod, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MA openAndFill: internal error", retCode);
+      throw streamFailure("MA openAndFill", retCode);
+   }
+   private double maStepTape( MaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      switch( sp.arm )
+      {
+      case -1:
+         sp.cur_outReal = inReal;
+         break;
+      case 0:
+         sp.cur_outReal = smaStepTape((SmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+         break;
+      case 1:
+         sp.cur_outReal = emaStepTape((EmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+         break;
+      case 2:
+         sp.cur_outReal = wmaStepTape((WmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+         break;
+      case 3:
+         sp.cur_outReal = demaStepTape((DemaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+         break;
+      case 4:
+         sp.cur_outReal = temaStepTape((TemaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+         break;
+      case 5:
+         sp.cur_outReal = trimaStepTape((TrimaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+         break;
+      case 6:
+         sp.cur_outReal = kamaStepTape((KamaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+         break;
+      default:
+         sp.cur_outReal = maStepTapeRest(sp, tape, tapeBase, tapeMask, inReal);
+         break;
       }
-      throw new TALibArgumentException("MA openAndFill: " + retCode, retCode);
+      sp.outRangeCount++;
+      return sp.cur_outReal;
+   }
+   private double maStepTapeRest( MaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      switch( sp.arm )
+      {
+      case 7: {
+         MamaStream sub = (MamaStream) sp.sub;
+         mamaStepTape(sub, tape, tapeBase, tapeMask, inReal);
+         return sub.cur_outMAMA;
+      }
+      case 8:
+         return t3StepTape((T3Stream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 9:
+         return hmaStepTape((HmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 10:
+         return zlemaStepTape((ZlemaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 11:
+         return rmaStepTape((RmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 12:
+         return vidyaStepTape((VidyaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 13:
+         return almaStepTape((AlmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      default:
+         throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
+      }
+   }
+   private double maPeekTape( MaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      switch( sp.arm )
+      {
+      case -1:
+         return inReal;
+      case 0:
+         return smaPeekTape((SmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 1:
+         return emaPeekTape((EmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 2:
+         return wmaPeekTape((WmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 3:
+         return demaPeekTape((DemaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 4:
+         return temaPeekTape((TemaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 5:
+         return trimaPeekTape((TrimaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 6:
+         return kamaPeekTape((KamaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      default:
+         return maPeekTapeRest(sp, tape, tapeBase, tapeMask, inReal);
+      }
+   }
+   private double maPeekTapeRest( MaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      switch( sp.arm )
+      {
+      case 7: {
+         MamaOut subValue = new MamaOut();
+         mamaPeekTape((MamaStream) sp.sub, tape, tapeBase, tapeMask, inReal, subValue);
+         return subValue.mama;
+      }
+      case 8:
+         return t3PeekTape((T3Stream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 9:
+         return hmaPeekTape((HmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 10:
+         return zlemaPeekTape((ZlemaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 11:
+         return rmaPeekTape((RmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 12:
+         return vidyaPeekTape((VidyaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      case 13:
+         return almaPeekTape((AlmaStream) sp.sub, tape, tapeBase, tapeMask, inReal);
+      default:
+         throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
+      }
+   }
+   private int maTapeDetach( MaStream sp )
+   {
+      switch( sp.arm )
+      {
+      case 0:
+         return smaTapeDetach((SmaStream) sp.sub);
+      case 1:
+         return emaTapeDetach((EmaStream) sp.sub);
+      case 2:
+         return wmaTapeDetach((WmaStream) sp.sub);
+      case 3:
+         return demaTapeDetach((DemaStream) sp.sub);
+      case 4:
+         return temaTapeDetach((TemaStream) sp.sub);
+      case 5:
+         return trimaTapeDetach((TrimaStream) sp.sub);
+      case 6:
+         return kamaTapeDetach((KamaStream) sp.sub);
+      case 7:
+         return mamaTapeDetach((MamaStream) sp.sub);
+      case 8:
+         return t3TapeDetach((T3Stream) sp.sub);
+      case 9:
+         return hmaTapeDetach((HmaStream) sp.sub);
+      case 10:
+         return zlemaTapeDetach((ZlemaStream) sp.sub);
+      case 11:
+         return rmaTapeDetach((RmaStream) sp.sub);
+      case 12:
+         return vidyaTapeDetach((VidyaStream) sp.sub);
+      case 13:
+         return almaTapeDetach((AlmaStream) sp.sub);
+      default:
+         return 0;
+      }
    }

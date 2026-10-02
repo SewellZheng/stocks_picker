@@ -60,6 +60,9 @@
  *  090926 MF,CC #410 Scale the Wilder step by a hoisted 1/period and split the
  *               gain/loss without a branch; the loop-carried chain keeps
  *               neither a divide nor a 50/50 mispredict.
+ *  092826 MF,CC #466 Drop the period-1 copy-through; the range starts at 2.
+ *  093026 MF,CC #480 Answer the neutral 50 instead of 0 when neither a gain nor
+ *               a loss has been seen; 0 read as extremely oversold.
  */
 
 // Import types from parent module
@@ -108,10 +111,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -149,27 +152,9 @@ impl Core {
         if startIdx > endIdx {
             return RetCode::Success;
         }
+        let inReal = &inReal[..=endIdx];
         outIdx = 0;
         // Index into the output.
-        // Trap special case where the period is '1'.
-        // In that case, just copy the input into the
-        // output for the requested range (as-is !)
-        if optInTimePeriod == 1 {
-            (*outBegIdx) = startIdx;
-            i = ((endIdx - startIdx + 1) as usize) as usize;
-            (*outNBElement) = i as usize;
-            // Element loop, not a block copy: the C single-precision variant reads a
-            // float array, so a double-sized byte copy would reinterpret and
-            // over-read it (#137). Forward order keeps the in-place case correct (#94).
-            today = startIdx as usize;
-            // for( outIdx = 0; outIdx < (i as usize); outIdx += 1 )
-            outIdx = 0;
-            while outIdx < (i as usize) {
-                outReal[outIdx] = ((inReal[{ let _v = today; today += 1; _v }]) as f64);
-                outIdx += 1;
-            }
-            return RetCode::Success;
-        }
         invPeriod = 1.0 / (optInTimePeriod as f64);
         // Accumulate Wilder's "Average Gain" and "Average Loss"
         // among the initial period.
@@ -178,17 +163,20 @@ impl Core {
         prevGain = 0.0;
         prevLoss = 0.0;
         today = today + 1;
-        // for( i = (optInTimePeriod) as usize; i > 0; i -= 1 )
         i = (optInTimePeriod) as usize;
-        while i > 0 {
-            tempValue1 = inReal[today] as f64;
-            today = today + 1;
-            tempValue2 = tempValue1 - prevValue;
-            prevValue = tempValue1;
-            gainDelta = (if tempValue2 > 0.0 { tempValue2 } else { 0.0 });
-            prevGain += gainDelta;
-            prevLoss += gainDelta - tempValue2;
-            i -= 1;
+        if i > 0 {
+            let _wn: usize = i;
+            let _w0 = &inReal[today..][.._wn];
+            for _wk in 0.._wn {
+                tempValue1 = _w0[_wk] as f64;
+                today = today + 1;
+                tempValue2 = tempValue1 - prevValue;
+                prevValue = tempValue1;
+                gainDelta = (if tempValue2 > 0.0 { tempValue2 } else { 0.0 });
+                prevGain += gainDelta;
+                prevLoss += gainDelta - tempValue2;
+                i -= 1;
+            }
         }
         // Subsequent prevLoss and prevGain are smoothed
         // using the previous values (Wilder's approach).
@@ -207,18 +195,22 @@ impl Core {
         //
         // The second equation is used here for speed optimization.
         //
-        // prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
-        // when every change since the seed was exactly zero -- test it exactly, never
-        // against a fixed band. A gain carries the quote unit, so a constant put
-        // against it zeroes a healthy oscillator for an instrument quoted below it
-        // (issue #253).
+        // prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero when
+        // every change since the seed was exactly zero, or once both have decayed to
+        // zero. Test it exactly, never against a fixed band: a gain carries the
+        // quote unit, so a constant put against it zeroes a healthy oscillator for
+        // an instrument quoted below it (issue #253).
+        //
+        // A zero total is 0/0, no gain against no loss, so it answers the neutral
+        // 50 (issue #480). Keep it apart from the one-sided cases, which are 0 and
+        // 100 and reach the division.
         if today > startIdx {
             tempValue1 = prevGain + prevLoss;
             if tempValue1 > 0.0 {
                 outReal[outIdx] = 100.0 * (prevGain / tempValue1);
                 outIdx = outIdx + 1;
             } else {
-                outReal[outIdx] = 0.0;
+                outReal[outIdx] = 50.0;
                 outIdx = outIdx + 1;
             }
         } else {
@@ -257,7 +249,7 @@ impl Core {
                 outReal[outIdx] = 100.0 * (prevGain / tempValue1);
                 outIdx = outIdx + 1;
             } else {
-                outReal[outIdx] = 0.0;
+                outReal[outIdx] = 50.0;
                 outIdx = outIdx + 1;
             }
         }
@@ -284,15 +276,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -333,10 +325,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.rsi_lookback(optInTimePeriod)?;
@@ -403,11 +395,6 @@ impl Core {
         let mut gainDelta: f64 = 0.0_f64;
         let mut tempValue1: f64 = 0.0_f64;
         let mut tempValue2: f64 = 0.0_f64;
-        if sp.optInTimePeriod == 1 {
-            (*outReal) = inReal;
-            sp.cur_outReal = (*outReal);
-            return;
-        }
         tempValue1 = inReal as f64;
         tempValue2 = tempValue1 - sp.prevValue;
         sp.prevValue = tempValue1;
@@ -422,7 +409,7 @@ impl Core {
         if tempValue1 > 0.0 {
             (*outReal) = 100.0 * (sp.prevGain / tempValue1);
         } else {
-            (*outReal) = 0.0;
+            (*outReal) = 50.0;
         }
         sp.cur_outReal = (*outReal);
     }
@@ -435,7 +422,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -453,33 +440,6 @@ impl Core {
         }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
-        if optInTimePeriod == 1 {
-            let fillLb: usize = self.rsi_lookback(optInTimePeriod)?;
-            let fillLb = if startIdx > fillLb { startIdx } else { fillLb };
-            if historyLen < fillLb + 1 {
-                return Err(RetCode::InsufficientHistory);
-            }
-            let state = RsiStreamState {
-                cur_outReal: inReal[historyLen - 1],
-                optInTimePeriod: optInTimePeriod,
-                invPeriod: 0.0_f64,
-                prevGain: 0.0_f64,
-                prevLoss: 0.0_f64,
-                prevValue: 0.0_f64,
-            };
-            (*outBegIdx) = fillLb;
-            (*outNBElement) = historyLen - fillLb;
-            if outStride == 0 {
-                outReal[0] = inReal[historyLen - 1];
-            } else {
-                let mut fillIdx: usize = 0;
-                while fillIdx < historyLen - fillLb {
-                    outReal[fillIdx] = inReal[fillLb + fillIdx];
-                    fillIdx += 1;
-                }
-            }
-            return Ok(RsiStream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
-        }
         let mut outIdx: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
@@ -544,18 +504,22 @@ impl Core {
         //
         // The second equation is used here for speed optimization.
         //
-        // prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
-        // when every change since the seed was exactly zero -- test it exactly, never
-        // against a fixed band. A gain carries the quote unit, so a constant put
-        // against it zeroes a healthy oscillator for an instrument quoted below it
-        // (issue #253).
+        // prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero when
+        // every change since the seed was exactly zero, or once both have decayed to
+        // zero. Test it exactly, never against a fixed band: a gain carries the
+        // quote unit, so a constant put against it zeroes a healthy oscillator for
+        // an instrument quoted below it (issue #253).
+        //
+        // A zero total is 0/0, no gain against no loss, so it answers the neutral
+        // 50 (issue #480). Keep it apart from the one-sided cases, which are 0 and
+        // 100 and reach the division.
         if today > startIdx {
             tempValue1 = prevGain + prevLoss;
             if tempValue1 > 0.0 {
                 outReal[(outIdx * outStride) as usize] = 100.0 * (prevGain / tempValue1);
                 outIdx = outIdx + 1;
             } else {
-                outReal[(outIdx * outStride) as usize] = 0.0;
+                outReal[(outIdx * outStride) as usize] = 50.0;
                 outIdx = outIdx + 1;
             }
         } else {
@@ -594,7 +558,7 @@ impl Core {
                 outReal[(outIdx * outStride) as usize] = 100.0 * (prevGain / tempValue1);
                 outIdx = outIdx + 1;
             } else {
-                outReal[(outIdx * outStride) as usize] = 0.0;
+                outReal[(outIdx * outStride) as usize] = 50.0;
                 outIdx = outIdx + 1;
             }
         }
@@ -690,7 +654,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.rsi_lookback(optInTimePeriod)?;
@@ -720,7 +684,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl RsiStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -738,11 +702,11 @@ impl RsiStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_RSI_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() {
@@ -757,16 +721,15 @@ impl RsiStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_RSI_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -782,10 +745,6 @@ impl RsiStream {
             let mut prevGain = sp.prevGain;
             let mut prevLoss = sp.prevLoss;
             let mut prevValue = sp.prevValue;
-            if sp.optInTimePeriod == 1 {
-                (*outReal) = inReal;
-                return Ok((*outReal));
-            }
             tempValue1 = inReal as f64;
             tempValue2 = tempValue1 - prevValue;
             prevValue = tempValue1;
@@ -800,7 +759,7 @@ impl RsiStream {
             if tempValue1 > 0.0 {
                 (*outReal) = 100.0 * (prevGain / tempValue1);
             } else {
-                (*outReal) = 0.0;
+                (*outReal) = 50.0;
             }
         }
         Ok(outReal)
@@ -829,7 +788,7 @@ impl RsiStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_RSI_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -847,11 +806,11 @@ impl RsiStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_RSI_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

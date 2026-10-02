@@ -111,10 +111,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -134,12 +134,12 @@ impl Core {
         let mut startIdx = startIdx;
         let mut i: usize = 0_usize;
         let mut retCode: RetCode = RetCode::Success;
-        // Nothing to produce: the range is shorter than the lookback. Return before
+        // Nothing to produce: the range ends before the lookback. Return before
         // touching anything.
         //
         // Same shape as the guard in apo and bbands: the variance below runs on the
         // same range and its lookback IS stddev's, so it declines and yields 0,0
-        // without reading. Observably identical, but it makes "a range shorter than
+        // without reading. Observably identical, but it makes "a range that ends before
         // the lookback reads nothing" true of stddev itself rather than only of var.
         // Pinned by the zero-length no-I/O probe over every guarded core.
         if self.stddev_lookback(optInTimePeriod, optInNbDev).unwrap_or(usize::MAX) > endIdx {
@@ -157,9 +157,8 @@ impl Core {
         //
         // Multiply also by the ratio specified.
         //
-        // Unconditional. var owns the dead-zone and owns the sign: it returns a
-        // non-negative variance, already floored to exactly 0 on any window whose
-        // re-anchored spread sat under its own rounding noise (var.c). What used to
+        // Unconditional. var owns the sign: it returns a non-negative variance,
+        // exactly 0 on a window of identical values (var.c). What used to
         // stand here instead - zero the output wherever the variance fell under
         // TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
         // at a price level rather than a noise floor: a $100.00 instrument quoted in
@@ -167,18 +166,24 @@ impl Core {
         // bar, with TA_SUCCESS and nothing to say it had been suppressed (#243).
         // Dropping it also leaves a pure map, which the branch had kept sqrt out of.
         if optInNbDev != 1.0 {
-            // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
             i = 0;
-            while i < ((((*outNBElement) as usize)) as usize) {
-                outReal[i] = (((outReal[i]).sqrt() * optInNbDev) as f64);
-                i += 1;
+            if i < ((((*outNBElement) as usize)) as usize) {
+                let _wn: usize = ((((*outNBElement) as usize)) as usize) - i;
+                let _w0 = &mut outReal[i..][.._wn];
+                for _wk in 0.._wn {
+                    _w0[_wk] = (((_w0[_wk]).sqrt() * optInNbDev) as f64);
+                    i += 1;
+                }
             }
         } else {
-            // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
             i = 0;
-            while i < ((((*outNBElement) as usize)) as usize) {
-                outReal[i] = (((outReal[i]).sqrt()) as f64);
-                i += 1;
+            if i < ((((*outNBElement) as usize)) as usize) {
+                let _wn: usize = ((((*outNBElement) as usize)) as usize) - i;
+                let _w0 = &mut outReal[i..][.._wn];
+                for _wk in 0.._wn {
+                    _w0[_wk] = (((_w0[_wk]).sqrt()) as f64);
+                    i += 1;
+                }
             }
         }
         return RetCode::Success;
@@ -203,15 +208,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -250,10 +255,10 @@ impl Core {
         optInNbDev: f64,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.stddev_lookback(optInTimePeriod, optInNbDev)?;
@@ -338,7 +343,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -367,12 +372,12 @@ impl Core {
             if outStride == 1 { &mut *outReal } else { &mut owned_sc_outReal };
         let mut i: usize = 0_usize;
         let mut retCode: RetCode = RetCode::Success;
-        // Nothing to produce: the range is shorter than the lookback. Return before
+        // Nothing to produce: the range ends before the lookback. Return before
         // touching anything.
         //
         // Same shape as the guard in apo and bbands: the variance below runs on the
         // same range and its lookback IS stddev's, so it declines and yields 0,0
-        // without reading. Observably identical, but it makes "a range shorter than
+        // without reading. Observably identical, but it makes "a range that ends before
         // the lookback reads nothing" true of stddev itself rather than only of var.
         // Pinned by the zero-length no-I/O probe over every guarded core.
         if self.stddev_lookback(optInTimePeriod, optInNbDev)? > endIdx {
@@ -390,9 +395,8 @@ impl Core {
         //
         // Multiply also by the ratio specified.
         //
-        // Unconditional. var owns the dead-zone and owns the sign: it returns a
-        // non-negative variance, already floored to exactly 0 on any window whose
-        // re-anchored spread sat under its own rounding noise (var.c). What used to
+        // Unconditional. var owns the sign: it returns a non-negative variance,
+        // exactly 0 on a window of identical values (var.c). What used to
         // stand here instead - zero the output wherever the variance fell under
         // TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
         // at a price level rather than a noise floor: a $100.00 instrument quoted in
@@ -510,7 +514,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.stddev_lookback(optInTimePeriod, optInNbDev)?;
@@ -540,7 +544,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl StddevStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -558,11 +562,11 @@ impl StddevStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_STDDEV_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() {
@@ -578,16 +582,15 @@ impl StddevStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_STDDEV_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -635,7 +638,7 @@ impl StddevStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_STDDEV_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -653,11 +656,11 @@ impl StddevStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_STDDEV_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

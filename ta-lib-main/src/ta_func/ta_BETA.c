@@ -114,9 +114,9 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
    int trailingIdx;
    int nbInitialElementNeeded;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -244,7 +244,7 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
          x = (tmp_real - last_price_x) / last_price_x - shift_x;
       } else 
       {
-         x = 0 - shift_x;
+         x = -shift_x;
       }
       last_price_x = tmp_real;
       tmp_real = inReal1[i++];
@@ -253,7 +253,7 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
          y = (tmp_real - last_price_y) / last_price_y - shift_y;
       } else 
       {
-         y = 0 - shift_y;
+         y = -shift_y;
       }
       last_price_y = tmp_real;
       S_xx += x * x;
@@ -274,7 +274,7 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
          x = (tmp_real - last_price_x) / last_price_x - shift_x;
       } else 
       {
-         x = 0 - shift_x;
+         x = -shift_x;
       }
       last_price_x = tmp_real;
       tmp_real = inReal1[i++];
@@ -283,7 +283,7 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
          y = (tmp_real - last_price_y) / last_price_y - shift_y;
       } else 
       {
-         y = 0 - shift_y;
+         y = -shift_y;
       }
       last_price_y = tmp_real;
       S_xx += x * x;
@@ -293,8 +293,8 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
       S_y += y;
       denom_scale = n * S_xx;
       denom = denom_scale - S_x * S_x;
-      /* Re-anchor and rebuild when the shift has gone stale. The same three
-       * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+      /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+       * the denominator has shrunk below 1e-6 of the scale
        * it is extracted from; OR the return that just left sat so far from the
        * shift that its squared term dwarfs what remains; OR at least every 32
        * windows.
@@ -327,10 +327,10 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
        * both from the start; this brings BETA level. S_yy exists only to scale
        * this test -- nothing else reads it.
        *
-       * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-       * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-       * into S_xx, so the ratio when that term leaves lands an order or two
-       * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+       * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+       * return amplifies: a tick multiplying the price by k puts k-1 into the
+       * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+       * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
        * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
        * Pinned by test_beta_outlier_transit.
        *
@@ -383,7 +383,7 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
                x = (inReal0[j] - prev_x) / prev_x - shift_x;
             } else 
             {
-               x = 0 - shift_x;
+               x = -shift_x;
             }
             prev_x = inReal0[j];
             if( prev_y != 0.0 )
@@ -391,7 +391,7 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
                y = (inReal1[j] - prev_y) / prev_y - shift_y;
             } else 
             {
-               y = 0 - shift_y;
+               y = -shift_y;
             }
             prev_y = inReal1[j];
             S_xx += x * x;
@@ -424,7 +424,7 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
          x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
       } else 
       {
-         x = 0 - shift_x;
+         x = -shift_x;
       }
       trailing_last_price_x = tmp_real;
       tmp_real = inReal1[trailingIdx];
@@ -434,7 +434,7 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
          y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
       } else 
       {
-         y = 0 - shift_y;
+         y = -shift_y;
       }
       trailing_last_price_y = tmp_real;
       /* Write the output.
@@ -505,9 +505,9 @@ TA_RetCode TA_S_BETA( int    startIdx,
    int trailingIdx;
    int nbInitialElementNeeded;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -575,7 +575,7 @@ TA_RetCode TA_S_BETA( int    startIdx,
          x = (tmp_real - last_price_x) / last_price_x - shift_x;
       } else 
       {
-         x = 0 - shift_x;
+         x = -shift_x;
       }
       last_price_x = tmp_real;
       tmp_real = (double)inReal1[i++];
@@ -584,7 +584,7 @@ TA_RetCode TA_S_BETA( int    startIdx,
          y = (tmp_real - last_price_y) / last_price_y - shift_y;
       } else 
       {
-         y = 0 - shift_y;
+         y = -shift_y;
       }
       last_price_y = tmp_real;
       S_xx += x * x;
@@ -604,7 +604,7 @@ TA_RetCode TA_S_BETA( int    startIdx,
          x = (tmp_real - last_price_x) / last_price_x - shift_x;
       } else 
       {
-         x = 0 - shift_x;
+         x = -shift_x;
       }
       last_price_x = tmp_real;
       tmp_real = (double)inReal1[i++];
@@ -613,7 +613,7 @@ TA_RetCode TA_S_BETA( int    startIdx,
          y = (tmp_real - last_price_y) / last_price_y - shift_y;
       } else 
       {
-         y = 0 - shift_y;
+         y = -shift_y;
       }
       last_price_y = tmp_real;
       S_xx += x * x;
@@ -661,7 +661,7 @@ TA_RetCode TA_S_BETA( int    startIdx,
                x = ((double)inReal0[j] - prev_x) / prev_x - shift_x;
             } else 
             {
-               x = 0 - shift_x;
+               x = -shift_x;
             }
             prev_x = (double)inReal0[j];
             if( prev_y != 0.0 )
@@ -669,7 +669,7 @@ TA_RetCode TA_S_BETA( int    startIdx,
                y = ((double)inReal1[j] - prev_y) / prev_y - shift_y;
             } else 
             {
-               y = 0 - shift_y;
+               y = -shift_y;
             }
             prev_y = (double)inReal1[j];
             S_xx += x * x;
@@ -691,7 +691,7 @@ TA_RetCode TA_S_BETA( int    startIdx,
          x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
       } else 
       {
-         x = 0 - shift_x;
+         x = -shift_x;
       }
       trailing_last_price_x = tmp_real;
       tmp_real = (double)inReal1[trailingIdx];
@@ -701,7 +701,7 @@ TA_RetCode TA_S_BETA( int    startIdx,
          y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
       } else 
       {
-         y = 0 - shift_y;
+         y = -shift_y;
       }
       trailing_last_price_y = tmp_real;
       if( denom > 0.00000000000001 * denom_scale )
@@ -797,7 +797,7 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
       x = (tmp_real - sp->last_price_x) / sp->last_price_x - sp->shift_x;
    } else 
    {
-      x = 0 - sp->shift_x;
+      x = -sp->shift_x;
    }
    sp->last_price_x = tmp_real;
    tmp_real = sp->x_inReal1[sp->i++ & sp->xMask];
@@ -806,7 +806,7 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
       y = (tmp_real - sp->last_price_y) / sp->last_price_y - sp->shift_y;
    } else 
    {
-      y = 0 - sp->shift_y;
+      y = -sp->shift_y;
    }
    sp->last_price_y = tmp_real;
    S_xx += x * x;
@@ -816,8 +816,8 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
    S_y += y;
    denom_scale = sp->n * S_xx;
    denom = denom_scale - S_x * S_x;
-   /* Re-anchor and rebuild when the shift has gone stale. The same three
-    * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+   /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+    * the denominator has shrunk below 1e-6 of the scale
     * it is extracted from; OR the return that just left sat so far from the
     * shift that its squared term dwarfs what remains; OR at least every 32
     * windows.
@@ -850,10 +850,10 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
     * both from the start; this brings BETA level. S_yy exists only to scale
     * this test -- nothing else reads it.
     *
-    * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-    * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-    * into S_xx, so the ratio when that term leaves lands an order or two
-    * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+    * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+    * return amplifies: a tick multiplying the price by k puts k-1 into the
+    * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+    * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
     * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
     * Pinned by test_beta_outlier_transit.
     *
@@ -906,7 +906,7 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
             x = (sp->x_inReal0[sp->j & sp->xMask] - prev_x) / prev_x - sp->shift_x;
          } else 
          {
-            x = 0 - sp->shift_x;
+            x = -sp->shift_x;
          }
          prev_x = sp->x_inReal0[sp->j & sp->xMask];
          if( prev_y != 0.0 )
@@ -914,7 +914,7 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
             y = (sp->x_inReal1[sp->j & sp->xMask] - prev_y) / prev_y - sp->shift_y;
          } else 
          {
-            y = 0 - sp->shift_y;
+            y = -sp->shift_y;
          }
          prev_y = sp->x_inReal1[sp->j & sp->xMask];
          S_xx += x * x;
@@ -947,7 +947,7 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
       x = (tmp_real - sp->trailing_last_price_x) / sp->trailing_last_price_x - sp->shift_x;
    } else 
    {
-      x = 0 - sp->shift_x;
+      x = -sp->shift_x;
    }
    sp->trailing_last_price_x = tmp_real;
    tmp_real = sp->x_inReal1[sp->trailingIdx & sp->xMask];
@@ -957,7 +957,7 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
       y = (tmp_real - sp->trailing_last_price_y) / sp->trailing_last_price_y - sp->shift_y;
    } else 
    {
-      y = 0 - sp->shift_y;
+      y = -sp->shift_y;
    }
    sp->trailing_last_price_y = tmp_real;
    /* Write the output.
@@ -999,7 +999,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
@@ -1136,7 +1136,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else 
          {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
@@ -1145,7 +1145,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else 
          {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -1166,7 +1166,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else 
          {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
@@ -1175,7 +1175,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else 
          {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -1185,8 +1185,8 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
          S_y += y;
          denom_scale = n * S_xx;
          denom = denom_scale - S_x * S_x;
-         /* Re-anchor and rebuild when the shift has gone stale. The same three
-          * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+         /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+          * the denominator has shrunk below 1e-6 of the scale
           * it is extracted from; OR the return that just left sat so far from the
           * shift that its squared term dwarfs what remains; OR at least every 32
           * windows.
@@ -1219,10 +1219,10 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
           * both from the start; this brings BETA level. S_yy exists only to scale
           * this test -- nothing else reads it.
           *
-          * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-          * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-          * into S_xx, so the ratio when that term leaves lands an order or two
-          * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+          * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+          * return amplifies: a tick multiplying the price by k puts k-1 into the
+          * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+          * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
           * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
           * Pinned by test_beta_outlier_transit.
           *
@@ -1275,7 +1275,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else 
                {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = inReal0[j];
                if( prev_y != 0.0 )
@@ -1283,7 +1283,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else 
                {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = inReal1[j];
                S_xx += x * x;
@@ -1316,7 +1316,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else 
          {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
@@ -1326,7 +1326,7 @@ static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else 
          {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          /* Write the output.
@@ -1424,7 +1424,7 @@ TA_LIB_API TA_RetCode TA_BETA_Open( TA_BETA_Stream **stream, const double inReal
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
    return TA_BETA_OpenInternal( stream, inReal0, inReal1, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -1434,7 +1434,7 @@ TA_LIB_API TA_RetCode TA_BETA_OpenAndFill( TA_BETA_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal0 || !inReal1 || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal0 || (const void *)outReal == (const void *)inReal1 ) return TA_BAD_PARAM;
    return TA_BETA_OpenAndFillInternal( stream, inReal0, inReal1, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -1449,7 +1449,7 @@ TA_RetCode TA_BETA_OpenAndFillInternal( struct TA_BETA_Stream **stream, const do
 TA_LIB_API TA_RetCode TA_BETA_Update( TA_BETA_Stream *stream, double inReal0, double inReal1, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
@@ -1521,7 +1521,7 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
       x = (tmp_real - last_price_x) / last_price_x - shift_x;
    } else 
    {
-      x = 0 - shift_x;
+      x = -shift_x;
    }
    last_price_x = tmp_real;
    pkIdx0 = i++ & sp->xMask;
@@ -1531,7 +1531,7 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
       y = (tmp_real - last_price_y) / last_price_y - shift_y;
    } else 
    {
-      y = 0 - shift_y;
+      y = -shift_y;
    }
    last_price_y = tmp_real;
    S_xx += x * x;
@@ -1541,8 +1541,8 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
    S_y += y;
    denom_scale = sp->n * S_xx;
    denom = denom_scale - S_x * S_x;
-   /* Re-anchor and rebuild when the shift has gone stale. The same three
-    * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+   /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+    * the denominator has shrunk below 1e-6 of the scale
     * it is extracted from; OR the return that just left sat so far from the
     * shift that its squared term dwarfs what remains; OR at least every 32
     * windows.
@@ -1575,10 +1575,10 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
     * both from the start; this brings BETA level. S_yy exists only to scale
     * this test -- nothing else reads it.
     *
-    * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-    * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-    * into S_xx, so the ratio when that term leaves lands an order or two
-    * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+    * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+    * return amplifies: a tick multiplying the price by k puts k-1 into the
+    * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+    * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
     * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
     * Pinned by test_beta_outlier_transit.
     *
@@ -1631,7 +1631,7 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
             x = ((((j & sp->xMask) != pkSlot0) ? x_inReal0[j & sp->xMask] : pkVal0) - prev_x) / prev_x - shift_x;
          } else 
          {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          prev_x = ((j & sp->xMask) != pkSlot0) ? x_inReal0[j & sp->xMask] : pkVal0;
          if( prev_y != 0.0 )
@@ -1639,7 +1639,7 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
             y = ((((j & sp->xMask) != pkSlot1) ? x_inReal1[j & sp->xMask] : pkVal1) - prev_y) / prev_y - shift_y;
          } else 
          {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          prev_y = ((j & sp->xMask) != pkSlot1) ? x_inReal1[j & sp->xMask] : pkVal1;
          S_xx += x * x;
@@ -1672,7 +1672,7 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
       x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
    } else 
    {
-      x = 0 - shift_x;
+      x = -shift_x;
    }
    trailing_last_price_x = tmp_real;
    tmp_real = ((trailingIdx & sp->xMask) != pkSlot1) ? x_inReal1[trailingIdx & sp->xMask] : pkVal1;
@@ -1682,7 +1682,7 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
       y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
    } else 
    {
-      y = 0 - shift_y;
+      y = -shift_y;
    }
    trailing_last_price_y = tmp_real;
    /* Write the output.
@@ -1727,7 +1727,7 @@ TA_LIB_API TA_RetCode TA_BETA_OutRange( const TA_BETA_Stream *stream, int *outBe
 TA_LIB_API TA_RetCode TA_BETA_Advance( TA_BETA_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

@@ -10,6 +10,8 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  072126 MF,CC  First version (issue #134).
+ *  092526 MF,CC  #446 exact zero sums on a dead volume window.
+ *  092626 MF,CC  #446 branch-free zero run.
  */
 
    /**
@@ -55,14 +57,16 @@
       int outIdx = 0;
       int i = 0;
       int today = 0;
+      int nullRun = 0;
+      int zeroVol = 0;
       double[] mfv_flow;
       double[] mfv_volume;
       int mfv_Idx = 0;
       int maxIdx_mfv = (50)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -107,6 +111,13 @@
       today = startIdx - lookbackTotal;
       sumMFV = 0.0;
       sumVol = 0.0;
+      /* Consecutive zero-volume bars. Once they fill a window both sums are
+       * exactly zero, where add-then-subtract would leave the rounding residue of
+       * the bars that departed, of either sign. It advances as a product rather
+       * than as v == 0.0 ? nullRun+1 : 0, which gcc and RyuJIT compile to a branch
+       * that mispredicts on scattered zero volumes.
+       */
+      nullRun = 0;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
          high = inHigh[today];
          low = inLow[today];
@@ -121,6 +132,8 @@
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
+         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
          today += 1;
          mfv_Idx++;
          if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
@@ -153,8 +166,18 @@
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
+         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
          today += 1;
-         if( sumVol > 0.0 ) {
+         /* The reset writes its own output: a branch that only zeroes the sums is
+          * if-converted into a mask on their dependency chain.
+          */
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            sumMFV = 0.0;
+            sumVol = 0.0;
+            outReal[outIdx++] = 0.0;
+         } else if( sumVol > 0.0 ) {
             outReal[outIdx++] = sumMFV / sumVol;
          } else {
             outReal[outIdx++] = 0.0;
@@ -188,14 +211,16 @@
       int outIdx = 0;
       int i = 0;
       int today = 0;
+      int nullRun = 0;
+      int zeroVol = 0;
       double[] mfv_flow;
       double[] mfv_volume;
       int mfv_Idx = 0;
       int maxIdx_mfv = (50)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -221,6 +246,7 @@
       today = startIdx - lookbackTotal;
       sumMFV = 0.0;
       sumVol = 0.0;
+      nullRun = 0;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
          high = (double)inHigh[today];
          low = (double)inLow[today];
@@ -235,6 +261,8 @@
          mfv_volume[mfv_Idx] = (double)inVolume[today];
          sumMFV += mfv;
          sumVol += (double)inVolume[today];
+         zeroVol = ((double)inVolume[today] == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
          today += 1;
          mfv_Idx++;
          if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
@@ -260,8 +288,15 @@
          mfv_volume[mfv_Idx] = (double)inVolume[today];
          sumMFV += mfv;
          sumVol += (double)inVolume[today];
+         zeroVol = ((double)inVolume[today] == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
          today += 1;
-         if( sumVol > 0.0 ) {
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            sumMFV = 0.0;
+            sumVol = 0.0;
+            outReal[outIdx++] = 0.0;
+         } else if( sumVol > 0.0 ) {
             outReal[outIdx++] = sumMFV / sumVol;
          } else {
             outReal[outIdx++] = 0.0;
@@ -305,8 +340,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cmfLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#cmfLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -317,11 +352,12 @@
     * @param optInTimePeriod Number of bars in the window (default 20; range
     *        2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Chaikin money flow, in the range -1 to +1. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, cmfLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -398,8 +434,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cmfLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#cmfLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -410,11 +446,12 @@
     * @param optInTimePeriod Number of bars in the window (default 20; range
     *        2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Chaikin money flow, in the range -1 to +1. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, cmfLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -477,6 +514,7 @@
       private int optInTimePeriod;
       private double sumMFV;
       private double sumVol;
+      private int nullRun;
       private int mfv_Idx;
       private int maxIdx_mfv;
       private int cbSize_mfv;
@@ -498,7 +536,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -512,12 +550,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("CMF advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -527,6 +565,7 @@
          this.optInTimePeriod = other.optInTimePeriod;
          this.sumMFV = other.sumMFV;
          this.sumVol = other.sumVol;
+         this.nullRun = other.nullRun;
          this.mfv_Idx = other.mfv_Idx;
          this.maxIdx_mfv = other.maxIdx_mfv;
          this.cbSize_mfv = other.cbSize_mfv;
@@ -551,15 +590,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inHigh, double inLow, double inClose, double inVolume ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("CMF update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TALibArgumentException("CMF update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("CMF update", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : !Double.isFinite(inClose) ? "inClose" : "inVolume");
          core.cmfStepImpl(this, inHigh, inLow, inClose, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -569,22 +608,22 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow, double inClose, double inVolume ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TALibArgumentException("CMF peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("CMF peek", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : !Double.isFinite(inClose) ? "inClose" : "inVolume");
          CmfStream sp = this;
          double high = 0.0;
          double low = 0.0;
          double close = 0.0;
          double tmp = 0.0;
          double mfv = 0.0;
+         int zeroVol = 0;
          double cur_outReal = 0.0;
+         int nullRun = sp.nullRun;
          double sumMFV = sp.sumMFV;
          double sumVol = sp.sumVol;
          sumMFV -= sp.cb_mfv_flow[sp.mfv_Idx];
@@ -600,7 +639,17 @@
          }
          sumMFV += mfv;
          sumVol += inVolume;
-         if( sumVol > 0.0 ) {
+         zeroVol = (inVolume == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
+         /* The reset writes its own output: a branch that only zeroes the sums is
+          * if-converted into a mask on their dependency chain.
+          */
+         if( nullRun >= sp.optInTimePeriod ) {
+            nullRun = sp.optInTimePeriod;
+            sumMFV = 0.0;
+            sumVol = 0.0;
+            cur_outReal = 0.0;
+         } else if( sumVol > 0.0 ) {
             cur_outReal = sumMFV / sumVol;
          } else {
             cur_outReal = 0.0;
@@ -641,6 +690,7 @@
       double close = 0.0;
       double tmp = 0.0;
       double mfv = 0.0;
+      int zeroVol = 0;
       sp.sumMFV -= sp.cb_mfv_flow[sp.mfv_Idx];
       sp.sumVol -= sp.cb_mfv_volume[sp.mfv_Idx];
       high = inHigh;
@@ -656,7 +706,17 @@
       sp.cb_mfv_volume[sp.mfv_Idx] = inVolume;
       sp.sumMFV += mfv;
       sp.sumVol += inVolume;
-      if( sp.sumVol > 0.0 ) {
+      zeroVol = (inVolume == 0.0) ? 1 : 0;
+      sp.nullRun = (sp.nullRun + zeroVol) * zeroVol;
+      /* The reset writes its own output: a branch that only zeroes the sums is
+       * if-converted into a mask on their dependency chain.
+       */
+      if( sp.nullRun >= sp.optInTimePeriod ) {
+         sp.nullRun = sp.optInTimePeriod;
+         sp.sumMFV = 0.0;
+         sp.sumVol = 0.0;
+         sp.cur_outReal = 0.0;
+      } else if( sp.sumVol > 0.0 ) {
          sp.cur_outReal = sp.sumMFV / sp.sumVol;
       } else {
          sp.cur_outReal = 0.0;
@@ -679,6 +739,8 @@
       int outIdx = 0;
       int i = 0;
       int today = 0;
+      int nullRun = 0;
+      int zeroVol = 0;
       double[] mfv_flow;
       double[] mfv_volume;
       int mfv_Idx = 0;
@@ -688,7 +750,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
@@ -741,6 +803,13 @@
       today = startIdx - lookbackTotal;
       sumMFV = 0.0;
       sumVol = 0.0;
+      /* Consecutive zero-volume bars. Once they fill a window both sums are
+       * exactly zero, where add-then-subtract would leave the rounding residue of
+       * the bars that departed, of either sign. It advances as a product rather
+       * than as v == 0.0 ? nullRun+1 : 0, which gcc and RyuJIT compile to a branch
+       * that mispredicts on scattered zero volumes.
+       */
+      nullRun = 0;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
          high = inHigh[today];
          low = inLow[today];
@@ -755,6 +824,8 @@
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
+         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
          today += 1;
          mfv_Idx++;
          if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
@@ -787,8 +858,18 @@
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
+         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
          today += 1;
-         if( sumVol > 0.0 ) {
+         /* The reset writes its own output: a branch that only zeroes the sums is
+          * if-converted into a mask on their dependency chain.
+          */
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            sumMFV = 0.0;
+            sumVol = 0.0;
+            outReal[outIdx++ * outStride] = 0.0;
+         } else if( sumVol > 0.0 ) {
             outReal[outIdx++ * outStride] = sumMFV / sumVol;
          } else {
             outReal[outIdx++ * outStride] = 0.0;
@@ -806,6 +887,7 @@
       sp.optInTimePeriod = optInTimePeriod;
       sp.sumMFV = sumMFV;
       sp.sumVol = sumVol;
+      sp.nullRun = nullRun;
       sp.mfv_Idx = mfv_Idx;
       sp.maxIdx_mfv = maxIdx_mfv;
       sp.cbSize_mfv = capCb_mfv;
@@ -825,12 +907,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("CMF openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("CMF openAndFill", inHigh.length, startIdx, cmfLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("CMF openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("CMF openAndFill: " + retCode, retCode);
+      throw streamFailure("CMF openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind cmfOpen (composition seam). */
    CmfStream cmfOpenInternal( double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx, int optInTimePeriod )
@@ -846,12 +925,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("CMF open: history shorter than lookback + 1");
+         throw insufficientHistory("CMF open", inHigh.length, startIdx, cmfLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("CMF open: internal error", retCode);
-      }
-      throw new TALibArgumentException("CMF open: " + retCode, retCode);
+      throw streamFailure("CMF open", retCode);
    }
    /**
     * Open a live CMF stream over the warm-up history; the handle's
@@ -902,7 +978,7 @@
       requireHistoryLength("CMF openAndFill", "inVolume", inVolume.length, inHigh.length);
       requireLength("CMF openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
-         throw new TALibArgumentException("CMF openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("CMF openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

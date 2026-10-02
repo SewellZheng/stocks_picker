@@ -107,10 +107,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -148,6 +148,7 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inReal = &inReal[..=endIdx];
         // TRIMA Description
         // =================
         // The triangular MA is a weighted moving average. Instead of the
@@ -301,23 +302,33 @@ impl Core {
             //       outReal and inReal are ptr on the same
             //       buffer.
             // Iterate for remaining output
-            while todayIdx <= endIdx {
-                // Step (1)
-                numerator -= numeratorSub;
-                numeratorSub -= tempReal;
-                tempReal = inReal[{ let _v = middleIdx; middleIdx += 1; _v }];
-                numeratorSub += tempReal;
-                // Step (2)
-                numerator += numeratorAdd;
-                numeratorAdd -= tempReal;
-                tempReal = inReal[{ let _v = todayIdx; todayIdx += 1; _v }];
-                numeratorAdd += tempReal;
-                // Step (3)
-                numerator += tempReal;
-                // Step (4)
-                tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
-                outReal[outIdx] = numerator * factor;
-                outIdx += 1;
+            if todayIdx <= endIdx {
+                let _wn: usize = endIdx - todayIdx + 1;
+                let _w0 = &inReal[middleIdx..][.._wn];
+                let _w1 = &inReal[todayIdx..][.._wn];
+                let _w2 = &inReal[trailingIdx..][.._wn];
+                let _w3 = &mut outReal[outIdx..][.._wn];
+                for _wk in 0.._wn {
+                    // Step (1)
+                    numerator -= numeratorSub;
+                    numeratorSub -= tempReal;
+                    tempReal = _w0[_wk];
+                    middleIdx += 1;
+                    numeratorSub += tempReal;
+                    // Step (2)
+                    numerator += numeratorAdd;
+                    numeratorAdd -= tempReal;
+                    tempReal = _w1[_wk];
+                    todayIdx += 1;
+                    numeratorAdd += tempReal;
+                    // Step (3)
+                    numerator += tempReal;
+                    // Step (4)
+                    tempReal = _w2[_wk];
+                    trailingIdx += 1;
+                    _w3[_wk] = numerator * factor;
+                    outIdx += 1;
+                }
             }
         } else {
             // Even logic.
@@ -366,23 +377,33 @@ impl Core {
             //       outReal and inReal are ptr on the same
             //       buffer.
             // Iterate for remaining output
-            while todayIdx <= endIdx {
-                // Step (1)
-                numerator -= numeratorSub;
-                numeratorSub -= tempReal;
-                tempReal = inReal[{ let _v = middleIdx; middleIdx += 1; _v }];
-                numeratorSub += tempReal;
-                // Step (2)
-                numeratorAdd -= tempReal;
-                numerator += numeratorAdd;
-                tempReal = inReal[{ let _v = todayIdx; todayIdx += 1; _v }];
-                numeratorAdd += tempReal;
-                // Step (3)
-                numerator += tempReal;
-                // Step (4)
-                tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
-                outReal[outIdx] = numerator * factor;
-                outIdx += 1;
+            if todayIdx <= endIdx {
+                let _wn: usize = endIdx - todayIdx + 1;
+                let _w0 = &inReal[middleIdx..][.._wn];
+                let _w1 = &inReal[todayIdx..][.._wn];
+                let _w2 = &inReal[trailingIdx..][.._wn];
+                let _w3 = &mut outReal[outIdx..][.._wn];
+                for _wk in 0.._wn {
+                    // Step (1)
+                    numerator -= numeratorSub;
+                    numeratorSub -= tempReal;
+                    tempReal = _w0[_wk];
+                    middleIdx += 1;
+                    numeratorSub += tempReal;
+                    // Step (2)
+                    numeratorAdd -= tempReal;
+                    numerator += numeratorAdd;
+                    tempReal = _w1[_wk];
+                    todayIdx += 1;
+                    numeratorAdd += tempReal;
+                    // Step (3)
+                    numerator += tempReal;
+                    // Step (4)
+                    tempReal = _w2[_wk];
+                    trailingIdx += 1;
+                    _w3[_wk] = numerator * factor;
+                    outIdx += 1;
+                }
             }
         }
         (*outNBElement) = outIdx;
@@ -409,15 +430,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -453,10 +474,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.trima_lookback(optInTimePeriod)?;
@@ -561,12 +582,8 @@ impl Core {
                 sp.ringPos_trailingIdx = 0;
             }
         } else {
-            if sp.ringCap_middleIdx == 0 {
-                sp.ring_middleIdx_inReal[0] = inReal;
-            }
-            if sp.ringCap_trailingIdx == 0 {
-                sp.ring_trailingIdx_inReal[0] = inReal;
-            }
+            let mut ringCapL_middleIdx: usize = 0_usize;
+            let mut ringCapL_trailingIdx: usize = 0_usize;
             // Step (1)
             sp.numerator -= sp.numeratorSub;
             sp.numeratorSub -= sp.tempReal;
@@ -583,16 +600,56 @@ impl Core {
             sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
             (*outReal) = sp.numerator * sp.factor;
             sp.cur_outReal = (*outReal);
+            ringCapL_middleIdx = sp.ringCap_middleIdx;
             sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] = inReal;
             sp.ringPos_middleIdx = sp.ringPos_middleIdx + 1;
-            if sp.ringPos_middleIdx >= sp.ringCap_middleIdx {
+            if sp.ringPos_middleIdx >= ringCapL_middleIdx {
                 sp.ringPos_middleIdx = 0;
             }
+            ringCapL_trailingIdx = sp.ringCap_trailingIdx;
             sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
             sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-            if sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx {
+            if sp.ringPos_trailingIdx >= ringCapL_trailingIdx {
                 sp.ringPos_trailingIdx = 0;
             }
+        }
+    }
+
+    fn trima_step_tape_impl(sp: &mut TrimaStreamState, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64, outReal: &mut f64) {
+        if sp.optInTimePeriod % 2 == 1 {
+            // Step (1)
+            sp.numerator -= sp.numeratorSub;
+            sp.numeratorSub -= sp.tempReal;
+            sp.tempReal = tape[(tapeBase - sp.ringCap_middleIdx & tapeMask) as usize];
+            sp.numeratorSub += sp.tempReal;
+            // Step (2)
+            sp.numerator += sp.numeratorAdd;
+            sp.numeratorAdd -= sp.tempReal;
+            sp.tempReal = inReal;
+            sp.numeratorAdd += sp.tempReal;
+            // Step (3)
+            sp.numerator += sp.tempReal;
+            // Step (4)
+            sp.tempReal = tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize];
+            (*outReal) = sp.numerator * sp.factor;
+            sp.cur_outReal = (*outReal);
+        } else {
+            // Step (1)
+            sp.numerator -= sp.numeratorSub;
+            sp.numeratorSub -= sp.tempReal;
+            sp.tempReal = tape[(tapeBase - sp.ringCap_middleIdx & tapeMask) as usize];
+            sp.numeratorSub += sp.tempReal;
+            // Step (2)
+            sp.numeratorAdd -= sp.tempReal;
+            sp.numerator += sp.numeratorAdd;
+            sp.tempReal = inReal;
+            sp.numeratorAdd += sp.tempReal;
+            // Step (3)
+            sp.numerator += sp.tempReal;
+            // Step (4)
+            sp.tempReal = tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize];
+            (*outReal) = sp.numerator * sp.factor;
+            sp.cur_outReal = (*outReal);
         }
     }
 
@@ -604,7 +661,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -1030,7 +1087,7 @@ impl Core {
 
             // Capture the live batch state into the handle.
             let cap_middleIdx: i64 = (todayIdx as i64) - (middleIdx as i64);
-            if cap_middleIdx < 0 || cap_middleIdx > historyLen as i64 {
+            if cap_middleIdx < 1 || cap_middleIdx > historyLen as i64 {
                 return Err(RetCode::InternalError);
             }
             let allocN_middleIdx: usize = if cap_middleIdx > 0 { cap_middleIdx as usize } else { 1 };
@@ -1038,7 +1095,7 @@ impl Core {
             ring_middleIdx_inReal[..cap_middleIdx as usize]
                 .copy_from_slice(&inReal[historyLen - cap_middleIdx as usize..]);
             let cap_trailingIdx: i64 = (todayIdx as i64) - (trailingIdx as i64);
-            if cap_trailingIdx < 0 || cap_trailingIdx > historyLen as i64 {
+            if cap_trailingIdx < 1 || cap_trailingIdx > historyLen as i64 {
                 return Err(RetCode::InternalError);
             }
             let allocN_trailingIdx: usize = if cap_trailingIdx > 0 { cap_trailingIdx as usize } else { 1 };
@@ -1141,7 +1198,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.trima_lookback(optInTimePeriod)?;
@@ -1171,7 +1228,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl TrimaStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -1189,11 +1246,11 @@ impl TrimaStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_TRIMA_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() {
@@ -1208,16 +1265,15 @@ impl TrimaStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_TRIMA_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -1264,22 +1320,10 @@ impl TrimaStream {
                 let mut numeratorAdd = sp.numeratorAdd;
                 let mut numeratorSub = sp.numeratorSub;
                 let mut tempReal = sp.tempReal;
-                let mut pkSlot0: usize = usize::MAX;
-                let mut pkVal0: f64 = 0.0_f64;
-                let mut pkSlot1: usize = usize::MAX;
-                let mut pkVal1: f64 = 0.0_f64;
-                if sp.ringCap_middleIdx == 0 {
-                    pkSlot0 = 0;
-                    pkVal0 = inReal;
-                }
-                if sp.ringCap_trailingIdx == 0 {
-                    pkSlot1 = 0;
-                    pkVal1 = inReal;
-                }
                 // Step (1)
                 numerator -= numeratorSub;
                 numeratorSub -= tempReal;
-                tempReal = (if (sp.ringPos_middleIdx as usize) != pkSlot0 { sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] } else { pkVal0 });
+                tempReal = sp.ring_middleIdx_inReal[sp.ringPos_middleIdx];
                 numeratorSub += tempReal;
                 // Step (2)
                 numeratorAdd -= tempReal;
@@ -1289,7 +1333,7 @@ impl TrimaStream {
                 // Step (3)
                 numerator += tempReal;
                 // Step (4)
-                tempReal = (if (sp.ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] } else { pkVal1 });
+                tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
                 (*outReal) = numerator * sp.factor;
             }
         }
@@ -1319,7 +1363,7 @@ impl TrimaStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_TRIMA_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1337,15 +1381,96 @@ impl TrimaStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_TRIMA_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;
         Ok(())
+    }
+}
+
+#[allow(non_snake_case)]
+#[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
+impl TrimaStream {
+    pub(crate) fn step_tape(&mut self, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64) -> f64 {
+        let mut outReal: f64 = 0.0_f64;
+        Core::trima_step_tape_impl(&mut self.state, tape, tapeBase, tapeMask, inReal, &mut outReal);
+        self.out.count += 1;
+        outReal
+    }
+
+    pub(crate) fn peek_tape(&self, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64) -> Result<f64, RetCode> {
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            if sp.optInTimePeriod % 2 == 1 {
+                let mut numerator = sp.numerator;
+                let mut numeratorAdd = sp.numeratorAdd;
+                let mut numeratorSub = sp.numeratorSub;
+                let mut tempReal = sp.tempReal;
+                let mut pkSlot0: usize = usize::MAX;
+                let mut pkVal0: f64 = 0.0_f64;
+                pkSlot0 = (tapeBase & tapeMask) as usize;
+                pkVal0 = inReal;
+                // Step (1)
+                numerator -= numeratorSub;
+                numeratorSub -= tempReal;
+                tempReal = (if ((tapeBase - sp.ringCap_middleIdx & tapeMask) as usize) != pkSlot0 { tape[(tapeBase - sp.ringCap_middleIdx & tapeMask) as usize] } else { pkVal0 });
+                numeratorSub += tempReal;
+                // Step (2)
+                numerator += numeratorAdd;
+                numeratorAdd -= tempReal;
+                tempReal = inReal;
+                numeratorAdd += tempReal;
+                // Step (3)
+                numerator += tempReal;
+                // Step (4)
+                tempReal = (if ((tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize) != pkSlot0 { tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize] } else { pkVal0 });
+                (*outReal) = numerator * sp.factor;
+            } else {
+                let mut numerator = sp.numerator;
+                let mut numeratorAdd = sp.numeratorAdd;
+                let mut numeratorSub = sp.numeratorSub;
+                let mut tempReal = sp.tempReal;
+                // Step (1)
+                numerator -= numeratorSub;
+                numeratorSub -= tempReal;
+                tempReal = tape[(tapeBase - sp.ringCap_middleIdx & tapeMask) as usize];
+                numeratorSub += tempReal;
+                // Step (2)
+                numeratorAdd -= tempReal;
+                numerator += numeratorAdd;
+                tempReal = inReal;
+                numeratorAdd += tempReal;
+                // Step (3)
+                numerator += tempReal;
+                // Step (4)
+                tempReal = tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize];
+                (*outReal) = numerator * sp.factor;
+            }
+        }
+        Ok(outReal)
+    }
+
+    pub(crate) fn tape_detach(&mut self) -> usize {
+        let mut reach: usize = 0;
+        self.state.ring_middleIdx_inReal = Vec::new();
+        if self.state.ringCap_middleIdx > reach {
+            reach = self.state.ringCap_middleIdx;
+        }
+        self.state.ring_trailingIdx_inReal = Vec::new();
+        if self.state.ringCap_trailingIdx > reach {
+            reach = self.state.ringCap_trailingIdx;
+        }
+        reach
     }
 }
 

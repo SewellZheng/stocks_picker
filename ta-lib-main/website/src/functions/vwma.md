@@ -15,7 +15,7 @@ It has no attributable inventor — charting-package folklore — and every publ
 
 VWMA = ( sum_{k=t-N+1..t} P[k] * V[k] ) / ( sum_{k=t-N+1..t} V[k] ), N = optInTimePeriod
 
-Equivalently, and bit-identically so in TA-Lib for N of 2 or more, SMA(P * V, N) / SMA(V, N) — the composition TradingView documents for `ta.vwma`. There is no seeding and no recursion, hence no unstable period.
+Equivalently, SMA(P * V, N) / SMA(V, N), the composition TradingView documents for `ta.vwma`. In TA-Lib the two are bit-identical for N of 2 or more, up to the first window whose volume is entirely zero. There is no seeding and no recursion, hence no unstable period.
 
 ## Notes
 
@@ -62,6 +62,7 @@ TA-Lib Definition: [`vwma.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | C | [`ta_VWMA.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_VWMA.c) |
 | Rust | [`vwma.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/vwma.rs) |
 | Java | [`Core_VWMA.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_VWMA.java) |
+| C# | [`Core_VWMA.cs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/csharp/library/src/Core_VWMA.cs) |
 
 TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 

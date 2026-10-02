@@ -334,6 +334,7 @@ fn scan_expr_for_address_of(expr: &Expr, vars: &mut HashSet<String>) {
             scan_expr_for_address_of(r, vars);
         }
         Expr::Not(inner)
+        | Expr::Neg(inner)
         | Expr::BitwiseNot(inner)
         | Expr::Cast(_, inner)
         | Expr::PostIncrement(inner)
@@ -646,9 +647,11 @@ fn render_init_expr(expr: &Expr) -> String {
     match expr {
         Expr::Literal(f) => {
             let s = format!("{f}");
-            if f.fract() == 0.0 && !s.contains('.') { format!("{s}.0") } else { s }
+            let s = if f.fract() == 0.0 && !s.contains('.') { format!("{s}.0") } else { s };
+            if *f < 0.0 { format!("({s})") } else { s }
         }
-        Expr::IntLiteral(i) => format!("{i}"),
+        Expr::IntLiteral(i) => if *i < 0 { format!("({i})") } else { format!("{i}") },
+        Expr::Neg(inner) => format!("(-({}))", render_init_expr(inner)),
         Expr::Var(name) => name.clone(),
         Expr::BinOp(lhs, op, rhs) => {
             let op_str = match op {
@@ -705,7 +708,7 @@ fn body_name(base: &str) -> String {
 /// B3 decision on the same parameters.
 ///
 /// The `_assertStart > endIdx ||` escape is applied to the OUTPUT bound only. A
-/// range shorter than the lookback produces no values, so any output length will
+/// range that ends before the lookback produces no values, so any output length will
 /// do — including none. The input bound does NOT take the escape: `endIdx` past
 /// the end of the series the caller supplied is a caller bug in every range, and
 /// the only reason C answers it with `TA_SUCCESS` is that it has no size to check
@@ -791,9 +794,9 @@ fn gen_argument_checks(func: &FuncDef, canonical: &str, method: &str) -> String 
 /// The wrapper translates the core's `RetCode` into the documented exception
 /// mapping. It is thin: the numerics live entirely in the core.
 ///
-/// **A short range is not an error.** A valid range shorter than the lookback
-/// returns `Success` with `outNBElement == 0`, which becomes an `OutRange` whose
-/// `count` is 0 — exactly C's contract, never an exception.
+/// **A short range is not an error.** A valid range that ends before the
+/// lookback returns `Success` with `outNBElement == 0`, which becomes an
+/// `OutRange` whose `count` is 0 — exactly C's contract, never an exception.
 fn gen_public_wrapper(
     func: &FuncDef,
     single_precision: bool,
@@ -1123,10 +1126,10 @@ fn gen_func_inner(
     // Validation prologue. Omitted for the `Private` variant, whose callers are the
     // guarded cores that have already validated.
     if name_override.is_none() {
-        out.push_str("      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {\n");
+        out.push_str("      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {\n");
         out.push_str("         return RetCode.OUT_OF_RANGE_START_INDEX ;\n");
         out.push_str("      }\n");
-        out.push_str("      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {\n");
+        out.push_str("      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {\n");
         out.push_str("         return RetCode.OUT_OF_RANGE_END_INDEX ;\n");
         out.push_str("      }\n");
         // Optional parameter validation (default + range)
@@ -1141,7 +1144,7 @@ fn gen_func_inner(
         // the same object, so there is nothing to detect. (`double[] == int[]`
         // is also "incomparable types", but that is not the reason — the stream
         // tier spells the same compare through `(Object)` casts and it is dead
-        // there too.) Appendix E of docs/error-handling-spec.md, #262.
+        // there too.) Rationale B6 in docs/error-handling-spec.md, #262.
         if func.outputs.len() >= 2 {
             let mut pairs: Vec<String> = Vec::new();
             for i in 0..func.outputs.len() {
@@ -1582,7 +1585,7 @@ impl StatementEmitter for JavaStmt<'_> {
                                 pad,
                                 target_str,
                                 op_str,
-                                render_expr(right, self.ctx, self.registry, self.helpers)
+                                render_assign_value(right, self.ctx, self.registry, self.helpers)
                             ));
                             return out;
                         }
@@ -1963,6 +1966,7 @@ fn render_assign_target(
         | Expr::BinOp(_, _, _)
         | Expr::Cast(_, _)
         | Expr::Not(_)
+        | Expr::Neg(_)
         | Expr::BitwiseNot(_)
         | Expr::FuncCall(_, _)
         | Expr::PointerDeref(_)
@@ -2239,21 +2243,14 @@ impl ExprEmitter for JavaExpr<'_> {
 }
 
 
-/// Render `value` as the whole right-hand side of an assignment.
+/// Render `value` as the whole right-hand side of an assignment, or as the
+/// operand of a compound one (`x += c ? 1 : 0`).
 ///
 /// Identical to [`render_expr`] except that a `cond ? 1 : 0` keeps its ternary
 /// form instead of collapsing to the bare condition. The collapse is only valid
 /// where a boolean is wanted, and the destination of an assignment never is: C
 /// has no booleans, so every such destination is an `int`, and
 /// `outInteger[i] = a > b;` does not compile in Java or C#.
-///
-/// Nothing in the corpus reached this. Its four `? 1 : 0` are all
-/// `return (...) ? 1 : 0;` inside helper predicates, inlined into an `if` — a
-/// boolean position, where the collapse is right. A synthetic fixture storing a
-/// flag is what found it (#262). A collapsible ternary nested INSIDE a larger
-/// right-hand side is still collapsed and would still be wrong; that shape is
-/// equally unreachable today, and catching it needs the render context this
-/// deliberately does without.
 pub(crate) fn render_assign_value(
     value: &Expr,
     ctx: &JavaRenderCtx,

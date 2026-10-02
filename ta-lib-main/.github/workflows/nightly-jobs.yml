@@ -16,29 +16,22 @@
 name: nightly jobs
 
 on:
+  # Adding a trigger here hands `test` and `icount` the repo default token:
+  # they are the two jobs with no `permissions:` of their own.
   workflow_call:
-
-  workflow_dispatch:
     inputs:
       force_build:
-        description: "Force rebuild + tests even when dist digests match"
         type: boolean
         default: false
       perf_mode:
-        description: "Instruction counts. gate: fail above 10% and lower any row today beat. accept: additionally RAISE the rows named below. measure: report only, commit nothing."
-        type: choice
-        options: [gate, accept, measure]
-        default: gate
+        type: string
       perf_accept:
-        description: "perf_mode=accept only. Entry points to raise: SMA for every tier, SMA/batch for one, comma-separated. ALL discards what every other row accumulated, so name what you mean."
-        default: ""
+        type: string
       perf_force_measure:
-        description: "Measure even when this exact tree was already measured. Untick to exercise the skip path on demand."
         type: boolean
         default: true
       perf_threshold:
-        description: "Fractional growth that fails one entry point (default 0.10)."
-        default: "0.10"
+        type: string
 
 jobs:
   test:
@@ -161,6 +154,7 @@ jobs:
       - name: Install WiX (Windows x64)
         if: runner.os == 'Windows'
         shell: cmd
+        working-directory: ${{ runner.temp }}
         run: dotnet tool install --global wix --version 7.0.0 && echo %USERPROFILE%\.dotnet\tools>>%GITHUB_PATH%
 
       # TA-Lib generates no revenue, so the Open Source Maintenance Fee does
@@ -438,11 +432,10 @@ jobs:
   # C is the hero: the 'test' job above validates the C library with a C-only
   # toolchain (CMake/autotools never invoke cargo, so ta_regtest needs no Rust
   # toolchain). Only this job adds the Rust/Java/.NET toolchains, builds the
-  # JSON-RPC language servers plus the frozen reference server (ta_ref_serve,
-  # from the pinned reference tag), and runs ta_regtest --codegen:
-  # 161 functions x 4 languages diffed against the reference, including the
-  # non-default-parameter ref differential sweep. POSIX-only (the server
-  # harness uses fork/exec), hence no Windows leg.
+  # JSON-RPC language servers, and runs ta_regtest --codegen: every function x
+  # 4 languages diffed against the in-process library, including the
+  # non-default-parameter sweep. POSIX-only (the server harness uses
+  # fork/exec), hence no Windows leg.
   #
   # --codegen runs the C reference tests in the same process as the codegen
   # sweep, which is what lets server_verify verify the HAND-WRITTEN tests
@@ -450,7 +443,7 @@ jobs:
   # hero 'test' job already ran costs ~6s; that is what buys the hand-written
   # tier a cross-language check.
   cross-language:
-    name: "xlang: all langs vs pre-cutover C"
+    name: "xlang: all langs vs in-process C"
     needs: test
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -463,7 +456,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ job.workflow_sha }}
-          fetch-depth: 0 # ta_ref_serve builds from the pinned reference tag
+          fetch-depth: 0 # the release tags the ta_ref members pin
 
       - name: Install Python
         uses: actions/setup-python@v6
@@ -478,7 +471,7 @@ jobs:
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Build servers and run cross-language verification
         shell: bash
@@ -521,7 +514,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ job.workflow_sha }}
-          fetch-depth: 0 # ta_ref_serve builds from the pinned reference tag
+          fetch-depth: 0 # the release tags the ta_ref members pin
 
       - name: Install Python
         uses: actions/setup-python@v6
@@ -536,7 +529,7 @@ jobs:
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Run the synthetic cross-language gate
         shell: bash
@@ -592,13 +585,22 @@ jobs:
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Build the shipped library and run every suite against it
         shell: bash
         run: |
           if ! python3 scripts/build.py libraries --language=csharp; then
             echo "::error::The shipped C# library does not build, or does not pass its own suites; see the log above."
+            exit 1
+          fi
+
+      # The one step that loads the packed TALib.dll, under the JIT and NativeAOT.
+      - name: Pack, check what ships, and consume the package
+        shell: bash
+        run: |
+          if ! python3 scripts/csharp_package_check.py; then
+            echo "::error::The C# package is wrong, or does not work from outside the assembly; see the log above."
             exit 1
           fi
 
@@ -627,7 +629,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ job.workflow_sha }}
-          fetch-depth: 0 # ta_ref_serve builds from the pinned reference tag
+          fetch-depth: 0 # the release tags the ta_ref members pin
 
       - name: Install Python
         uses: actions/setup-python@v6
@@ -657,7 +659,7 @@ jobs:
   # warn-level lints (and rustc warnings) to errors too; the generated crate stays
   # green because its scaffolding emits a crate-level #![allow(clippy::all,
   # clippy::pedantic)] — its machine output is verified bit-exact against the C
-  # reference, not linted (rewriting emitted comparisons would change NaN semantics).
+  # reference (rewriting emitted comparisons would change NaN semantics).
   # That "(and rustc warnings)" is load-bearing for one lint on purpose: the crate
   # sets #![warn(missing_docs)] (#179 D7), and `-D warnings` here is the only thing
   # that turns an undocumented public item into a failure rather than a warning
@@ -667,7 +669,7 @@ jobs:
   #
   # This job also RUNS the generator's own unit tests (`cargo test`). Clippy with
   # --all-targets only *compiles* the test target; it never executes it, so
-  # runtime assertions in the generator's tests/*_suite.rs (e.g. the STOCH temp-buffer copy
+  # runtime assertions in the generator's tests/all/*_suite.rs (e.g. the STOCH temp-buffer copy
   # shape) went unchecked and a stale one drifted onto dev unnoticed. Running them
   # here closes that gap at nightly cadence (not per-commit).
   clippy:
@@ -724,11 +726,9 @@ jobs:
         run: cargo test --doc -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
 
       # This step is the ONLY thing anywhere that EXECUTES the crate's
-      # hand-written test modules (templates/rust/, copied in by `generate`):
-      # types.rs's Core/CoreBuilder API tests (#144), and the four #[cfg(test)]
-      # ones -- scratch_election (#146), stream_finite, stream_out_range (#241)
-      # and div_zero (#249). clippy --all-targets only COMPILES the test target
-      # and --doc skips it, so narrowing this step silently retires all five.
+      # hand-written test modules (templates/rust/, copied in by `generate`).
+      # clippy --all-targets only COMPILES the test target and --doc skips it,
+      # so narrowing this step silently retires them.
       #
       # `--tests`, not `--lib`: the latter excludes tests/, which is where
       # nullable_outputs.rs (#262) lives. The generated phantom-I/O sweep was
@@ -813,11 +813,11 @@ jobs:
         shell: bash
         run: cargo test --doc -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
 
-  # The two publishable crates declare `rust-version = "1.86"`, and nothing
-  # else here compiles them at it -- every other Rust step runs on the pinned
-  # toolchain from rust-toolchain.toml (1.97.0), so a post-1.86 API reaching
-  # the generated crate is green everywhere and breaks only for a consumer on
-  # an older toolchain, after publish, in a version that cannot be edited.
+  # The two publishable crates declare a `rust-version`, and only this job
+  # compiles the pair at ta-lib's -- every other Rust step runs on the pinned
+  # toolchain from rust-toolchain.toml (1.97.0), so a newer API reaching the
+  # generated crate is green everywhere and breaks only for a consumer on an
+  # older toolchain, after publish, in a version that cannot be edited.
   #
   # Nightly, not the PR gate: pr-codegen-gate.yml stays fast and lightweight
   # by design (#298 discussion), and an extra toolchain install of unmeasured
@@ -829,8 +829,8 @@ jobs:
   #
   # The floor is READ from the manifests, not written here: bumping it in
   # ta_codegen/generator/src/main.rs moves this gate with it, and the two
-  # reads are also the job's non-vacuity guard -- a missing or disagreeing
-  # rust-version fails before any toolchain is installed.
+  # reads are also the job's non-vacuity guard -- a missing floor, or a ta-lib
+  # floor below ta-lib-dispatch's, fails before any toolchain is installed.
   #
   # Rust-only and self-contained, so like clippy above it is deliberately NOT
   # gated on the C hero 'test' job.
@@ -858,11 +858,14 @@ jobs:
             echo "::error::A publishable crate declares no rust-version (ta-lib='$lib', ta-lib-dispatch='$dispatch'), so this job has no floor to compile against. Both manifests are generated — restore the literal in ta_codegen/generator/src/main.rs and re-run 'scripts/build.py generate'."
             exit 1
           fi
-          if [ "$lib" != "$dispatch" ]; then
-            echo "::error::The publishable crates declare different floors (ta-lib='$lib', ta-lib-dispatch='$dispatch'). ta-lib pins ta-lib-dispatch with '=', so the two ship as a pair and only one floor is meaningful. Both literals live in ta_codegen/generator/src/main.rs."
+          # ta-lib pins ta-lib-dispatch with '=', so the pair builds only as
+          # far back as the higher floor. ta-lib's may sit above dispatch's:
+          # a published dispatch keeps the floor it was published with.
+          if [ "$(printf '%s\n%s\n' "$dispatch" "$lib" | sort -V | tail -n 1)" != "$lib" ]; then
+            echo "::error::ta-lib declares a lower floor ('$lib') than the ta-lib-dispatch it pins ('$dispatch'), which cannot be true of the pair. Both literals live in ta_codegen/generator/src/main.rs."
             exit 1
           fi
-          echo "Declared MSRV: $lib"
+          echo "Declared MSRV: $lib (ta-lib-dispatch alone: $dispatch)"
           echo "msrv=$lib" >> "$GITHUB_OUTPUT"
 
       # rustup is preinstalled on ubuntu-latest. `+<version>` overrides
@@ -876,7 +879,7 @@ jobs:
         shell: bash
         run: |
           if ! cargo "+${{ steps.floor.outputs.msrv }}" check -p ta-lib -p ta-lib-dispatch --all-targets --manifest-path ta_codegen/output/rust/Cargo.toml; then
-            echo "::error::The publishable crates do not compile on their own declared MSRV (${{ steps.floor.outputs.msrv }}). Either the code reached for something newer -- a 'use of unstable library feature' or 'stable since 1.NN' note names it -- in which case fix the generator that emits it, or the floor genuinely has to rise, in which case raise rust-version in ta_codegen/generator/src/main.rs (both crates) and say why in the commit. Reproduce locally: rustup toolchain install ${{ steps.floor.outputs.msrv }} && cargo +${{ steps.floor.outputs.msrv }} check -p ta-lib -p ta-lib-dispatch --all-targets --manifest-path ta_codegen/output/rust/Cargo.toml"
+            echo "::error::The publishable crates do not compile on ta-lib's declared MSRV (${{ steps.floor.outputs.msrv }}). Either the code reached for something newer -- a 'use of unstable library feature' or 'stable since 1.NN' note names it -- in which case fix the generator that emits it, or the floor genuinely has to rise, in which case raise rust-version in ta_codegen/generator/src/main.rs and say why in the commit. Reproduce locally: rustup toolchain install ${{ steps.floor.outputs.msrv }} && cargo +${{ steps.floor.outputs.msrv }} check -p ta-lib -p ta-lib-dispatch --all-targets --manifest-path ta_codegen/output/rust/Cargo.toml"
             exit 1
           fi
 
@@ -959,11 +962,12 @@ jobs:
             fi
           done
 
-  # Bit-exact regression gate vs the last release (v0.6.4): diff every function
-  # at period>=2, fail on any real divergence. C-only, gated on 'test'.
-  # fetch-depth: 0 so the v0.6.4 tag is available. See ta_regtest/CLAUDE.md.
-  fuzz-vs-064:
-    name: C Latest vs released v0.6.4
+  # Regression gate vs every frozen release in ta_ref/: fail on any divergence
+  # its member does not account for. C-only. The member list lives in the tree,
+  # so adding or pruning one touches no YAML. For a single release, dispatch
+  # ta-ref.yml. fetch-depth: 0 so the release tags are available.
+  ta-ref:
+    name: C Latest vs frozen releases
     needs: test
     # Run after 'test' but don't let an unrelated failure (e.g. the Windows leg)
     # silently skip this release gate — it has its own checkout+build.
@@ -978,16 +982,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ job.workflow_sha }}
-          fetch-depth: 0 # ta_064_serve builds from the released v0.6.4 tag
+          fetch-depth: 0 # the release tags the ta_ref members pin
 
       - name: Install Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
-      - name: Fuzz current library vs frozen v0.6.4
+      - name: Fuzz current library vs each frozen release
         shell: bash
-        run: python3 scripts/build.py fuzz-064
+        run: python3 scripts/build.py ref
 
   # Native arm64 Linux — the ONE platform where both halves of issue #150 are live
   # at once, and the only reason that issue reached a user instead of CI.
@@ -999,7 +1003,7 @@ jobs:
   #      flag is inert — no baseline FMA — which is why every job above is blind to
   #      this class. macos-latest is arm64, but it runs only the plain C suite; no
   #      FMA-baseline runner has ever executed an oracle suite.
-  #  (2) GCC. fuzz_data.h — the seeded INPUT generator both sides of --fuzz-064
+  #  (2) GCC. fuzz_data.h — the seeded INPUT generator both sides of --ref
   #      compile — defends itself with `#pragma STDC FP_CONTRACT OFF`, which clang
   #      honours and GCC ignores outright (GCC also contracts ACROSS statements, so
   #      its second defence, splitting multiply from add, goes with it). Only GCC on
@@ -1021,7 +1025,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ job.workflow_sha }}
-          fetch-depth: 0 # both oracles build from pinned tags (v0.6.4, reference-pre-cutover)
+          fetch-depth: 0 # the release tags the ta_ref members pin
 
       - name: Install Python
         uses: actions/setup-python@v6
@@ -1053,12 +1057,13 @@ jobs:
           python3 scripts/build.py ta_regtest
           cd bin && ./ta_regtest
 
-      # Half (1) and half (2): --fuzz-064 builds the frozen v0.6.4 oracle AND the
-      # 064 transport that compiles fuzz_data.h, so it exercises both the cmake
-      # sites and the raw-cc site in one run.
-      - name: Fuzz current library vs frozen v0.6.4
+      # Half (1) and half (2): a release whose own build fused is built from
+      # source here instead of taken from its package, and every member's
+      # transport compiles fuzz_data.h, so this exercises both the cmake site and
+      # the raw-cc site in one run.
+      - name: Fuzz current library vs each frozen release
         shell: bash
-        run: python3 scripts/build.py fuzz-064
+        run: python3 scripts/build.py ref
 
       # build.py grew the same per-language prerequisite narrowing regtest.py has
       # had since #150, so it needs the same live regression test: on this runner
@@ -1069,12 +1074,11 @@ jobs:
         shell: bash
         run: python3 scripts/build.py servers --language=c,rust
 
-      # The ref differential sweep — the suite that silently truncated on arm64
-      # (131 variants/21 functions when it aborted, 613/74 once the oracle stopped
-      # fusing). --language=c,rust is also the invocation that was unreachable
-      # through the CLI until the prerequisite check became per-language, so this
-      # is its live regression test on a runner with no JDK and no .NET.
-      - name: Ref differential sweep (C + Rust)
+      # The codegen sweep for C and Rust: arm64's only Rust value comparison.
+      # --language=c,rust is also the invocation that was unreachable through
+      # the CLI until the prerequisite check became per-language, so this is its
+      # live regression test on a runner with no JDK and no .NET.
+      - name: Codegen sweep (C + Rust)
         shell: bash
         run: python3 scripts/regtest.py --no-perftest --no-direct-bench --codegen --language=c,rust
 
@@ -1131,7 +1135,7 @@ jobs:
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       # --language=csharp reaches this at all only because build.py's prerequisite
       # check and backend filter became per-language; before that the target
@@ -1187,7 +1191,7 @@ jobs:
       - name: Install .NET SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Bitwise-diff each language server vs the in-process C library
         shell: bash
@@ -1362,6 +1366,78 @@ jobs:
           conan profile detect --force
           conan create . --build=missing
 
+  # The wrapper's own CI runs on wrapper pushes only, so a C change that breaks
+  # it stays invisible until someone next touches the wrapper. Its bindings are
+  # committed and regenerated by its own Makefile, so this sees a changed
+  # signature, enum or struct layout, never a newly added function.
+  python-wrapper:
+    name: Python wrapper
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ job.workflow_sha }}
+
+      # The wrapper's dev tracks TA-Lib C's dev, its master the release, so the
+      # pairing follows this run's branch. github.ref is refs/heads/main for both
+      # scheduled nightlies, so it comes off the definition's own ref instead. An
+      # unrecognised shape is refused rather than defaulted.
+      - name: Which wrapper branch pairs with this run
+        shell: bash
+        env:
+          WF_REF: ${{ job.workflow_ref }}
+          WF_SHA: ${{ job.workflow_sha }}
+        run: |
+          case "$WF_REF" in
+            */nightly-jobs.yml@refs/heads/main) echo "WRAPPER=master" >> "$GITHUB_ENV" ;;
+            */nightly-jobs.yml@refs/heads/*)    echo "WRAPPER=dev"    >> "$GITHUB_ENV" ;;
+            *) echo "::error::defined by '$WF_REF', which is not a branch pin of"\
+                    " nightly-jobs.yml. A caller's 'uses:' must name it as @<branch>."
+               exit 1 ;;
+          esac
+          # An EMPTY workflow_sha makes the checkout above fall back to the
+          # default branch, so a dev nightly would build MAIN's C and still pair
+          # it with the wrapper's dev -- the pairing tested backwards, green.
+          [ -n "$WF_SHA" ] && [ "$(git rev-parse HEAD)" = "$WF_SHA" ] || {
+            echo "::error::checked out $(git rev-parse HEAD), but this job is defined by '$WF_SHA'."
+            exit 1; }
+
+      - name: Build and install this tree's TA-Lib C
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B _wrapper/c-build -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_DEV_TOOLS=OFF -DCMAKE_INSTALL_PREFIX="$PWD/_wrapper/c"
+          cmake --build _wrapper/c-build -j"$(nproc)"
+          cmake --install _wrapper/c-build
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Test the wrapper against it
+        shell: bash
+        env:
+          TA_INCLUDE_PATH: ${{ github.workspace }}/_wrapper/c/include
+          TA_LIBRARY_PATH: ${{ github.workspace }}/_wrapper/c/lib
+          LD_LIBRARY_PATH: ${{ github.workspace }}/_wrapper/c/lib
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 -b "$WRAPPER" \
+              https://github.com/TA-Lib/ta-lib-python.git _wrapper/src
+          echo "wrapper $WRAPPER at $(git -C _wrapper/src rev-parse HEAD)"
+          cd _wrapper/src
+          pip install --upgrade pip wheel setuptools
+          pip install -r requirements_test.txt
+          python setup.py build_ext --inplace
+          PYTHONPATH=. pytest -q
+
   # Runs LAST (needs: test) so every other job tested the committed,
   # already-generated sources. This regenerates from ta_codegen/input/ and fails
   # if anything differs — i.e. an input edit whose generated output was never
@@ -1453,8 +1529,8 @@ jobs:
   # It counts retired instructions under callgrind rather than timing anything:
   # exact, byte-identical across runs on a loaded box, which is what lets a 10%
   # threshold mean anything on a shared vCPU. It is blind to out-of-order
-  # execution and over-charges branches, so a percentage from it is never a
-  # quoted performance figure.
+  # execution and to what a mispredicted branch costs, so a percentage from it
+  # is never a quoted performance figure.
   icount:
     name: Instruction counts (x86_64)
     runs-on: ubuntu-latest
@@ -1463,12 +1539,7 @@ jobs:
       MODE: ${{ inputs.perf_mode || 'gate' }}
       THRESHOLD: ${{ inputs.perf_threshold || '0.10' }}
       ACCEPT: ${{ inputs.perf_accept || '' }}
-      # Empty on a schedule, so the skip is armed there; true on a dispatch,
-      # because someone who asked for a run gets one. `inputs` is empty when a
-      # caller reaches this file, so the event name is what carries a dispatch
-      # made on dev-nightly-tests.yml: without the second arm the runbook's
-      # pre-release dispatch would silently arm the skip.
-      FORCE: ${{ inputs.perf_force_measure || (github.event_name != 'schedule') }}
+      FORCE: ${{ inputs.perf_force_measure }}
 
     steps:
       - name: Checkout
@@ -1516,9 +1587,6 @@ jobs:
       # measured. Anything unexpected (no fingerprint, cache miss, cache
       # evicted) falls through to measuring, so the failure mode is a wasted
       # run and never a silent skip.
-      #
-      # Scheduled runs only. A human who dispatched this asked for a
-      # measurement and gets one.
       - name: Fingerprint the sources a count can depend on
         id: fp
         run: |
@@ -1541,9 +1609,11 @@ jobs:
       # so both see the default branch's scope while the key is a pure tree
       # fingerprint. A shared key would let whichever ran first skip the other's
       # measurement. main measures every night, ~1 min beside a 22 min job.
+      #
+      # Never on accept: a skip would drop the rows it names and read green.
       - name: Has this exact tree already been measured?
         id: seen
-        if: env.FORCE != 'true' && env.IS_MAIN != '1'
+        if: env.FORCE != 'true' && env.IS_MAIN != '1' && env.MODE != 'accept'
         uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/perf
@@ -1603,7 +1673,16 @@ jobs:
             measure) flags=() ;;
             *) echo "unknown perf_mode '$MODE'"; exit 2 ;;
           esac
-          python3 scripts/bench_icount.py --no-build --threshold="$THRESHOLD" "${flags[@]}"
+          # `peg` holds one level for hundreds of bars at a time, which is where
+          # the rolling-variance family rebuilds (#434). The walk never gets
+          # there, so each shape gates against its own baseline and both run.
+          rc=0
+          for shape in randwalk peg; do
+            python3 scripts/bench_icount.py --no-build --shape="$shape" \
+              --out-file="temp/callgrind.icount.$shape.out" \
+              --threshold="$THRESHOLD" "${flags[@]}" || rc=1
+          done
+          exit $rc
 
       # Reached only when the step above exited 0, and in `gate` mode
       # bench_icount.py only ever LOWERS a row. A regression cannot be absorbed
@@ -1679,6 +1758,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: callgrind-icount
-          path: temp/callgrind.icount.out
+          path: temp/callgrind.icount.*.out
           if-no-files-found: warn
           retention-days: 14

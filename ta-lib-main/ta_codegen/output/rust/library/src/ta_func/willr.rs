@@ -106,10 +106,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -127,23 +127,15 @@ impl Core {
         let mut local_sufHighest: [f64; 30] = [0.0_f64; 30];
         let mut heap_sufHighest: Vec<f64> = Vec::new();
         let mut sufHighest: &mut [f64] = &mut [];
-        let mut sufHighest_Idx: usize = 0;
-        let mut maxIdx_sufHighest: usize = 29;
         let mut local_preHighest: [f64; 30] = [0.0_f64; 30];
         let mut heap_preHighest: Vec<f64> = Vec::new();
         let mut preHighest: &mut [f64] = &mut [];
-        let mut preHighest_Idx: usize = 0;
-        let mut maxIdx_preHighest: usize = 29;
         let mut local_sufLowest: [f64; 30] = [0.0_f64; 30];
         let mut heap_sufLowest: Vec<f64> = Vec::new();
         let mut sufLowest: &mut [f64] = &mut [];
-        let mut sufLowest_Idx: usize = 0;
-        let mut maxIdx_sufLowest: usize = 29;
         let mut local_preLowest: [f64; 30] = [0.0_f64; 30];
         let mut heap_preLowest: Vec<f64> = Vec::new();
         let mut preLowest: &mut [f64] = &mut [];
-        let mut preLowest_Idx: usize = 0;
-        let mut maxIdx_preLowest: usize = 29;
         let mut lowest: f64 = 0.0_f64;
         let mut highest: f64 = 0.0_f64;
         let mut tmp: f64 = 0.0_f64;
@@ -172,6 +164,9 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inHigh = &inHigh[..=endIdx];
+        let inLow = &inLow[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         // Proceed with the calculation for the requested range.
         // Note that this algorithm allows the input and
         // output to be the same buffer.
@@ -194,40 +189,32 @@ impl Core {
         trailingIdx = startIdx - nbInitialElementNeeded;
         if optInTimePeriod < 1 { return RetCode::InternalError; }
         if (optInTimePeriod) as usize <= 30usize {
-            sufHighest = &mut local_sufHighest;
+            sufHighest = &mut local_sufHighest[..(optInTimePeriod) as usize];
         } else {
             heap_sufHighest = vec![0.0_f64; (optInTimePeriod) as usize];
             sufHighest = &mut heap_sufHighest;
         }
-        maxIdx_sufHighest = ((optInTimePeriod) as usize) - 1;
-        sufHighest_Idx = 0;
         if optInTimePeriod < 1 { return RetCode::InternalError; }
         if (optInTimePeriod) as usize <= 30usize {
-            preHighest = &mut local_preHighest;
+            preHighest = &mut local_preHighest[..(optInTimePeriod) as usize];
         } else {
             heap_preHighest = vec![0.0_f64; (optInTimePeriod) as usize];
             preHighest = &mut heap_preHighest;
         }
-        maxIdx_preHighest = ((optInTimePeriod) as usize) - 1;
-        preHighest_Idx = 0;
         if optInTimePeriod < 1 { return RetCode::InternalError; }
         if (optInTimePeriod) as usize <= 30usize {
-            sufLowest = &mut local_sufLowest;
+            sufLowest = &mut local_sufLowest[..(optInTimePeriod) as usize];
         } else {
             heap_sufLowest = vec![0.0_f64; (optInTimePeriod) as usize];
             sufLowest = &mut heap_sufLowest;
         }
-        maxIdx_sufLowest = ((optInTimePeriod) as usize) - 1;
-        sufLowest_Idx = 0;
         if optInTimePeriod < 1 { return RetCode::InternalError; }
         if (optInTimePeriod) as usize <= 30usize {
-            preLowest = &mut local_preLowest;
+            preLowest = &mut local_preLowest[..(optInTimePeriod) as usize];
         } else {
             heap_preLowest = vec![0.0_f64; (optInTimePeriod) as usize];
             preLowest = &mut heap_preLowest;
         }
-        maxIdx_preLowest = ((optInTimePeriod) as usize) - 1;
-        preLowest_Idx = 0;
         blockStart = trailingIdx;
         while today <= endIdx {
             // Suffix extrema of the block [blockStart, blockStart+p-1], which
@@ -240,18 +227,21 @@ impl Core {
             lowest = inLow[i];
             sufHighest[(optInTimePeriod - 1) as usize] = highest;
             sufLowest[(optInTimePeriod - 1) as usize] = lowest;
-            while i > blockStart {
-                i -= 1;
-                tmp = inHigh[i];
-                if tmp > highest {
-                    highest = tmp;
+            if i > blockStart {
+                let _wn: usize = i - blockStart;
+                let _w0 = &inHigh[i - _wn..][.._wn];
+                let _w1 = &inLow[i - _wn..][.._wn];
+                let _w2 = &mut sufHighest[i - _wn - blockStart..][.._wn];
+                let _w3 = &mut sufLowest[i - _wn - blockStart..][.._wn];
+                for _wk in (0.._wn).rev() {
+                    i -= 1;
+                    tmp = _w0[_wk];
+                    highest = c_max(tmp, highest);
+                    tmp = _w1[_wk];
+                    lowest = c_min(tmp, lowest);
+                    _w2[_wk] = highest;
+                    _w3[_wk] = lowest;
                 }
-                tmp = inLow[i];
-                if tmp < lowest {
-                    lowest = tmp;
-                }
-                sufHighest[i - blockStart] = highest;
-                sufLowest[i - blockStart] = lowest;
             }
             highest = sufHighest[0];
             lowest = sufLowest[0];
@@ -270,11 +260,11 @@ impl Core {
             // quotient is <= 1 under any rounding mode. Its domain is the close
             // outside its own bar, which nothing here validates.
             if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
-                tempReal = (highest - inClose[today]) / (highest - lowest) * (0_f64 - 100.0);
+                tempReal = (highest - inClose[today]) / (highest - lowest) * -100.0;
                 if tempReal > 0.0 {
                     tempReal = 0.0;
-                } else if tempReal < 0_f64 - 100.0 {
-                    tempReal = 0_f64 - 100.0;
+                } else if tempReal < -100.0 {
+                    tempReal = -100.0;
                 }
                 outReal[outIdx] = tempReal;
                 outIdx += 1;
@@ -299,18 +289,21 @@ impl Core {
                 preHighest[0] = highest;
                 preLowest[0] = lowest;
                 i = 1;
-                while i < nAvail {
-                    tmp = inHigh[blockNext + i];
-                    if tmp > highest {
-                        highest = tmp;
+                if i < nAvail {
+                    let _wn: usize = nAvail - i;
+                    let _w0 = &inHigh[blockNext + i..][.._wn];
+                    let _w1 = &inLow[blockNext + i..][.._wn];
+                    let _w2 = &mut preHighest[i..][.._wn];
+                    let _w3 = &mut preLowest[i..][.._wn];
+                    for _wk in 0.._wn {
+                        tmp = _w0[_wk];
+                        highest = c_max(tmp, highest);
+                        tmp = _w1[_wk];
+                        lowest = c_min(tmp, lowest);
+                        _w2[_wk] = highest;
+                        _w3[_wk] = lowest;
+                        i += 1;
                     }
-                    tmp = inLow[blockNext + i];
-                    if tmp < lowest {
-                        lowest = tmp;
-                    }
-                    preHighest[i] = highest;
-                    preLowest[i] = lowest;
-                    i += 1;
                 }
                 // Combine and emit. The suffix half is the older one, so
                 // preferring it on a tie keeps the earliest-wins rule. The
@@ -319,19 +312,15 @@ impl Core {
                 m = 1;
                 while m <= nAvail {
                     highest = sufHighest[m];
-                    if preHighest[m - 1] > highest {
-                        highest = preHighest[m - 1];
-                    }
+                    highest = c_max(preHighest[m - 1], highest);
                     lowest = sufLowest[m];
-                    if preLowest[m - 1] < lowest {
-                        lowest = preLowest[m - 1];
-                    }
+                    lowest = c_min(preLowest[m - 1], lowest);
                     if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
-                        tempReal = (highest - inClose[today + m - 1]) / (highest - lowest) * (0_f64 - 100.0);
+                        tempReal = (highest - inClose[today + m - 1]) / (highest - lowest) * -100.0;
                         if tempReal > 0.0 {
                             tempReal = 0.0;
-                        } else if tempReal < 0_f64 - 100.0 {
-                            tempReal = 0_f64 - 100.0;
+                        } else if tempReal < -100.0 {
+                            tempReal = -100.0;
                         }
                         outReal[outIdx] = tempReal;
                         outIdx += 1;
@@ -373,15 +362,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -425,10 +414,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.willr_lookback(optInTimePeriod)?;
@@ -550,11 +539,11 @@ impl Core {
         }
         // Same rule, band and clamp as the block scan above.
         if !(((sp.highest - sp.lowest).abs() <= 1e-14 * ((sp.highest).abs() + (sp.lowest).abs()))) {
-            tempReal = (sp.highest - sp.x_inClose[(sp.today & sp.xMask) as usize]) / (sp.highest - sp.lowest) * (0_f64 - 100.0);
+            tempReal = (sp.highest - sp.x_inClose[(sp.today & sp.xMask) as usize]) / (sp.highest - sp.lowest) * -100.0;
             if tempReal > 0.0 {
                 tempReal = 0.0;
-            } else if tempReal < 0_f64 - 100.0 {
-                tempReal = 0_f64 - 100.0;
+            } else if tempReal < -100.0 {
+                tempReal = -100.0;
             }
             (*outReal) = tempReal;
         } else {
@@ -573,7 +562,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -643,7 +632,7 @@ impl Core {
         outIdx = 0;
         today = startIdx;
         trailingIdx = startIdx - nbInitialElementNeeded;
-        highestIdx = 0 - 1;
+        highestIdx = -1;
         lowestIdx = highestIdx;
         lowest = 0.0;
         highest = lowest;
@@ -684,11 +673,11 @@ impl Core {
             }
             // Same rule, band and clamp as the block scan above.
             if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
-                tempReal = (highest - inClose[today]) / (highest - lowest) * (0_f64 - 100.0);
+                tempReal = (highest - inClose[today]) / (highest - lowest) * -100.0;
                 if tempReal > 0.0 {
                     tempReal = 0.0;
-                } else if tempReal < 0_f64 - 100.0 {
-                    tempReal = 0_f64 - 100.0;
+                } else if tempReal < -100.0 {
+                    tempReal = -100.0;
                 }
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = tempReal;
             } else {
@@ -826,7 +815,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.willr_lookback(optInTimePeriod)?;
@@ -859,7 +848,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl WillrStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -877,11 +866,11 @@ impl WillrStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_WILLR_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -896,16 +885,15 @@ impl WillrStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_WILLR_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -970,11 +958,11 @@ impl WillrStream {
             }
             // Same rule, band and clamp as the block scan above.
             if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
-                tempReal = (highest - (if ((sp.today & sp.xMask) as usize) != pkSlot2 { sp.x_inClose[(sp.today & sp.xMask) as usize] } else { pkVal2 })) / (highest - lowest) * (0_f64 - 100.0);
+                tempReal = (highest - (if ((sp.today & sp.xMask) as usize) != pkSlot2 { sp.x_inClose[(sp.today & sp.xMask) as usize] } else { pkVal2 })) / (highest - lowest) * -100.0;
                 if tempReal > 0.0 {
                     tempReal = 0.0;
-                } else if tempReal < 0_f64 - 100.0 {
-                    tempReal = 0_f64 - 100.0;
+                } else if tempReal < -100.0 {
+                    tempReal = -100.0;
                 }
                 (*outReal) = tempReal;
             } else {
@@ -1007,7 +995,7 @@ impl WillrStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_WILLR_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1025,11 +1013,11 @@ impl WillrStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_WILLR_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

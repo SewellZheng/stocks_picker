@@ -86,9 +86,9 @@ TA_LIB_API TA_RetCode TA_STDDEV( int    startIdx,
    int i;
    TA_RetCode retCode;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -106,12 +106,12 @@ TA_LIB_API TA_RetCode TA_STDDEV( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   /* Nothing to produce: the range is shorter than the lookback. Return before
+   /* Nothing to produce: the range ends before the lookback. Return before
     * touching anything.
     *
     * Same shape as the guard in apo and bbands: the variance below runs on the
     * same range and its lookback IS stddev's, so it declines and yields 0,0
-    * without reading. Observably identical, but it makes "a range shorter than
+    * without reading. Observably identical, but it makes "a range that ends before
     * the lookback reads nothing" true of stddev itself rather than only of var.
     * Pinned by the zero-length no-I/O probe over every guarded core.
     */
@@ -132,9 +132,8 @@ TA_LIB_API TA_RetCode TA_STDDEV( int    startIdx,
     *
     * Multiply also by the ratio specified.
     *
-    * Unconditional. var owns the dead-zone and owns the sign: it returns a
-    * non-negative variance, already floored to exactly 0 on any window whose
-    * re-anchored spread sat under its own rounding noise (var.c). What used to
+    * Unconditional. var owns the sign: it returns a non-negative variance,
+    * exactly 0 on a window of identical values (var.c). What used to
     * stand here instead - zero the output wherever the variance fell under
     * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
     * at a price level rather than a noise floor: a $100.00 instrument quoted in
@@ -170,9 +169,9 @@ TA_RetCode TA_S_STDDEV( int    startIdx,
    int i;
    TA_RetCode retCode;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -266,7 +265,7 @@ static TA_RetCode TA_STDDEV_OpenImpl( struct TA_STDDEV_Stream **stream, const do
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
@@ -298,12 +297,12 @@ static TA_RetCode TA_STDDEV_OpenImpl( struct TA_STDDEV_Stream **stream, const do
    {
       int i;
       TA_RetCode retCode;
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Same shape as the guard in apo and bbands: the variance below runs on the
        * same range and its lookback IS stddev's, so it declines and yields 0,0
-       * without reading. Observably identical, but it makes "a range shorter than
+       * without reading. Observably identical, but it makes "a range that ends before
        * the lookback reads nothing" true of stddev itself rather than only of var.
        * Pinned by the zero-length no-I/O probe over every guarded core.
        */
@@ -337,9 +336,8 @@ static TA_RetCode TA_STDDEV_OpenImpl( struct TA_STDDEV_Stream **stream, const do
        *
        * Multiply also by the ratio specified.
        *
-       * Unconditional. var owns the dead-zone and owns the sign: it returns a
-       * non-negative variance, already floored to exactly 0 on any window whose
-       * re-anchored spread sat under its own rounding noise (var.c). What used to
+       * Unconditional. var owns the sign: it returns a non-negative variance,
+       * exactly 0 on a window of identical values (var.c). What used to
        * stand here instead - zero the output wherever the variance fell under
        * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
        * at a price level rather than a noise floor: a $100.00 instrument quoted in
@@ -401,7 +399,7 @@ TA_LIB_API TA_RetCode TA_STDDEV_Open( TA_STDDEV_Stream **stream, const double in
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_STDDEV_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outReal );
 }
@@ -411,7 +409,7 @@ TA_LIB_API TA_RetCode TA_STDDEV_OpenAndFill( TA_STDDEV_Stream **stream, const do
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_STDDEV_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal );
@@ -428,7 +426,7 @@ TA_LIB_API TA_RetCode TA_STDDEV_Update( TA_STDDEV_Stream *stream, double inReal,
    TA_RetCode retCode;
 
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -490,7 +488,7 @@ TA_LIB_API TA_RetCode TA_STDDEV_OutRange( const TA_STDDEV_Stream *stream, int *o
 TA_LIB_API TA_RetCode TA_STDDEV_Advance( TA_STDDEV_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

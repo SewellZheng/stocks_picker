@@ -71,7 +71,7 @@ public partial class Core
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int HaLookback( )
    {
-      return this.unstablePeriod[(int)FuncUnstId.HA] ;
+      return this._unstablePeriod[(int)FuncUnstId.HA] ;
 
    }
    internal RetCode HaImpl( int startIdx,
@@ -101,10 +101,10 @@ public partial class Core
       double tempHigh = 0;
       double tempLow = 0;
       double tempClose = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( outHAOpen.Overlaps(outHAHigh) || outHAOpen.Overlaps(outHALow) || outHAOpen.Overlaps(outHAClose) || outHAHigh.Overlaps(outHALow) || outHAHigh.Overlaps(outHAClose) || outHALow.Overlaps(outHAClose) ) {
@@ -147,25 +147,17 @@ public partial class Core
       tempHigh = inHigh[startIdx];
       tempLow = inLow[startIdx];
       /* The three-way extremum is spelled with plain comparisons, never the
-       * max/min builtins: C's macros return their SECOND operand on a tie where
-       * Rust, Java and .NET return the negative zero, so a bar of signed zeros
+       * max/min builtins: C's macros return their SECOND operand on a tie and
+       * Rust's and Java's builtins do not, so a bar of signed zeros
        * emits different bytes per backend and the cross-language gate compares
        * bytes. Measured on (O,H,L,C) = (-0.0, +0.0, -0.0, -0.0).
        */
       haHigh = tempHigh;
-      if( haOpen > haHigh ) {
-         haHigh = haOpen;
-      }
-      if( haClose > haHigh ) {
-         haHigh = haClose;
-      }
+      haHigh = MaxGt(haOpen, haHigh);
+      haHigh = MaxGt(haClose, haHigh);
       haLow = tempLow;
-      if( haOpen < haLow ) {
-         haLow = haOpen;
-      }
-      if( haClose < haLow ) {
-         haLow = haClose;
-      }
+      haLow = MinLt(haOpen, haLow);
+      haLow = MinLt(haClose, haLow);
       outHAOpen[0] = haOpen;
       outHAHigh[0] = haHigh;
       outHALow[0] = haLow;
@@ -183,19 +175,11 @@ public partial class Core
          haOpen = (haOpen + haClose) / 2.0;
          haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
          haHigh = tempHigh;
-         if( haOpen > haHigh ) {
-            haHigh = haOpen;
-         }
-         if( haClose > haHigh ) {
-            haHigh = haClose;
-         }
+         haHigh = MaxGt(haOpen, haHigh);
+         haHigh = MaxGt(haClose, haHigh);
          haLow = tempLow;
-         if( haOpen < haLow ) {
-            haLow = haOpen;
-         }
-         if( haClose < haLow ) {
-            haLow = haClose;
-         }
+         haLow = MinLt(haOpen, haLow);
+         haLow = MinLt(haClose, haLow);
          outHAOpen[outIdx] = haOpen;
          outHAHigh[outIdx] = haHigh;
          outHALow[outIdx] = haLow;
@@ -234,10 +218,10 @@ public partial class Core
       double tempHigh = 0;
       double tempLow = 0;
       double tempClose = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( outHAOpen.Overlaps(outHAHigh) || outHAOpen.Overlaps(outHALow) || outHAOpen.Overlaps(outHAClose) || outHAHigh.Overlaps(outHALow) || outHAHigh.Overlaps(outHAClose) || outHALow.Overlaps(outHAClose) ) {
@@ -269,19 +253,11 @@ public partial class Core
       tempHigh = (double)inHigh[startIdx];
       tempLow = (double)inLow[startIdx];
       haHigh = tempHigh;
-      if( haOpen > haHigh ) {
-         haHigh = haOpen;
-      }
-      if( haClose > haHigh ) {
-         haHigh = haClose;
-      }
+      haHigh = MaxGt(haOpen, haHigh);
+      haHigh = MaxGt(haClose, haHigh);
       haLow = tempLow;
-      if( haOpen < haLow ) {
-         haLow = haOpen;
-      }
-      if( haClose < haLow ) {
-         haLow = haClose;
-      }
+      haLow = MinLt(haOpen, haLow);
+      haLow = MinLt(haClose, haLow);
       outHAOpen[0] = haOpen;
       outHAHigh[0] = haHigh;
       outHALow[0] = haLow;
@@ -295,19 +271,11 @@ public partial class Core
          haOpen = (haOpen + haClose) / 2.0;
          haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
          haHigh = tempHigh;
-         if( haOpen > haHigh ) {
-            haHigh = haOpen;
-         }
-         if( haClose > haHigh ) {
-            haHigh = haClose;
-         }
+         haHigh = MaxGt(haOpen, haHigh);
+         haHigh = MaxGt(haClose, haHigh);
          haLow = tempLow;
-         if( haOpen < haLow ) {
-            haLow = haOpen;
-         }
-         if( haClose < haLow ) {
-            haLow = haClose;
-         }
+         haLow = MinLt(haOpen, haLow);
+         haLow = MinLt(haClose, haLow);
          outHAOpen[outIdx] = haOpen;
          outHAHigh[outIdx] = haHigh;
          outHALow[outIdx] = haLow;
@@ -349,8 +317,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>HaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>HaLookback</c> is a <b>success with
+   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -359,28 +332,44 @@ public partial class Core
    /// <param name="inHigh">High price of each bar.</param>
    /// <param name="inLow">Low price of each bar.</param>
    /// <param name="inClose">Close price of each bar.</param>
-   /// <param name="outHAOpen">Heikin-Ashi open. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
-   /// <param name="outHAHigh">Heikin-Ashi high. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
-   /// <param name="outHALow">Heikin-Ashi low. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
-   /// <param name="outHAClose">Heikin-Ashi close. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
+   /// <param name="outHAOpen">Heikin-Ashi open. Must hold at least <c>endIdx - max(startIdx,
+   /// HaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
+   /// <param name="outHAHigh">Heikin-Ashi high. Must hold at least <c>endIdx - max(startIdx,
+   /// HaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
+   /// <param name="outHALow">Heikin-Ashi low. Must hold at least <c>endIdx - max(startIdx,
+   /// HaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
+   /// <param name="outHAClose">Heikin-Ashi close. Must hold at least <c>endIdx - max(startIdx,
+   /// HaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Avgprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Medprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Typprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Wclprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
    public OutRange Ha( int startIdx,
                        int endIdx,
                        ReadOnlySpan<double> inOpen,
@@ -445,8 +434,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>HaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>HaLookback</c> is a <b>success with
+   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -455,30 +449,46 @@ public partial class Core
    /// <param name="inHigh">High price of each bar.</param>
    /// <param name="inLow">Low price of each bar.</param>
    /// <param name="inClose">Close price of each bar.</param>
-   /// <param name="outHAOpen">Heikin-Ashi open. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
-   /// <param name="outHAHigh">Heikin-Ashi high. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
-   /// <param name="outHALow">Heikin-Ashi low. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
-   /// <param name="outHAClose">Heikin-Ashi close. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
+   /// <param name="outHAOpen">Heikin-Ashi open. Must hold at least <c>endIdx - max(startIdx,
+   /// HaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
+   /// <param name="outHAHigh">Heikin-Ashi high. Must hold at least <c>endIdx - max(startIdx,
+   /// HaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
+   /// <param name="outHALow">Heikin-Ashi low. Must hold at least <c>endIdx - max(startIdx,
+   /// HaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
+   /// <param name="outHAClose">Heikin-Ashi close. Must hold at least <c>endIdx - max(startIdx,
+   /// HaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Avgprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Medprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Typprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Wclprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
    public OutRange Ha( int startIdx,
                        int endIdx,
                        ReadOnlySpan<float> inOpen,
@@ -563,7 +573,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -576,13 +586,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("HA", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -602,7 +612,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -613,7 +622,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -624,9 +633,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public HaValue Update( double inOpen, double inHigh, double inLow, double inClose )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("HA", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("HA", "update", RetCode.BadParam);
+         if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.NonFiniteBar("HA", "update", !double.IsFinite(inOpen) ? nameof(inOpen) : !double.IsFinite(inHigh) ? nameof(inHigh) : !double.IsFinite(inLow) ? nameof(inLow) : nameof(inClose));
          core.HaStepImpl(this, inOpen, inHigh, inLow, inClose);
          outRangeCount++;
          return new HaValue(cur_outHAOpen, cur_outHAHigh, cur_outHALow, cur_outHAClose);
@@ -638,9 +647,8 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inOpen">This bar's open price.</param>
       /// <param name="inHigh">This bar's high price.</param>
@@ -650,7 +658,7 @@ public partial class Core
       /// it.</returns>
       public HaValue Peek( double inOpen, double inHigh, double inLow, double inClose )
       {
-         if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("HA", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.NonFiniteBar("HA", "peek", !double.IsFinite(inOpen) ? nameof(inOpen) : !double.IsFinite(inHigh) ? nameof(inHigh) : !double.IsFinite(inLow) ? nameof(inLow) : nameof(inClose));
          HaStream sp = this;
          double haHigh = 0.0;
          double haLow = 0.0;
@@ -675,19 +683,11 @@ public partial class Core
          haOpen = (haOpen + haClose) / 2.0;
          haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
          haHigh = tempHigh;
-         if( haOpen > haHigh ) {
-            haHigh = haOpen;
-         }
-         if( haClose > haHigh ) {
-            haHigh = haClose;
-         }
+         haHigh = MaxGt(haOpen, haHigh);
+         haHigh = MaxGt(haClose, haHigh);
          haLow = tempLow;
-         if( haOpen < haLow ) {
-            haLow = haOpen;
-         }
-         if( haClose < haLow ) {
-            haLow = haClose;
-         }
+         haLow = MinLt(haOpen, haLow);
+         haLow = MinLt(haClose, haLow);
          cur_outHAOpen = haOpen;
          cur_outHAHigh = haHigh;
          cur_outHALow = haLow;
@@ -712,7 +712,7 @@ public partial class Core
       }
    }
 
-   internal void HaStepImpl( HaStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void HaStepImpl( HaStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       double haHigh = 0.0;
       double haLow = 0.0;
@@ -731,19 +731,11 @@ public partial class Core
       sp.haOpen = (sp.haOpen + sp.haClose) / 2.0;
       sp.haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
       haHigh = tempHigh;
-      if( sp.haOpen > haHigh ) {
-         haHigh = sp.haOpen;
-      }
-      if( sp.haClose > haHigh ) {
-         haHigh = sp.haClose;
-      }
+      haHigh = MaxGt(sp.haOpen, haHigh);
+      haHigh = MaxGt(sp.haClose, haHigh);
       haLow = tempLow;
-      if( sp.haOpen < haLow ) {
-         haLow = sp.haOpen;
-      }
-      if( sp.haClose < haLow ) {
-         haLow = sp.haClose;
-      }
+      haLow = MinLt(sp.haOpen, haLow);
+      haLow = MinLt(sp.haClose, haLow);
       sp.cur_outHAOpen = sp.haOpen;
       sp.cur_outHAHigh = haHigh;
       sp.cur_outHALow = haLow;
@@ -771,7 +763,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inHigh.Length != inOpen.Length || inLow.Length != inOpen.Length || inClose.Length != inOpen.Length ) {
@@ -816,25 +808,17 @@ public partial class Core
       tempHigh = inHigh[startIdx];
       tempLow = inLow[startIdx];
       /* The three-way extremum is spelled with plain comparisons, never the
-       * max/min builtins: C's macros return their SECOND operand on a tie where
-       * Rust, Java and .NET return the negative zero, so a bar of signed zeros
+       * max/min builtins: C's macros return their SECOND operand on a tie and
+       * Rust's and Java's builtins do not, so a bar of signed zeros
        * emits different bytes per backend and the cross-language gate compares
        * bytes. Measured on (O,H,L,C) = (-0.0, +0.0, -0.0, -0.0).
        */
       haHigh = tempHigh;
-      if( haOpen > haHigh ) {
-         haHigh = haOpen;
-      }
-      if( haClose > haHigh ) {
-         haHigh = haClose;
-      }
+      haHigh = MaxGt(haOpen, haHigh);
+      haHigh = MaxGt(haClose, haHigh);
       haLow = tempLow;
-      if( haOpen < haLow ) {
-         haLow = haOpen;
-      }
-      if( haClose < haLow ) {
-         haLow = haClose;
-      }
+      haLow = MinLt(haOpen, haLow);
+      haLow = MinLt(haClose, haLow);
       outHAOpen[0 * outStride] = haOpen;
       outHAHigh[0 * outStride] = haHigh;
       outHALow[0 * outStride] = haLow;
@@ -852,19 +836,11 @@ public partial class Core
          haOpen = (haOpen + haClose) / 2.0;
          haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0;
          haHigh = tempHigh;
-         if( haOpen > haHigh ) {
-            haHigh = haOpen;
-         }
-         if( haClose > haHigh ) {
-            haHigh = haClose;
-         }
+         haHigh = MaxGt(haOpen, haHigh);
+         haHigh = MaxGt(haClose, haHigh);
          haLow = tempLow;
-         if( haOpen < haLow ) {
-            haLow = haOpen;
-         }
-         if( haClose < haLow ) {
-            haLow = haClose;
-         }
+         haLow = MinLt(haOpen, haLow);
+         haLow = MinLt(haClose, haLow);
          outHAOpen[outIdx * outStride] = haOpen;
          outHAHigh[outIdx * outStride] = haHigh;
          outHALow[outIdx * outStride] = haLow;
@@ -894,6 +870,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("HA", "openAndFill", nameof(inOpen), inOpen.Length, startIdx, HaLookback());
+      }
       throw StreamFailure("HA", "openAndFill", retCode);
    }
 
@@ -910,6 +889,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("HA", "open", nameof(inOpen), inOpen.Length, startIdx, HaLookback());
       }
       throw StreamFailure("HA", "open", retCode);
    }
@@ -930,12 +912,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>HaLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">The input series have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public HaStream HaOpen( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose )
    {
       if( inOpen.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "HA open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inOpen.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "HA open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inOpen.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "HA open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inHigh.IsEmpty ) throw new TALibArgumentException("HA open: inHigh is empty", nameof(inHigh), RetCode.BadParam);
       if( inLow.IsEmpty ) throw new TALibArgumentException("HA open: inLow is empty", nameof(inLow), RetCode.BadParam);
       if( inClose.IsEmpty ) throw new TALibArgumentException("HA open: inClose is empty", nameof(inClose), RetCode.BadParam);
@@ -977,12 +959,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public HaStream HaOpenAndFill( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outHAOpen, Span<double> outHAHigh, Span<double> outHALow, Span<double> outHAClose )
    {
       if( inOpen.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "HA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inOpen.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "HA openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inOpen.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "HA openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inHigh.IsEmpty ) throw new TALibArgumentException("HA openAndFill: inHigh is empty", nameof(inHigh), RetCode.BadParam);
       if( inLow.IsEmpty ) throw new TALibArgumentException("HA openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
       if( inClose.IsEmpty ) throw new TALibArgumentException("HA openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);

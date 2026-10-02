@@ -83,7 +83,8 @@ pub struct SubLagRing {
 /// stream keeps one position/capacity per index variable and one buffer per
 /// input array it reads (CDL-style windows read several arrays through the
 /// same trailing index). The capacity (`cursor - var`, loop-invariant) is
-/// captured NUMERICALLY at the end of open — no symbolic analysis.
+/// captured numerically at the end of open; [`RingSpec::lag_ge1`] is the only
+/// symbolic fact about it.
 ///
 /// Phase-free only: the transition reads exactly `ring[pos]` (the oldest
 /// slot). Batch code that iterates a buffer in storage order (CCI-class
@@ -110,6 +111,10 @@ pub struct RingSpec {
     /// expression to evaluate per bar; `raw_arrays` keeps the columns it reads
     /// so `open` can still backfill from history.
     pub derived: Option<DerivedRing>,
+    /// A `back == 0` ring whose lag is proved >= 1 on every path reaching its
+    /// transition ([`crate::ring_lag`]): it never holds the current bar, so it
+    /// takes no zero-capacity guard, and Open rejects a capacity below 1.
+    pub lag_ge1: bool,
 }
 
 /// One trailing index collapsed to a single derived scalar per bar.
@@ -270,6 +275,40 @@ pub struct CalleeSig {
 /// server generation, tests).
 pub trait CalleeLookup {
     fn callee(&self, name: &str) -> Option<CalleeSig>;
+    /// `name`'s lookback, for the ring-lag proof. `None` leaves every call to
+    /// it opaque, which can only leave a ring unproven.
+    fn lookback(&self, _name: &str) -> Option<CalleeLookback> {
+        None
+    }
+}
+
+/// A lookback as the generated `TA_<N>_Lookback` evaluates it: the YAML
+/// parameters, whose order is the order a call binds, and the body.
+#[derive(Debug, Clone)]
+pub struct CalleeLookback {
+    pub params: Vec<crate::ir::OptInput>,
+    pub body: Vec<Statement>,
+}
+
+/// The lookback of a fully loaded [`FuncDef`].
+#[must_use]
+pub fn lookback_of(f: &FuncDef) -> Option<CalleeLookback> {
+    match &f.lookback {
+        Some(crate::ir::LookbackExpr::Code(body)) => Some(CalleeLookback {
+            params: f.optional_inputs.clone(),
+            body: body.clone(),
+        }),
+        _ => None,
+    }
+}
+
+/// A lookup that knows no other function.
+struct NoCallees;
+
+impl CalleeLookup for NoCallees {
+    fn callee(&self, _name: &str) -> Option<CalleeSig> {
+        None
+    }
 }
 
 /// Signature facts derived from one [`FuncDef`] (shared by every
@@ -295,6 +334,12 @@ impl CalleeLookup for FuncsLookup<'_> {
             .iter()
             .find(|f| f.name.eq_ignore_ascii_case(name))
             .map(callee_sig_of)
+    }
+    fn lookback(&self, name: &str) -> Option<CalleeLookback> {
+        self.0
+            .iter()
+            .find(|f| f.name.eq_ignore_ascii_case(name))
+            .and_then(lookback_of)
     }
 }
 
@@ -472,6 +517,15 @@ pub enum UpdateStep {
     Map { tail_idx: usize },
 }
 
+/// One scalar of [`ComposedPlan::map_state`].
+#[derive(Debug, Clone)]
+pub struct MapState {
+    pub name: String,
+    pub ty: VarType,
+    /// A map assigns it, so the value moves bar to bar.
+    pub carried: bool,
+}
+
 /// A non-returning free of an intermediate series in the tail: the
 /// series' liveness boundary AND the statement inserted failure returns
 /// replay (frees inside returning guards never affect fall-through
@@ -525,6 +579,10 @@ pub struct ComposedPlan<'a> {
     pub series_frees: Vec<SeriesFree>,
     /// Function-local temps referenced by Map steps (step-local decls).
     pub map_temps: Vec<(String, VarType)>,
+    /// Scalars a map reads that the tail sets outside the maps. The handle
+    /// holds each one, Open captures it after the batch tail, and a step loads
+    /// it into a local; only a commit stores a `carried` one back.
+    pub map_state: Vec<MapState>,
     /// Sub-output self-lag rings a combine map reads (ADXR's ADX lag). Empty
     /// for the same-bar-only combines (APO/PPO/STDDEV).
     pub sub_lag_rings: Vec<SubLagRing>,
@@ -606,9 +664,10 @@ pub enum PeriodBankArg {
 /// once and scatters; a stream cannot know future periods, so it maintains a
 /// BANK of `maxPeriod - minPeriod + 1` streaming sub-MAs (one per possible
 /// period), advances them all in lockstep every bar, and outputs the one the
-/// current bar's clamped period selects. Reuses the callee's (`ma`) public
-/// stream — so it streams exactly the MATypes the callee streams (MAType_MAMA
-/// rejects at Open, as it does through MA's dispatch).
+/// current bar's clamped period selects. Reuses the callee's (`ma`) stream, so
+/// it streams exactly the MATypes the callee streams. The slots read their
+/// price history from one tape the bank keeps (#445); every other state a slot
+/// carries, a derived series included, is its own.
 #[derive(Debug)]
 pub struct PeriodBankPlan<'a> {
     pub func: &'a FuncDef,
@@ -1043,6 +1102,7 @@ pub fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr)) {
         Expr::ArrayAccess(_, i)
         | Expr::Cast(_, i)
         | Expr::Not(i)
+        | Expr::Neg(i)
         | Expr::BitwiseNot(i)
         | Expr::AddressOf(i)
         | Expr::PostIncrement(i)
@@ -1553,25 +1613,7 @@ fn countdown_counter(cond: &Expr) -> Option<String> {
 }
 
 fn find_steady_loop(body: &[Statement]) -> Result<SteadyLoop<'_>, StreamError> {
-    // Prefer the LAST top-level loop over endIdx; fall back to the last
-    // countdown loop (AD-style `while (nbBar != 0)`).
-    let is_endidx = |s: &Statement| match s {
-        Statement::While { condition, .. }
-        | Statement::DoWhile { condition, .. }
-        | Statement::ForC { condition, .. } => endidx_cursor(condition).is_some(),
-        _ => false,
-    };
-    let is_countdown = |s: &Statement| match s {
-        Statement::While { condition, .. } | Statement::DoWhile { condition, .. } => {
-            countdown_counter(condition).is_some()
-        }
-        _ => false,
-    };
-    let idx = body
-        .iter()
-        .rposition(is_endidx)
-        .or_else(|| body.iter().rposition(is_countdown))
-        .ok_or(StreamError::NoSteadyLoop)?;
+    let idx = steady_loop_index(body).ok_or(StreamError::NoSteadyLoop)?;
 
     Ok(match &body[idx] {
         Statement::While { condition, body } => SteadyLoop {
@@ -1609,6 +1651,27 @@ fn find_steady_loop(body: &[Statement]) -> Result<SteadyLoop<'_>, StreamError> {
     })
 }
 
+/// Index of the steady loop in `body`'s top level.
+pub(crate) fn steady_loop_index(body: &[Statement]) -> Option<usize> {
+    // Prefer the LAST top-level loop over endIdx; fall back to the last
+    // countdown loop (AD-style `while (nbBar != 0)`).
+    let is_endidx = |s: &Statement| match s {
+        Statement::While { condition, .. }
+        | Statement::DoWhile { condition, .. }
+        | Statement::ForC { condition, .. } => endidx_cursor(condition).is_some(),
+        _ => false,
+    };
+    let is_countdown = |s: &Statement| match s {
+        Statement::While { condition, .. } | Statement::DoWhile { condition, .. } => {
+            countdown_counter(condition).is_some()
+        }
+        _ => false,
+    };
+    body.iter()
+        .rposition(is_endidx)
+        .or_else(|| body.iter().rposition(is_countdown))
+}
+
 // ---------------------------------------------------------------------------
 // Analysis
 // ---------------------------------------------------------------------------
@@ -1635,7 +1698,7 @@ fn is_stateful_call(name: &str) -> bool {
 /// slice they are building a stream surface out of; this asks it about the
 /// function, which is the question the `period1_identity` YAML flag answers. It
 /// is the same detector rather than a second one on purpose: the flag gate
-/// (`tests/period1_suite.rs`) and the stream surfaces must not be able to
+/// (`tests/all/period1_suite.rs`) and the stream surfaces must not be able to
 /// disagree about what an identity arm is.
 ///
 /// A `None` here is not a claim that the function fails the identity — `SMA` and
@@ -1660,6 +1723,14 @@ pub fn identity_path(func: &FuncDef) -> Option<IdentityPath> {
 /// composed body, non-scalar state, ...), which drives both the YAML
 /// validation and the census.
 pub fn analyze(func: &FuncDef) -> Result<StreamModel<'_>, StreamError> {
+    analyze_with(func, &NoCallees)
+}
+
+/// [`analyze`], resolving other functions' lookbacks through `lookup`.
+pub fn analyze_with<'a>(
+    func: &'a FuncDef,
+    lookup: &dyn CalleeLookup,
+) -> Result<StreamModel<'a>, StreamError> {
     let body: &[Statement] = func.stream_source();
     let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
     for o in &func.outputs {
@@ -1670,7 +1741,80 @@ pub fn analyze(func: &FuncDef) -> Result<StreamModel<'_>, StreamError> {
             )));
         }
     }
-    analyze_region(func, body, outputs)
+    let mut model = analyze_region(func, body, outputs)?;
+    prove_ring_lags(&mut model, &[], &[], vec![], lookup);
+    Ok(model)
+}
+
+/// The step local a proven ring's capacity is read into.
+#[must_use]
+pub fn ring_cap_local(var: &str) -> String {
+    format!("ringCapL_{var}")
+}
+
+/// `model.temps` for a commit frame, `tape` its tape if it has one. A taped
+/// ring never advances, so its capacity local would be declared and never used.
+#[must_use]
+pub fn step_temps(model: &StreamModel, tape: Option<&TapeNames>) -> Vec<(String, VarType)> {
+    let unused: BTreeSet<String> = model
+        .rings()
+        .iter()
+        .filter(|r| tape.is_some_and(|t| r.arrays.contains(&t.input)))
+        .map(|r| ring_cap_local(&r.var))
+        .collect();
+    model
+        .temps
+        .iter()
+        .filter(|(n, _)| !unused.contains(n))
+        .cloned()
+        .collect()
+}
+
+/// Sets [`RingSpec::lag_ge1`] on each `back == 0` ring the body Open
+/// transcribes (`prologue ++ model.body ++ epilogue`) proves. `facts` hold on
+/// every path into the model's transition; the identity branch, which every
+/// step tests above the ring code, adds its negation.
+fn prove_ring_lags(
+    model: &mut StreamModel,
+    prologue: &[Statement],
+    epilogue: &[Statement],
+    mut facts: Vec<Expr>,
+    lookup: &dyn CalleeLookup,
+) {
+    let vars: Vec<String> = model
+        .rings()
+        .iter()
+        .filter(|r| r.back == 0)
+        .map(|r| r.var.clone())
+        .collect();
+    if vars.is_empty() {
+        return;
+    }
+    if let Some(id) = &model.identity {
+        facts.push(Expr::Not(Box::new(id.condition.clone())));
+    }
+    let input = crate::ring_lag::LagProofInput {
+        prologue,
+        region: model.body,
+        epilogue,
+        cursor: &model.cursor,
+        facts,
+        lookup,
+    };
+    let refs: Vec<&str> = vars.iter().map(String::as_str).collect();
+    let bounds = crate::ring_lag::ring_lag_lower_bounds(model.func, &input, &refs);
+    let mut locals = Vec::new();
+    if let Steady::Batch { rings, .. } = &mut model.steady {
+        for r in rings.iter_mut() {
+            if let Some(i) = vars.iter().position(|v| *v == r.var) {
+                r.lag_ge1 = bounds[i].is_some_and(|lb| lb >= 1);
+                if r.lag_ge1 {
+                    locals.push((ring_cap_local(&r.var), VarType::Integer));
+                }
+            }
+        }
+    }
+    model.temps.extend(locals);
 }
 
 /// [`analyze`] over an explicit body region with an outputs override. The
@@ -1926,6 +2070,14 @@ pub fn analyze_region_scoped<'a>(
 /// dual-mode body may carry one too (HMA): it is recognized, excluded from the
 /// arm scan, and attached to BOTH modes.
 pub fn analyze_dual_mode(func: &FuncDef) -> Result<DualModePlan<'_>, StreamError> {
+    analyze_dual_mode_with(func, &NoCallees)
+}
+
+/// [`analyze_dual_mode`], resolving other functions' lookbacks through `lookup`.
+pub fn analyze_dual_mode_with<'a>(
+    func: &'a FuncDef,
+    lookup: &dyn CalleeLookup,
+) -> Result<DualModePlan<'a>, StreamError> {
     let body: &[Statement] = func.stream_source();
     let params: BTreeSet<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     let outputs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
@@ -2048,6 +2200,14 @@ pub fn analyze_dual_mode(func: &FuncDef) -> Result<DualModePlan<'_>, StreamError
     mode_b.identity = identity;
     mode_a.identity_hoisted = true;
     mode_b.identity_hoisted = true;
+    prove_ring_lags(&mut mode_a, prologue, epilogue, vec![condition.clone()], lookup);
+    prove_ring_lags(
+        &mut mode_b,
+        prologue,
+        epilogue,
+        vec![Expr::Not(Box::new(condition.clone()))],
+        lookup,
+    );
 
     Ok(DualModePlan {
         func,
@@ -2326,15 +2486,29 @@ pub fn analyze_composed<'a>(
     let mut series_frees: Vec<SeriesFree> = Vec::new();
     let mut freed: BTreeSet<String> = BTreeSet::new();
     let mut map_temp_names: BTreeSet<String> = BTreeSet::new();
+    // Scalars the tail sets outside any map: a map reading one reads the value
+    // the batch left there, so the stream carries it in the handle.
+    let mut tail_scalars: BTreeSet<String> = BTreeSet::new();
+    // Set after a map has run: Open would see the write and a step never would.
+    let mut late_scalars: BTreeSet<String> = BTreeSet::new();
     let mut sub_lag_rings: Vec<SubLagRing> = Vec::new();
     let mut defined: BTreeSet<String> = intermediates.iter().cloned().collect();
-    // Out-meta provenance for the same-bar proof a combine map's `series[cursor
-    // + off]` read needs: each series' element-count receiver and producing
-    // endIdx, and each scalar local that is an element-count difference of two
-    // of them.
-    let mut series_nbelem: BTreeMap<String, RecvVar> = BTreeMap::new();
-    let mut series_endidx: BTreeMap<String, Expr> = BTreeMap::new();
-    let mut diff_locals: BTreeMap<String, (RecvVar, RecvVar)> = BTreeMap::new();
+    let mut decls: BTreeMap<String, VarType> = BTreeMap::new();
+    collect_var_decls(body, &mut decls);
+    // Tail scalars a variant selector reads: map state no map may move.
+    let mut selector_state: BTreeSet<String> = BTreeSet::new();
+    let mut facts = SameBarFacts::default();
+    let aliased = pointer_copied(body);
+    let trusted = |s: &str| !aliased.contains(s);
+    if let (Some(ser), Some(model)) = (&series, &producer) {
+        if let [paced] = model.out_index_vars.iter().collect::<Vec<_>>()[..] {
+            if trusted(ser) {
+                if let Some(last) = producer_last_index(region, ser, paced) {
+                    facts.end_last.insert(ser.clone(), last);
+                }
+            }
+        }
+    }
     for (i, st) in tail.iter().enumerate() {
         match st {
             Statement::Comment(_) => {}
@@ -2402,12 +2576,50 @@ pub fn analyze_composed<'a>(
                 // Record each destination's element-count receiver and its
                 // producing endIdx (all of a callee's outputs share the one
                 // `outNBElement`, the second of the two out-meta pointers).
-                let nb_recv = recv_var(&args[2 + sig.n_inputs + sig.n_opts + 1]);
-                for d in &dsts {
-                    if let Some(nb) = &nb_recv {
-                        series_nbelem.insert(d.clone(), nb.clone());
+                let meta = &args[2 + sig.n_inputs + sig.n_opts..][..2];
+                let (beg_recv, nb_recv) = (recv_var(&meta[0]), recv_var(&meta[1]));
+                // Judged on the arguments as passed, before the call writes its receivers.
+                let ends_on_endidx = !srcs.is_empty()
+                    && srcs.iter().all(|src| {
+                        if direct_inputs.contains(src) {
+                            matches!(&args[1], Expr::Var(v) if v == "endIdx")
+                        } else {
+                            facts.end_last.get(src).is_some_and(|last| exprs_equal(last, &args[1]))
+                        }
+                    });
+                let (mut written, _) = fallthrough_writes(std::slice::from_ref(st));
+                let reads_bar_inputs = srcs.iter().all(|src| direct_inputs.contains(src));
+                let beg = beg_recv.clone().filter(|_| reads_bar_inputs);
+                let nb = match (beg_recv, nb_recv) {
+                    (Some(b), Some(n)) if b != n => {
+                        written.extend([b, n.clone()]);
+                        Some(n)
                     }
-                    series_endidx.insert(d.clone(), args[1].clone());
+                    // A receiver we cannot name may have written anything.
+                    _ => {
+                        facts = SameBarFacts::default();
+                        None
+                    }
+                };
+                let e_arg_stale = written.iter().any(|w| reads_scalar(&args[1], w));
+                for w in &written {
+                    facts.forget_scalar(w);
+                }
+                for d in &dsts {
+                    facts.forget_series(d);
+                    let Some(nb) = nb.as_ref().filter(|_| trusted(d)) else {
+                        continue;
+                    };
+                    facts.nbelem.insert(d.clone(), nb.clone());
+                    if let Some(b) = &beg {
+                        facts.begs.insert(d.clone(), b.clone());
+                    }
+                    if !e_arg_stale {
+                        facts.endidx.insert(d.clone(), args[1].clone());
+                    }
+                    if ends_on_endidx {
+                        facts.end_last.insert(d.clone(), last_index_of(recv_read_expr(nb)));
+                    }
                 }
                 steps.push(UpdateStep::Sub {
                     sub_idx: subs.len(),
@@ -2454,24 +2666,32 @@ pub fn analyze_composed<'a>(
                         "composed memmove does not align a series into an output".into(),
                     ));
                 }
+                facts.forget_series(&dst);
                 defined.insert(dst.clone());
                 steps.push(UpdateStep::Align { dst, src });
             }
             // Per-bar combine map over materialized series (STDDEV's sqrt
             // variants), possibly wrapped in a param-selected If.
+            Statement::ForC { .. } if is_map_prelude_loop(st, lookup) => {
+                facts.forget_writes(st);
+                collect_scalar_writes(st, &mut tail_scalars);
+                if steps.iter().any(|s| matches!(s, UpdateStep::Map { .. })) {
+                    collect_scalar_writes(st, &mut late_scalars);
+                }
+            }
             Statement::ForC { .. } => {
                 check_map_step(
                     st,
                     &defined,
                     &outputs,
                     &params,
+                    &direct_inputs,
                     lookup,
                     &mut map_temp_names,
-                    &series_nbelem,
-                    &series_endidx,
-                    &diff_locals,
+                    &facts,
                     &mut sub_lag_rings,
                 )?;
+                facts.forget_writes(st);
                 for o in map_output_writes(st, &outputs) {
                     defined.insert(o);
                 }
@@ -2483,13 +2703,15 @@ pub fn analyze_composed<'a>(
                 else_body,
                 ..
             } if is_map_variant_if(then_body, else_body) => {
-                let mut names = BTreeSet::new();
-                expr_var_names(condition, &mut names);
-                if !names.iter().all(|nm| params.contains(nm)) {
+                let Some(state) =
+                    variant_condition_state(condition, func, &params, &decls, &tail_scalars)
+                else {
                     return Err(StreamError::Unsupported(
                         "composed map variant condition is not param-pure".into(),
                     ));
-                }
+                };
+                map_temp_names.extend(state.iter().cloned());
+                selector_state.extend(state);
                 for branch in [then_body, else_body] {
                     for bst in branch.iter().filter(|x| !matches!(x, Statement::Comment(_))) {
                         check_map_step(
@@ -2497,15 +2719,15 @@ pub fn analyze_composed<'a>(
                             &defined,
                             &outputs,
                             &params,
+                            &direct_inputs,
                             lookup,
                             &mut map_temp_names,
-                            &series_nbelem,
-                            &series_endidx,
-                            &diff_locals,
+                            &facts,
                             &mut sub_lag_rings,
                         )?;
                     }
                 }
+                facts.forget_writes(st);
                 for o in map_output_writes(st, &outputs) {
                     defined.insert(o);
                 }
@@ -2516,6 +2738,7 @@ pub fn analyze_composed<'a>(
             // from the per-bar pipeline. Strictly bounded shape.
             Statement::If { .. } => {
                 check_composed_guard(st, &defined, lookup)?;
+                facts.forget_writes(st);
                 for ser in intermediates.clone() {
                     if !freed.contains(&ser) && guard_frees_series(st, &ser) {
                         freed.insert(ser);
@@ -2530,24 +2753,24 @@ pub fn analyze_composed<'a>(
             Statement::Assign {
                 target: Expr::PointerDeref(p),
                 ..
-            } if p == "outBegIdx" || p == "outNBElement" => {}
+            } if p == "outBegIdx" || p == "outNBElement" => facts.forget_writes(st),
             // Scalar tail locals (APO/PPO's alignment offset): Open-only. When
             // one is an element-count difference (`off = fastNb - *outNBElement`),
             // record its provenance so a later combine map can prove `series[
-            // cursor + off]` is same-bar; any other write to it clears the record.
+            // cursor + off]` is same-bar.
             Statement::Assign {
                 target: Expr::Var(v),
                 value,
                 ..
             } if !defined.contains(v) && !outputs.contains(v) => {
-                let known: Vec<RecvVar> = series_nbelem.values().cloned().collect();
-                match nb_difference(value, &known) {
-                    Some(prov) => {
-                        diff_locals.insert(v.clone(), prov);
-                    }
-                    None => {
-                        diff_locals.remove(v);
-                    }
+                facts.forget_writes(st);
+                tail_scalars.insert(v.clone());
+                if steps.iter().any(|s| matches!(s, UpdateStep::Map { .. })) {
+                    late_scalars.insert(v.clone());
+                }
+                let known: Vec<RecvVar> = facts.nbelem.values().cloned().collect();
+                if let Some(prov) = nb_difference(value, &known) {
+                    facts.diffs.insert(v.clone(), prov);
                 }
             }
             Statement::Expr(Expr::FuncCall(name, args)) if name == "free" => {
@@ -2597,17 +2820,56 @@ pub fn analyze_composed<'a>(
         }
     }
     // Map temps: function-local scalars the maps reference; resolve types
-    // from the body's declarations.
-    let mut decls: BTreeMap<String, VarType> = BTreeMap::new();
-    collect_var_decls(body, &mut decls);
+    // from the body's declarations. One the tail also sets outside the maps is
+    // map state instead.
     let mut map_temps: Vec<(String, VarType)> = Vec::new();
+    let mut map_state: Vec<MapState> = Vec::new();
+    let mut map_writes: BTreeSet<String> = BTreeSet::new();
+    let mut map_uses: BTreeMap<String, usize> = BTreeMap::new();
+    for step in &steps {
+        if let UpdateStep::Map { tail_idx } = step {
+            collect_scalar_writes(&tail[*tail_idx], &mut map_writes);
+            let mut names = BTreeSet::new();
+            stmt_var_names_deep(&tail[*tail_idx], &mut names);
+            for n in names {
+                *map_uses.entry(n).or_default() += 1;
+            }
+        }
+    }
     for name in &map_temp_names {
         let Some(ty) = decls.get(name) else {
             return Err(StreamError::Unsupported(format!(
                 "composed map references `{name}` with no visible declaration"
             )));
         };
-        map_temps.push((name.clone(), ty.clone()));
+        if tail_scalars.contains(name) {
+            if late_scalars.contains(name) {
+                return Err(StreamError::Unsupported(format!(
+                    "composed tail sets map state `{name}` after a map has run: Open would \
+                     see the write and a step never would"
+                )));
+            }
+            if selector_state.contains(name) && map_writes.contains(name) {
+                return Err(StreamError::Unsupported(format!(
+                    "composed map variant condition reads `{name}`, which a map moves: batch \
+                     selects the variant once, a step on every bar"
+                )));
+            }
+            // Batch runs each map over every bar before the next; a step runs
+            // them all on one bar. Only one map may move a value between bars.
+            if map_writes.contains(name) && map_uses.get(name).copied().unwrap_or(0) > 1 {
+                return Err(StreamError::Unsupported(format!(
+                    "composed map state `{name}` moves bar to bar in more than one map"
+                )));
+            }
+            map_state.push(MapState {
+                name: name.clone(),
+                ty: ty.clone(),
+                carried: map_writes.contains(name),
+            });
+        } else {
+            map_temps.push((name.clone(), ty.clone()));
+        }
     }
     Ok(ComposedPlan {
         func,
@@ -2620,6 +2882,7 @@ pub fn analyze_composed<'a>(
         region: region_open,
         series_frees,
         map_temps,
+        map_state,
         sub_lag_rings,
     })
 }
@@ -2692,6 +2955,75 @@ fn is_map_variant_if(then_body: &[Statement], else_body: &[Statement]) -> bool {
     only_maps(then_body) && (else_body.is_empty() || only_maps(else_body))
 }
 
+/// A tail loop that writes no array and calls no indicator (PVO's zero-run
+/// warm-up over the bars before the first output): it only sets scalars, so
+/// Open runs it and the step never does. A map reading what it set reads map
+/// state.
+fn is_map_prelude_loop(st: &Statement, lookup: &dyn CalleeLookup) -> bool {
+    if !matches!(st, Statement::ForC { .. }) {
+        return false;
+    }
+    let mut writes_array = false;
+    walk_assign_targets(st, &mut |t| {
+        if matches!(t, Expr::ArrayAccess(..) | Expr::PointerDeref(_)) {
+            writes_array = true;
+        }
+    });
+    !writes_array && find_indicator_calls(std::slice::from_ref(st), lookup).is_empty()
+}
+
+fn stmt_var_names_deep(st: &Statement, out: &mut BTreeSet<String>) {
+    walk_stmt_exprs_deep(st, &mut |e| {
+        if let Expr::Var(v) = e {
+            out.insert(v.clone());
+        }
+    });
+}
+
+/// The tail scalars a map variant selector reads, or None when the selector
+/// is not fixed for the life of a handle. It may read parameters, named
+/// constants (`TA_MAType_SMA`), and scalars the tail set before the maps,
+/// which the handle then carries as map state (a decision Open takes once).
+/// Never a signature name, a series or a call.
+fn variant_condition_state(
+    cond: &Expr,
+    func: &FuncDef,
+    params: &BTreeSet<String>,
+    decls: &BTreeMap<String, VarType>,
+    tail_scalars: &BTreeSet<String>,
+) -> Option<BTreeSet<String>> {
+    let signature: BTreeSet<String> = input_array_names(func)
+        .into_iter()
+        .chain(func.outputs.iter().map(|o| o.name.clone()))
+        .chain(func.private_extra_params.iter().map(|(n, _)| n.clone()))
+        .chain(
+            ["startIdx", "endIdx", "outBegIdx", "outNBElement"]
+                .into_iter()
+                .map(String::from),
+        )
+        .collect();
+    let mut ok = true;
+    let mut state = BTreeSet::new();
+    walk_expr(cond, &mut |x| match x {
+        Expr::Var(v) if params.contains(v) => {}
+        Expr::Var(v) if tail_scalars.contains(v) => {
+            state.insert(v.clone());
+        }
+        Expr::Var(v) if decls.contains_key(v) || signature.contains(v) => ok = false,
+        Expr::ArrayAccess(..) | Expr::PointerDeref(_) | Expr::FuncCall(..) => ok = false,
+        _ => {}
+    });
+    ok.then_some(state)
+}
+
+fn collect_scalar_writes(st: &Statement, out: &mut BTreeSet<String>) {
+    walk_assign_targets(st, &mut |t| {
+        if let Expr::Var(v) = t {
+            out.insert(v.clone());
+        }
+    });
+}
+
 /// An out-meta receiver — where a sub-call writes its `outBegIdx` or
 /// `outNBElement`. Two spellings occur and the read form is part of the
 /// identity: `&fastNb` (an int local, read back as `fastNb`) versus the
@@ -2728,13 +3060,332 @@ fn recv_read(e: &Expr) -> Option<RecvVar> {
     }
 }
 
+/// The expression that reads receiver `r` back: `x` for `&x`, `*p` for `p`.
+fn recv_read_expr(r: &RecvVar) -> Expr {
+    match r {
+        RecvVar::Local(v) => Expr::Var(v.clone()),
+        RecvVar::Pointer(p) => Expr::PointerDeref(p.clone()),
+    }
+}
+
+/// `count - 1`, spelled as a sub-call's endIdx argument spells it.
+fn last_index_of(count: Expr) -> Expr {
+    Expr::BinOp(Box::new(count), BinOp::Sub, Box::new(Expr::IntLiteral(1)))
+}
+
+/// Out-meta provenance behind the same-bar proof for a combine map's
+/// `series[cursor + off]` read. The proof compares expressions by spelling, so
+/// a tail write to anything a record reads must drop that record.
+#[derive(Default)]
+struct SameBarFacts {
+    /// Each series' element-count receiver.
+    nbelem: BTreeMap<String, RecvVar>,
+    /// Each series' begIdx receiver, recorded only when that begIdx is an
+    /// absolute bar: the sub-call read the caller's own bar inputs.
+    begs: BTreeMap<String, RecvVar>,
+    /// Each series' producing endIdx argument.
+    endidx: BTreeMap<String, Expr>,
+    /// Series whose last element is the `endIdx` bar, keyed to the expression
+    /// naming that last index.
+    end_last: BTreeMap<String, Expr>,
+    /// Scalar locals holding an element-count difference of two receivers.
+    diffs: BTreeMap<String, (RecvVar, RecvVar)>,
+}
+
+impl SameBarFacts {
+    fn forget_series(&mut self, s: &str) {
+        self.nbelem.remove(s);
+        self.begs.remove(s);
+        self.endidx.remove(s);
+        self.end_last.remove(s);
+    }
+
+    fn forget_scalar(&mut self, w: &RecvVar) {
+        self.nbelem.retain(|_, r| !clobbers(w, r));
+        self.begs.retain(|_, r| !clobbers(w, r));
+        self.diffs.retain(|k, (a, b)| {
+            !clobbers(w, a) && !clobbers(w, b) && !matches!(w, RecvVar::Local(v) if v == k)
+        });
+        self.endidx.retain(|_, e| !reads_scalar(e, w));
+        if matches!(w, RecvVar::Local(v) if v == "endIdx") {
+            // Every end_last record is relative to the bar `endIdx` names.
+            self.end_last.clear();
+        } else {
+            self.end_last.retain(|_, e| !reads_scalar(e, w));
+        }
+    }
+
+    fn forget_writes(&mut self, st: &Statement) {
+        let (scalars, series) = fallthrough_writes(std::slice::from_ref(st));
+        for w in &scalars {
+            self.forget_scalar(w);
+        }
+        for s in &series {
+            self.forget_series(s);
+        }
+    }
+}
+
+/// Writing `w` changes what `r` reads: the same receiver, or the pointer `*r`
+/// dereferences.
+fn clobbers(w: &RecvVar, r: &RecvVar) -> bool {
+    match (w, r) {
+        (RecvVar::Local(a), RecvVar::Local(b) | RecvVar::Pointer(b))
+        | (RecvVar::Pointer(a), RecvVar::Pointer(b)) => a == b,
+        (RecvVar::Pointer(_), RecvVar::Local(_)) => false,
+    }
+}
+
+fn reads_scalar(e: &Expr, w: &RecvVar) -> bool {
+    let mut hit = false;
+    walk_expr(e, &mut |x| {
+        hit |= match (x, w) {
+            (Expr::Var(v), RecvVar::Local(l)) => v == l,
+            (Expr::PointerDeref(p), RecvVar::Local(l) | RecvVar::Pointer(l)) => p == l,
+            _ => false,
+        };
+    });
+    hit
+}
+
+/// The lvalues statement `s` itself writes, nested bodies excluded: its
+/// assignment target or initialized declaration, every `++`/`--` operand, and
+/// every `&x` a call may write through.
+fn own_writes(s: &Statement, f: &mut dyn FnMut(&Expr)) {
+    match s {
+        Statement::Assign { target, .. } => f(target),
+        Statement::VarDecl {
+            name, init: Some(_), ..
+        } => f(&Expr::Var(name.clone())),
+        _ => {}
+    }
+    walk_stmt_own_exprs(s, &mut |e| {
+        walk_expr(e, &mut |x| match x {
+            Expr::PostIncrement(t)
+            | Expr::PostDecrement(t)
+            | Expr::PreIncrement(t)
+            | Expr::PreDecrement(t) => f(t),
+            Expr::AddressOf(t) if matches!(t.as_ref(), Expr::Var(_)) => f(t),
+            _ => {}
+        });
+    });
+}
+
+fn for_each_stmt(stmts: &[Statement], f: &mut dyn FnMut(&Statement)) {
+    for s in stmts {
+        f(s);
+        for body in nested_bodies(s).0 {
+            for_each_stmt(body, f);
+        }
+    }
+}
+
+fn count_writes(stmts: &[Statement], pred: &dyn Fn(&Expr) -> bool) -> usize {
+    let mut n = 0;
+    for_each_stmt(stmts, &mut |s| {
+        own_writes(s, &mut |t| {
+            if pred(t) {
+                n += 1;
+            }
+        });
+    });
+    n
+}
+
+/// Scalars and series `stmts` may write on a path that reaches the statement
+/// after them. A body ending in `return` contributes nothing.
+fn fallthrough_writes(stmts: &[Statement]) -> (Vec<RecvVar>, Vec<String>) {
+    fn walk(stmts: &[Statement], scalars: &mut Vec<RecvVar>, series: &mut Vec<String>) {
+        let last = stmts.iter().rev().find(|s| !matches!(s, Statement::Comment(_)));
+        if matches!(last, Some(Statement::Return { .. })) {
+            return;
+        }
+        for s in stmts {
+            own_writes(s, &mut |t| match t {
+                Expr::Var(v) => scalars.push(RecvVar::Local(v.clone())),
+                Expr::PointerDeref(p) => scalars.push(RecvVar::Pointer(p.clone())),
+                Expr::ArrayAccess(n, _) => series.push(n.clone()),
+                _ => {}
+            });
+            for body in nested_bodies(s).0 {
+                walk(body, scalars, series);
+            }
+        }
+    }
+    let (mut scalars, mut series) = (Vec::new(), Vec::new());
+    walk(stmts, &mut scalars, &mut series);
+    (scalars, series)
+}
+
+/// Names a pointer copy (`a = b`, `a = c ? b : d`, cast or not) may leave
+/// sharing storage. A write through one moves the other, which no by-name
+/// record sees.
+fn pointer_copied(body: &[Statement]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for_each_stmt(body, &mut |s| {
+        let (Statement::Assign {
+            target: Expr::Var(a),
+            value,
+            ..
+        }
+        | Statement::VarDecl {
+            name: a,
+            init: Some(value),
+            ..
+        }) = s
+        else {
+            return;
+        };
+        let mut v = value;
+        while let Expr::Cast(_, inner) = v {
+            v = inner;
+        }
+        if matches!(v, Expr::FuncCall(..)) {
+            return;
+        }
+        let mut srcs = BTreeSet::new();
+        walk_expr(v, &mut |x| match x {
+            Expr::Var(n) if n != "NULL" => {
+                srcs.insert(n.clone());
+            }
+            Expr::AddressOf(t) => {
+                if let Expr::ArrayAccess(n, _) = t.as_ref() {
+                    srcs.insert(n.clone());
+                }
+            }
+            _ => {}
+        });
+        if !srcs.is_empty() {
+            out.insert(a.clone());
+            out.extend(srcs);
+        }
+    });
+    out
+}
+
+/// `paced - 1` when `series` holds one element per bar ending on the `endIdx`
+/// bar. The stream analysis of the producer loop enforces none of what is
+/// checked below, so the same-bar proof cannot lean on it.
+fn producer_last_index(region: &[Statement], series: &str, paced: &str) -> Option<Expr> {
+    let (lp, before) = region.split_last()?;
+    let mut prologue = before.to_vec();
+    let (condition, iter) = match lp {
+        Statement::While { condition, body } => (condition, body.clone()),
+        Statement::ForC {
+            init,
+            condition,
+            update,
+            body,
+        } => {
+            match init.as_ref() {
+                Statement::Block { body } => prologue.extend(body.iter().cloned()),
+                one => prologue.push(one.clone()),
+            }
+            let mut iter = body.clone();
+            iter.push(update.as_ref().clone());
+            (condition, iter)
+        }
+        _ => return None,
+    };
+    let Expr::BinOp(l, BinOp::LessEq, r) = condition else {
+        return None;
+    };
+    let (Expr::Var(cursor), Expr::Var(end)) = (l.as_ref(), r.as_ref()) else {
+        return None;
+    };
+    let names = |n: &str| {
+        let n = n.to_string();
+        move |t: &Expr| matches!(t, Expr::Var(v) if *v == n)
+    };
+    let advances = iter
+        .iter()
+        .filter(|s| {
+            matches!(s, Statement::Assign { target: Expr::Var(c), value: Expr::BinOp(a, BinOp::Add, one), .. }
+                if c == cursor
+                    && matches!(a.as_ref(), Expr::Var(x) if x == cursor)
+                    && matches!(one.as_ref(), Expr::IntLiteral(1)))
+        })
+        .count();
+    let mut jumps = false;
+    for_each_stmt(&iter, &mut |s| {
+        jumps |= matches!(s, Statement::Break | Statement::Continue | Statement::Return { .. });
+    });
+    let mut escapes = false;
+    for s in &iter {
+        walk_stmt_exprs(s, &mut |e| {
+            walk_expr(e, &mut |x| {
+                escapes |= matches!(x, Expr::Var(n) if n == series)
+                    || matches!(x, Expr::AddressOf(t)
+                        if matches!(t.as_ref(), Expr::ArrayAccess(n, _) if n == series));
+            });
+        });
+    }
+    let series_writes = count_writes(&iter, &|t| matches!(t, Expr::ArrayAccess(n, _) if n == series));
+    let zeroed = prologue.iter().any(|s| {
+        matches!(s, Statement::Assign { target: Expr::Var(v), value: Expr::IntLiteral(0), compound: false }
+            if v == paced)
+            || matches!(s, Statement::VarDecl { name, init: Some(Expr::IntLiteral(0)), .. }
+                if name == paced)
+    });
+    let ok = end == "endIdx"
+        && cursor != paced
+        && advances == 1
+        && count_writes(&iter, &names(cursor)) == 1
+        && !jumps
+        && !escapes
+        && writes_per_path(&iter, series, paced) == Some(1)
+        && count_writes(&iter, &names(paced)) == series_writes
+        && zeroed
+        && count_writes(&prologue, &names(paced)) == 1;
+    ok.then(|| last_index_of(Expr::Var(paced.to_string())))
+}
+
+/// How many times every path through `stmts` writes `series`, each write being
+/// `series[paced++]`. `None` when paths disagree, a write sits in a nested loop
+/// or switch, or a write uses any other index.
+fn writes_per_path(stmts: &[Statement], series: &str, paced: &str) -> Option<usize> {
+    let is_series = |t: &Expr| matches!(t, Expr::ArrayAccess(n, _) if n == series);
+    let mut n = 0;
+    for s in stmts {
+        let mut bad = false;
+        own_writes(s, &mut |t| {
+            if let Expr::ArrayAccess(name, idx) = t {
+                if name == series {
+                    n += 1;
+                    bad |= !matches!(idx.as_ref(), Expr::PostIncrement(p)
+                        if matches!(p.as_ref(), Expr::Var(v) if v == paced));
+                }
+            }
+        });
+        if bad {
+            return None;
+        }
+        n += match s {
+            Statement::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                let t = writes_per_path(then_body, series, paced)?;
+                (t == writes_per_path(else_body, series, paced)?).then_some(t)?
+            }
+            Statement::Block { body } => writes_per_path(body, series, paced)?,
+            _ if nested_bodies(s).0.iter().any(|b| count_writes(b, &is_series) > 0) => {
+                return None;
+            }
+            _ => 0,
+        };
+    }
+    Some(n)
+}
+
 /// If `value` is `a - b` where both operands read *known* out-element-count
 /// receivers, return their provenance `(a, b)`. This is what proves an APO/PPO
 /// alignment offset (`fastNb - *outNBElement`) is an element-count difference.
 ///
 /// The element-count form is used rather than the begIdx difference
-/// (`*outBegIdx - fastBeg`) because it is identical in value — for two sub-calls
-/// sharing an endIdx, `nb(a) - nb(b) == begIdx(b) - begIdx(a)` — yet cannot
+/// (`*outBegIdx - fastBeg`) because it is identical in value (for two sub-outputs
+/// ending on the same bar, `nb(a) - nb(b) == begIdx(b) - begIdx(a)`) yet cannot
 /// underflow: the wider window (the fast MA here) always has at least as many
 /// outputs, so the subtraction is non-negative. The begIdx form underflows as a
 /// Rust `usize` when the narrower output is empty (issue: Rust-debug-only
@@ -2753,10 +3404,9 @@ fn nb_difference(value: &Expr, known: &[RecvVar]) -> Option<(RecvVar, RecvVar)> 
     }
 }
 
-/// Structural expression equality — used to confirm two sub-calls share an
-/// endIdx argument (so an element-count difference really is a same-bar shift).
-/// BinOp has no `PartialEq`, so operators compare by discriminant.
-fn exprs_equal(a: &Expr, b: &Expr) -> bool {
+/// Structural equality, float literals by bits; a variant not listed below
+/// compares unequal.
+pub(crate) fn exprs_equal(a: &Expr, b: &Expr) -> bool {
     match (a, b) {
         (Expr::Var(x), Expr::Var(y))
         | (Expr::PointerDeref(x), Expr::PointerDeref(y)) => x == y,
@@ -2774,6 +3424,7 @@ fn exprs_equal(a: &Expr, b: &Expr) -> bool {
         (Expr::Cast(t1, e1), Expr::Cast(t2, e2)) => t1 == t2 && exprs_equal(e1, e2),
         (Expr::Not(e1), Expr::Not(e2))
         | (Expr::BitwiseNot(e1), Expr::BitwiseNot(e2))
+        | (Expr::Neg(e1), Expr::Neg(e2))
         | (Expr::AddressOf(e1), Expr::AddressOf(e2)) => {
             exprs_equal(e1, e2)
         }
@@ -2883,17 +3534,16 @@ fn walk_stmt_exprs_deep(s: &Statement, f: &mut dyn FnMut(&Expr)) {
 /// later drops the shell and turns EVERY series access into a current scalar
 /// (it is index-blind), so the soundness that the shifted read really is
 /// same-bar has to be proven HERE; everything checked makes that faithful.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn check_map_step(
     st: &Statement,
     defined: &BTreeSet<String>,
     outputs: &[String],
     params: &BTreeSet<String>,
+    bar_inputs: &BTreeSet<String>,
     lookup: &dyn CalleeLookup,
     temps: &mut BTreeSet<String>,
-    series_nbelem: &BTreeMap<String, RecvVar>,
-    series_endidx: &BTreeMap<String, Expr>,
-    diff_locals: &BTreeMap<String, (RecvVar, RecvVar)>,
+    facts: &SameBarFacts,
     sub_lag_rings: &mut Vec<SubLagRing>,
 ) -> Result<(), StreamError> {
     let Statement::ForC {
@@ -2951,9 +3601,9 @@ fn check_map_step(
     // The map's primary output = the one series it writes at the plain cursor
     // (APO/PPO write `outReal[i]`). It anchors the same-bar proof for any offset
     // read: `series[cursor + off]` is same-bar iff `off` is the element-count
-    // difference `nb(series) - nb(primary_out)` AND the two producers share an
-    // endIdx (then that difference equals `begIdx(primary_out) - begIdx(series)`
-    // exactly — the shift that aligns the two windows).
+    // difference `nb(series) - nb(primary_out)` AND the two series end on the
+    // same bar (then that difference equals `begIdx(primary_out) - begIdx(series)`
+    // in bars: the shift that aligns the two windows).
     let mut written_series: BTreeSet<String> = BTreeSet::new();
     for bst in body {
         walk_assign_targets(bst, &mut |t| {
@@ -3021,6 +3671,21 @@ fn check_map_step(
                                  than the current bar or its fixed lag"
                             )));
                         }
+                    } else if bar_inputs.contains(name) {
+                        // The begIdx is an absolute bar, so `beg + cursor` is
+                        // the bar the map is producing: the update's input.
+                        let same_bar = primary_out
+                            .and_then(|po| facts.begs.get(po))
+                            .is_some_and(|beg| {
+                                cursor_plus_expr(idx, &cursors)
+                                    .is_some_and(|off| recv_read(&off).as_ref() == Some(beg))
+                            });
+                        if !same_bar {
+                            err = Some(StreamError::Unsupported(format!(
+                                "composed map reads bar input `{name}` other than at the begIdx \
+                                 of the series it writes plus the cursor"
+                            )));
+                        }
                     } else {
                         match offset_index_form(idx, &cursors) {
                             IndexForm::PlainCursor => {
@@ -3032,22 +3697,23 @@ fn check_map_step(
                             }
                             IndexForm::CursorPlus(off) => {
                                 // Same-bar iff `off == nb(name) - nb(primary_out)`
-                                // and the two producers share an endIdx.
+                                // and the two series end on the same bar.
                                 let same_bar = defined.contains(name)
                                     && primary_out.is_some_and(|po| {
                                         let prov_ok = matches!(
                                             (
-                                                diff_locals.get(&off),
-                                                series_nbelem.get(name),
-                                                series_nbelem.get(po),
+                                                facts.diffs.get(&off),
+                                                facts.nbelem.get(name),
+                                                facts.nbelem.get(po),
                                             ),
                                             (Some((a, b)), Some(this), Some(prim))
                                                 if a == this && b == prim
                                         );
                                         let end_ok = matches!(
-                                            (series_endidx.get(name), series_endidx.get(po)),
+                                            (facts.endidx.get(name), facts.endidx.get(po)),
                                             (Some(e1), Some(e2)) if exprs_equal(e1, e2)
-                                        );
+                                        ) || (facts.end_last.contains_key(name)
+                                            && facts.end_last.contains_key(po));
                                         prov_ok && end_ok
                                     });
                                 if same_bar {
@@ -3055,10 +3721,10 @@ fn check_map_step(
                                 } else {
                                     err = Some(StreamError::Unsupported(format!(
                                         "composed map reads `{name}[cursor+{off}]` but `{off}` is not a \
-                                         proven same-bar shift — it must be the element-count difference \
-                                         of the two sub-outputs sharing an endIdx (as in APO's \
-                                         `fastNb - *outNBElement`); a genuine lag needs a ring, not a \
-                                         combine map"
+                                         proven same-bar shift: it must be the element-count difference \
+                                         of the two sub-outputs (as in APO's `fastNb - *outNBElement`), \
+                                         produced with a shared endIdx argument or both ending on the \
+                                         endIdx bar; a genuine lag needs a ring, not a combine map"
                                     )));
                                 }
                             }
@@ -3600,6 +4266,306 @@ pub fn analyze_period_bank<'a>(
     })
 }
 
+/// Every function a period bank steps through a tape frame (#445), by dir-name:
+/// each bank's callee and, when that callee dispatches, its streaming arms.
+///
+/// Derived from the corpus rather than declared, because the answer lives in two
+/// other functions' bodies (the bank's call and the dispatcher's switch), and
+/// the callee's definitions have to agree with what the caller emits.
+///
+/// # Panics
+/// When a member is a tier the tape frame does not render, reads more than one
+/// input, or keeps history of it that is not a set of pure lags.
+#[must_use]
+pub fn tape_set(
+    base_dir: &std::path::Path,
+    dirs: &[String],
+    lookup: &dyn CalleeLookup,
+) -> TapeSet {
+    // Every Registry built in a process asks, and the input tree does not change
+    // under a running generator.
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, TapeSet>>,
+    > = std::sync::OnceLock::new();
+    let key = base_dir.canonicalize().unwrap_or_else(|_| base_dir.to_path_buf());
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(set) = cache.lock().expect("tape set cache").get(&key) {
+        return set.clone();
+    }
+    let set = tape_set_with(dirs, lookup, &|dir: &str| {
+        let yaml = base_dir.join(dir).join(format!("{dir}.yaml"));
+        let src = base_dir.join(dir).join(format!("{dir}.c"));
+        if !yaml.exists() || !src.exists() {
+            return None;
+        }
+        let mut func = crate::parser::yaml::parse_yaml(&yaml);
+        let parsed = crate::parser::c_source::parse_c_source(&src);
+        crate::parser::c_source::wire_parsed_source(&mut func, &parsed);
+        Some(func)
+    });
+    cache.lock().expect("tape set cache").insert(key, set.clone());
+    set
+}
+
+/// [`tape_set`] over already-loaded definitions.
+#[must_use]
+pub fn tape_set_of(funcs: &[FuncDef]) -> BTreeSet<String> {
+    let dirs: Vec<String> = funcs.iter().map(|f| f.name.to_lowercase()).collect();
+    tape_set_with(&dirs, &FuncsLookup(funcs), &|dir: &str| {
+        funcs.iter().find(|f| f.name.eq_ignore_ascii_case(dir)).cloned()
+    })
+    .members
+}
+
+/// The narrowest band a period bank evaluates in window mode. One window
+/// evaluation costs about as much as 10 to 13 of the bank's per-period steps at
+/// any period level, so a narrower band is cheaper stepping its bank.
+pub const WINDOW_MIN_BAND: usize = 12;
+
+/// [`TapeSet::window_labels`] of `bank_dir` over already-loaded definitions.
+#[must_use]
+pub fn window_labels_of(funcs: &[FuncDef], bank_dir: &str) -> Vec<String> {
+    tape_set_over(funcs).window_labels.remove(bank_dir).unwrap_or_default()
+}
+
+/// The window labels of `bank_dir` whose value comes from the callee's batch,
+/// i.e. not from its identity path.
+#[must_use]
+pub fn window_batch_labels_of(funcs: &[FuncDef], bank_dir: &str) -> Vec<String> {
+    let mut ts = tape_set_over(funcs);
+    let ids = ts.window_identity.remove(bank_dir).unwrap_or_default();
+    ts.window_labels
+        .remove(bank_dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|l| !ids.contains(l))
+        .collect()
+}
+
+fn tape_set_over(funcs: &[FuncDef]) -> TapeSet {
+    let dirs: Vec<String> = funcs.iter().map(|f| f.name.to_lowercase()).collect();
+    tape_set_with(&dirs, &FuncsLookup(funcs), &|dir: &str| {
+        funcs.iter().find(|f| f.name.eq_ignore_ascii_case(dir)).cloned()
+    })
+}
+
+/// The functions a period bank steps through a tape frame, and per period bank
+/// the MAType labels it evaluates in window mode.
+#[derive(Debug, Clone, Default)]
+pub struct TapeSet {
+    pub members: BTreeSet<String>,
+    /// By period-bank dir-name: the case labels whose value at a bar is the
+    /// callee's batch over that bar's window alone, so the bank keeps no
+    /// sub-streams for them. See [`window_evaluable`].
+    pub window_labels: std::collections::BTreeMap<String, Vec<String>>,
+    /// The subset of [`Self::window_labels`] that come from the callee's
+    /// identity path: those copy the input and call no batch.
+    pub window_identity: std::collections::BTreeMap<String, Vec<String>>,
+}
+
+fn tape_set_with(
+    dirs: &[String],
+    lookup: &dyn CalleeLookup,
+    load: &dyn Fn(&str) -> Option<FuncDef>,
+) -> TapeSet {
+    let mut set = BTreeSet::new();
+    let mut window_labels = std::collections::BTreeMap::new();
+    let mut window_identity = std::collections::BTreeMap::new();
+    for dir in dirs {
+        // The bank's shape starts with its YAML; only candidates pay for a parse.
+        if !lookup
+            .callee(dir)
+            .is_some_and(|s| s.streaming && s.n_inputs == 2 && s.n_outputs == 1)
+        {
+            continue;
+        }
+        let Some(func) = load(dir) else { continue };
+        let Ok(plan) = analyze_period_bank(&func, lookup) else {
+            continue;
+        };
+        let callee = load(&plan.callee)
+            .unwrap_or_else(|| panic!("{}: bank callee `{}` has no definition", func.name, plan.callee));
+        set.insert(plan.callee.clone());
+        let mut labels = Vec::new();
+        let members = if let Ok(StreamPlan::Dispatch(dp)) = validate_streamable(&callee, lookup) {
+            for a in dp.arms.iter().filter(|a| a.supported && !a.callee.is_empty()) {
+                let def = load(&a.callee).unwrap_or_else(|| {
+                    panic!("{}: tape member `{}` has no definition", func.name, a.callee)
+                });
+                if window_evaluable(&def, lookup).is_ok() {
+                    labels.push(a.label.clone());
+                }
+            }
+            if let Some(idp) = &dp.identity {
+                let ids = identity_type_sentinels(&idp.condition, &dp.param);
+                labels.extend(ids.iter().cloned());
+                if !ids.is_empty() {
+                    window_identity.insert(dir.clone(), ids);
+                }
+            }
+            dp.arms
+                .iter()
+                .filter(|a| a.supported && !a.callee.is_empty())
+                .map(|a| a.callee.clone())
+                .collect()
+        } else {
+            if window_evaluable(&callee, lookup).is_ok() {
+                labels.push("*".to_string());
+            }
+            vec![plan.callee.clone()]
+        };
+        if !labels.is_empty() {
+            window_labels.insert(dir.clone(), labels);
+        }
+        for member in members {
+            let def = load(&member)
+                .unwrap_or_else(|| panic!("{}: tape member `{member}` has no definition", func.name));
+            check_tape_member(&def, lookup);
+            set.insert(member);
+        }
+    }
+    TapeSet { members: set, window_labels, window_identity }
+}
+
+/// The constants a dispatch identity guard compares its type parameter to
+/// (`TA_MAType_DISABLED`): those types copy the input at every period.
+fn identity_type_sentinels(cond: &Expr, param: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    match cond {
+        Expr::BinOp(l, BinOp::Or, r) => {
+            out.extend(identity_type_sentinels(l, param));
+            out.extend(identity_type_sentinels(r, param));
+        }
+        Expr::BinOp(l, BinOp::Eq, r) => {
+            if let (Expr::Var(v), Expr::Var(c)) = (l.as_ref(), r.as_ref()) {
+                if v == param {
+                    // The arm labels' spelling, which every backend resolves.
+                    out.push(c.strip_prefix("TA_").unwrap_or(c).to_string());
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+/// Whether `func`'s batch value at a bar is a bitwise function of that bar's
+/// window of its one input and its parameters alone, so a period bank can take
+/// it from the batch over the window instead of stepping a sub-stream.
+///
+/// A false positive gives wrong values; each clause errs toward refusing.
+///
+/// # Errors
+/// Names the clause that fails.
+pub fn window_evaluable(func: &FuncDef, lookup: &dyn CalleeLookup) -> Result<(), String> {
+    let resolved = func.resolved_for(crate::ir::Lang::C);
+    let func: &FuncDef = &resolved;
+    let name = &func.name;
+    let inputs = input_array_names(func);
+    let [input] = inputs.as_slice() else {
+        return Err(format!("{name}: not one input"));
+    };
+    let Ok(StreamPlan::Loop(m)) = validate_streamable(func, lookup) else {
+        return Err(format!("{name}: not a single-loop stream"));
+    };
+    check_tape_eligible(&m, input)?;
+    if m.extrema().is_some()
+        || m.counter().is_some()
+        || m.parity.is_some()
+        || !m.out_feedback.is_empty()
+        || !m.lags.is_empty()
+        || tape_covered_rings(&m, input).len() != m.rings().len()
+        || tape_covered_windows(&m, input).len() != m.windows().len()
+    {
+        return Err(format!("{name}: carries history other than lags of its input"));
+    }
+    let mut persisted: BTreeSet<String> = m.state.iter().map(|(n, _)| n.clone()).collect();
+    for c in m.circs() {
+        persisted.extend(circ_storages(c).into_iter().map(|(n, _)| n));
+    }
+    if let Some(n) = assigned_per_bar(&m).intersection(&persisted).next() {
+        return Err(format!("{name}: the step writes `{n}`, which persists across bars"));
+    }
+    // Only math builtins: any other call may read library state (unstable
+    // periods, candle settings) or another indicator's.
+    let body = m.body;
+    let mut bad_call = None;
+    for st in body {
+        walk_stmt_exprs_deep(st, &mut |e| {
+            if let Expr::FuncCall(f, _) = e {
+                if crate::backends::builtins::MathFn::from_name(f).is_none() {
+                    bad_call.get_or_insert_with(|| f.clone());
+                }
+            }
+        });
+    }
+    if let Some(f) = bad_call {
+        return Err(format!("{name}: calls `{f}`"));
+    }
+    if !crate::candle_settings::detect_candle_settings(body).is_empty() {
+        return Err(format!("{name}: reads candle settings"));
+    }
+    // What persists must come from the parameters alone, never from the input
+    // or the range: statement-granular taint over the part before the loop.
+    let cut = steady_loop_index(body).unwrap_or(body.len());
+    let mut tainted: BTreeSet<String> =
+        inputs.iter().cloned().chain(["startIdx".to_string(), "endIdx".to_string()]).collect();
+    loop {
+        let before = tainted.len();
+        for st in &body[..cut] {
+            let mut reads = BTreeSet::new();
+            walk_stmt_exprs_deep(st, &mut |e| match e {
+                Expr::Var(v) | Expr::ArrayAccess(v, _) => {
+                    reads.insert(v.clone());
+                }
+                _ => {}
+            });
+            if reads.iter().any(|r| tainted.contains(r)) {
+                let mut targets = BTreeSet::new();
+                walk_stmt_targets(st, &mut targets);
+                tainted.extend(targets);
+            }
+        }
+        if tainted.len() == before {
+            break;
+        }
+    }
+    if let Some(n) = tainted.intersection(&persisted).next() {
+        return Err(format!("{name}: `{n}` depends on the input or the range"));
+    }
+    Ok(())
+}
+
+/// A function stepped through a tape frame must be one the frame renders: a
+/// loop or dual-mode stream over one input whose history is pure lags of it.
+fn check_tape_member(func: &FuncDef, lookup: &dyn CalleeLookup) {
+    let resolved = func.resolved_for(crate::ir::Lang::C);
+    let func: &FuncDef = &resolved;
+    let inputs = input_array_names(func);
+    let [input] = inputs.as_slice() else {
+        panic!("{}: a tape frame needs exactly one input, found {}", func.name, inputs.len());
+    };
+    let refused = |e: String| panic!("{}: a tape frame cannot render it: {e}", func.name);
+    match validate_streamable(func, lookup) {
+        Ok(StreamPlan::Loop(m)) => check_tape_eligible(&m, input).unwrap_or_else(refused),
+        Ok(StreamPlan::DualMode(dm)) => {
+            check_tape_eligible(&dm.mode_a, input).unwrap_or_else(refused);
+            check_tape_eligible(&dm.mode_b, input).unwrap_or_else(refused);
+        }
+        other => refused(format!("{:?} tier", other.map(|p| plan_tier_name(&p)))),
+    }
+}
+
+fn plan_tier_name(plan: &StreamPlan) -> &'static str {
+    match plan {
+        StreamPlan::Loop(_) => "loop",
+        StreamPlan::Dispatch(_) => "dispatch",
+        StreamPlan::Composed(_) => "composed",
+        StreamPlan::DualMode(_) => "dual-mode",
+        StreamPlan::PeriodBank(_) => "period-bank",
+    }
+}
+
 /// Whether this function's tier emits an `OpenAndFillInternal` — the
 /// startIdx-anchored one-pass open+fill a composed caller fuses its sub-call
 /// into (issue #192).
@@ -3659,7 +4625,7 @@ fn plan_callees<'p>(plan: &'p StreamPlan) -> Vec<&'p str> {
 /// both real work, and both better than shipping the silent version.
 ///
 /// Today no composition names any of the seven, so this gate is dormant by
-/// construction; `nan_inf_callee_is_refused` in `tests/streaming_suite.rs` is what
+/// construction; `nan_inf_callee_is_refused` in `tests/all/streaming_suite.rs` is what
 /// keeps it from being dormant *and* broken.
 fn reject_nonfinite_callees(
     func: &FuncDef,
@@ -3750,7 +4716,7 @@ fn derive_stream_plan<'a>(
     // Loop tier first (the established 131), dispatch second: a body with a
     // steady loop is never a dispatch, so the order only decides which error
     // is reported when both fail.
-    let loop_err = match analyze(func) {
+    let loop_err = match analyze_with(func, lookup) {
         Ok(model) => {
             // The transition must BUILD, too — analysis success alone would
             // let a seeded function pass the gate and then panic in the
@@ -3770,7 +4736,7 @@ fn derive_stream_plan<'a>(
     // Loop), before dispatch/composed (DI/DM are neither). NoSteadyLoop = "not
     // dual-mode-shaped": fall through. Any other error means the shape matched
     // but an arm is unstreamable — surface it loudly (dispatch-strictness parity).
-    match analyze_dual_mode(func) {
+    match analyze_dual_mode_with(func, lookup) {
         Ok(plan) => {
             build_transition(&plan.mode_a, &GateNames).map_err(|e| {
                 format!(
@@ -4616,6 +5582,7 @@ fn classify_v(
         Expr::BinOp(lhs, _, rhs) => vec![lhs.as_ref(), rhs.as_ref()],
         Expr::Cast(_, inner)
         | Expr::Not(inner)
+        | Expr::Neg(inner)
         | Expr::BitwiseNot(inner)
         | Expr::AddressOf(inner) => vec![inner.as_ref()],
         Expr::PostIncrement(inner)
@@ -4654,6 +5621,12 @@ fn classify_v(
     } else {
         VShape::None
     }
+}
+
+/// The names the per-bar transition's statements assign. State the emitter
+/// itself updates per bar (the parity flag) is not among them.
+pub fn assigned_per_bar(model: &StreamModel) -> BTreeSet<String> {
+    assigned_in(&model.steady_stmts)
 }
 
 /// Names written anywhere in the steady loop -- everything else a scalar leaf
@@ -4778,6 +5751,7 @@ fn shape_key(e: &Expr) -> String {
             Expr::Cast(t, x) => Expr::Cast(t.clone(), Box::new(blank(x))),
             Expr::Not(x) => Expr::Not(Box::new(blank(x))),
             Expr::BitwiseNot(x) => Expr::BitwiseNot(Box::new(blank(x))),
+            Expr::Neg(x) => Expr::Neg(Box::new(blank(x))),
             Expr::Ternary(c, t, f) => Expr::Ternary(
                 Box::new(blank(c)),
                 Box::new(blank(t)),
@@ -5148,6 +6122,7 @@ fn assemble_rings(
         .into_iter()
         .map(|(var, arrs)| RingSpec {
             derived: None,
+            lag_ge1: false,
             back: ring_back
                 .get(&var)
                 .copied()
@@ -5929,6 +6904,108 @@ pub trait NameMap {
             Box::new(Expr::Var(self.extrema_mask())),
         )
     }
+    /// Set only when rendering a tape frame (#445): the history of one input is
+    /// read from a tape the caller owns instead of from the handle's buffers.
+    fn tape(&self) -> Option<TapeNames> {
+        None
+    }
+}
+
+/// The names of a tape frame's extra parameters. The caller owns one power-of-two
+/// tape of an input's recent bars; bar `b` sits at slot `b & mask`, `base` is the
+/// current bar's slot plus the tape size (so `base - lag` never goes negative),
+/// and a read at lag `L` is `buf[(base - L) & mask]`.
+#[derive(Debug, Clone)]
+pub struct TapeNames {
+    pub input: String,
+    pub buf: String,
+    pub base: String,
+    pub mask: String,
+}
+
+impl TapeNames {
+    /// The spelling every backend uses; only the input varies.
+    #[must_use]
+    pub fn new(input: &str) -> Self {
+        TapeNames {
+            input: input.to_string(),
+            buf: "tape".to_string(),
+            base: "tapeBase".to_string(),
+            mask: "tapeMask".to_string(),
+        }
+    }
+
+    fn read(&self, lag: Expr) -> Expr {
+        Expr::ArrayAccess(
+            self.buf.clone(),
+            Box::new(Expr::BinOp(
+                Box::new(Expr::BinOp(
+                    Box::new(Expr::Var(self.base.clone())),
+                    BinOp::Sub,
+                    Box::new(lag),
+                )),
+                BinOp::BitwiseAnd,
+                Box::new(Expr::Var(self.mask.clone())),
+            )),
+        )
+    }
+
+    fn current_slot(&self) -> Expr {
+        Expr::BinOp(
+            Box::new(Expr::Var(self.base.clone())),
+            BinOp::BitwiseAnd,
+            Box::new(Expr::Var(self.mask.clone())),
+        )
+    }
+}
+
+/// The rings a tape replaces: every ring over `input`. [`check_tape_eligible`]
+/// has confirmed each is a plain oldest-slot ring over that input alone, so its
+/// one read is the bar `ringCap` behind the current one.
+#[must_use]
+pub fn tape_covered_rings<'m>(model: &'m StreamModel, input: &str) -> Vec<&'m RingSpec> {
+    model
+        .rings()
+        .iter()
+        .filter(|r| r.arrays.iter().any(|a| a == input))
+        .collect()
+}
+
+/// The rescan windows a tape replaces: a read at offset `w` is the bar `w` behind
+/// the current one.
+#[must_use]
+pub fn tape_covered_windows<'m>(model: &'m StreamModel, input: &str) -> Vec<&'m WindowSpec> {
+    model
+        .windows()
+        .iter()
+        .filter(|w| w.arrays.iter().any(|a| a == input))
+        .collect()
+}
+
+/// Refuse a model whose history of `input` is not a set of pure lags of it.
+///
+/// # Errors
+/// Names the construct: an extrema automaton, a ring or window mixing inputs, or
+/// a ring with a back or forward offset. The tape frame renders none of them.
+pub fn check_tape_eligible(model: &StreamModel, input: &str) -> Result<(), String> {
+    let name = &model.func.name;
+    if model.extrema().is_some() {
+        return Err(format!("{name}: a tape frame cannot render the extrema automaton"));
+    }
+    for r in tape_covered_rings(model, input) {
+        if r.arrays.len() != 1 || r.back != 0 || r.fwd != 0 {
+            return Err(format!(
+                "{name}: ring `{}` is not a plain oldest-slot ring over `{input}` alone",
+                r.var
+            ));
+        }
+    }
+    for w in tape_covered_windows(model, input) {
+        if w.arrays.len() != 1 {
+            return Err(format!("{name}: window `{}` reads more than `{input}`", w.var));
+        }
+    }
+    Ok(())
 }
 
 /// Drop the batch body's own identity branch from an Open transcription: the
@@ -6068,10 +7145,14 @@ fn identity_branch(model: &StreamModel, names: &dyn NameMap, retain: bool) -> Op
 pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<Statement>, String> {
     let dropped = model.dropped_vars();
     let state_names = transition_state_names(model);
+    let tape = names.tape();
+    if let Some(t) = &tape {
+        check_tape_eligible(model, &t.input)?;
+    }
 
     let rewritten = rewrite_stmts(
         &model.steady_stmts,
-        &|e| rewrite_expr_for_transition(e, model, names, &state_names),
+        &|e| rewrite_expr_for_transition(e, model, names, &state_names, tape.as_ref()),
         &|s| {
             // In-loop VarDecls: the flattened step declares all temps at the
             // top, so re-declaring here would shadow (and mid-body decls are
@@ -6096,7 +7177,8 @@ pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<
     // param==1 identity short-circuit, mirroring the batch's explicit path
     // (bit-exact: both sides copy the input). Skipped when the enclosing
     // surface emits it above this model — see [`StreamModel::identity_hoisted`].
-    let identity_branch = if model.identity_hoisted {
+    // A tape frame's caller is a dispatch that owns the identity path.
+    let identity_branch = if model.identity_hoisted || tape.is_some() {
         None
     } else {
         identity_step_branch(model, names)
@@ -6117,7 +7199,7 @@ pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<
     }
 
     let mut out = rewritten;
-    insert_transition_prologue(&mut out, model, names, identity_branch);
+    insert_transition_prologue(&mut out, model, names, identity_branch, tape.as_ref());
     // Previous-output feedback: refresh lastOut_* AFTER the body computed
     // this bar's output (reads of out[idx-1] were rewritten to the state
     // field, which still held the prior bar's value during the body).
@@ -6205,13 +7287,18 @@ pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<
     // position advances with the conditional-reset idiom (house style; a
     // modulo costs ~10 cycles on ARM). Order preserved vs the batch reads
     // above: reads happened on the OLD slot contents.
+    let taped = |arrays: &[String]| tape.as_ref().is_some_and(|t| arrays.contains(&t.input));
     for ring in model.rings() {
-        push_ring_advance(&mut out, ring, names);
+        if !taped(&ring.arrays) {
+            push_ring_advance(&mut out, ring, names);
+        }
     }
     // Rescan windows: the current bar was written at `pos` before the body;
     // advance the position for the next update.
     for win in model.windows() {
-        push_window_advance(&mut out, win, names);
+        if !taped(&win.arrays) {
+            push_window_advance(&mut out, win, names);
+        }
     }
     // Cursor-parity flip: this bar's `cursor % 2` was consumed by the branch
     // predicate; advance to the next bar's parity.
@@ -6285,7 +7372,9 @@ fn insert_transition_prologue(
     model: &StreamModel,
     names: &dyn NameMap,
     identity_branch: Option<Statement>,
+    tape: Option<&TapeNames>,
 ) {
+    let taped = |arrays: &[String]| tape.is_some_and(|t| arrays.contains(&t.input));
     if let Some(ex) = model.extrema() {
         for arr in ex.arrays.iter().rev() {
             out.insert(
@@ -6302,11 +7391,17 @@ fn insert_transition_prologue(
         }
     }
     for win in model.windows().iter().rev() {
+        if taped(&win.arrays) {
+            continue;
+        }
         for arr in win.arrays.iter().rev() {
             out.insert(0, window_prewrite(win, arr, names));
         }
     }
     for ring in model.rings().iter().rev() {
+        if taped(&ring.arrays) {
+            continue;
+        }
         if ring.back > 0 {
             // Absolute-mod layout: slot `pos` (== bar index % cap) holds the
             // current bar so the runtime-lag-0 case reads it through the
@@ -6328,7 +7423,7 @@ fn insert_transition_prologue(
                     },
                 );
             }
-        } else {
+        } else if !ring.lag_ge1 {
             out.insert(0, ring_cap0_guard(ring, names));
         }
     }
@@ -6672,10 +7767,11 @@ fn expr_is_pure(e: &Expr) -> bool {
         | Expr::Cast(_, i)
         | Expr::Not(i)
         | Expr::BitwiseNot(i)
+        | Expr::Neg(i)
         | Expr::AddressOf(i) => expr_is_pure(i),
         Expr::BinOp(l, _, r) => expr_is_pure(l) && expr_is_pure(r),
         Expr::Ternary(c, a, b) => expr_is_pure(c) && expr_is_pure(a) && expr_is_pure(b),
-        _ => true,
+        Expr::Literal(_) | Expr::IntLiteral(_) | Expr::Var(_) | Expr::PointerDeref(_) => true,
     }
 }
 
@@ -6904,8 +8000,8 @@ pub fn derived_fill_value(dr: &DerivedRing, idx_var: &str) -> Expr {
     })
 }
 
-/// `if (cap == 0) ring[0] = bar;` for every array of a ring — makes the
-/// zero-lag degenerate case read the current bar through the same slot.
+/// `if (cap == 0) ring[0] = bar;` for every array of a ring whose lag may be
+/// 0, so that case reads the current bar through the same slot.
 fn ring_cap0_guard(ring: &RingSpec, names: &dyn NameMap) -> Statement {
     let then_body = ring
         .arrays
@@ -6951,6 +8047,16 @@ fn push_ring_advance(out: &mut Vec<Statement>, ring: &RingSpec, names: &dyn Name
     // The dead-store elision above is orthogonal to what gets stored: a derived
     // ring holds f(bar) rather than a raw column, so the value still comes from
     // the expression when there is one.
+    let proven = ring.lag_ge1 && ring.back == 0;
+    if proven {
+        // Keep this read ahead of the ring store: read after it, the wrap
+        // compiles to a branch instead of a cmov.
+        out.push(Statement::Assign {
+            target: Expr::Var(ring_cap_local(&ring.var)),
+            value: Expr::Var(names.ring_cap(&ring.var)),
+            compound: false,
+        });
+    }
     if ring.back == 0 {
         for arr in &ring.arrays {
             out.push(Statement::Assign {
@@ -6975,11 +8081,16 @@ fn push_ring_advance(out: &mut Vec<Statement>, ring: &RingSpec, names: &dyn Name
         ),
         compound: false,
     });
+    let cap = if proven {
+        ring_cap_local(&ring.var)
+    } else {
+        names.ring_cap(&ring.var)
+    };
     out.push(Statement::If {
         condition: Expr::BinOp(
             Box::new(Expr::Var(names.ring_pos(&ring.var))),
             BinOp::GreaterEq,
-            Box::new(Expr::Var(names.ring_cap(&ring.var))),
+            Box::new(Expr::Var(cap)),
         ),
         then_body: vec![Statement::Assign {
             target: Expr::Var(names.ring_pos(&ring.var)),
@@ -6996,6 +8107,7 @@ fn rewrite_expr_for_transition(
     model: &StreamModel,
     names: &dyn NameMap,
     state_names: &BTreeSet<String>,
+    tape: Option<&TapeNames>,
 ) -> Expr {
     match e {
         Expr::ArrayAccess(n, idx)
@@ -7025,6 +8137,7 @@ fn rewrite_expr_for_transition(
             window_slot_read(n, idx, model, names).unwrap_or(e)
         }
         Expr::ArrayAccess(n, idx) if model.bar_inputs.contains(&n) => {
+            let tape = tape.filter(|t| t.input == n);
             match classify_input_index(&idx, &model.cursor) {
                 InputIndex::Current => Expr::Var(names.bar(&n)),
                 InputIndex::Lag(k) => Expr::Var(names.state(&StreamModel::lag_field(&n, k))),
@@ -7032,7 +8145,9 @@ fn rewrite_expr_for_transition(
                     if model.rings().iter().any(|r| r.var == v) =>
                 {
                     let ring = model.rings().iter().find(|r| r.var == v).unwrap();
-                    if ring.back > 0 {
+                    if let Some(t) = tape {
+                        t.read(Expr::Var(names.ring_cap(&v)))
+                    } else if ring.back > 0 {
                         ring_offset_read(ring, &n, Some(0), None, names)
                     } else {
                         // Oldest slot of the trailing window: ring[pos].
@@ -7053,6 +8168,15 @@ fn rewrite_expr_for_transition(
                 {
                     let ring = model.rings().iter().find(|r| r.var == v).unwrap();
                     ring_offset_read(ring, &n, None, Some(Expr::Var(w)), names)
+                }
+                InputIndex::WindowVar(w0)
+                    if tape.is_some()
+                        && model
+                            .windows()
+                            .iter()
+                            .any(|w| w.var == w0 || names.state(&w.var) == w0) =>
+                {
+                    tape.unwrap().read(Expr::Var(w0))
                 }
                 InputIndex::WindowVar(w0) => match window_buf_read(model, &n, &w0, names) {
                     Some(read) => read,
@@ -7326,6 +8450,7 @@ pub fn rewrite_expr(e: &Expr, f: &dyn Fn(Expr) -> Expr) -> Expr {
         Expr::Cast(t, i) => Expr::Cast(t.clone(), Box::new(rewrite_expr(i, f))),
         Expr::Not(i) => Expr::Not(Box::new(rewrite_expr(i, f))),
         Expr::BitwiseNot(i) => Expr::BitwiseNot(Box::new(rewrite_expr(i, f))),
+        Expr::Neg(i) => Expr::Neg(Box::new(rewrite_expr(i, f))),
         Expr::AddressOf(i) => Expr::AddressOf(Box::new(rewrite_expr(i, f))),
         Expr::PostIncrement(i) => Expr::PostIncrement(Box::new(rewrite_expr(i, f))),
         Expr::PostDecrement(i) => Expr::PostDecrement(Box::new(rewrite_expr(i, f))),
@@ -7339,7 +8464,7 @@ pub fn rewrite_expr(e: &Expr, f: &dyn Fn(Expr) -> Expr) -> Expr {
             Box::new(rewrite_expr(t, f)),
             Box::new(rewrite_expr(e2, f)),
         ),
-        other => other.clone(),
+        Expr::Literal(_) | Expr::IntLiteral(_) | Expr::Var(_) | Expr::PointerDeref(_) => e.clone(),
     };
     f(rebuilt)
 }
@@ -7408,6 +8533,9 @@ pub fn transition_buffers(model: &StreamModel, names: &dyn NameMap) -> Vec<(Stri
             out.push((names.extrema_buf(arr), false));
         }
     }
+    if let Some(t) = names.tape() {
+        out.push((t.buf, false));
+    }
     out.sort();
     out.dedup();
     out
@@ -7451,23 +8579,69 @@ pub fn peek_transition_widest(
     transition: &[Statement],
     slot_cast: Option<VarType>,
 ) -> Result<PeekTransition, String> {
+    widest_peek(model, names, transition, slot_cast, &[])
+}
+
+fn widest_peek(
+    model: &StreamModel,
+    names: &dyn NameMap,
+    transition: &[Statement],
+    slot_cast: Option<VarType>,
+    unshadowed: &[(Expr, Expr)],
+) -> Result<PeekTransition, String> {
     // The buffer set is elected on the UNTRIMMED transition, deliberately. The
     // trim only removes statements, so it can only make `validate_peekable`
     // accept where it used to refuse — and an election that flipped would
     // shadow-rewrite a read in the KEPT prefix, moving arithmetic this pass has
     // no business moving.
     let wide = transition_buffers_with_state_arrays(model, names);
-    let elected = if peek_transition(transition, &wide, &model.temps, slot_cast.clone()).is_ok() {
+    let elected = if peek_with(transition, &wide, &model.temps, slot_cast.clone(), unshadowed).is_ok() {
         wide
     } else {
         transition_buffers(model, names)
     };
-    peek_transition(
+    peek_with(
         &peek_tail_trimmed(model, names, transition),
         &elected,
         &model.temps,
         slot_cast,
+        unshadowed,
     )
+}
+
+/// The peek frame of a tape transition. The committing step reads the bar from
+/// the tape, where the caller stored it; a peek must not store, so the bar goes
+/// in as a shadowed prewrite and only a lag-0 read resolves to it.
+///
+/// # Errors
+/// As [`peek_transition_widest`].
+///
+/// # Panics
+/// When `names` is not a tape frame's.
+pub fn tape_peek_transition(
+    model: &StreamModel,
+    names: &dyn NameMap,
+    transition: &[Statement],
+    slot_cast: Option<VarType>,
+) -> Result<PeekTransition, String> {
+    let t = names.tape().expect("tape_peek_transition needs tape names");
+    let mut with_bar = Vec::with_capacity(transition.len() + 1);
+    with_bar.push(Statement::Assign {
+        target: Expr::ArrayAccess(t.buf.clone(), Box::new(t.current_slot())),
+        value: Expr::Var(names.bar(&t.input)),
+        compound: false,
+    });
+    with_bar.extend_from_slice(transition);
+    // The shadowed bar sits at lag 0, and a ring read at lag `ringCap` lands on
+    // it only when `ringCap` is a multiple of the tape size. A proven ring's
+    // Open rejects `ringCap < 1` and the tape is sized above every `ringCap`,
+    // so its read never does. Anything else, a window read included, can.
+    let unshadowed: Vec<(Expr, Expr)> = tape_covered_rings(model, &t.input)
+        .into_iter()
+        .filter(|r| r.lag_ge1)
+        .map(|r| (t.read(Expr::Var(names.ring_cap(&r.var))), t.current_slot()))
+        .collect();
+    widest_peek(model, names, &with_bar, slot_cast, &unshadowed)
 }
 
 /// `transition` with every statement below its last store to an output sink
@@ -7547,7 +8721,7 @@ fn writes_out_of_band(s: &Statement) -> bool {
 
 /// The statement lists nested inside `s`, and whether entering them crosses a
 /// loop back edge.
-fn nested_bodies(s: &Statement) -> (Vec<&[Statement]>, bool) {
+pub(crate) fn nested_bodies(s: &Statement) -> (Vec<&[Statement]>, bool) {
     match s {
         Statement::While { body, .. } | Statement::DoWhile { body, .. } | Statement::For { body, .. } => {
             (vec![body.as_slice()], true)
@@ -7787,7 +8961,7 @@ pub fn temps_used(temps: &[(String, VarType)], body: &[Statement]) -> Vec<(Strin
 /// The expressions a statement evaluates itself, without the ones its nested
 /// bodies do — [`nested_bodies`] reaches those, and a caller that must treat a
 /// nested statement differently needs the two apart.
-fn walk_stmt_own_exprs(s: &Statement, f: &mut dyn FnMut(&Expr)) {
+pub(crate) fn walk_stmt_own_exprs(s: &Statement, f: &mut dyn FnMut(&Expr)) {
     match s {
         Statement::VarDecl { init: Some(e), .. }
         | Statement::Return { value: Some(e) }
@@ -7942,7 +9116,7 @@ fn drop_stores_no_load_reaches(
 
 /// Whether removing `e` would remove an effect: an increment, or a call `pure`
 /// does not vouch for — this layer cannot tell on its own.
-fn expr_effect(e: &Expr, pure: &dyn Fn(&str) -> bool) -> bool {
+pub(crate) fn expr_effect(e: &Expr, pure: &dyn Fn(&str) -> bool) -> bool {
     let mut found = false;
     walk_expr(e, &mut |x| {
         found |= match x {
@@ -8044,10 +9218,10 @@ pub fn purge_dead_temp_stores(
 /// Rewrite `transition` so it computes the same values without storing into
 /// any handle buffer — see [`PeekShadow`].
 ///
-/// Correctness does not rest on the analysis: every store becomes a shadow and
-/// every read a store could reach becomes a select, and a shadow whose store
-/// did not run holds a slot no read matches. The analysis only decides which
-/// reads may skip the select, which is a speed question, not a correctness one.
+/// A store a later load could reach becomes a shadow, and that load a select,
+/// unless the load provably misses the store's slot; a shadow whose store did
+/// not run holds a slot no load matches. A missing proof costs speed; a wrong
+/// one peeks a stale value silently.
 ///
 /// # Errors
 /// A buffer named outside an index expression, a compound store into one, or a
@@ -8067,6 +9241,18 @@ pub fn peek_transition(
     temps: &[(String, VarType)],
     slot_cast: Option<VarType>,
 ) -> Result<PeekTransition, String> {
+    peek_with(transition, buffers, temps, slot_cast, &[])
+}
+
+/// [`peek_transition`] where a load equal to `unshadowed[i].0` skips the
+/// select on a shadow stored at `unshadowed[i].1`.
+fn peek_with(
+    transition: &[Statement],
+    buffers: &[(String, bool)],
+    temps: &[(String, VarType)],
+    slot_cast: Option<VarType>,
+    unshadowed: &[(Expr, Expr)],
+) -> Result<PeekTransition, String> {
     let bufs: BTreeMap<String, bool> = buffers.iter().map(|(n, i)| (n.clone(), *i)).collect();
     let transition = &drop_stores_no_load_reaches(transition, &bufs)[..];
     validate_peekable(transition, &bufs, 0)?;
@@ -8083,10 +9269,13 @@ pub fn peek_transition(
     let mut rw = PeekRewrite {
         bufs: &bufs,
         shadowed: &shadowed,
+        unshadowed,
         slot_cast,
         armed: BTreeMap::new(),
         pending: Vec::new(),
         cond_depth: 0,
+        slot_exprs: Vec::new(),
+        ranges: Vec::new(),
         out: PeekTransition::default(),
     };
     let body = rw.stmts(transition);
@@ -8241,9 +9430,61 @@ fn validate_peekable(
     Ok(())
 }
 
+/// Scalars and integer arithmetic only: a value that stays the same while none
+/// of the names in it is reassigned.
+fn is_scalar_arith(e: &Expr) -> bool {
+    match e {
+        Expr::Var(_) | Expr::IntLiteral(_) => true,
+        Expr::BinOp(l, BinOp::Add | BinOp::Sub | BinOp::Mul, r) => is_scalar_arith(l) && is_scalar_arith(r),
+        Expr::Cast(_, i) => is_scalar_arith(i),
+        _ => false,
+    }
+}
+
+/// Every name `stmts` may write, nested bodies and loop headers included.
+fn names_written(stmts: &[Statement]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for_each_stmt(stmts, &mut |s| {
+        own_writes(s, &mut |t| {
+            if let Expr::Var(v) = t {
+                out.insert(v.clone());
+            }
+        });
+        if let Statement::VarDecl { name, .. } | Statement::For { var: name, .. } = s {
+            out.insert(name.clone());
+        }
+    });
+    out
+}
+
+/// `(j, L, U)` for `for (j = L; j < U; j += 1)` whose body never writes `j`.
+/// `U` may still move: a slot equal to it is trusted only because entering the
+/// loop forgot every slot naming something the loop writes. The IR spells
+/// `j += 1` and `j++` alike as `j = j + 1`.
+fn counted_range(init: &Statement, condition: &Expr, update: &Statement, body: &[Statement]) -> Option<(String, Expr, Expr)> {
+    let Statement::Assign { target: Expr::Var(j), value: from, compound: false } = init else {
+        return None;
+    };
+    let Expr::BinOp(l, BinOp::Less, below) = condition else {
+        return None;
+    };
+    let jv = Expr::Var(j.clone());
+    let next = Expr::BinOp(Box::new(jv.clone()), BinOp::Add, Box::new(Expr::IntLiteral(1)));
+    let steps = matches!(update, Statement::Assign { target, value, .. } if *target == jv && *value == next);
+    if **l != jv || !steps || !is_scalar_arith(from) || !is_scalar_arith(below) {
+        return None;
+    }
+    if names_written(body).contains(j) {
+        return None;
+    }
+    Some((j.clone(), from.clone(), (**below).clone()))
+}
+
 struct PeekRewrite<'a> {
     bufs: &'a BTreeMap<String, bool>,
     shadowed: &'a BTreeSet<String>,
+    /// `(load, slot)`: that exact load never reads the shadow stored at `slot`.
+    unshadowed: &'a [(Expr, Expr)],
     slot_cast: Option<VarType>,
     /// Buffer -> indices into `out.shadows` whose store may have run.
     armed: BTreeMap<String, Vec<usize>>,
@@ -8254,6 +9495,11 @@ struct PeekRewrite<'a> {
     /// depth 0 — inside a ternary arm it would run an index the original
     /// skipped, and the one index that needs hoisting moves a counter.
     cond_depth: usize,
+    /// Per shadow, the index expression its store used, while it is a pure
+    /// function of scalars nothing has reassigned since; `None` once it is not.
+    slot_exprs: Vec<Option<Expr>>,
+    /// The enclosing [`counted_range`]s, innermost last.
+    ranges: Vec<(String, Expr, Expr)>,
     out: PeekTransition,
 }
 
@@ -8288,6 +9534,7 @@ impl PeekRewrite<'_> {
         for arm in arms {
             self.armed.clone_from(&entry);
             out.push(self.stmts(arm));
+            self.end_scope(arm);
             for (k, v) in std::mem::take(&mut self.armed) {
                 let e = merged.entry(k).or_default();
                 for i in v {
@@ -8310,6 +9557,9 @@ impl PeekRewrite<'_> {
                 if self.bufs.contains_key(buf) =>
             {
                 debug_assert!(!*compound, "validated away");
+                let masked = matches!(&**idx, Expr::BinOp(l, BinOp::BitwiseAnd, r)
+                    if is_scalar_arith(l) && is_scalar_arith(r));
+                let slot_expr = (is_scalar_arith(idx) || masked).then(|| (**idx).clone());
                 let idx = self.expr(idx);
                 let value = self.expr(value);
                 if !self.shadowed.contains(buf) {
@@ -8337,43 +9587,48 @@ impl PeekRewrite<'_> {
                     },
                 ];
                 self.out.shadows.push(sh);
+                self.slot_exprs.push(slot_expr);
                 self.armed.entry(buf.clone()).or_default().push(k);
                 Statement::Block { body: stmts }
             }
-            Statement::Assign { target, value, compound } => Statement::Assign {
-                target: self.expr(target),
-                value: self.expr(value),
-                compound: *compound,
-            },
-            Statement::VarDecl { var_type, name, init } => Statement::VarDecl {
-                var_type: var_type.clone(),
-                name: name.clone(),
-                init: init.as_ref().map(|e| self.expr(e)),
-            },
+            Statement::Assign { target, value, compound } => {
+                if let Expr::Var(v) = target {
+                    self.reassigned(v);
+                }
+                Statement::Assign {
+                    target: self.expr(target),
+                    value: self.expr(value),
+                    compound: *compound,
+                }
+            }
+            Statement::VarDecl { var_type, name, init } => {
+                self.reassigned(name);
+                Statement::VarDecl {
+                    var_type: var_type.clone(),
+                    name: name.clone(),
+                    init: init.as_ref().map(|e| self.expr(e)),
+                }
+            }
             Statement::Return { value } => Statement::Return {
                 value: value.as_ref().map(|e| self.expr(e)),
             },
             Statement::Expr(e) => Statement::Expr(self.expr(e)),
-            Statement::While { condition, body } => Statement::While {
-                condition: self.conditional_expr(condition),
-                body: self.stmts(body),
-            },
-            Statement::DoWhile { condition, body } => Statement::DoWhile {
-                condition: self.conditional_expr(condition),
-                body: self.stmts(body),
-            },
-            Statement::For { var, count, body } => Statement::For {
-                var: var.clone(),
-                count: self.expr(count),
-                body: self.stmts(body),
-            },
+            Statement::While { condition, body } => {
+                self.forget_written(s);
+                Statement::While { condition: self.conditional_expr(condition), body: self.stmts(body) }
+            }
+            Statement::DoWhile { condition, body } => {
+                self.forget_written(s);
+                Statement::DoWhile { condition: self.conditional_expr(condition), body: self.stmts(body) }
+            }
+            Statement::For { var, count, body } => {
+                self.reassigned(var);
+                self.forget_written(s);
+                Statement::For { var: var.clone(), count: self.expr(count), body: self.stmts(body) }
+            }
             Statement::ForC { init, condition, update, body } => {
-                let init = Box::new(self.stmt(init));
-                let condition = self.conditional_expr(condition);
-                self.cond_depth += 1;
-                let update = Box::new(self.stmt(update));
-                self.cond_depth -= 1;
-                Statement::ForC { init, condition, update, body: self.stmts(body) }
+                self.forget_written(s);
+                self.for_c(init, condition, update, body)
             }
             Statement::If { condition, then_body, else_body, cond_comments } => {
                 let condition = self.expr(condition);
@@ -8395,9 +9650,83 @@ impl PeekRewrite<'_> {
                     .collect();
                 Statement::Switch { expr, cases, default }
             }
-            Statement::Block { body } => Statement::Block { body: self.stmts(body) },
+            Statement::Block { body } => self.block(body),
             other => other.clone(),
         }
+    }
+
+    fn block(&mut self, body: &[Statement]) -> Statement {
+        let out = self.stmts(body);
+        self.end_scope(body);
+        Statement::Block { body: out }
+    }
+
+    /// A scope's own declarations end with it: a slot naming one names a
+    /// variable the code after the scope cannot see.
+    fn end_scope(&mut self, list: &[Statement]) {
+        for s in list {
+            if let Statement::VarDecl { name, .. } = s {
+                self.reassigned(name);
+            }
+        }
+    }
+
+    fn for_c(&mut self, init: &Statement, condition: &Expr, update: &Statement, body: &[Statement]) -> Statement {
+        let range = counted_range(init, condition, update, body);
+        let init = Box::new(self.stmt(init));
+        let condition = self.conditional_expr(condition);
+        self.cond_depth += 1;
+        let update = Box::new(self.stmt(update));
+        self.cond_depth -= 1;
+        let pushed = range.is_some();
+        self.ranges.extend(range);
+        let body = self.stmts(body);
+        if pushed {
+            self.ranges.pop();
+        }
+        Statement::ForC { init, condition, update, body }
+    }
+
+    /// Forget every slot expression that reads `v`.
+    fn reassigned(&mut self, v: &str) {
+        for slot in &mut self.slot_exprs {
+            if slot.as_ref().is_some_and(|e| {
+                let mut names = BTreeSet::new();
+                expr_var_names(e, &mut names);
+                names.contains(v)
+            }) {
+                *slot = None;
+            }
+        }
+    }
+
+    /// A loop's header and body run again after its writes, so no load anywhere
+    /// in it may trust a slot that names what the loop writes.
+    fn forget_written(&mut self, lp: &Statement) {
+        for v in names_written(std::slice::from_ref(lp)) {
+            self.reassigned(&v);
+        }
+    }
+
+    /// A load that cannot land on shadow `k`'s slot, so its select would never
+    /// pick the shadow though a compiler keeps it: `buf[j]` inside
+    /// `for (j = L; j < U; ...)` with `U` being the slot or `L` one past it.
+    fn slot_excluded(&self, idx: &Expr, k: usize) -> bool {
+        let (Expr::Var(j), Some(Some(slot))) = (idx, self.slot_exprs.get(k)) else {
+            return false;
+        };
+        let Some((_, from, below)) = self.ranges.iter().rev().find(|(v, _, _)| v == j) else {
+            return false;
+        };
+        let after = Expr::BinOp(Box::new(slot.clone()), BinOp::Add, Box::new(Expr::IntLiteral(1)));
+        below == slot || *from == after
+    }
+
+    fn never_lands(&self, load: &Expr, k: usize) -> bool {
+        let Some(Some(slot)) = self.slot_exprs.get(k) else {
+            return false;
+        };
+        self.unshadowed.iter().any(|(l, s)| l == load && s == slot)
     }
 
     /// An index as the SLOT type — what the subscript would coerce it to.
@@ -8425,8 +9754,9 @@ impl PeekRewrite<'_> {
     fn expr(&mut self, e: &Expr) -> Expr {
         match e {
             Expr::ArrayAccess(name, idx) => {
+                let mut armed = self.armed.get(name).cloned().unwrap_or_default();
+                armed.retain(|&k| !self.slot_excluded(idx, k) && !self.never_lands(e, k));
                 let idx = self.expr(idx);
-                let armed = self.armed.get(name).cloned().unwrap_or_default();
                 if armed.is_empty() {
                     return Expr::ArrayAccess(name.clone(), Box::new(idx));
                 }
@@ -8481,11 +9811,25 @@ impl PeekRewrite<'_> {
             Expr::Cast(t, i) => Expr::Cast(t.clone(), Box::new(self.expr(i))),
             Expr::Not(i) => Expr::Not(Box::new(self.expr(i))),
             Expr::BitwiseNot(i) => Expr::BitwiseNot(Box::new(self.expr(i))),
-            Expr::AddressOf(i) => Expr::AddressOf(Box::new(self.expr(i))),
-            Expr::PostIncrement(i) => Expr::PostIncrement(Box::new(self.expr(i))),
-            Expr::PostDecrement(i) => Expr::PostDecrement(Box::new(self.expr(i))),
-            Expr::PreIncrement(i) => Expr::PreIncrement(Box::new(self.expr(i))),
-            Expr::PreDecrement(i) => Expr::PreDecrement(Box::new(self.expr(i))),
+            Expr::Neg(i) => Expr::Neg(Box::new(self.expr(i))),
+            Expr::AddressOf(i) => {
+                if let Expr::Var(v) = &**i {
+                    self.reassigned(v);
+                }
+                Expr::AddressOf(Box::new(self.expr(i)))
+            }
+            Expr::PostIncrement(i) | Expr::PostDecrement(i) | Expr::PreIncrement(i) | Expr::PreDecrement(i) => {
+                if let Expr::Var(v) = &**i {
+                    self.reassigned(v);
+                }
+                let inner = Box::new(self.expr(i));
+                match e {
+                    Expr::PostIncrement(_) => Expr::PostIncrement(inner),
+                    Expr::PostDecrement(_) => Expr::PostDecrement(inner),
+                    Expr::PreIncrement(_) => Expr::PreIncrement(inner),
+                    _ => Expr::PreDecrement(inner),
+                }
+            }
             Expr::FuncCall(n, args) => {
                 Expr::FuncCall(n.clone(), args.iter().map(|a| self.expr(a)).collect())
             }
@@ -8566,6 +9910,170 @@ mod tests {
             matches!(cond.as_ref(), Expr::BinOp(_, BinOp::NotEq, r) if **r == Expr::Var("pkSlot0".into())),
             "compared against the slot the store targeted: {cond:?}"
         );
+    }
+
+    fn sum_loop(lo: Expr, hi: Expr) -> Statement {
+        let j = || Expr::Var("j".into());
+        Statement::ForC {
+            init: Box::new(Statement::Assign { target: j(), value: lo, compound: false }),
+            condition: Expr::BinOp(Box::new(j()), BinOp::Less, Box::new(hi)),
+            update: Box::new(Statement::Assign {
+                target: j(),
+                value: Expr::BinOp(Box::new(j()), BinOp::Add, Box::new(Expr::IntLiteral(1))),
+                compound: true,
+            }),
+            body: vec![Statement::Assign {
+                target: Expr::Var("acc".into()),
+                value: Expr::ArrayAccess("buf".into(), Box::new(j())),
+                compound: true,
+            }],
+        }
+    }
+
+    fn loads_bare(body: &[Statement]) -> bool {
+        body.iter().any(|s| matches!(s, Statement::ForC { .. }))
+            && body.iter().all(|s| match s {
+            Statement::ForC { body, .. } => {
+                matches!(&body[0], Statement::Assign { value: Expr::ArrayAccess(..), .. })
+            }
+            _ => true,
+        })
+    }
+
+    /// CCI sums the ring around the slot it just stored: a loop ending at that
+    /// slot, or starting one past it, never loads it, so its load needs no select.
+    #[test]
+    fn a_loop_whose_bounds_exclude_the_slot_loads_bare() {
+        let pos = || Expr::Var("pos".into());
+        let past = Expr::BinOp(Box::new(pos()), BinOp::Add, Box::new(Expr::IntLiteral(1)));
+        let out = pk(&[
+            buf_store("buf", pos(), Expr::Var("bar".into())),
+            sum_loop(Expr::IntLiteral(0), pos()),
+            sum_loop(past, Expr::Var("n".into())),
+        ]);
+        assert!(loads_bare(&out.body), "no select: {:?}", out.body);
+        assert!(out.shadows.is_empty(), "the unselected shadow is pruned: {:?}", out.shadows);
+
+        let whole = pk(&[
+            buf_store("buf", pos(), Expr::Var("bar".into())),
+            sum_loop(Expr::IntLiteral(0), Expr::Var("n".into())),
+        ]);
+        assert!(!loads_bare(&whole.body), "a loop over the whole ring keeps the select");
+
+        let moved = pk(&[
+            buf_store("buf", pos(), Expr::Var("bar".into())),
+            Statement::Assign {
+                target: pos(),
+                value: Expr::BinOp(Box::new(pos()), BinOp::Add, Box::new(Expr::IntLiteral(1))),
+                compound: false,
+            },
+            sum_loop(Expr::IntLiteral(0), pos()),
+        ]);
+        assert!(!loads_bare(&moved.body), "a bound read after the slot moved keeps the select");
+
+        let mut counter_moved = sum_loop(Expr::IntLiteral(0), pos());
+        if let Statement::ForC { body, .. } = &mut counter_moved {
+            body.push(Statement::Assign { target: Expr::Var("j".into()), value: pos(), compound: false });
+        }
+        let counter = pk(&[buf_store("buf", pos(), Expr::Var("bar".into())), counter_moved]);
+        assert!(!loads_bare(&counter.body), "a counter the body writes proves no range");
+    }
+
+    /// A slot a loop moves is not the slot its next iteration's loads face:
+    /// every name the loop writes, anywhere in it, voids the proof up front.
+    #[test]
+    fn a_slot_a_loop_or_a_redeclaration_moves_keeps_its_select() {
+        let pos = || Expr::Var("pos".into());
+        let bump = Statement::Assign {
+            target: pos(),
+            value: Expr::BinOp(Box::new(pos()), BinOp::Add, Box::new(Expr::IntLiteral(1))),
+            compound: false,
+        };
+        let inner_selects = |out: &PeekTransition| {
+            let mut n = 0;
+            for st in &out.body {
+                walk_stmt_exprs(st, &mut |top| walk_expr(top, &mut |e| n += usize::from(matches!(e, Expr::Ternary(..)))));
+            }
+            n
+        };
+        let store = || buf_store("buf", pos(), Expr::Var("bar".into()));
+        let in_while = pk(&[
+            store(),
+            Statement::While {
+                condition: Expr::Var("go".into()),
+                body: vec![sum_loop(Expr::IntLiteral(0), pos()), bump.clone()],
+            },
+        ]);
+        assert_eq!(inner_selects(&in_while), 1, "the second pass of the while reads the slot: {:?}", in_while.body);
+        let redeclared = pk(&[
+            store(),
+            Statement::Block {
+                body: vec![
+                    Statement::VarDecl { var_type: VarType::Integer, name: "pos".into(), init: Some(Expr::Var("q".into())) },
+                    sum_loop(Expr::IntLiteral(0), pos()),
+                ],
+            },
+        ]);
+        assert_eq!(inner_selects(&redeclared), 1, "an inner `pos` is another value: {:?}", redeclared.body);
+        let escaped = pk(&[
+            store(),
+            Statement::Expr(Expr::FuncCall("f".into(), vec![Expr::AddressOf(Box::new(pos()))])),
+            sum_loop(Expr::IntLiteral(0), pos()),
+        ]);
+        assert_eq!(inner_selects(&escaped), 1, "a call handed `&pos` may move it: {:?}", escaped.body);
+
+        let with_body_tail = |tail: Statement| {
+            let mut lp = sum_loop(Expr::IntLiteral(0), pos());
+            if let Statement::ForC { body, .. } = &mut lp {
+                body.push(tail);
+            }
+            pk(&[store(), lp])
+        };
+        let call_after = with_body_tail(Statement::Expr(Expr::FuncCall(
+            "f".into(),
+            vec![Expr::AddressOf(Box::new(pos()))],
+        )));
+        assert_eq!(inner_selects(&call_after), 1, "`&pos` after the load moves the next pass's bound");
+        let counter_reused = with_body_tail(Statement::For {
+            var: "j".into(),
+            count: Expr::IntLiteral(3),
+            body: vec![],
+        });
+        assert_eq!(inner_selects(&counter_reused), 1, "a nested `for` over `j` rewrites the counter");
+        let bumped_after = pk(&[
+            store(),
+            Statement::DoWhile {
+                condition: Expr::Var("go".into()),
+                body: vec![
+                    sum_loop(Expr::IntLiteral(0), pos()),
+                    Statement::Expr(Expr::PostIncrement(Box::new(pos()))),
+                ],
+            },
+        ]);
+        assert_eq!(inner_selects(&bumped_after), 1, "the do-while's next pass sees `pos++`");
+        let stored_under_inner = pk(&[
+            Statement::Block {
+                body: vec![
+                    Statement::VarDecl { var_type: VarType::Integer, name: "pos".into(), init: Some(Expr::Var("q".into())) },
+                    store(),
+                ],
+            },
+            sum_loop(Expr::IntLiteral(0), pos()),
+        ]);
+        assert_eq!(inner_selects(&stored_under_inner), 1, "the slot named an inner `pos` the loop cannot see");
+        let stored_in_arm = pk(&[
+            Statement::If {
+                condition: Expr::Var("c".into()),
+                then_body: vec![
+                    Statement::VarDecl { var_type: VarType::Integer, name: "pos".into(), init: Some(Expr::Var("q".into())) },
+                    store(),
+                ],
+                else_body: vec![],
+                cond_comments: vec![],
+            },
+            sum_loop(Expr::IntLiteral(0), pos()),
+        ]);
+        assert_eq!(inner_selects(&stored_in_arm), 1, "an arm's own `pos` ends with the arm");
     }
 
     /// TRIMA's two arms share one ring. A store in one arm must not arm a load
@@ -9151,14 +10659,6 @@ mod tests {
         assert!(matches!(analyze(&f), Err(StreamError::UnsupportedCall(_))));
     }
 
-    /// A lookup that knows no indicators (loop-tier unit tests).
-    struct NoCallees;
-    impl CalleeLookup for NoCallees {
-        fn callee(&self, _name: &str) -> Option<CalleeSig> {
-            None
-        }
-    }
-
     #[test]
     fn unanalyzable_declared_function_is_an_error() {
         let ok = func_with_body(t1_body());
@@ -9682,6 +11182,7 @@ mod tests {
             arrays: vec!["derived".into()],
             back,
             fwd: 0,
+            lag_ge1: false,
             derived: Some(DerivedRing {
                 slot: "derived".into(),
                 expr: hlr(trail_minus("w")),
@@ -9799,6 +11300,7 @@ mod tests {
                 arrays: vec!["derived".into()],
                 back: 2,
                 fwd: 0,
+                lag_ge1: false,
                 derived: Some(DerivedRing {
                     slot: "derived".into(),
                     expr: outer(trail_minus("w"), trail_minus("w")),
@@ -10235,8 +11737,7 @@ mod tests {
         ]));
     }
 
-    /// IMI's shape, and the one seed the corpus still carries: the sole store
-    /// sits in the period loop, and a loop body is not provably entered.
+    /// The sole store sits in a loop body, which is not provably entered.
     #[test]
     fn a_write_only_a_loop_body_makes_keeps_the_seed() {
         assert!(!dead(vec![

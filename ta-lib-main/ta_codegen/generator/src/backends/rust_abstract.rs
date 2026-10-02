@@ -929,15 +929,15 @@ fn emit_binder(
          \x20   ///\n\
          \x20   /// # Errors\n\
          \x20   /// [`RetCode::OutOfRangeStartIndex`] if `start_idx` exceeds\n\
-         \x20   /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] if `end_idx` exceeds\n\
+         \x20   /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] if `end_idx` exceeds\n\
          \x20   /// it or is below `start_idx`, and [`RetCode::BadParam`] if a required\n\
          \x20   /// input or output was never bound, if the function rejects its\n\
          \x20   /// parameters, or if a bound buffer is too short: every input must\n\
          \x20   /// cover `end_idx`, and every output must hold the count actually\n\
          \x20   /// produced, `end_idx - max(start_idx, lookback) + 1`.\n\
          \x20   pub fn call(&mut self, start_idx: usize, end_idx: usize) -> Result<OutRange, RetCode> {\n\
-         \x20       if start_idx > Core::MAX_INDEX { return Err(RetCode::OutOfRangeStartIndex); }\n\
-         \x20       if end_idx > Core::MAX_INDEX || end_idx < start_idx {\n\
+         \x20       if start_idx > Core::INDEX_MAX { return Err(RetCode::OutOfRangeStartIndex); }\n\
+         \x20       if end_idx > Core::INDEX_MAX || end_idx < start_idx {\n\
          \x20           return Err(RetCode::OutOfRangeEndIndex);\n\
          \x20       }\n\
          \x20       // The buffer bounds are the PUBLIC entry point's, which every arm\n\
@@ -1361,31 +1361,33 @@ use crate::FuncUnstId;
 
 ";
 
-const MODEL: &str = r#"/// Function group (closed set — replaces C's runtime group-string table + linear `getGroupId`).
+const MODEL: &str = r#"/// The group a function belongs to, as named by C's `TA_FuncInfo::group`.
+///
+/// Discriminants are stable across releases; a new group takes the next unused value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 #[non_exhaustive]
 pub enum Group {
     /// `Cycle Indicators` — the Hilbert Transform family.
-    CycleIndicators,
+    CycleIndicators = 0,
     /// `Math Operators` — arithmetic and rolling aggregates over a series.
-    MathOperators,
+    MathOperators = 1,
     /// `Math Transform` — element-wise transcendental and rounding functions.
-    MathTransform,
+    MathTransform = 2,
     /// `Momentum Indicators` — rate-of-change and oscillator studies.
-    MomentumIndicators,
+    MomentumIndicators = 3,
     /// `Overlap Studies` — studies drawn on the price scale itself.
-    OverlapStudies,
+    OverlapStudies = 4,
     /// `Pattern Recognition` — the `CDL*` candlestick recognizers.
-    PatternRecognition,
+    PatternRecognition = 5,
     /// `Price Transform` — a single bar's OHLC reduced to one price.
-    PriceTransform,
+    PriceTransform = 6,
     /// `Statistic Functions` — regression and distribution measures.
-    StatisticFunctions,
+    StatisticFunctions = 7,
     /// `Volatility Indicators` — true-range derived measures.
-    VolatilityIndicators,
+    VolatilityIndicators = 8,
     /// `Volume Indicators` — studies that read the volume series.
-    VolumeIndicators,
+    VolumeIndicators = 9,
 }
 
 impl Group {
@@ -1419,27 +1421,27 @@ impl Group {
     }
 }
 
-/// Required-input data kind (C: `TA_Input_Price`/`Real`/`Integer`).
+/// Required-input data kind, with C's `TA_InputParameterType` values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InputType {
     /// One or more OHLCV components of the same bar series; which ones is in
     /// [`InputInfo::flags`].
-    Price,
+    Price = 0,
     /// A single `&[f64]` series.
-    Real,
+    Real = 1,
     /// A single integer series.
-    Integer,
+    Integer = 2,
 }
 
-/// Output data kind (C: `TA_Output_Real`/`Integer`).
+/// Output data kind, with C's `TA_OutputParameterType` values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum OutputType {
     /// Written into an `&mut [f64]`.
-    Real,
+    Real = 0,
     /// Written into an `&mut [i32]` — the `CDL*` patterns and the `*INDEX` studies.
-    Integer,
+    Integer = 1,
 }
 
 macro_rules! flag_newtype {

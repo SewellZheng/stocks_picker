@@ -79,6 +79,12 @@ that names no indicator.
 | `server_gen`, `bench_gen` | JSON-RPC servers; direct-call benchmark binaries |
 | `registry` | Which indicators exist, and each backend's spelling of a name |
 
+**Emission helpers stay per backend.** Factor a repeated prologue or validation
+emitter within its own backend file, not into `backends/common.rs`: the backends
+differ in tier shape (C returns a code, Java and C# throw, Rust cannot express an
+absent argument), so a shared emitter becomes a switch on the language.
+`common.rs` holds backend-neutral data and IR queries.
+
 **The stream `NameMap` prefixes are shared on purpose.** `fma::stream_base`
 strips exactly `sp->`, `sp.` and `cur_` to decide integer-vs-float typing, so a
 backend inventing its own spelling silently changes which sites fuse `a*b+c` —
@@ -111,13 +117,18 @@ function the filter excluded. A `--func` iteration loop must end with one bare
 ## Testing
 
 ```bash
-cargo test      # tests/*_suite.rs, topic-scoped, shared harness in tests/common/
+cargo test      # tests/all/: one crate, a topic-scoped module per *_suite.rs, shared harness in common/
 cargo clippy    # strict pedantic lints
 ```
 
 Value gates that need the *generated* library live in the crate itself as
 `#[cfg(test)]` modules (see the templates above); run them with
 `cargo test --tests -p ta-lib` from `ta_codegen/output/rust/`.
+
+A gate that finds its subject by name in emitted text must match at an
+identifier boundary, never by substring: a rename can make one name a suffix of
+another in the same function (`trend` in `supertrend`), and the wrong site then
+answers the needle with the gate still green. The suites' `mentions_word` does this.
 
 Cross-language verification is `ta_regtest`'s job, and
 `src/tools/ta_regtest/CLAUDE.md` is its spec — including the wire format and the
@@ -140,15 +151,15 @@ keeps reading `body` / `stream_source()` and needs to know nothing. Teaching the
 scattered selection sites about the language instead would make *missing one*
 silent: it would quietly render the base. `resolved_for` pins **both** tiers even
 where the base wins one, because `stream_source()` falls back to `body` and
-`body` is about to become the batch winner — SYNTH6 is the only shape where an
-alternate claims BATCH, so a resolver leaking the batch body into the stream
-fails there and nowhere else.
+`body` is about to become the batch winner; SYNTH6, whose alternate claims BATCH
+alone, is the shape where a resolver leaking the batch body into the stream
+fails.
 
 **Nothing but the emitted code can prove which body won.** An alternate is
 generator input, not a symbol, so every value-comparison gate passes whichever
 body was selected, and the `/* Using min_ALT1 ... */` marker is rendered *from*
 the resolution and would agree with a resolver that chose wrong.
-`tests/alt_suite.rs` checks the emitted statements against SYNTH5 and SYNTH6 —
+`tests/all/alt_suite.rs` checks the emitted statements against SYNTH5 and SYNTH6 —
 the same algorithm with the tiers swapped — so neither an always-base nor an
 always-alternate bug satisfies both.
 
@@ -236,21 +247,21 @@ its input-alias guard and its copy-back statically dead here.
 
 The rule is stated over the IR and names no function, buffer or MA type: match an
 `if`/`else if`/…/`else` chain whose *every* condition is an input↔output pointer
-equality and whose *every* arm is only `scratch = someOutput;`; take the terminal
-`else`'s mapping; delete the chain and rename through the rest of the enclosing
-block; drop any guard that became a self-comparison. That last clause is
-load-bearing: left in place, `BBANDS`' copy-back would read and write the same
-`&mut` slice in one statement, which is E0502.
+equality — false in Rust, so only the terminal `else` runs — and whose terminal
+`else` is only `scratch = someOutput;`; take that mapping; delete the chain and
+rename through the rest of the enclosing block; drop any guard that became a
+self-comparison. That last clause is load-bearing: left in place, `BBANDS`'
+copy-back would read and write the same `&mut` slice in one statement, which is
+E0502.
 
-Requiring *every* arm to be an election is what declines `STOCH`, `STOCHF` and
-`MAVP`: each mixes an allocation and an `…IsAllocated = 1;` flag into a branch,
-which is a genuine in-place defence rather than an election. Tolerating one
-allocating arm would reach them — a widening of the rule for a later change,
-never a per-function case. An election stops at the end of the block holding it,
-so `BBANDS`' general MA path and both stream paths keep their real allocations,
-and the pass backs off entirely if the local is assigned again while in scope.
-`rust_scratch_election_declines_arms_that_allocate` sweeps every indicator and
-asserts the pass fires for `bbands` alone.
+The arms before the terminal `else` may hold anything, so `MAVP`'s allocating
+in-place arm does not stop its election. `STOCH` and `STOCHF` are declined: their
+terminal `else` allocates the buffer Rust really needs (and their condition is an
+`||` of equalities, not a bare one). An election stops at the end
+of the block holding it, so `BBANDS`' general MA path and both stream paths keep
+their real allocations, and the pass backs off entirely if the local is assigned
+again while in scope. `rust_scratch_election_takes_only_the_arm_rust_reaches`
+sweeps every indicator and asserts the pass fires for `bbands` and `mavp` alone.
 
 The other backends assign the reference directly and must see no change from
 this: `generate` then `git diff` over `src/ta_func/`, `output/java/` and
@@ -269,6 +280,9 @@ Strict Clippy pedantic in `src/lib.rs`, with `module_name_repetitions`,
 `must_use_candidate`, `format_push_string` and `doc_markdown` allowed.
 `rustfmt.toml`: edition 2021, max_width 100, `use_field_init_shorthand`.
 
+Never run `cargo fmt` on this crate. It is not rustfmt-clean, so the run reformats
+thousands of lines across `src/` and `tests/` and buries any real change.
+
 ## Performance: C server compilation
 
 - The server is single-TU (`#include`s the `.c` files). Do NOT switch to separate
@@ -280,9 +294,6 @@ Strict Clippy pedantic in `src/lib.rs`, with `module_name_repetitions`,
   costs ~10 cycles on ARM.
 - Full parameter validation is required even where it looks redundant: removing
   it changes compiler register allocation.
-- `ta_ref_serve` is statically linked against `libta-lib.a` and MUST be rebuilt
-  when cmake rebuilds the library, or benchmarks compare against stale code.
-  `regtest.py` rebuilds it in the cmake step.
 - Full-suite benchmark runs carry 10-20% variance from icache pressure; use
   `ta_bench --function=NAME --iters=500` for ground truth. A thermal canary (SMA)
   runs between indicators to normalize CPU state.

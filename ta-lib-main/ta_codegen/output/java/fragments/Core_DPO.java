@@ -55,10 +55,10 @@
       int trailingIdx = 0;
       int dispIdx = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -129,10 +129,10 @@
       int trailingIdx = 0;
       int dispIdx = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -191,8 +191,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#dpoLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#dpoLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -201,11 +201,13 @@
     *        removed; the displacement is derived from it (default 20; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Detrended Price Oscillator value, in the units of the
-    *        input. Must hold at least {@code endIdx - startIdx + 1} values.
+    *        input. Must hold at least
+    *        {@code endIdx - max(startIdx, dpoLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -261,8 +263,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#dpoLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#dpoLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -271,11 +273,13 @@
     *        removed; the displacement is derived from it (default 20; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Detrended Price Oscillator value, in the units of the
-    *        input. Must hold at least {@code endIdx - startIdx + 1} values.
+    *        input. Must hold at least
+    *        {@code endIdx - max(startIdx, dpoLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -352,7 +356,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -366,12 +370,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("DPO advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -405,15 +409,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("DPO update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("DPO update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("DPO update", "inReal");
          core.dpoStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -423,42 +427,28 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("DPO peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("DPO peek", "inReal");
          DpoStream sp = this;
          double tempReal = 0.0;
          double dispVal = 0.0;
          double cur_outReal = 0.0;
          double periodTotal = sp.periodTotal;
-         int pkSlot0 = -1;
-         double pkVal0 = 0.0;
-         int pkSlot1 = -1;
-         double pkVal1 = 0.0;
-         if( sp.ringCap_dispIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inReal;
-         }
-         if( sp.ringCap_trailingIdx == 0 ) {
-            pkSlot1 = 0;
-            pkVal1 = inReal;
-         }
          periodTotal += inReal;
          tempReal = periodTotal;
-         periodTotal -= (sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] : pkVal1;
+         periodTotal -= sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
          /* Both reads precede the store. Either cursor can EQUAL outIdx -- the
           * displaced one whenever startIdx equals the displacement, the trailing
           * one whenever startIdx sits at the lookback -- so a store hoisted above
           * them would read back what it had just overwritten when the caller
           * aliases outReal over inReal.
           */
-         dispVal = (sp.ringPos_dispIdx != pkSlot0) ? sp.ring_dispIdx_inReal[sp.ringPos_dispIdx] : pkVal0;
+         dispVal = sp.ring_dispIdx_inReal[sp.ringPos_dispIdx];
          cur_outReal = dispVal - tempReal / (double)sp.optInTimePeriod;
          return cur_outReal;
       }
@@ -493,12 +483,8 @@
    {
       double tempReal = 0.0;
       double dispVal = 0.0;
-      if( sp.ringCap_dispIdx == 0 ) {
-         sp.ring_dispIdx_inReal[0] = inReal;
-      }
-      if( sp.ringCap_trailingIdx == 0 ) {
-         sp.ring_trailingIdx_inReal[0] = inReal;
-      }
+      int ringCapL_dispIdx = 0;
+      int ringCapL_trailingIdx = 0;
       sp.periodTotal += inReal;
       tempReal = sp.periodTotal;
       sp.periodTotal -= sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
@@ -510,14 +496,16 @@
        */
       dispVal = sp.ring_dispIdx_inReal[sp.ringPos_dispIdx];
       sp.cur_outReal = dispVal - tempReal / (double)sp.optInTimePeriod;
+      ringCapL_dispIdx = sp.ringCap_dispIdx;
       sp.ring_dispIdx_inReal[sp.ringPos_dispIdx] = inReal;
       sp.ringPos_dispIdx = sp.ringPos_dispIdx + 1;
-      if( sp.ringPos_dispIdx >= sp.ringCap_dispIdx ) {
+      if( sp.ringPos_dispIdx >= ringCapL_dispIdx ) {
          sp.ringPos_dispIdx = 0;
       }
+      ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
          sp.ringPos_trailingIdx = 0;
       }
    }
@@ -536,7 +524,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -596,14 +584,14 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       int cap_dispIdx = i - dispIdx;
-      if( cap_dispIdx < 0 || cap_dispIdx > historyLen ) {
+      if( cap_dispIdx < 1 || cap_dispIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_dispIdx = (cap_dispIdx > 0)? cap_dispIdx : 1;
       double[] capRing_dispIdx_inReal = new double[allocN_dispIdx];
       System.arraycopy(inReal, historyLen - cap_dispIdx, capRing_dispIdx_inReal, 0, cap_dispIdx);
       int cap_trailingIdx = i - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+      if( cap_trailingIdx < 1 || cap_trailingIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -631,12 +619,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("DPO openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("DPO openAndFill", inReal.length, startIdx, dpoLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("DPO openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("DPO openAndFill: " + retCode, retCode);
+      throw streamFailure("DPO openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind dpoOpen (composition seam). */
    DpoStream dpoOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -652,12 +637,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("DPO open: history shorter than lookback + 1");
+         throw insufficientHistory("DPO open", inReal.length, startIdx, dpoLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("DPO open: internal error", retCode);
-      }
-      throw new TALibArgumentException("DPO open: " + retCode, retCode);
+      throw streamFailure("DPO open", retCode);
    }
    /**
     * Open a live DPO stream over the warm-up history; the handle's
@@ -696,7 +678,7 @@
       int guardOutLen = openFillCount("DPO openAndFill", inReal.length, dpoLookback(optInTimePeriod));
       requireLength("DPO openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("DPO openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("DPO openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

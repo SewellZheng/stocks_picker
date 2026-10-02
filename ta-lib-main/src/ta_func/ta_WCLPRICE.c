@@ -77,9 +77,9 @@ TA_LIB_API TA_RetCode TA_WCLPRICE( int    startIdx,
    int outIdx;
    int i;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inHigh )
@@ -117,9 +117,9 @@ TA_RetCode TA_S_WCLPRICE( int    startIdx,
    int outIdx;
    int i;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inHigh )
@@ -154,7 +154,7 @@ struct TA_WCLPRICE_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_WCLPRICE_StepImpl( struct TA_WCLPRICE_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
+static TA_FMA_STEP_INLINE void TA_WCLPRICE_StepImpl( struct TA_WCLPRICE_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
 {
    *outReal= (fma(inClose, 2.0, inHigh + inLow)) / 4.0;
    sp->cur_outReal = *outReal;
@@ -168,7 +168,7 @@ static TA_RetCode TA_WCLPRICE_OpenImpl( struct TA_WCLPRICE_Stream **stream, cons
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
@@ -223,7 +223,7 @@ TA_LIB_API TA_RetCode TA_WCLPRICE_Open( TA_WCLPRICE_Stream **stream, const doubl
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_WCLPRICE_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, outReal );
 }
@@ -233,7 +233,7 @@ TA_LIB_API TA_RetCode TA_WCLPRICE_OpenAndFill( TA_WCLPRICE_Stream **stream, cons
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_WCLPRICE_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outReal );
@@ -245,10 +245,11 @@ TA_RetCode TA_WCLPRICE_OpenAndFillInternal( struct TA_WCLPRICE_Stream **stream, 
    return TA_WCLPRICE_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_WCLPRICE_Update( TA_WCLPRICE_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -290,7 +291,7 @@ TA_LIB_API TA_RetCode TA_WCLPRICE_OutRange( const TA_WCLPRICE_Stream *stream, in
 TA_LIB_API TA_RetCode TA_WCLPRICE_Advance( TA_WCLPRICE_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

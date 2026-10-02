@@ -64,6 +64,7 @@ public partial class Core
     *               and ssY are still ordinary normals, and the divide then
     *               returned NaN under TA_SUCCESS -- which the range clamp cannot
     *               catch -- or a perfect correlation from a degenerate window.
+    *  092226 MF,CC #434 rebuild against each side's peak sum of squares.
     */
    /// <summary>
    /// Number of leading input bars <c>Correl</c> consumes before it can produce
@@ -112,8 +113,8 @@ public partial class Core
       double ssX = 0;
       double ssY = 0;
       double spXY = 0;
-      double leavingX = 0;
-      double leavingY = 0;
+      double peakX2 = 0;
+      double peakY2 = 0;
       double tempReal = 0;
       double invPeriod = 0;
       int lookbackTotal = 0;
@@ -123,10 +124,10 @@ public partial class Core
       int j = 0;
       int windowStart = 0;
       int barsSinceReseed = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -165,9 +166,10 @@ public partial class Core
        * 1e-5 spread that is three of them, and the correlation of two perfectly
        * correlated series came back as 0, as -1, or as -1.73 (#242).
        *
-       * Anchor on the first window value here; every later re-anchor uses the
-       * window mean, which is better centred but costs a pass this one cannot
-       * afford before the sums exist.
+       * Anchor on the first window value here; a rebuild anchors on the window
+       * mean instead (or on a window value when the mean leaves the window
+       * flat), which is better centred but costs a pass this one cannot afford
+       * before the sums exist.
        */
       shiftX = inReal0[trailingIdx];
       shiftY = inReal1[trailingIdx];
@@ -189,8 +191,8 @@ public partial class Core
       today = startIdx;
       outIdx = 0;
       barsSinceReseed = 32 * optInTimePeriod;
-      leavingX = 0.0;
-      leavingY = 0.0;
+      peakX2 = sumX2;
+      peakY2 = sumY2;
       do {
          /* Add the incoming value, measured against the shift. */
          x = inReal0[today] - shiftX;
@@ -200,24 +202,20 @@ public partial class Core
          sumXY += x * y;
          sumY += y;
          sumY2 += y * y;
+         peakX2 = MaxGt(sumX2, peakX2);
+         peakY2 = MaxGt(sumY2, peakY2);
          ssX = sumX2 - sumX * sumX * invPeriod;
          ssY = sumY2 - sumY * sumY * invPeriod;
          spXY = sumXY - sumX * sumY * invPeriod;
-         /* Re-anchor and rebuild with a fresh two-pass when the shift has gone
-          * stale. Same three triggers as TA_VAR: either sum of squares has shrunk
-          * below 1e-6 of the squared deviations it is extracted from; OR the value
-          * the PREVIOUS bar removed sat so far from the shift that its squared term
-          * dwarfs what remains (a large outlier transiting the window buries the
-          * small terms below its ulp, and the residue it leaves is cancellation
-          * garbage); OR at least every 32 windows, so a slow drift stays bounded
-          * however long the series runs.
-          *
-          * One bar late is correct, not a compromise. leavingX/leavingY are set by
-          * the removal at the BOTTOM of the loop, so the bar on which the outlier
-          * actually leaves still computes its own output from sums that legitimately
-          * contain it. The trigger then fires on the NEXT bar -- the first one whose
-          * sums carry the residue -- and the reseed below recomputes that bar's
-          * output before it is written. No bar is ever emitted from the residue.
+         /* Rebuild with a fresh two-pass when either sum of squares has shrunk
+          * below 1e-6 of the LARGEST one held since the last rebuild, or at least
+          * every 32 windows. Measure against that peak, not the current sum: the
+          * rounding the running sums carry scales with the peak, so once a series
+          * settles back near its shift, or an outlier leaves the window, the
+          * current sum holds nothing but that rounding. Each side keeps its own
+          * peak: one peak shared by two series of different scale fires on every
+          * bar. The collapse is seen on the first bar whose sums carry it, and the
+          * rebuild recomputes that bar's output before it is written.
           *
           * The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
           * legitimate answer - two uncorrelated series - not a loss of digits, and
@@ -230,7 +228,7 @@ public partial class Core
           * startIdx-lookbackTotal+outIdx, which is >= outIdx.
           */
          barsSinceReseed -= 1;
-         if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || leavingX > 1000000.0 * sumX2 || leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 ) {
+         if( ssX < 0.000001 * peakX2 || ssY < 0.000001 * peakY2 || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInTimePeriod;
             windowStart = today - lookbackTotal;
             /* Both means in one pass over the window: the rebuild below is the
@@ -262,21 +260,49 @@ public partial class Core
             ssX = sumX2 - sumX * sumX * invPeriod;
             ssY = sumY2 - sumY * sumY * invPeriod;
             spXY = sumXY - sumX * sumY * invPeriod;
+            /* A side flat to within the rounding of its own mean leaves its sum of
+             * squares at that rounding, which would fire the trigger again on every
+             * bar. Anchored on one of its own values it cannot, short of squares
+             * that underflow. sumXY depends on both shifts, so all five sums are
+             * redone.
+             */
+            if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 ) {
+               if( ssX < 0.000001 * sumX2 ) {
+                  shiftX = inReal0[today];
+               }
+               if( ssY < 0.000001 * sumY2 ) {
+                  shiftY = inReal1[today];
+               }
+               sumY2 = 0.0;
+               sumX2 = sumY2;
+               sumY = sumX2;
+               sumX = sumY;
+               sumXY = sumX;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  x = inReal0[j] - shiftX;
+                  sumX += x;
+                  sumX2 += x * x;
+                  y = inReal1[j] - shiftY;
+                  sumXY += x * y;
+                  sumY += y;
+                  sumY2 += y * y;
+               }
+               ssX = sumX2 - sumX * sumX * invPeriod;
+               ssY = sumY2 - sumY * sumY * invPeriod;
+               spXY = sumXY - sumX * sumY * invPeriod;
+            }
+            peakX2 = sumX2;
+            peakY2 = sumY2;
             /* A sum of squares is non-negative by definition, but this one is
              * extracted as a difference, so its SIGN is not guaranteed on a window
              * sitting inside a flat stretch. Enforce the invariant HERE and not at
-             * the divide: a negative ssX always reseeds on the same bar (it makes
-             * the first trigger's `negative < non-negative` true whenever sumX2 is
-             * positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
-             * divide below can rely on both being >= 0 and needs no sign test of
-             * its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+             * the divide: a negative ssX always reseeds on the same bar, because
+             * the peak it is compared with is never negative, so the divide below
+             * can rely on both being >= 0 and needs no sign test of its own.
+             * CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
              */
-            if( ssX < 0.0 ) {
-               ssX = 0.0;
-            }
-            if( ssY < 0.0 ) {
-               ssY = 0.0;
-            }
+            ssX = MaxGt(0.0, ssX);
+            ssY = MaxGt(0.0, ssY);
          }
          /* Save the trailing values before writing the output, since the input
           * and output might be the same array.
@@ -321,21 +347,19 @@ public partial class Core
              */
             if( tempReal > 1.0 ) {
                tempReal = 1.0;
-            } else if( tempReal < 0 - 1.0 ) {
-               tempReal = 0 - 1.0;
+            } else {
+               tempReal = MaxGt(-1.0, tempReal);
             }
             outReal[outIdx++] = tempReal;
          } else {
             outReal[outIdx++] = 0.0;
          }
          /* Remove the trailing values (prepares the next window). */
-         leavingX = trailingX * trailingX;
-         leavingY = trailingY * trailingY;
          sumX -= trailingX;
-         sumX2 -= leavingX;
+         sumX2 -= trailingX * trailingX;
          sumXY -= trailingX * trailingY;
          sumY -= trailingY;
-         sumY2 -= leavingY;
+         sumY2 -= trailingY * trailingY;
          today += 1;
       } while( today <= endIdx );
       outNBElement = outIdx;
@@ -366,8 +390,8 @@ public partial class Core
       double ssX = 0;
       double ssY = 0;
       double spXY = 0;
-      double leavingX = 0;
-      double leavingY = 0;
+      double peakX2 = 0;
+      double peakY2 = 0;
       double tempReal = 0;
       double invPeriod = 0;
       int lookbackTotal = 0;
@@ -377,10 +401,10 @@ public partial class Core
       int j = 0;
       int windowStart = 0;
       int barsSinceReseed = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -422,8 +446,8 @@ public partial class Core
       today = startIdx;
       outIdx = 0;
       barsSinceReseed = 32 * optInTimePeriod;
-      leavingX = 0.0;
-      leavingY = 0.0;
+      peakX2 = sumX2;
+      peakY2 = sumY2;
       do {
          x = (double)inReal0[today] - shiftX;
          sumX += x;
@@ -432,11 +456,13 @@ public partial class Core
          sumXY += x * y;
          sumY += y;
          sumY2 += y * y;
+         peakX2 = MaxGt(sumX2, peakX2);
+         peakY2 = MaxGt(sumY2, peakY2);
          ssX = sumX2 - sumX * sumX * invPeriod;
          ssY = sumY2 - sumY * sumY * invPeriod;
          spXY = sumXY - sumX * sumY * invPeriod;
          barsSinceReseed -= 1;
-         if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || leavingX > 1000000.0 * sumX2 || leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 ) {
+         if( ssX < 0.000001 * peakX2 || ssY < 0.000001 * peakY2 || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInTimePeriod;
             windowStart = today - lookbackTotal;
             tempReal = 0.0;
@@ -464,12 +490,35 @@ public partial class Core
             ssX = sumX2 - sumX * sumX * invPeriod;
             ssY = sumY2 - sumY * sumY * invPeriod;
             spXY = sumXY - sumX * sumY * invPeriod;
-            if( ssX < 0.0 ) {
-               ssX = 0.0;
+            if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 ) {
+               if( ssX < 0.000001 * sumX2 ) {
+                  shiftX = (double)inReal0[today];
+               }
+               if( ssY < 0.000001 * sumY2 ) {
+                  shiftY = (double)inReal1[today];
+               }
+               sumY2 = 0.0;
+               sumX2 = sumY2;
+               sumY = sumX2;
+               sumX = sumY;
+               sumXY = sumX;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  x = (double)inReal0[j] - shiftX;
+                  sumX += x;
+                  sumX2 += x * x;
+                  y = (double)inReal1[j] - shiftY;
+                  sumXY += x * y;
+                  sumY += y;
+                  sumY2 += y * y;
+               }
+               ssX = sumX2 - sumX * sumX * invPeriod;
+               ssY = sumY2 - sumY * sumY * invPeriod;
+               spXY = sumXY - sumX * sumY * invPeriod;
             }
-            if( ssY < 0.0 ) {
-               ssY = 0.0;
-            }
+            peakX2 = sumX2;
+            peakY2 = sumY2;
+            ssX = MaxGt(0.0, ssX);
+            ssY = MaxGt(0.0, ssY);
          }
          trailingX = (double)inReal0[trailingIdx] - shiftX;
          trailingY = (double)inReal1[trailingIdx] - shiftY;
@@ -478,20 +527,18 @@ public partial class Core
             tempReal = spXY / Math.Sqrt(ssX * ssY);
             if( tempReal > 1.0 ) {
                tempReal = 1.0;
-            } else if( tempReal < 0 - 1.0 ) {
-               tempReal = 0 - 1.0;
+            } else {
+               tempReal = MaxGt(-1.0, tempReal);
             }
             outReal[outIdx++] = tempReal;
          } else {
             outReal[outIdx++] = 0.0;
          }
-         leavingX = trailingX * trailingX;
-         leavingY = trailingY * trailingY;
          sumX -= trailingX;
-         sumX2 -= leavingX;
+         sumX2 -= trailingX * trailingX;
          sumXY -= trailingX * trailingY;
          sumY -= trailingY;
-         sumY2 -= leavingY;
+         sumY2 -= trailingY * trailingY;
          today += 1;
       } while( today <= endIdx );
       outNBElement = outIdx;
@@ -515,8 +562,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>CorrelLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>CorrelLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -526,25 +578,33 @@ public partial class Core
    /// <param name="optInTimePeriod">Rolling window length (default 30; range 1..100000; <c>int.MinValue</c>
    /// selects the default).</param>
    /// <param name="outReal">Correlation coefficient r in [-1, 1]. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// max(startIdx, CorrelLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Beta(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Stddev(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
+   /// <seealso cref="Core.Var(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
    public OutRange Correl( int startIdx,
                            int endIdx,
                            ReadOnlySpan<double> inReal0,
@@ -588,8 +648,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>CorrelLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>CorrelLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -599,27 +664,35 @@ public partial class Core
    /// <param name="optInTimePeriod">Rolling window length (default 30; range 1..100000; <c>int.MinValue</c>
    /// selects the default).</param>
    /// <param name="outReal">Correlation coefficient r in [-1, 1]. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// max(startIdx, CorrelLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Beta(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Stddev(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
+   /// <seealso cref="Core.Var(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
    public OutRange Correl( int startIdx,
                            int endIdx,
                            ReadOnlySpan<float> inReal0,
@@ -668,8 +741,8 @@ public partial class Core
       internal double sumY2;
       internal double shiftX;
       internal double shiftY;
-      internal double leavingX;
-      internal double leavingY;
+      internal double peakX2;
+      internal double peakY2;
       internal double invPeriod;
       internal int lookbackTotal;
       internal int trailingIdx;
@@ -694,7 +767,7 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -707,13 +780,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("CORREL", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -729,8 +802,8 @@ public partial class Core
          this.sumY2 = other.sumY2;
          this.shiftX = other.shiftX;
          this.shiftY = other.shiftY;
-         this.leavingX = other.leavingX;
-         this.leavingY = other.leavingY;
+         this.peakX2 = other.peakX2;
+         this.peakY2 = other.peakY2;
          this.invPeriod = other.invPeriod;
          this.lookbackTotal = other.lookbackTotal;
          this.trailingIdx = other.trailingIdx;
@@ -749,7 +822,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -760,7 +832,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -769,9 +841,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal0, double inReal1 )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("CORREL", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("CORREL", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.NonFiniteBar("CORREL", "update", !double.IsFinite(inReal0) ? nameof(inReal0) : nameof(inReal1));
          core.CorrelStepImpl(this, inReal0, inReal1);
          outRangeCount++;
          return cur_outReal;
@@ -783,9 +855,8 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal0">This bar's value for <c>inReal0</c>.</param>
       /// <param name="inReal1">This bar's value for <c>inReal1</c>.</param>
@@ -793,7 +864,7 @@ public partial class Core
       /// it.</returns>
       public double Peek( double inReal0, double inReal1 )
       {
-         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("CORREL", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.NonFiniteBar("CORREL", "peek", !double.IsFinite(inReal0) ? nameof(inReal0) : nameof(inReal1));
          CorrelStream sp = this;
          double x = 0.0;
          double y = 0.0;
@@ -805,6 +876,8 @@ public partial class Core
          int barsSinceReseed = sp.barsSinceReseed;
          double cur_outReal = 0.0;
          int j = sp.j;
+         double peakX2 = sp.peakX2;
+         double peakY2 = sp.peakY2;
          double shiftX = sp.shiftX;
          double shiftY = sp.shiftY;
          double sumX = sp.sumX;
@@ -829,24 +902,20 @@ public partial class Core
          sumXY += x * y;
          sumY += y;
          sumY2 += y * y;
+         peakX2 = MaxGt(sumX2, peakX2);
+         peakY2 = MaxGt(sumY2, peakY2);
          ssX = sumX2 - sumX * sumX * sp.invPeriod;
          ssY = sumY2 - sumY * sumY * sp.invPeriod;
          spXY = sumXY - sumX * sumY * sp.invPeriod;
-         /* Re-anchor and rebuild with a fresh two-pass when the shift has gone
-          * stale. Same three triggers as TA_VAR: either sum of squares has shrunk
-          * below 1e-6 of the squared deviations it is extracted from; OR the value
-          * the PREVIOUS bar removed sat so far from the shift that its squared term
-          * dwarfs what remains (a large outlier transiting the window buries the
-          * small terms below its ulp, and the residue it leaves is cancellation
-          * garbage); OR at least every 32 windows, so a slow drift stays bounded
-          * however long the series runs.
-          *
-          * One bar late is correct, not a compromise. leavingX/leavingY are set by
-          * the removal at the BOTTOM of the loop, so the bar on which the outlier
-          * actually leaves still computes its own output from sums that legitimately
-          * contain it. The trigger then fires on the NEXT bar -- the first one whose
-          * sums carry the residue -- and the reseed below recomputes that bar's
-          * output before it is written. No bar is ever emitted from the residue.
+         /* Rebuild with a fresh two-pass when either sum of squares has shrunk
+          * below 1e-6 of the LARGEST one held since the last rebuild, or at least
+          * every 32 windows. Measure against that peak, not the current sum: the
+          * rounding the running sums carry scales with the peak, so once a series
+          * settles back near its shift, or an outlier leaves the window, the
+          * current sum holds nothing but that rounding. Each side keeps its own
+          * peak: one peak shared by two series of different scale fires on every
+          * bar. The collapse is seen on the first bar whose sums carry it, and the
+          * rebuild recomputes that bar's output before it is written.
           *
           * The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
           * legitimate answer - two uncorrelated series - not a loss of digits, and
@@ -859,7 +928,7 @@ public partial class Core
           * startIdx-lookbackTotal+outIdx, which is >= outIdx.
           */
          barsSinceReseed -= 1;
-         if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || sp.leavingX > 1000000.0 * sumX2 || sp.leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 ) {
+         if( ssX < 0.000001 * peakX2 || ssY < 0.000001 * peakY2 || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * sp.optInTimePeriod;
             windowStart = sp.today - sp.lookbackTotal;
             /* Both means in one pass over the window: the rebuild below is the
@@ -891,21 +960,49 @@ public partial class Core
             ssX = sumX2 - sumX * sumX * sp.invPeriod;
             ssY = sumY2 - sumY * sumY * sp.invPeriod;
             spXY = sumXY - sumX * sumY * sp.invPeriod;
+            /* A side flat to within the rounding of its own mean leaves its sum of
+             * squares at that rounding, which would fire the trigger again on every
+             * bar. Anchored on one of its own values it cannot, short of squares
+             * that underflow. sumXY depends on both shifts, so all five sums are
+             * redone.
+             */
+            if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 ) {
+               if( ssX < 0.000001 * sumX2 ) {
+                  shiftX = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal0[sp.today & sp.xMask] : pkVal0;
+               }
+               if( ssY < 0.000001 * sumY2 ) {
+                  shiftY = ((sp.today & sp.xMask) != pkSlot1) ? sp.x_inReal1[sp.today & sp.xMask] : pkVal1;
+               }
+               sumY2 = 0.0;
+               sumX2 = sumY2;
+               sumY = sumX2;
+               sumX = sumY;
+               sumXY = sumX;
+               for( j = windowStart; j <= sp.today; j += 1 ) {
+                  x = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal0[j & sp.xMask] : pkVal0) - shiftX;
+                  sumX += x;
+                  sumX2 += x * x;
+                  y = (((j & sp.xMask) != pkSlot1) ? sp.x_inReal1[j & sp.xMask] : pkVal1) - shiftY;
+                  sumXY += x * y;
+                  sumY += y;
+                  sumY2 += y * y;
+               }
+               ssX = sumX2 - sumX * sumX * sp.invPeriod;
+               ssY = sumY2 - sumY * sumY * sp.invPeriod;
+               spXY = sumXY - sumX * sumY * sp.invPeriod;
+            }
+            peakX2 = sumX2;
+            peakY2 = sumY2;
             /* A sum of squares is non-negative by definition, but this one is
              * extracted as a difference, so its SIGN is not guaranteed on a window
              * sitting inside a flat stretch. Enforce the invariant HERE and not at
-             * the divide: a negative ssX always reseeds on the same bar (it makes
-             * the first trigger's `negative < non-negative` true whenever sumX2 is
-             * positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
-             * divide below can rely on both being >= 0 and needs no sign test of
-             * its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+             * the divide: a negative ssX always reseeds on the same bar, because
+             * the peak it is compared with is never negative, so the divide below
+             * can rely on both being >= 0 and needs no sign test of its own.
+             * CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
              */
-            if( ssX < 0.0 ) {
-               ssX = 0.0;
-            }
-            if( ssY < 0.0 ) {
-               ssY = 0.0;
-            }
+            ssX = MaxGt(0.0, ssX);
+            ssY = MaxGt(0.0, ssY);
          }
          trailingIdx += 1;
          /* Output the new coefficient.
@@ -945,8 +1042,8 @@ public partial class Core
              */
             if( tempReal > 1.0 ) {
                tempReal = 1.0;
-            } else if( tempReal < 0 - 1.0 ) {
-               tempReal = 0 - 1.0;
+            } else {
+               tempReal = MaxGt(-1.0, tempReal);
             }
             cur_outReal = tempReal;
          } else {
@@ -972,7 +1069,7 @@ public partial class Core
       }
    }
 
-   internal void CorrelStepImpl( CorrelStream sp, double inReal0, double inReal1 )
+   private void CorrelStepImpl( CorrelStream sp, double inReal0, double inReal1 )
    {
       double x = 0.0;
       double y = 0.0;
@@ -993,24 +1090,20 @@ public partial class Core
       sp.sumXY += x * y;
       sp.sumY += y;
       sp.sumY2 += y * y;
+      sp.peakX2 = MaxGt(sp.sumX2, sp.peakX2);
+      sp.peakY2 = MaxGt(sp.sumY2, sp.peakY2);
       ssX = sp.sumX2 - sp.sumX * sp.sumX * sp.invPeriod;
       ssY = sp.sumY2 - sp.sumY * sp.sumY * sp.invPeriod;
       spXY = sp.sumXY - sp.sumX * sp.sumY * sp.invPeriod;
-      /* Re-anchor and rebuild with a fresh two-pass when the shift has gone
-       * stale. Same three triggers as TA_VAR: either sum of squares has shrunk
-       * below 1e-6 of the squared deviations it is extracted from; OR the value
-       * the PREVIOUS bar removed sat so far from the shift that its squared term
-       * dwarfs what remains (a large outlier transiting the window buries the
-       * small terms below its ulp, and the residue it leaves is cancellation
-       * garbage); OR at least every 32 windows, so a slow drift stays bounded
-       * however long the series runs.
-       *
-       * One bar late is correct, not a compromise. leavingX/leavingY are set by
-       * the removal at the BOTTOM of the loop, so the bar on which the outlier
-       * actually leaves still computes its own output from sums that legitimately
-       * contain it. The trigger then fires on the NEXT bar -- the first one whose
-       * sums carry the residue -- and the reseed below recomputes that bar's
-       * output before it is written. No bar is ever emitted from the residue.
+      /* Rebuild with a fresh two-pass when either sum of squares has shrunk
+       * below 1e-6 of the LARGEST one held since the last rebuild, or at least
+       * every 32 windows. Measure against that peak, not the current sum: the
+       * rounding the running sums carry scales with the peak, so once a series
+       * settles back near its shift, or an outlier leaves the window, the
+       * current sum holds nothing but that rounding. Each side keeps its own
+       * peak: one peak shared by two series of different scale fires on every
+       * bar. The collapse is seen on the first bar whose sums carry it, and the
+       * rebuild recomputes that bar's output before it is written.
        *
        * The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
        * legitimate answer - two uncorrelated series - not a loss of digits, and
@@ -1023,7 +1116,7 @@ public partial class Core
        * startIdx-lookbackTotal+outIdx, which is >= outIdx.
        */
       sp.barsSinceReseed -= 1;
-      if( ssX < 0.000001 * sp.sumX2 || ssY < 0.000001 * sp.sumY2 || sp.leavingX > 1000000.0 * sp.sumX2 || sp.leavingY > 1000000.0 * sp.sumY2 || sp.barsSinceReseed <= 0 ) {
+      if( ssX < 0.000001 * sp.peakX2 || ssY < 0.000001 * sp.peakY2 || sp.barsSinceReseed <= 0 ) {
          sp.barsSinceReseed = 32 * sp.optInTimePeriod;
          windowStart = sp.today - sp.lookbackTotal;
          /* Both means in one pass over the window: the rebuild below is the
@@ -1055,21 +1148,49 @@ public partial class Core
          ssX = sp.sumX2 - sp.sumX * sp.sumX * sp.invPeriod;
          ssY = sp.sumY2 - sp.sumY * sp.sumY * sp.invPeriod;
          spXY = sp.sumXY - sp.sumX * sp.sumY * sp.invPeriod;
+         /* A side flat to within the rounding of its own mean leaves its sum of
+          * squares at that rounding, which would fire the trigger again on every
+          * bar. Anchored on one of its own values it cannot, short of squares
+          * that underflow. sumXY depends on both shifts, so all five sums are
+          * redone.
+          */
+         if( ssX < 0.000001 * sp.sumX2 || ssY < 0.000001 * sp.sumY2 ) {
+            if( ssX < 0.000001 * sp.sumX2 ) {
+               sp.shiftX = sp.x_inReal0[sp.today & sp.xMask];
+            }
+            if( ssY < 0.000001 * sp.sumY2 ) {
+               sp.shiftY = sp.x_inReal1[sp.today & sp.xMask];
+            }
+            sp.sumY2 = 0.0;
+            sp.sumX2 = sp.sumY2;
+            sp.sumY = sp.sumX2;
+            sp.sumX = sp.sumY;
+            sp.sumXY = sp.sumX;
+            for( sp.j = windowStart; sp.j <= sp.today; sp.j += 1 ) {
+               x = sp.x_inReal0[sp.j & sp.xMask] - sp.shiftX;
+               sp.sumX += x;
+               sp.sumX2 += x * x;
+               y = sp.x_inReal1[sp.j & sp.xMask] - sp.shiftY;
+               sp.sumXY += x * y;
+               sp.sumY += y;
+               sp.sumY2 += y * y;
+            }
+            ssX = sp.sumX2 - sp.sumX * sp.sumX * sp.invPeriod;
+            ssY = sp.sumY2 - sp.sumY * sp.sumY * sp.invPeriod;
+            spXY = sp.sumXY - sp.sumX * sp.sumY * sp.invPeriod;
+         }
+         sp.peakX2 = sp.sumX2;
+         sp.peakY2 = sp.sumY2;
          /* A sum of squares is non-negative by definition, but this one is
           * extracted as a difference, so its SIGN is not guaranteed on a window
           * sitting inside a flat stretch. Enforce the invariant HERE and not at
-          * the divide: a negative ssX always reseeds on the same bar (it makes
-          * the first trigger's `negative < non-negative` true whenever sumX2 is
-          * positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
-          * divide below can rely on both being >= 0 and needs no sign test of
-          * its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+          * the divide: a negative ssX always reseeds on the same bar, because
+          * the peak it is compared with is never negative, so the divide below
+          * can rely on both being >= 0 and needs no sign test of its own.
+          * CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
           */
-         if( ssX < 0.0 ) {
-            ssX = 0.0;
-         }
-         if( ssY < 0.0 ) {
-            ssY = 0.0;
-         }
+         ssX = MaxGt(0.0, ssX);
+         ssY = MaxGt(0.0, ssY);
       }
       /* Save the trailing values before writing the output, since the input
        * and output might be the same array.
@@ -1114,21 +1235,19 @@ public partial class Core
           */
          if( tempReal > 1.0 ) {
             tempReal = 1.0;
-         } else if( tempReal < 0 - 1.0 ) {
-            tempReal = 0 - 1.0;
+         } else {
+            tempReal = MaxGt(-1.0, tempReal);
          }
          sp.cur_outReal = tempReal;
       } else {
          sp.cur_outReal = 0.0;
       }
       /* Remove the trailing values (prepares the next window). */
-      sp.leavingX = trailingX * trailingX;
-      sp.leavingY = trailingY * trailingY;
       sp.sumX -= trailingX;
-      sp.sumX2 -= sp.leavingX;
+      sp.sumX2 -= trailingX * trailingX;
       sp.sumXY -= trailingX * trailingY;
       sp.sumY -= trailingY;
-      sp.sumY2 -= sp.leavingY;
+      sp.sumY2 -= trailingY * trailingY;
       sp.today += 1;
    }
 
@@ -1150,8 +1269,8 @@ public partial class Core
       double ssX = 0;
       double ssY = 0;
       double spXY = 0;
-      double leavingX = 0;
-      double leavingY = 0;
+      double peakX2 = 0;
+      double peakY2 = 0;
       double tempReal = 0;
       double invPeriod = 0;
       int lookbackTotal = 0;
@@ -1166,7 +1285,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inReal1.Length != inReal0.Length ) {
@@ -1210,9 +1329,10 @@ public partial class Core
        * 1e-5 spread that is three of them, and the correlation of two perfectly
        * correlated series came back as 0, as -1, or as -1.73 (#242).
        *
-       * Anchor on the first window value here; every later re-anchor uses the
-       * window mean, which is better centred but costs a pass this one cannot
-       * afford before the sums exist.
+       * Anchor on the first window value here; a rebuild anchors on the window
+       * mean instead (or on a window value when the mean leaves the window
+       * flat), which is better centred but costs a pass this one cannot afford
+       * before the sums exist.
        */
       shiftX = inReal0[trailingIdx];
       shiftY = inReal1[trailingIdx];
@@ -1234,8 +1354,8 @@ public partial class Core
       today = startIdx;
       outIdx = 0;
       barsSinceReseed = 32 * optInTimePeriod;
-      leavingX = 0.0;
-      leavingY = 0.0;
+      peakX2 = sumX2;
+      peakY2 = sumY2;
       do {
          /* Add the incoming value, measured against the shift. */
          x = inReal0[today] - shiftX;
@@ -1245,24 +1365,20 @@ public partial class Core
          sumXY += x * y;
          sumY += y;
          sumY2 += y * y;
+         peakX2 = MaxGt(sumX2, peakX2);
+         peakY2 = MaxGt(sumY2, peakY2);
          ssX = sumX2 - sumX * sumX * invPeriod;
          ssY = sumY2 - sumY * sumY * invPeriod;
          spXY = sumXY - sumX * sumY * invPeriod;
-         /* Re-anchor and rebuild with a fresh two-pass when the shift has gone
-          * stale. Same three triggers as TA_VAR: either sum of squares has shrunk
-          * below 1e-6 of the squared deviations it is extracted from; OR the value
-          * the PREVIOUS bar removed sat so far from the shift that its squared term
-          * dwarfs what remains (a large outlier transiting the window buries the
-          * small terms below its ulp, and the residue it leaves is cancellation
-          * garbage); OR at least every 32 windows, so a slow drift stays bounded
-          * however long the series runs.
-          *
-          * One bar late is correct, not a compromise. leavingX/leavingY are set by
-          * the removal at the BOTTOM of the loop, so the bar on which the outlier
-          * actually leaves still computes its own output from sums that legitimately
-          * contain it. The trigger then fires on the NEXT bar -- the first one whose
-          * sums carry the residue -- and the reseed below recomputes that bar's
-          * output before it is written. No bar is ever emitted from the residue.
+         /* Rebuild with a fresh two-pass when either sum of squares has shrunk
+          * below 1e-6 of the LARGEST one held since the last rebuild, or at least
+          * every 32 windows. Measure against that peak, not the current sum: the
+          * rounding the running sums carry scales with the peak, so once a series
+          * settles back near its shift, or an outlier leaves the window, the
+          * current sum holds nothing but that rounding. Each side keeps its own
+          * peak: one peak shared by two series of different scale fires on every
+          * bar. The collapse is seen on the first bar whose sums carry it, and the
+          * rebuild recomputes that bar's output before it is written.
           *
           * The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
           * legitimate answer - two uncorrelated series - not a loss of digits, and
@@ -1275,7 +1391,7 @@ public partial class Core
           * startIdx-lookbackTotal+outIdx, which is >= outIdx.
           */
          barsSinceReseed -= 1;
-         if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || leavingX > 1000000.0 * sumX2 || leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 ) {
+         if( ssX < 0.000001 * peakX2 || ssY < 0.000001 * peakY2 || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInTimePeriod;
             windowStart = today - lookbackTotal;
             /* Both means in one pass over the window: the rebuild below is the
@@ -1307,21 +1423,49 @@ public partial class Core
             ssX = sumX2 - sumX * sumX * invPeriod;
             ssY = sumY2 - sumY * sumY * invPeriod;
             spXY = sumXY - sumX * sumY * invPeriod;
+            /* A side flat to within the rounding of its own mean leaves its sum of
+             * squares at that rounding, which would fire the trigger again on every
+             * bar. Anchored on one of its own values it cannot, short of squares
+             * that underflow. sumXY depends on both shifts, so all five sums are
+             * redone.
+             */
+            if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 ) {
+               if( ssX < 0.000001 * sumX2 ) {
+                  shiftX = inReal0[today];
+               }
+               if( ssY < 0.000001 * sumY2 ) {
+                  shiftY = inReal1[today];
+               }
+               sumY2 = 0.0;
+               sumX2 = sumY2;
+               sumY = sumX2;
+               sumX = sumY;
+               sumXY = sumX;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  x = inReal0[j] - shiftX;
+                  sumX += x;
+                  sumX2 += x * x;
+                  y = inReal1[j] - shiftY;
+                  sumXY += x * y;
+                  sumY += y;
+                  sumY2 += y * y;
+               }
+               ssX = sumX2 - sumX * sumX * invPeriod;
+               ssY = sumY2 - sumY * sumY * invPeriod;
+               spXY = sumXY - sumX * sumY * invPeriod;
+            }
+            peakX2 = sumX2;
+            peakY2 = sumY2;
             /* A sum of squares is non-negative by definition, but this one is
              * extracted as a difference, so its SIGN is not guaranteed on a window
              * sitting inside a flat stretch. Enforce the invariant HERE and not at
-             * the divide: a negative ssX always reseeds on the same bar (it makes
-             * the first trigger's `negative < non-negative` true whenever sumX2 is
-             * positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
-             * divide below can rely on both being >= 0 and needs no sign test of
-             * its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+             * the divide: a negative ssX always reseeds on the same bar, because
+             * the peak it is compared with is never negative, so the divide below
+             * can rely on both being >= 0 and needs no sign test of its own.
+             * CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
              */
-            if( ssX < 0.0 ) {
-               ssX = 0.0;
-            }
-            if( ssY < 0.0 ) {
-               ssY = 0.0;
-            }
+            ssX = MaxGt(0.0, ssX);
+            ssY = MaxGt(0.0, ssY);
          }
          /* Save the trailing values before writing the output, since the input
           * and output might be the same array.
@@ -1366,21 +1510,19 @@ public partial class Core
              */
             if( tempReal > 1.0 ) {
                tempReal = 1.0;
-            } else if( tempReal < 0 - 1.0 ) {
-               tempReal = 0 - 1.0;
+            } else {
+               tempReal = MaxGt(-1.0, tempReal);
             }
             outReal[outIdx++ * outStride] = tempReal;
          } else {
             outReal[outIdx++ * outStride] = 0.0;
          }
          /* Remove the trailing values (prepares the next window). */
-         leavingX = trailingX * trailingX;
-         leavingY = trailingY * trailingY;
          sumX -= trailingX;
-         sumX2 -= leavingX;
+         sumX2 -= trailingX * trailingX;
          sumXY -= trailingX * trailingY;
          sumY -= trailingY;
-         sumY2 -= leavingY;
+         sumY2 -= trailingY * trailingY;
          today += 1;
       } while( today <= endIdx );
       outNBElement = outIdx;
@@ -1407,8 +1549,8 @@ public partial class Core
       sp.sumY2 = sumY2;
       sp.shiftX = shiftX;
       sp.shiftY = shiftY;
-      sp.leavingX = leavingX;
-      sp.leavingY = leavingY;
+      sp.peakX2 = peakX2;
+      sp.peakY2 = peakY2;
       sp.invPeriod = invPeriod;
       sp.lookbackTotal = lookbackTotal;
       sp.trailingIdx = trailingIdx;
@@ -1432,6 +1574,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("CORREL", "openAndFill", nameof(inReal0), inReal0.Length, startIdx, CorrelLookback(optInTimePeriod));
+      }
       throw StreamFailure("CORREL", "openAndFill", retCode);
    }
 
@@ -1445,6 +1590,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("CORREL", "open", nameof(inReal0), inReal0.Length, startIdx, CorrelLookback(optInTimePeriod));
       }
       throw StreamFailure("CORREL", "open", retCode);
    }
@@ -1466,12 +1614,12 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public CorrelStream CorrelOpen( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int optInTimePeriod )
    {
       if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "CORREL open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal0.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "CORREL open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "CORREL open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inReal1.IsEmpty ) throw new TALibArgumentException("CORREL open: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
       RequireHistoryLength("CORREL", "open", "inReal1", inReal1.Length, inReal0.Length);
       return CorrelOpenInternal(inReal0, inReal1, 0, optInTimePeriod);
@@ -1503,12 +1651,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public CorrelStream CorrelOpenAndFill( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "CORREL openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal0.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "CORREL openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "CORREL openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inReal1.IsEmpty ) throw new TALibArgumentException("CORREL openAndFill: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
       int guardOutLen = OpenFillCount("CORREL", "openAndFill", inReal0.Length, CorrelLookback(optInTimePeriod));
       RequireHistoryLength("CORREL", "openAndFill", "inReal1", inReal1.Length, inReal0.Length);

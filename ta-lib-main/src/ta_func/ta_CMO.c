@@ -60,6 +60,7 @@
  *                 the fixed TA_IS_ZERO band, which zeroed the oscillator for any
  *                 instrument quoted small enough to fall under it.
  *  091326 MF,CC   #411 Wilder step without a divide or a branch.
+ *  092826 MF,CC   #466 Drop the period-1 copy-through; the range starts at 2.
  */
 
 TA_LIB_API int TA_CMO_Lookback( int optInTimePeriod )
@@ -93,9 +94,9 @@ TA_LIB_API TA_RetCode TA_CMO( int    startIdx,
    double tempValue1;
    double tempValue2;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -124,26 +125,6 @@ TA_LIB_API TA_RetCode TA_CMO( int    startIdx,
    }
    outIdx = 0;
    /* Index into the output. */
-   /* Trap special case where the period is '1'.
-    * In that case, just copy the input into the
-    * output for the requested range (as-is !)
-    */
-   if( optInTimePeriod == 1 )
-   {
-      *outBegIdx= startIdx;
-      i = endIdx - startIdx + 1;
-      *outNBElement= i;
-      /* Element loop, not a block copy: the C single-precision variant reads a
-       * float array, so a double-sized byte copy would reinterpret and
-       * over-read it (#137). Forward order keeps the in-place case correct (#94).
-       */
-      today = startIdx;
-      for( outIdx = 0; outIdx < i; outIdx += 1 )
-      {
-         outReal[outIdx] = inReal[today++];
-      }
-      return TA_SUCCESS;
-   }
    /* The declaration order above sets invPeriod's place in the stream state,
     * and that place is load-bearing: a layout that lets Update load it paired
     * with a field the previous bar stored stalls every call. Re-measure Update
@@ -263,9 +244,9 @@ TA_RetCode TA_S_CMO( int    startIdx,
    double tempValue1;
    double tempValue2;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -291,18 +272,6 @@ TA_RetCode TA_S_CMO( int    startIdx,
       return TA_SUCCESS;
    }
    outIdx = 0;
-   if( optInTimePeriod == 1 )
-   {
-      *outBegIdx= startIdx;
-      i = endIdx - startIdx + 1;
-      *outNBElement= i;
-      today = startIdx;
-      for( outIdx = 0; outIdx < i; outIdx += 1 )
-      {
-         outReal[outIdx] = (double)inReal[today++];
-      }
-      return TA_SUCCESS;
-   }
    invPeriod = 1.0 / (double)optInTimePeriod;
    today = startIdx - lookbackTotal;
    prevValue = (double)inReal[today];
@@ -376,7 +345,9 @@ struct TA_CMO_Stream {
    int optInTimePeriod;
    double prevGain;
    double prevLoss;
+   double pad_0;
    double invPeriod;
+   double pad_1;
    double prevValue;
 };
 
@@ -387,12 +358,6 @@ static void TA_CMO_StepImpl( struct TA_CMO_Stream *sp, double inReal, double *ou
    double tempValue1;
    double tempValue2;
 
-   if( sp->optInTimePeriod == 1 )
-   {
-      *outReal= inReal;
-      sp->cur_outReal = *outReal;
-      return;
-   }
    tempValue1 = inReal;
    tempValue2 = tempValue1 - sp->prevValue;
    sp->prevValue = tempValue1;
@@ -418,7 +383,7 @@ static TA_RetCode TA_CMO_OpenImpl( struct TA_CMO_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
@@ -432,43 +397,6 @@ static TA_RetCode TA_CMO_OpenImpl( struct TA_CMO_Stream **stream, const double i
    }
 
    endIdx = historyLen - 1;
-
-   if( optInTimePeriod == 1 )
-   {
-      int fillLb = TA_CMO_Lookback( optInTimePeriod );
-      if( startIdx > fillLb ) fillLb = startIdx;
-      if( historyLen < fillLb + 1 )
-      {
-         *outBegIdx = 0;
-         *outNBElement = 0;
-         return TA_INSUFFICIENT_HISTORY;
-      }
-      sp = (struct TA_CMO_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { return TA_ALLOC_ERR; }
-      memset( sp, 0, sizeof(*sp) );
-      sp->optInTimePeriod = optInTimePeriod;
-      {
-         int fillIdx;
-         *outBegIdx = fillLb;
-         *outNBElement = historyLen - fillLb;
-         if( outStride )
-         {
-            for( fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ )
-            {
-               outReal[fillIdx] = inReal[fillLb + fillIdx];
-            }
-         }
-         else
-         {
-            outReal[0] = inReal[historyLen - 1];
-         }
-      }
-      sp->outRangeBegIdx = *outBegIdx;
-      sp->outRangeCount = *outNBElement;
-      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
-      *stream = sp;
-      return TA_SUCCESS;
-   }
 
    {
       int outIdx;
@@ -631,7 +559,7 @@ TA_LIB_API TA_RetCode TA_CMO_Open( TA_CMO_Stream **stream, const double inReal[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_CMO_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -641,7 +569,7 @@ TA_LIB_API TA_RetCode TA_CMO_OpenAndFill( TA_CMO_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_CMO_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -656,7 +584,7 @@ TA_RetCode TA_CMO_OpenAndFillInternal( struct TA_CMO_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_CMO_Update( TA_CMO_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -680,11 +608,6 @@ TA_LIB_API TA_RetCode TA_CMO_Peek( const TA_CMO_Stream *stream, double inReal, d
    prevGain = sp->prevGain;
    prevLoss = sp->prevLoss;
    prevValue = sp->prevValue;
-   if( sp->optInTimePeriod == 1 )
-   {
-      *outReal= inReal;
-      return TA_SUCCESS;
-   }
    tempValue1 = inReal;
    tempValue2 = tempValue1 - prevValue;
    prevValue = tempValue1;
@@ -726,7 +649,7 @@ TA_LIB_API TA_RetCode TA_CMO_OutRange( const TA_CMO_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_CMO_Advance( TA_CMO_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

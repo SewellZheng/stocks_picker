@@ -108,9 +108,9 @@ TA_LIB_API TA_RetCode TA_T3( int    startIdx,
    double c4;
    double tempReal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -247,9 +247,9 @@ TA_LIB_API TA_RetCode TA_T3( int    startIdx,
    }
    /* Calculate the constants */
    tempReal = optInVFactor * optInVFactor;
-   c1 = 0 - tempReal * optInVFactor;
+   c1 = -(tempReal * optInVFactor);
    c2 = 3.0 * (tempReal - c1);
-   c3 = (0 - 6.0) * tempReal - 3.0 * (optInVFactor - c1);
+   c3 = -6.0 * tempReal - 3.0 * (optInVFactor - c1);
    c4 = fma(3.0, tempReal, fma(3.0, optInVFactor, 1.0) - c1);
    /* Write the first output */
    outIdx = 0;
@@ -300,9 +300,9 @@ TA_RetCode TA_S_T3( int    startIdx,
    double c4;
    double tempReal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -408,9 +408,9 @@ TA_RetCode TA_S_T3( int    startIdx,
       e6 = fma(one_minus_k, e6, k * e5);
    }
    tempReal = optInVFactor * optInVFactor;
-   c1 = 0 - tempReal * optInVFactor;
+   c1 = -(tempReal * optInVFactor);
    c2 = 3.0 * (tempReal - c1);
-   c3 = (0 - 6.0) * tempReal - 3.0 * (optInVFactor - c1);
+   c3 = -6.0 * tempReal - 3.0 * (optInVFactor - c1);
    c4 = fma(3.0, tempReal, fma(3.0, optInVFactor, 1.0) - c1);
    outIdx = 0;
    outReal[outIdx++] = fma(c4, e3, fma(c3, e4, fma(c1, e6, c2 * e5)));
@@ -440,12 +440,14 @@ struct TA_T3_Stream {
    double optInVFactor;
    double k;
    double one_minus_k;
+   double pad_0;
    double e1;
    double e2;
    double e3;
    double e4;
    double e5;
    double e6;
+   double pad_1;
    double c1;
    double c2;
    double c3;
@@ -453,7 +455,7 @@ struct TA_T3_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_T3_StepImpl( struct TA_T3_Stream *sp, double inReal, double *outReal )
+static TA_FMA_STEP_INLINE void TA_T3_StepImpl( struct TA_T3_Stream *sp, double inReal, double *outReal )
 {
    if( sp->optInTimePeriod == 1 )
    {
@@ -479,7 +481,7 @@ static TA_RetCode TA_T3_OpenImpl( struct TA_T3_Stream **stream, const double inR
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
@@ -656,9 +658,9 @@ static TA_RetCode TA_T3_OpenImpl( struct TA_T3_Stream **stream, const double inR
       }
       /* Calculate the constants */
       tempReal = optInVFactor * optInVFactor;
-      c1 = 0 - tempReal * optInVFactor;
+      c1 = -(tempReal * optInVFactor);
       c2 = 3.0 * (tempReal - c1);
-      c3 = (0 - 6.0) * tempReal - 3.0 * (optInVFactor - c1);
+      c3 = -6.0 * tempReal - 3.0 * (optInVFactor - c1);
       c4 = fma(3.0, tempReal, fma(3.0, optInVFactor, 1.0) - c1);
       /* Write the first output */
       outIdx = 0;
@@ -725,7 +727,7 @@ TA_LIB_API TA_RetCode TA_T3_Open( TA_T3_Stream **stream, const double inReal[], 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_T3_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInVFactor, outReal );
 }
@@ -735,7 +737,7 @@ TA_LIB_API TA_RetCode TA_T3_OpenAndFill( TA_T3_Stream **stream, const double inR
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_T3_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal );
@@ -747,10 +749,11 @@ TA_RetCode TA_T3_OpenAndFillInternal( struct TA_T3_Stream **stream, const double
    return TA_T3_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_T3_Update( TA_T3_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -799,6 +802,32 @@ TA_LIB_API TA_RetCode TA_T3_Close( TA_T3_Stream *stream )
    return TA_SUCCESS;
 }
 
+/* Private function, not in public API. */
+void TA_T3_StepTape( struct TA_T3_Stream *sp, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   (void)tape;
+   (void)tapeBase;
+   (void)tapeMask;
+   TA_T3_StepImpl( sp, inReal, outReal );
+   sp->outRangeCount++;
+}
+
+/* Private function, not in public API. */
+void TA_T3_PeekTape( const struct TA_T3_Stream *sp, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   (void)tape;
+   (void)tapeBase;
+   (void)tapeMask;
+   (void)TA_T3_Peek( sp, inReal, outReal );
+}
+
+/* Private function, not in public API. */
+int TA_T3_TapeDetach( struct TA_T3_Stream *sp )
+{
+   (void)sp;
+   return 0;
+}
+
 TA_LIB_API TA_RetCode TA_T3_Value( const TA_T3_Stream *stream, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
@@ -817,7 +846,7 @@ TA_LIB_API TA_RetCode TA_T3_OutRange( const TA_T3_Stream *stream, int *outBegIdx
 TA_LIB_API TA_RetCode TA_T3_Advance( TA_T3_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

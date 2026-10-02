@@ -53,6 +53,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using TALib;
+using TALib.Metadata;
 
 namespace TALib.Test;
 
@@ -336,7 +337,7 @@ public static class BatchApiTest
         CheckThrows<ArgumentException>(
             () => core.Sma(0, 199, input, 10, new double[3]),
             "undersized output -> ArgumentException",
-            "SMA", "outReal", "3", "191");
+            "SMA: outReal has length 3, needs 191");
     }
 
     /// <summary>Requesting more than the input holds names the input.</summary>
@@ -348,7 +349,7 @@ public static class BatchApiTest
         CheckThrows<ArgumentException>(
             () => core.Sma(0, 500, input, 10, new double[501]),
             "endIdx past the input end -> ArgumentException",
-            "SMA", "inReal", "200", "501");
+            "SMA: inReal has length 200, needs 501");
     }
 
     /// <summary>Two inputs of different lengths: the short one is named.</summary>
@@ -436,11 +437,14 @@ public static class BatchApiTest
             () => core.Sma(-1, 199, input, 10, tiny),
             "negative startIdx still -> ArgumentOutOfRange", "startIdx");
         CheckThrows<ArgumentOutOfRangeException>(
-            () => core.Sma(0, Core.MaxIndex + 1, input, 10, tiny),
-            "endIdx above MaxIndex still -> ArgumentOutOfRange", "endIdx");
+            () => core.Sma(0, Core.IndexMax + 1, input, 10, tiny),
+            "endIdx above IndexMax still -> ArgumentOutOfRange", "endIdx");
         CheckThrows<ArgumentException>(
             () => core.Sma(0, 199, input, 0, tiny),
             "out-of-range period still -> the parameter message", "bad parameter");
+        CheckThrows<ArgumentOutOfRangeException>(
+            () => core.Sma(Core.IndexMax + 5, Core.IndexMax + 9, input, 10, tiny),
+            "startIdx above IndexMax still -> ArgumentOutOfRange", "startIdx");
 
         // And an EMPTY input does not change any of those answers. It used to:
         // a separate emptiness check ran first and reported "inReal is empty"
@@ -457,8 +461,8 @@ public static class BatchApiTest
             () => core.Sma(50, 10, ReadOnlySpan<double>.Empty, 10, tiny),
             "empty input does not mask endIdx < startIdx", "endIdx");
         CheckThrows<ArgumentOutOfRangeException>(
-            () => core.Sma(0, Core.MaxIndex + 1, ReadOnlySpan<double>.Empty, 10, tiny),
-            "empty input does not mask endIdx above MaxIndex", "endIdx");
+            () => core.Sma(0, Core.IndexMax + 1, ReadOnlySpan<double>.Empty, 10, tiny),
+            "empty input does not mask endIdx above IndexMax", "endIdx");
         CheckThrows<ArgumentException>(
             () => core.Sma(0, 199, ReadOnlySpan<double>.Empty, 0, tiny),
             "empty input does not mask a bad parameter", "bad parameter");
@@ -643,6 +647,10 @@ public static class BatchApiTest
               "OutRange GetHashCode agrees with Equals");
         Check(new OutRange(0, 0).IsEmpty && new OutRange(0, 0).Count == 0, "default OutRange is empty");
         Check(default(OutRange).IsEmpty, "default(OutRange) is empty");
+        Check(new OutRange(3, 7) == new OutRange(3, 7) && new OutRange(3, 7) != new OutRange(3, 8),
+              "OutRange has value == and !=");
+        Check(new OutRange(3, 7).ToString() == "OutRange { BegIdx = 3, Count = 7 }",
+              "OutRange.ToString names both components");
     }
 
     /// <summary>
@@ -970,7 +978,7 @@ public static class BatchApiTest
     /// </summary>
     /// <remarks>C# cannot spell "absent" apart from "empty" — a <c>Span&lt;T&gt;</c>
     /// is a ref struct and a null array converts to an empty span — so an empty
-    /// span IS the declination (Appendix F of the error-handling spec).
+    /// span IS the declination (rule O5).
     /// <para>Acceptance alone would not test this: a body that stopped computing
     /// FAMA, or took a different path without it, would be accepted here just the
     /// same. So the declining call has to reproduce the supplied one bit for bit
@@ -1059,6 +1067,125 @@ public static class BatchApiTest
             "two outputs that are one span are still rejected", "ACCBANDS");
     }
 
+    /// <summary>The index rules outrank the buffer rules on the output side too.
+    /// An empty span is C#'s only spelling of an absent buffer: a null array
+    /// converts to one.</summary>
+    private static void AnIndexFaultOutranksAnEmptyOutput()
+    {
+        var core = new Core();
+        double[] input = Closes(200);
+
+        CheckThrows<ArgumentOutOfRangeException>(
+            () => core.Sma(50, 10, input, 10, Span<double>.Empty),
+            "endIdx < startIdx outranks an empty output", "endIdx");
+        CheckThrows<ArgumentOutOfRangeException>(
+            () => core.Sma(-1, 199, input, 10, Span<double>.Empty),
+            "a negative startIdx outranks an empty output", "startIdx");
+        CheckThrows<ArgumentOutOfRangeException>(
+            () => core.Sma(0, Core.IndexMax + 1, input, 10, Span<double>.Empty),
+            "an endIdx above IndexMax outranks an empty output", "endIdx");
+        // Control: with the indices valid, the empty output IS the diagnosis.
+        CheckThrows<ArgumentException>(
+            () => core.Sma(0, 199, input, 10, Span<double>.Empty),
+            "a valid range still reports the empty output", "SMA", "outReal");
+    }
+
+    /// <summary>A bad optional parameter outranks an empty or undersized buffer,
+    /// on either side of the call.</summary>
+    private static void ABadParameterOutranksAnEmptyBuffer()
+    {
+        var core = new Core();
+        double[] input = Closes(200);
+        var output = new double[200];
+
+        CheckThrows<ArgumentException>(
+            () => core.Sma(0, 199, input, 0, Span<double>.Empty),
+            "a bad period outranks an empty output", "SMA", "bad parameter");
+        CheckThrows<ArgumentException>(
+            () => core.Sma(0, 199, input.AsSpan(0, 50), 0, output),
+            "a bad period outranks an undersized input", "SMA", "bad parameter");
+        // Control: with the period valid, the buffer IS the diagnosis.
+        CheckThrows<ArgumentException>(
+            () => core.Sma(0, 199, input.AsSpan(0, 50), 10, output),
+            "a valid period still reports the short input", "SMA", "inReal");
+    }
+
+    /// <summary>
+    /// A C# enum is not a closed domain: <c>(MAType)999</c> is a value a caller can
+    /// pass, and it must be a parameter rejection, not a fall-through in the
+    /// function's dispatch.
+    /// </summary>
+    private static void AnOutOfDomainMATypeIsABadParameter()
+    {
+        var core = new Core();
+        double[] input = Closes(200);
+        var o1 = new double[200];
+        var o2 = new double[200];
+        var o3 = new double[200];
+        var inputF = new float[200];
+        for (int i = 0; i < inputF.Length; i++)
+        {
+            inputF[i] = (float)input[i];
+        }
+
+        foreach (int raw in new[] { 999, -1, (int)Enum.GetValues<MAType>()[^1] + 1 })
+        {
+            var t = (MAType)raw;
+            Check(core.MaLookback(10, t) == -1 && core.BbandsLookback(20, 2.0, 2.0, t) == -1,
+                $"(MAType){raw}: the lookback answers -1");
+            CarriesBadParam(() => core.Ma(0, 199, input, 10, t, o1), $"Ma((MAType){raw})");
+            CheckThrows<ArgumentException>(
+                () => core.Ma(0, 199, input, 10, t, o1), $"Ma((MAType){raw}) names the parameter fault",
+                "MA", "bad parameter");
+            CarriesBadParam(() => core.Ma(0, 199, inputF, 10, t, o1), $"Ma(float, (MAType){raw})");
+            CarriesBadParam(
+                () => core.Bbands(0, 199, input, 20, 2.0, 2.0, t, o1, o2, o3), $"Bbands((MAType){raw})");
+            CheckThrows<ArgumentException>(
+                () => core.Bbands(0, 199, input, 20, 2.0, 2.0, t, o1, o2, o3),
+                $"Bbands((MAType){raw}) names the parameter fault", "BBANDS", "bad parameter");
+        }
+        // Control: the last member of the domain is accepted by both.
+        var last = Enum.GetValues<MAType>()[^1];
+        Check(core.Ma(0, 199, input, 10, last, o1).Count > 0
+              && core.Bbands(0, 199, input, 20, 2.0, 2.0, last, o1, o2, o3).Count > 0,
+            "the highest defined MAType is accepted");
+    }
+
+    /* Not CheckCode: its seen-code set is a reach floor these probes must not satisfy. */
+    private static void CarriesBadParam(Action body, string what)
+    {
+        _checks++;
+        try
+        {
+            body();
+            _failures++;
+            Console.WriteLine("  FAIL: " + what + " (no exception thrown)");
+        }
+        catch (Exception e)
+        {
+            if ((e as ITALibFailure)?.RetCode != RetCode.BadParam)
+            {
+                _failures++;
+                Console.WriteLine("  FAIL: " + what + " (threw " + e.GetType().FullName + ": " + e.Message + ")");
+            }
+        }
+    }
+
+    /// <summary>The metadata path reaches the same guard: <c>Call</c> goes
+    /// through the public overload, so an undersized buffer bound to a
+    /// <see cref="ParamHolder"/> is named the same way.</summary>
+    private static void TheMetadataPathIsGuardedToo()
+    {
+        double[] input = Closes(200);
+        ParamHolder h = FunctionCatalog.Default["SMA"].CreateCall(Core.Default)
+            .SetInput(0, input).SetOptInput(0, 10).SetOutput(0, new double[3]);
+
+        CheckThrows<ArgumentException>(
+            () => h.Call(0, 199), "ParamHolder.Call is guarded too", "SMA", "outReal", "3", "191");
+        h.SetOutput(0, new double[200]);
+        Check(h.Call(0, 199).Count == 191, "the same call with a sized output succeeds");
+    }
+
     public static int Run()
     {
         MaxWithKnownOutputs();
@@ -1072,6 +1199,10 @@ public static class BatchApiTest
         TheLengthBoundFromBothSides();
         ARejectedCallWritesNothing();
         TheCoreStillOwnsItsOwnDiagnoses();
+        AnIndexFaultOutranksAnEmptyOutput();
+        ABadParameterOutranksAnEmptyBuffer();
+        AnOutOfDomainMATypeIsABadParameter();
+        TheMetadataPathIsGuardedToo();
         EachOutputIsCheckedSeparately();
         IntegerOutputsAreChecked();
         FloatOverloadIsCheckedToo();

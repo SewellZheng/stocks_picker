@@ -12,16 +12,19 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_ADR.c \
 	ta_ADX.c \
 	ta_ADXR.c \
+	ta_ALMA.c \
 	ta_AO.c \
 	ta_APO.c \
 	ta_AROON.c \
 	ta_AROONOSC.c \
+	ta_ASI.c \
 	ta_ASIN.c \
 	ta_ATAN.c \
 	ta_ATR.c \
 	ta_AVGDEV.c \
 	ta_AVGPRICE.c \
 	ta_BBANDS.c \
+	ta_BBW.c \
 	ta_BETA.c \
 	ta_BOP.c \
 	ta_CCI.c \
@@ -87,6 +90,10 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_CDLUPSIDEGAP2CROWS.c \
 	ta_CDLXSIDEGAP3METHODS.c \
 	ta_CEIL.c \
+	ta_CG.c \
+	ta_CHOP.c \
+	ta_CHOPTR.c \
+	ta_CKSP.c \
 	ta_CMF.c \
 	ta_CMO.c \
 	ta_CMOU.c \
@@ -94,6 +101,8 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_CORREL.c \
 	ta_COS.c \
 	ta_COSH.c \
+	ta_CRSI.c \
+	ta_CTI.c \
 	ta_CUMSUM.c \
 	ta_CVI.c \
 	ta_DEMA.c \
@@ -103,12 +112,14 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_DX.c \
 	ta_EFI.c \
 	ta_EMA.c \
+	ta_EMV.c \
 	ta_ER.c \
 	ta_ERI.c \
 	ta_EXP.c \
 	ta_FLOOR.c \
 	ta_FOSC.c \
 	ta_FRACTAL.c \
+	ta_FRAMA.c \
 	ta_HA.c \
 	ta_HMA.c \
 	ta_HT_DCPERIOD.c \
@@ -117,10 +128,14 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_HT_SINE.c \
 	ta_HT_TRENDLINE.c \
 	ta_HT_TRENDMODE.c \
+	ta_IBS.c \
 	ta_IMI.c \
 	ta_KAMA.c \
 	ta_KC.c \
 	ta_KDJ.c \
+	ta_KST.c \
+	ta_KSTEXT.c \
+	ta_KURTOSIS.c \
 	ta_LINEARREG.c \
 	ta_LINEARREG_ANGLE.c \
 	ta_LINEARREG_INTERCEPT.c \
@@ -137,6 +152,8 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_MAVP.c \
 	ta_MAX.c \
 	ta_MAXINDEX.c \
+	ta_MCGD.c \
+	ta_MEDIAN.c \
 	ta_MEDPRICE.c \
 	ta_MFI.c \
 	ta_MIDPOINT.c \
@@ -152,6 +169,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_NATR.c \
 	ta_NVI.c \
 	ta_OBV.c \
+	ta_PERCENTB.c \
 	ta_PERCENTILE.c \
 	ta_PERCENTRANK.c \
 	ta_PLUS_DI.c \
@@ -168,14 +186,17 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_ROCR100.c \
 	ta_RSI.c \
 	ta_RVI.c \
+	ta_RVIR.c \
 	ta_RVOL.c \
 	ta_SAR.c \
 	ta_SAREXT.c \
+	ta_SI.c \
 	ta_SIN.c \
 	ta_SINH.c \
 	ta_SMA.c \
 	ta_SMI.c \
 	ta_SQRT.c \
+	ta_STC.c \
 	ta_STDDEV.c \
 	ta_STOCH.c \
 	ta_STOCHF.c \
@@ -196,6 +217,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_ULTOSC.c \
 	ta_VAR.c \
 	ta_VHF.c \
+	ta_VIDYA.c \
 	ta_VORTEX.c \
 	ta_VWAP.c \
 	ta_VWMA.c \

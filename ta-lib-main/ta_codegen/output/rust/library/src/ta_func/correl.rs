@@ -62,6 +62,7 @@
  *               and ssY are still ordinary normals, and the divide then
  *               returned NaN under TA_SUCCESS -- which the range clamp cannot
  *               catch -- or a perfect correlation from a degenerate window.
+ *  092226 MF,CC #434 rebuild against each side's peak sum of squares.
  */
 
 // Import types from parent module
@@ -109,10 +110,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -140,8 +141,8 @@ impl Core {
         let mut ssX: f64 = 0.0_f64;
         let mut ssY: f64 = 0.0_f64;
         let mut spXY: f64 = 0.0_f64;
-        let mut leavingX: f64 = 0.0_f64;
-        let mut leavingY: f64 = 0.0_f64;
+        let mut peakX2: f64 = 0.0_f64;
+        let mut peakY2: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut invPeriod: f64 = 0.0_f64;
         let mut lookbackTotal: usize = 0_usize;
@@ -167,6 +168,8 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inReal0 = &inReal0[..=endIdx];
+        let inReal1 = &inReal1[..=endIdx];
         (*outBegIdx) = startIdx;
         trailingIdx = startIdx - lookbackTotal;
         // Measure both series against a shift near the window, exactly as TA_VAR
@@ -177,9 +180,10 @@ impl Core {
         // 1e-5 spread that is three of them, and the correlation of two perfectly
         // correlated series came back as 0, as -1, or as -1.73 (#242).
         //
-        // Anchor on the first window value here; every later re-anchor uses the
-        // window mean, which is better centred but costs a pass this one cannot
-        // afford before the sums exist.
+        // Anchor on the first window value here; a rebuild anchors on the window
+        // mean instead (or on a window value when the mean leaves the window
+        // flat), which is better centred but costs a pass this one cannot afford
+        // before the sums exist.
         shiftX = inReal0[trailingIdx];
         shiftY = inReal1[trailingIdx];
         // Calculate the initial values (the window less its last bar).
@@ -203,8 +207,8 @@ impl Core {
         today = startIdx;
         outIdx = 0;
         barsSinceReseed = (32 * optInTimePeriod) as usize;
-        leavingX = 0.0;
-        leavingY = 0.0;
+        peakX2 = sumX2;
+        peakY2 = sumY2;
         loop {
             // Add the incoming value, measured against the shift.
             x = inReal0[today] - shiftX;
@@ -214,24 +218,20 @@ impl Core {
             sumXY += x * y;
             sumY += y;
             sumY2 += y * y;
+            peakX2 = (if sumX2 > peakX2 { sumX2 } else { peakX2 });
+            peakY2 = (if sumY2 > peakY2 { sumY2 } else { peakY2 });
             ssX = sumX2 - sumX * sumX * invPeriod;
             ssY = sumY2 - sumY * sumY * invPeriod;
             spXY = sumXY - sumX * sumY * invPeriod;
-            // Re-anchor and rebuild with a fresh two-pass when the shift has gone
-            // stale. Same three triggers as TA_VAR: either sum of squares has shrunk
-            // below 1e-6 of the squared deviations it is extracted from; OR the value
-            // the PREVIOUS bar removed sat so far from the shift that its squared term
-            // dwarfs what remains (a large outlier transiting the window buries the
-            // small terms below its ulp, and the residue it leaves is cancellation
-            // garbage); OR at least every 32 windows, so a slow drift stays bounded
-            // however long the series runs.
-            //
-            // One bar late is correct, not a compromise. leavingX/leavingY are set by
-            // the removal at the BOTTOM of the loop, so the bar on which the outlier
-            // actually leaves still computes its own output from sums that legitimately
-            // contain it. The trigger then fires on the NEXT bar -- the first one whose
-            // sums carry the residue -- and the reseed below recomputes that bar's
-            // output before it is written. No bar is ever emitted from the residue.
+            // Rebuild with a fresh two-pass when either sum of squares has shrunk
+            // below 1e-6 of the LARGEST one held since the last rebuild, or at least
+            // every 32 windows. Measure against that peak, not the current sum: the
+            // rounding the running sums carry scales with the peak, so once a series
+            // settles back near its shift, or an outlier leaves the window, the
+            // current sum holds nothing but that rounding. Each side keeps its own
+            // peak: one peak shared by two series of different scale fires on every
+            // bar. The collapse is seen on the first bar whose sums carry it, and the
+            // rebuild recomputes that bar's output before it is written.
             //
             // The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
             // legitimate answer - two uncorrelated series - not a loss of digits, and
@@ -243,7 +243,7 @@ impl Core {
             // outputs written so far occupy [0, outIdx-1] while windowStart is
             // startIdx-lookbackTotal+outIdx, which is >= outIdx.
             barsSinceReseed -= 1;
-            if ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || leavingX > 1000000.0 * sumX2 || leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 {
+            if ssX < 0.000001 * peakX2 || ssY < 0.000001 * peakY2 || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * optInTimePeriod) as usize;
                 windowStart = today - lookbackTotal;
                 // Both means in one pass over the window: the rebuild below is the
@@ -276,14 +276,46 @@ impl Core {
                 ssX = sumX2 - sumX * sumX * invPeriod;
                 ssY = sumY2 - sumY * sumY * invPeriod;
                 spXY = sumXY - sumX * sumY * invPeriod;
+                // A side flat to within the rounding of its own mean leaves its sum of
+                // squares at that rounding, which would fire the trigger again on every
+                // bar. Anchored on one of its own values it cannot, short of squares
+                // that underflow. sumXY depends on both shifts, so all five sums are
+                // redone.
+                if ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 {
+                    if ssX < 0.000001 * sumX2 {
+                        shiftX = inReal0[today];
+                    }
+                    if ssY < 0.000001 * sumY2 {
+                        shiftY = inReal1[today];
+                    }
+                    sumY2 = 0.0;
+                    sumX2 = sumY2;
+                    sumY = sumX2;
+                    sumX = sumY;
+                    sumXY = sumX;
+                    for j in (windowStart as usize)..(today as usize) + 1 {
+                        x = inReal0[j] - shiftX;
+                        sumX += x;
+                        sumX2 += x * x;
+                        y = inReal1[j] - shiftY;
+                        sumXY += x * y;
+                        sumY += y;
+                        sumY2 += y * y;
+                    }
+                    j = (today as usize) + 1;
+                    ssX = sumX2 - sumX * sumX * invPeriod;
+                    ssY = sumY2 - sumY * sumY * invPeriod;
+                    spXY = sumXY - sumX * sumY * invPeriod;
+                }
+                peakX2 = sumX2;
+                peakY2 = sumY2;
                 // A sum of squares is non-negative by definition, but this one is
                 // extracted as a difference, so its SIGN is not guaranteed on a window
                 // sitting inside a flat stretch. Enforce the invariant HERE and not at
-                // the divide: a negative ssX always reseeds on the same bar (it makes
-                // the first trigger's `negative < non-negative` true whenever sumX2 is
-                // positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
-                // divide below can rely on both being >= 0 and needs no sign test of
-                // its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+                // the divide: a negative ssX always reseeds on the same bar, because
+                // the peak it is compared with is never negative, so the divide below
+                // can rely on both being >= 0 and needs no sign test of its own.
+                // CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
                 if ssX < 0.0 {
                     ssX = 0.0;
                 }
@@ -331,8 +363,8 @@ impl Core {
                 // three sums can still put it a few ulp outside.
                 if tempReal > 1.0 {
                     tempReal = 1.0;
-                } else if tempReal < 0_f64 - 1.0 {
-                    tempReal = 0_f64 - 1.0;
+                } else if tempReal < -1.0 {
+                    tempReal = -1.0;
                 }
                 outReal[outIdx] = tempReal;
                 outIdx += 1;
@@ -341,13 +373,11 @@ impl Core {
                 outIdx += 1;
             }
             // Remove the trailing values (prepares the next window).
-            leavingX = trailingX * trailingX;
-            leavingY = trailingY * trailingY;
             sumX -= trailingX;
-            sumX2 -= leavingX;
+            sumX2 -= trailingX * trailingX;
             sumXY -= trailingX * trailingY;
             sumY -= trailingY;
-            sumY2 -= leavingY;
+            sumY2 -= trailingY * trailingY;
             today += 1;
             if !(today <= endIdx) { break; }
         }
@@ -374,15 +404,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -428,10 +458,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.correl_lookback(optInTimePeriod)?;
@@ -492,8 +522,8 @@ struct CorrelStreamState {
     sumY2: f64,
     shiftX: f64,
     shiftY: f64,
-    leavingX: f64,
-    leavingY: f64,
+    peakX2: f64,
+    peakY2: f64,
     invPeriod: f64,
     lookbackTotal: usize,
     trailingIdx: i32,
@@ -532,24 +562,20 @@ impl Core {
         sp.sumXY += x * y;
         sp.sumY += y;
         sp.sumY2 += y * y;
+        sp.peakX2 = (if sp.sumX2 > sp.peakX2 { sp.sumX2 } else { sp.peakX2 });
+        sp.peakY2 = (if sp.sumY2 > sp.peakY2 { sp.sumY2 } else { sp.peakY2 });
         ssX = sp.sumX2 - sp.sumX * sp.sumX * sp.invPeriod;
         ssY = sp.sumY2 - sp.sumY * sp.sumY * sp.invPeriod;
         spXY = sp.sumXY - sp.sumX * sp.sumY * sp.invPeriod;
-        // Re-anchor and rebuild with a fresh two-pass when the shift has gone
-        // stale. Same three triggers as TA_VAR: either sum of squares has shrunk
-        // below 1e-6 of the squared deviations it is extracted from; OR the value
-        // the PREVIOUS bar removed sat so far from the shift that its squared term
-        // dwarfs what remains (a large outlier transiting the window buries the
-        // small terms below its ulp, and the residue it leaves is cancellation
-        // garbage); OR at least every 32 windows, so a slow drift stays bounded
-        // however long the series runs.
-        //
-        // One bar late is correct, not a compromise. leavingX/leavingY are set by
-        // the removal at the BOTTOM of the loop, so the bar on which the outlier
-        // actually leaves still computes its own output from sums that legitimately
-        // contain it. The trigger then fires on the NEXT bar -- the first one whose
-        // sums carry the residue -- and the reseed below recomputes that bar's
-        // output before it is written. No bar is ever emitted from the residue.
+        // Rebuild with a fresh two-pass when either sum of squares has shrunk
+        // below 1e-6 of the LARGEST one held since the last rebuild, or at least
+        // every 32 windows. Measure against that peak, not the current sum: the
+        // rounding the running sums carry scales with the peak, so once a series
+        // settles back near its shift, or an outlier leaves the window, the
+        // current sum holds nothing but that rounding. Each side keeps its own
+        // peak: one peak shared by two series of different scale fires on every
+        // bar. The collapse is seen on the first bar whose sums carry it, and the
+        // rebuild recomputes that bar's output before it is written.
         //
         // The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
         // legitimate answer - two uncorrelated series - not a loss of digits, and
@@ -561,7 +587,7 @@ impl Core {
         // outputs written so far occupy [0, outIdx-1] while windowStart is
         // startIdx-lookbackTotal+outIdx, which is >= outIdx.
         sp.barsSinceReseed -= 1;
-        if ssX < 0.000001 * sp.sumX2 || ssY < 0.000001 * sp.sumY2 || sp.leavingX > 1000000.0 * sp.sumX2 || sp.leavingY > 1000000.0 * sp.sumY2 || sp.barsSinceReseed <= 0 {
+        if ssX < 0.000001 * sp.peakX2 || ssY < 0.000001 * sp.peakY2 || sp.barsSinceReseed <= 0 {
             sp.barsSinceReseed = (32 * sp.optInTimePeriod) as usize;
             windowStart = (sp.today - ((sp.lookbackTotal) as i32)) as usize;
             // Both means in one pass over the window: the rebuild below is the
@@ -598,14 +624,48 @@ impl Core {
             ssX = sp.sumX2 - sp.sumX * sp.sumX * sp.invPeriod;
             ssY = sp.sumY2 - sp.sumY * sp.sumY * sp.invPeriod;
             spXY = sp.sumXY - sp.sumX * sp.sumY * sp.invPeriod;
+            // A side flat to within the rounding of its own mean leaves its sum of
+            // squares at that rounding, which would fire the trigger again on every
+            // bar. Anchored on one of its own values it cannot, short of squares
+            // that underflow. sumXY depends on both shifts, so all five sums are
+            // redone.
+            if ssX < 0.000001 * sp.sumX2 || ssY < 0.000001 * sp.sumY2 {
+                if ssX < 0.000001 * sp.sumX2 {
+                    sp.shiftX = sp.x_inReal0[(sp.today & sp.xMask) as usize];
+                }
+                if ssY < 0.000001 * sp.sumY2 {
+                    sp.shiftY = sp.x_inReal1[(sp.today & sp.xMask) as usize];
+                }
+                sp.sumY2 = 0.0;
+                sp.sumX2 = sp.sumY2;
+                sp.sumY = sp.sumX2;
+                sp.sumX = sp.sumY;
+                sp.sumXY = sp.sumX;
+                // for( sp.j = (windowStart) as i32; sp.j <= sp.today; sp.j += 1 )
+                sp.j = (windowStart) as i32;
+                while sp.j <= sp.today {
+                    x = sp.x_inReal0[(sp.j & sp.xMask) as usize] - sp.shiftX;
+                    sp.sumX += x;
+                    sp.sumX2 += x * x;
+                    y = sp.x_inReal1[(sp.j & sp.xMask) as usize] - sp.shiftY;
+                    sp.sumXY += x * y;
+                    sp.sumY += y;
+                    sp.sumY2 += y * y;
+                    sp.j += 1;
+                }
+                ssX = sp.sumX2 - sp.sumX * sp.sumX * sp.invPeriod;
+                ssY = sp.sumY2 - sp.sumY * sp.sumY * sp.invPeriod;
+                spXY = sp.sumXY - sp.sumX * sp.sumY * sp.invPeriod;
+            }
+            sp.peakX2 = sp.sumX2;
+            sp.peakY2 = sp.sumY2;
             // A sum of squares is non-negative by definition, but this one is
             // extracted as a difference, so its SIGN is not guaranteed on a window
             // sitting inside a flat stretch. Enforce the invariant HERE and not at
-            // the divide: a negative ssX always reseeds on the same bar (it makes
-            // the first trigger's `negative < non-negative` true whenever sumX2 is
-            // positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
-            // divide below can rely on both being >= 0 and needs no sign test of
-            // its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+            // the divide: a negative ssX always reseeds on the same bar, because
+            // the peak it is compared with is never negative, so the divide below
+            // can rely on both being >= 0 and needs no sign test of its own.
+            // CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
             if ssX < 0.0 {
                 ssX = 0.0;
             }
@@ -653,21 +713,19 @@ impl Core {
             // three sums can still put it a few ulp outside.
             if tempReal > 1.0 {
                 tempReal = 1.0;
-            } else if tempReal < 0_f64 - 1.0 {
-                tempReal = 0_f64 - 1.0;
+            } else if tempReal < -1.0 {
+                tempReal = -1.0;
             }
             (*outReal) = tempReal;
         } else {
             (*outReal) = 0.0;
         }
         // Remove the trailing values (prepares the next window).
-        sp.leavingX = trailingX * trailingX;
-        sp.leavingY = trailingY * trailingY;
         sp.sumX -= trailingX;
-        sp.sumX2 -= sp.leavingX;
+        sp.sumX2 -= trailingX * trailingX;
         sp.sumXY -= trailingX * trailingY;
         sp.sumY -= trailingY;
-        sp.sumY2 -= sp.leavingY;
+        sp.sumY2 -= trailingY * trailingY;
         sp.today += 1;
         sp.cur_outReal = (*outReal);
     }
@@ -680,7 +738,7 @@ impl Core {
         if inReal0.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal0.len() > Self::MAX_INDEX + 1 {
+        if inReal0.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -715,8 +773,8 @@ impl Core {
         let mut ssX: f64 = 0.0_f64;
         let mut ssY: f64 = 0.0_f64;
         let mut spXY: f64 = 0.0_f64;
-        let mut leavingX: f64 = 0.0_f64;
-        let mut leavingY: f64 = 0.0_f64;
+        let mut peakX2: f64 = 0.0_f64;
+        let mut peakY2: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut invPeriod: f64 = 0.0_f64;
         let mut lookbackTotal: usize = 0_usize;
@@ -752,9 +810,10 @@ impl Core {
         // 1e-5 spread that is three of them, and the correlation of two perfectly
         // correlated series came back as 0, as -1, or as -1.73 (#242).
         //
-        // Anchor on the first window value here; every later re-anchor uses the
-        // window mean, which is better centred but costs a pass this one cannot
-        // afford before the sums exist.
+        // Anchor on the first window value here; a rebuild anchors on the window
+        // mean instead (or on a window value when the mean leaves the window
+        // flat), which is better centred but costs a pass this one cannot afford
+        // before the sums exist.
         shiftX = inReal0[trailingIdx];
         shiftY = inReal1[trailingIdx];
         // Calculate the initial values (the window less its last bar).
@@ -778,8 +837,8 @@ impl Core {
         today = startIdx;
         outIdx = 0;
         barsSinceReseed = (32 * optInTimePeriod) as usize;
-        leavingX = 0.0;
-        leavingY = 0.0;
+        peakX2 = sumX2;
+        peakY2 = sumY2;
         loop {
             // Add the incoming value, measured against the shift.
             x = inReal0[today] - shiftX;
@@ -789,24 +848,20 @@ impl Core {
             sumXY += x * y;
             sumY += y;
             sumY2 += y * y;
+            peakX2 = (if sumX2 > peakX2 { sumX2 } else { peakX2 });
+            peakY2 = (if sumY2 > peakY2 { sumY2 } else { peakY2 });
             ssX = sumX2 - sumX * sumX * invPeriod;
             ssY = sumY2 - sumY * sumY * invPeriod;
             spXY = sumXY - sumX * sumY * invPeriod;
-            // Re-anchor and rebuild with a fresh two-pass when the shift has gone
-            // stale. Same three triggers as TA_VAR: either sum of squares has shrunk
-            // below 1e-6 of the squared deviations it is extracted from; OR the value
-            // the PREVIOUS bar removed sat so far from the shift that its squared term
-            // dwarfs what remains (a large outlier transiting the window buries the
-            // small terms below its ulp, and the residue it leaves is cancellation
-            // garbage); OR at least every 32 windows, so a slow drift stays bounded
-            // however long the series runs.
-            //
-            // One bar late is correct, not a compromise. leavingX/leavingY are set by
-            // the removal at the BOTTOM of the loop, so the bar on which the outlier
-            // actually leaves still computes its own output from sums that legitimately
-            // contain it. The trigger then fires on the NEXT bar -- the first one whose
-            // sums carry the residue -- and the reseed below recomputes that bar's
-            // output before it is written. No bar is ever emitted from the residue.
+            // Rebuild with a fresh two-pass when either sum of squares has shrunk
+            // below 1e-6 of the LARGEST one held since the last rebuild, or at least
+            // every 32 windows. Measure against that peak, not the current sum: the
+            // rounding the running sums carry scales with the peak, so once a series
+            // settles back near its shift, or an outlier leaves the window, the
+            // current sum holds nothing but that rounding. Each side keeps its own
+            // peak: one peak shared by two series of different scale fires on every
+            // bar. The collapse is seen on the first bar whose sums carry it, and the
+            // rebuild recomputes that bar's output before it is written.
             //
             // The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
             // legitimate answer - two uncorrelated series - not a loss of digits, and
@@ -818,7 +873,7 @@ impl Core {
             // outputs written so far occupy [0, outIdx-1] while windowStart is
             // startIdx-lookbackTotal+outIdx, which is >= outIdx.
             barsSinceReseed -= 1;
-            if ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || leavingX > 1000000.0 * sumX2 || leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 {
+            if ssX < 0.000001 * peakX2 || ssY < 0.000001 * peakY2 || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * optInTimePeriod) as usize;
                 windowStart = today - lookbackTotal;
                 // Both means in one pass over the window: the rebuild below is the
@@ -851,14 +906,46 @@ impl Core {
                 ssX = sumX2 - sumX * sumX * invPeriod;
                 ssY = sumY2 - sumY * sumY * invPeriod;
                 spXY = sumXY - sumX * sumY * invPeriod;
+                // A side flat to within the rounding of its own mean leaves its sum of
+                // squares at that rounding, which would fire the trigger again on every
+                // bar. Anchored on one of its own values it cannot, short of squares
+                // that underflow. sumXY depends on both shifts, so all five sums are
+                // redone.
+                if ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 {
+                    if ssX < 0.000001 * sumX2 {
+                        shiftX = inReal0[today];
+                    }
+                    if ssY < 0.000001 * sumY2 {
+                        shiftY = inReal1[today];
+                    }
+                    sumY2 = 0.0;
+                    sumX2 = sumY2;
+                    sumY = sumX2;
+                    sumX = sumY;
+                    sumXY = sumX;
+                    for j in (windowStart as usize)..(today as usize) + 1 {
+                        x = inReal0[j] - shiftX;
+                        sumX += x;
+                        sumX2 += x * x;
+                        y = inReal1[j] - shiftY;
+                        sumXY += x * y;
+                        sumY += y;
+                        sumY2 += y * y;
+                    }
+                    j = (today as usize) + 1;
+                    ssX = sumX2 - sumX * sumX * invPeriod;
+                    ssY = sumY2 - sumY * sumY * invPeriod;
+                    spXY = sumXY - sumX * sumY * invPeriod;
+                }
+                peakX2 = sumX2;
+                peakY2 = sumY2;
                 // A sum of squares is non-negative by definition, but this one is
                 // extracted as a difference, so its SIGN is not guaranteed on a window
                 // sitting inside a flat stretch. Enforce the invariant HERE and not at
-                // the divide: a negative ssX always reseeds on the same bar (it makes
-                // the first trigger's `negative < non-negative` true whenever sumX2 is
-                // positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
-                // divide below can rely on both being >= 0 and needs no sign test of
-                // its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+                // the divide: a negative ssX always reseeds on the same bar, because
+                // the peak it is compared with is never negative, so the divide below
+                // can rely on both being >= 0 and needs no sign test of its own.
+                // CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
                 if ssX < 0.0 {
                     ssX = 0.0;
                 }
@@ -906,21 +993,19 @@ impl Core {
                 // three sums can still put it a few ulp outside.
                 if tempReal > 1.0 {
                     tempReal = 1.0;
-                } else if tempReal < 0_f64 - 1.0 {
-                    tempReal = 0_f64 - 1.0;
+                } else if tempReal < -1.0 {
+                    tempReal = -1.0;
                 }
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = tempReal;
             } else {
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0.0;
             }
             // Remove the trailing values (prepares the next window).
-            leavingX = trailingX * trailingX;
-            leavingY = trailingY * trailingY;
             sumX -= trailingX;
-            sumX2 -= leavingX;
+            sumX2 -= trailingX * trailingX;
             sumXY -= trailingX * trailingY;
             sumY -= trailingY;
-            sumY2 -= leavingY;
+            sumY2 -= trailingY * trailingY;
             today += 1;
             if !(today <= endIdx) { break; }
         }
@@ -954,8 +1039,8 @@ impl Core {
             sumY2,
             shiftX,
             shiftY,
-            leavingX,
-            leavingY,
+            peakX2,
+            peakY2,
             invPeriod,
             lookbackTotal,
             trailingIdx: (trailingIdx) as i32,
@@ -1053,7 +1138,7 @@ impl Core {
         if inReal0.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal0.len() > Self::MAX_INDEX + 1 {
+        if inReal0.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.correl_lookback(optInTimePeriod)?;
@@ -1086,7 +1171,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl CorrelStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -1104,11 +1189,11 @@ impl CorrelStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_CORREL_Update")]
     pub fn update(&mut self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal0.is_finite() || !inReal1.is_finite() {
@@ -1123,16 +1208,15 @@ impl CorrelStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_CORREL_Peek")]
     pub fn peek(&self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
         if !inReal0.is_finite() || !inReal1.is_finite() {
@@ -1151,6 +1235,8 @@ impl CorrelStream {
             let mut windowStart: usize = 0_usize;
             let mut barsSinceReseed = sp.barsSinceReseed;
             let mut j = sp.j;
+            let mut peakX2 = sp.peakX2;
+            let mut peakY2 = sp.peakY2;
             let mut shiftX = sp.shiftX;
             let mut shiftY = sp.shiftY;
             let mut sumX = sp.sumX;
@@ -1175,24 +1261,20 @@ impl CorrelStream {
             sumXY += x * y;
             sumY += y;
             sumY2 += y * y;
+            peakX2 = (if sumX2 > peakX2 { sumX2 } else { peakX2 });
+            peakY2 = (if sumY2 > peakY2 { sumY2 } else { peakY2 });
             ssX = sumX2 - sumX * sumX * sp.invPeriod;
             ssY = sumY2 - sumY * sumY * sp.invPeriod;
             spXY = sumXY - sumX * sumY * sp.invPeriod;
-            // Re-anchor and rebuild with a fresh two-pass when the shift has gone
-            // stale. Same three triggers as TA_VAR: either sum of squares has shrunk
-            // below 1e-6 of the squared deviations it is extracted from; OR the value
-            // the PREVIOUS bar removed sat so far from the shift that its squared term
-            // dwarfs what remains (a large outlier transiting the window buries the
-            // small terms below its ulp, and the residue it leaves is cancellation
-            // garbage); OR at least every 32 windows, so a slow drift stays bounded
-            // however long the series runs.
-            //
-            // One bar late is correct, not a compromise. leavingX/leavingY are set by
-            // the removal at the BOTTOM of the loop, so the bar on which the outlier
-            // actually leaves still computes its own output from sums that legitimately
-            // contain it. The trigger then fires on the NEXT bar -- the first one whose
-            // sums carry the residue -- and the reseed below recomputes that bar's
-            // output before it is written. No bar is ever emitted from the residue.
+            // Rebuild with a fresh two-pass when either sum of squares has shrunk
+            // below 1e-6 of the LARGEST one held since the last rebuild, or at least
+            // every 32 windows. Measure against that peak, not the current sum: the
+            // rounding the running sums carry scales with the peak, so once a series
+            // settles back near its shift, or an outlier leaves the window, the
+            // current sum holds nothing but that rounding. Each side keeps its own
+            // peak: one peak shared by two series of different scale fires on every
+            // bar. The collapse is seen on the first bar whose sums carry it, and the
+            // rebuild recomputes that bar's output before it is written.
             //
             // The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
             // legitimate answer - two uncorrelated series - not a loss of digits, and
@@ -1204,7 +1286,7 @@ impl CorrelStream {
             // outputs written so far occupy [0, outIdx-1] while windowStart is
             // startIdx-lookbackTotal+outIdx, which is >= outIdx.
             barsSinceReseed -= 1;
-            if ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || sp.leavingX > 1000000.0 * sumX2 || sp.leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 {
+            if ssX < 0.000001 * peakX2 || ssY < 0.000001 * peakY2 || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * sp.optInTimePeriod) as usize;
                 windowStart = (sp.today - ((sp.lookbackTotal) as i32)) as usize;
                 // Both means in one pass over the window: the rebuild below is the
@@ -1241,14 +1323,48 @@ impl CorrelStream {
                 ssX = sumX2 - sumX * sumX * sp.invPeriod;
                 ssY = sumY2 - sumY * sumY * sp.invPeriod;
                 spXY = sumXY - sumX * sumY * sp.invPeriod;
+                // A side flat to within the rounding of its own mean leaves its sum of
+                // squares at that rounding, which would fire the trigger again on every
+                // bar. Anchored on one of its own values it cannot, short of squares
+                // that underflow. sumXY depends on both shifts, so all five sums are
+                // redone.
+                if ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 {
+                    if ssX < 0.000001 * sumX2 {
+                        shiftX = (if ((sp.today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(sp.today & sp.xMask) as usize] } else { pkVal0 });
+                    }
+                    if ssY < 0.000001 * sumY2 {
+                        shiftY = (if ((sp.today & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(sp.today & sp.xMask) as usize] } else { pkVal1 });
+                    }
+                    sumY2 = 0.0;
+                    sumX2 = sumY2;
+                    sumY = sumX2;
+                    sumX = sumY;
+                    sumXY = sumX;
+                    // for( j = (windowStart) as i32; j <= sp.today; j += 1 )
+                    j = (windowStart) as i32;
+                    while j <= sp.today {
+                        x = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 }) - shiftX;
+                        sumX += x;
+                        sumX2 += x * x;
+                        y = (if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 }) - shiftY;
+                        sumXY += x * y;
+                        sumY += y;
+                        sumY2 += y * y;
+                        j += 1;
+                    }
+                    ssX = sumX2 - sumX * sumX * sp.invPeriod;
+                    ssY = sumY2 - sumY * sumY * sp.invPeriod;
+                    spXY = sumXY - sumX * sumY * sp.invPeriod;
+                }
+                peakX2 = sumX2;
+                peakY2 = sumY2;
                 // A sum of squares is non-negative by definition, but this one is
                 // extracted as a difference, so its SIGN is not guaranteed on a window
                 // sitting inside a flat stretch. Enforce the invariant HERE and not at
-                // the divide: a negative ssX always reseeds on the same bar (it makes
-                // the first trigger's `negative < non-negative` true whenever sumX2 is
-                // positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
-                // divide below can rely on both being >= 0 and needs no sign test of
-                // its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+                // the divide: a negative ssX always reseeds on the same bar, because
+                // the peak it is compared with is never negative, so the divide below
+                // can rely on both being >= 0 and needs no sign test of its own.
+                // CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
                 if ssX < 0.0 {
                     ssX = 0.0;
                 }
@@ -1292,8 +1408,8 @@ impl CorrelStream {
                 // three sums can still put it a few ulp outside.
                 if tempReal > 1.0 {
                     tempReal = 1.0;
-                } else if tempReal < 0_f64 - 1.0 {
-                    tempReal = 0_f64 - 1.0;
+                } else if tempReal < -1.0 {
+                    tempReal = -1.0;
                 }
                 (*outReal) = tempReal;
             } else {
@@ -1326,7 +1442,7 @@ impl CorrelStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_CORREL_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1344,11 +1460,11 @@ impl CorrelStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_CORREL_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

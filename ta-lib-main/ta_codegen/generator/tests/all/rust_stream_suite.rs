@@ -1,0 +1,809 @@
+//! Render pins for the Rust stream emitter (`backends/rust_stream.rs`) —
+//! the Rust twin of backend_suite's `test_c_*_stream_section` family.
+//!
+//! Pins are substring/count/ordering assertions over the generated file (never
+//! full snapshots), one per tier/mechanism. Every pin doubles as a neuter
+//! check: the transition build panics on a cursor/startIdx leak, so a clean
+//! render proves the analyzer normalizations fired.
+
+use crate::common;
+use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
+use ta_codegen_lib::registry::Registry;
+use ta_codegen_lib::{backends, ir, parser};
+
+fn input_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../input")
+}
+
+fn load_indicator(name: &str) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
+    let dir = input_dir().join(name);
+    let yaml = dir.join(format!("{name}.yaml"));
+    let csrc = dir.join(format!("{name}.c"));
+    let mut func = parser::yaml::parse_yaml(&yaml);
+    let parsed = parser::c_source::parse_c_source(&csrc);
+    parser::c_source::wire_parsed_source(&mut func, &parsed);
+    let enums = parser::enums::load_enums(&input_dir().join("enums.yaml"));
+    (func, enums)
+}
+
+/// Every indicator directory whose YAML declares a stream.
+fn streaming_indicators() -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(input_dir())
+        .expect("input dir")
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            let yaml = e.path().join(format!("{name}.yaml"));
+            yaml.exists()
+                .then(|| parser::yaml::parse_yaml(&yaml))
+                .filter(|f| f.streaming)
+                .map(|_| name)
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+fn rust_stream_section(name: &str) -> String {
+    let (func, enums) = load_indicator(name);
+    assert!(func.streaming, "{name}: yaml must carry the stream flag");
+    let registry = common::make_registry();
+    let helpers = common::make_helpers();
+    let full = backends::rust_lang::generate(&func, &enums, registry, helpers);
+    let start = full
+        .find("/**** Streaming API *****/")
+        .unwrap_or_else(|| panic!("{name}: stream section missing"));
+    full[start..].to_string()
+}
+
+/// The body of the first item whose signature line matches `needle`,
+/// brace-balanced. Panics if absent — every caller asserts presence first.
+fn body_of(src: &str, needle: &str) -> String {
+    let i = src.find(needle).unwrap_or_else(|| panic!("no definition matching {needle:?}"));
+    let j = src[i..].find('{').expect("definition has a body") + i;
+    let bytes = src.as_bytes();
+    let (mut depth, mut k) = (0usize, j);
+    loop {
+        match bytes[k] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        k += 1;
+    }
+    src[j..=k].to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Loop tier
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_rust_sma_ring_stream_section() {
+    let s = rust_stream_section("sma");
+    // Handle + state struct shapes.
+    assert!(s.contains("pub struct SmaStream {"));
+    // No `Core` on the handle: SMA's step reads no candle setting, so it
+    // carries none (#274). `backend_suite`'s handle gate owns that claim
+    // across the tiers that do read one.
+    assert!(!s.contains("core: Core,"));
+    assert!(s.contains("state: SmaStreamState,"));
+    assert!(s.contains("struct SmaStreamState {"));
+    assert!(s.contains("ring_trailingIdx_inReal: Vec<f64>,"));
+    assert!(s.contains("ringPos_trailingIdx: usize,"));
+    // No backend carries a peek mirror or a routing flag, so these hold
+    // everywhere rather than marking a difference.
+    assert!(!s.contains("Mirror"), "no peek mirrors in the Rust tier");
+    assert!(!s.contains("peekMode"), "no peekMode in the Rust tier");
+    assert!(!s.contains("unsafe"), "stream sections are safe Rust");
+    // Step: ring read-old-then-push order, `(*outReal)` write.
+    assert!(s.contains("fn sma_step_impl(sp: &mut SmaStreamState, inReal: f64, outReal: &mut f64)"));
+    // `tempReal` is step-local scratch, not a handle field (#252).
+    assert!(s.contains("(*outReal) = tempReal / (sp.optInTimePeriod as f64);"));
+    assert!(!s.contains("tempReal: f64,"), "no scratch field on the state struct");
+    assert!(s.contains("sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;"));
+    // Open family: internal seam + thin wrapper + fill in batch param order.
+    assert!(s.contains("pub(crate) fn sma_open_internal("));
+    assert!(s.contains("self.sma_open_internal(inReal, 0, optInTimePeriod)"));
+    // The public fill takes the batch output tail MINUS the out-meta pair, and
+    // hands the range back as the `OutRange` the batch entry point returns
+    // (#179 C15) — the crate ships one convention for "which slots were filled".
+    assert!(s.contains("pub fn sma_open_and_fill(\n        &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],\n    ) -> Result<(SmaStream, OutRange), RetCode> {"));
+    assert!(s.contains("Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))"));
+    // Capture: numeric ring cap from live locals + tail copy.
+    assert!(s.contains("let cap_trailingIdx: i64 = (i as i64) - (trailingIdx as i64);"));
+    assert!(s.contains(".copy_from_slice(&inReal[historyLen - cap_trailingIdx as usize..]);"));
+    // Handle impl: fallible update (non-finite bars are rejected), the peek
+    // frame, auto-trait pin.
+    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {"));
+    assert!(s.contains("pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {"));
+    assert!(s.contains("let sp = &self.state;"));
+    assert!(!s.contains("let mut scratch = self.clone();"));
+    assert!(!s.contains("PEEK_SCRATCH"));
+    assert!(s.contains("_assert_auto::<SmaStream>();"));
+    // Short history is an error, not batch's empty success.
+    assert!(s.contains("return Err(RetCode::BadParam);"));
+}
+
+#[test]
+fn test_rust_ema_scalar_recurrence_stream_section() {
+    let s = rust_stream_section("ema");
+    // T2 scalar state incl. the private K factor; no heap buffers at all.
+    assert!(s.contains("struct EmaStreamState {"));
+    assert!(s.contains("prevMA: f64,"));
+    assert!(s.contains("optInK_1: f64,"));
+    assert!(!s.contains("Vec<f64>,"), "EMA carries only scalars");
+    // Update returns the bare value.
+    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {"));
+    // Peek runs a frame against the borrowed state.
+    assert!(s.contains("let sp = &self.state;"));
+}
+
+#[test]
+fn test_rust_macd_three_output_tuple() {
+    let s = rust_stream_section("macd");
+    assert!(s.contains("-> Result<(MacdStream, (f64, f64, f64)), RetCode>"));
+    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<(f64, f64, f64), RetCode> {"));
+    assert!(s.contains(", outMACD: &mut f64, outMACDSignal: &mut f64, outMACDHist: &mut f64)"));
+    // Tuple assembled in batch output order.
+    assert!(s.contains("(outMACD, outMACDSignal, outMACDHist)"));
+}
+
+#[test]
+fn test_rust_cdldoji_candle_settings_and_int_output() {
+    let s = rust_stream_section("cdldoji");
+    // The opener reads the settings off the `Core` it runs on.
+    assert!(s.contains("self.candle_settings"));
+    // Integer output end to end.
+    assert!(s.contains("pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {"));
+    assert!(s.contains("outInteger: &mut i32"));
+    // ONE ring over the computed candle range, not four over the price arrays:
+    // #229 collapsed the per-OHLC rings into a derived ring, which is the whole
+    // point of that work. This assertion named `_inOpen`/`_inClose` until then,
+    // and the collapse left it matching nothing.
+    assert!(s.contains("ring_BodyDojiTrailingIdx_derived"));
+    // The frame reads the settings the handle snapshotted, not a step parameter.
+    assert!(s.contains("let sp = &self.state;"));
+    assert!(s.contains("self.cs_body_doji"));
+}
+
+#[test]
+fn test_rust_minmaxindex_extrema_i32() {
+    let s = rust_stream_section("minmaxindex");
+    // AIA cursor machinery forced i32 (C's int) in the STATE — every field the
+    // transition compares as a batch-absolute index, not just the mask.
+    assert!(s.contains("xMask: i32,"));
+    assert!(s.contains("today: i32,"));
+    assert!(s.contains("trailingIdx: i32,"));
+    assert!(s.contains("highestIdx: i32,"));
+    // Capture casts the still-live batch locals at the struct literal.
+    assert!(s.contains("today: (today) as i32,"));
+    // Index outputs stay batch-exact i32 pairs.
+    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<(i32, i32), RetCode> {"));
+    // One buffer: peek keeps the throwaway copy, the shape whose clone the
+    // optimizer folds away (#201).
+    assert!(!s.contains("PEEK_SCRATCH"));
+}
+
+#[test]
+fn test_rust_ht_dcperiod_parity_stream_section() {
+    let s = rust_stream_section("ht_dcperiod");
+    // Carried parity: seeded to the NEXT bar's parity, flipped per update.
+    assert!(s.contains("streamParity: historyLen % 2,"));
+    assert!(s.contains("sp.streamParity"));
+    // The gate strip + parity carry leave no cursor/startIdx leak in the step.
+    let step = s
+        .split("fn ht_dcperiod_step_impl")
+        .nth(1)
+        .and_then(|t| t.split("/// The single whole-history transcription").next())
+        .expect("step body");
+    assert!(!step.contains("startIdx"), "gate strip removed startIdx from the step");
+    // Fixed-size Hilbert arrays are carried whole.
+    assert!(s.contains("detrender_Even: [f64; 3 as usize],"));
+}
+
+#[test]
+fn test_rust_dx_out_feedback_carried() {
+    let s = rust_stream_section("dx");
+    // Previous-output feedback carried as lastOut state (zero-denominator repeat).
+    assert!(s.contains("lastOut_outReal: f64,"));
+    assert!(s.contains("lastOut_outReal: outReal[(*outNBElement - 1) * outStride],"));
+}
+
+#[test]
+fn test_rust_identity_fast_path_t3() {
+    let s = rust_stream_section("t3");
+    // param==1 identity short-circuit before the transcribed body: min-history
+    // check via lookback, passthrough value, default state. The anchor is
+    // max(startIdx, lookback), like the batch call this path stands in for —
+    // a no-op for the public openers, which pass 0 (#241).
+    assert!(s.contains("let fillLb: usize = self.t3_lookback(optInTimePeriod, optInVFactor)?;"));
+    assert!(s.contains("let fillLb = if startIdx > fillLb { startIdx } else { fillLb };"));
+    assert!(s.contains("if historyLen < fillLb + 1 {"));
+    // Stride 0 short-circuits to the last bar; only the fill arm loops. Letting
+    // the loop run at stride 0 is correct but makes the scalar Open O(history).
+    assert!(s.contains("if outStride == 0 {"), "identity arm short-circuits at stride 0");
+    assert!(s.contains("outReal[0] = inReal[historyLen - 1];"), "stride-0 arm takes the last bar");
+    assert!(s.contains("outReal[fillIdx] = inReal[fillLb + fillIdx];"), "fill arm indexes plainly");
+}
+
+#[test]
+fn test_rust_stream_doctest_witness_present() {
+    let s = rust_stream_section("sma");
+    // Every open carries a runnable peek==update bit-equality witness.
+    assert!(s.contains("let peeked = s.peek("));
+    assert!(s.contains("assert_eq!(peeked.to_bits(), updated.to_bits());"));
+}
+
+// ---------------------------------------------------------------------------
+// Terminal ratchet: EVERY streamable function emits a Rust stream (all six
+// StreamPlan tiers landed). A regression in any tier's emitter or analyzer
+// fails here; the count floors keep discovery bugs from passing vacuously.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_streamable_func_emits_rust_stream() {
+    let dir = input_dir();
+    let registry = Registry::from_dir(&dir);
+    let mut funcs: Vec<ir::FuncDef> = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("input dir") {
+        let entry = entry.expect("entry");
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let yaml = entry.path().join(format!("{name}.yaml"));
+        let csrc = entry.path().join(format!("{name}.c"));
+        if !yaml.exists() || !csrc.exists() {
+            continue;
+        }
+        let mut func = parser::yaml::parse_yaml(&yaml);
+        let parsed = parser::c_source::parse_c_source(&csrc);
+        parser::c_source::wire_parsed_source(&mut func, &parsed);
+        funcs.push(func);
+    }
+    assert!(funcs.len() >= 200, "discovery floor: found {}", funcs.len());
+    let mut checked = 0;
+    for f in &funcs {
+        if !f.streaming {
+            continue;
+        }
+        checked += 1;
+        assert!(
+            backends::rust_stream::emits_stream(f, &registry),
+            "{}: streamable but no Rust stream emitted (tier regression)",
+            f.name
+        );
+    }
+    assert!(checked >= 200, "streamable floor: checked {checked}");
+}
+
+// ---------------------------------------------------------------------------
+// Merged Open family: three entries over one `<sn>_OpenImpl`
+// ---------------------------------------------------------------------------
+//
+// Every entry is one emission: `<sn>_OpenImpl(..., outStride:
+// usize)`. Fill passes stride 1 and the caller's slice; the scalar path passes
+// stride 0 and a one-element sink, so every write collapses onto slot 0 and that
+// slot ends holding the last history value. `Dispatch` (MA) and `PeriodBank`
+// (MAVP) are exempt — they hand the fill to a sub / run a different warm-up.
+
+#[test]
+fn rust_open_family_is_one_core_with_three_entries() {
+    let s = rust_stream_section("cdlhammer");
+    assert_eq!(
+        s.matches("fn cdlhammer_open_impl(").count(),
+        1,
+        "the core is emitted exactly once"
+    );
+    assert!(s.contains("outStride: usize"), "the core takes a stride");
+    // Every entry delegates; none re-transcribes the algorithm. The public fill
+    // goes through the anchored seam, which is what gives that seam a caller for
+    // all 175 rather than only the 16 something composes over.
+    for (w, callee) in [
+        ("fn cdlhammer_open_internal(", "cdlhammer_open_impl("),
+        ("fn cdlhammer_open_and_fill_internal(", "cdlhammer_open_impl("),
+        ("pub fn cdlhammer_open_and_fill(", "cdlhammer_open_and_fill_internal("),
+    ] {
+        let at = s.find(w).unwrap_or_else(|| panic!("missing {w}"));
+        // To the frame's end, not to a byte budget: a frame grows when a rule
+        // is added to it, and a budget turns that into a false failure.
+        let end = s[at..].find("\n    }\n").map_or(s.len() - at, |e| e + 6);
+        let body = &s[at..at + end];
+        assert!(body.contains(callee), "{w} delegates to {callee}");
+        assert!(
+            !body.contains("BodyPeriodTotal"),
+            "{w} must not re-transcribe the algorithm"
+        );
+    }
+}
+
+#[test]
+fn rust_scalar_wrapper_uses_a_one_element_sink_at_stride_zero() {
+    let s = rust_stream_section("cdlhammer");
+    let at = s.find("fn cdlhammer_open_internal(").expect("scalar wrapper");
+    let body = &s[at..at + 900.min(s.len() - at)];
+    assert!(body.contains("[0_i32; 1]"), "an int output sinks into a 1-element array:\n{body}");
+    assert!(body.contains(", 0)?"), "scalar passes stride 0:\n{body}");
+    assert!(body.contains("sink_outInteger[0]"), "the value comes back from slot 0:\n{body}");
+}
+
+#[test]
+fn rust_output_writes_are_stride_scaled() {
+    let s = rust_stream_section("cdlhammer");
+    assert!(
+        s.contains("outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 100;"),
+        "per-bar output writes scale by the stride"
+    );
+}
+
+#[test]
+fn rust_multi_output_scalar_wrapper_rebuilds_the_value_tuple() {
+    let s = rust_stream_section("minmax");
+    let at = s.find("fn minmax_open_internal(").expect("scalar wrapper");
+    let body = &s[at..at + 900.min(s.len() - at)];
+    assert!(
+        body.contains("(sink_outMin[0], sink_outMax[0])"),
+        "a 2-output scalar open returns the pair from the sinks:\n{body}"
+    );
+}
+
+#[test]
+fn rust_exempt_tiers_keep_their_own_bodies() {
+    for name in ["ma", "mavp"] {
+        let s = rust_stream_section(name);
+        assert!(
+            !s.contains(&format!("fn {name}_open_impl(")),
+            "{name} is an exempt tier and must keep its own bodies"
+        );
+        assert!(s.contains(&format!("fn {name}_open_internal(")));
+        assert!(s.contains(&format!("fn {name}_open_and_fill(")));
+    }
+}
+
+/// Nothing provokes the window evaluation's failure at runtime, so a tape commit
+/// ahead of it would pass every value gate.
+#[test]
+fn rust_mavp_window_update_evaluates_before_it_commits() {
+    let s = rust_stream_section("mavp");
+    let upd = body_of(&s, "fn mavp_update_window(");
+    let eval = upd.find("Core::mavp_eval_window(sp, inReal, cp)?;").expect("the window step evaluates");
+    let commit = upd.find("sp.tape[sp.tapePos] = inReal;").expect("the window step commits the bar");
+    assert!(eval < commit, "the window step commits the bar before the value exists:\n{upd}");
+    let narrow = format!("if (optInMaxPeriod - optInMinPeriod + 1) < {} {{", ta_codegen_lib::streaming::WINDOW_MIN_BAND);
+    assert_eq!(s.matches(&narrow).count(), 2, "both opens keep the bank for a narrow band");
+    assert!(
+        s.contains("fn mavp_step_impl(sp: &mut MavpStreamState, inReal: f64, inPeriods: f64, outReal: &mut f64) {"),
+        "the bank step stays infallible"
+    );
+}
+
+/// The Rust twin of `dispatch_open_modes_differ_only_where_intended`: since
+/// issue #204 all three open entry points come out of one emitter over a mode
+/// list, so this is what pins which mode owns which difference. Rust needs no
+/// aliasing rejection — `&mut [f64]` parameters cannot overlap — so the
+/// differences are how the filled range is reported, the startIdx anchor, and
+/// the callee entry point each arm delegates to.
+#[test]
+fn rust_dispatch_open_modes_differ_only_where_intended() {
+    let s = rust_stream_section("ma");
+    let scalar = body_of(&s, "fn ma_open_internal(");
+    let fill = body_of(&s, "fn ma_open_and_fill(");
+    let internal = body_of(&s, "fn ma_open_and_fill_internal(");
+
+    // Only the internal seam still reports through out-parameters: the public
+    // fill returns an `OutRange` beside the handle, like the batch tier (#179
+    // C15). The exempt tiers hand-roll their fills, so nothing else pins this.
+    assert!(!scalar.contains("outBegIdx"), "the scalar open has no out-meta:\n{scalar}");
+    assert!(!fill.contains("outBegIdx"), "the public fill carries no out-meta pair:\n{fill}");
+    assert!(
+        fill.contains("Ok((MaStream { state, out: fillRange }, fillRange))"),
+        "the public fill returns the arm's own range beside the handle, and keeps it \
+         on the handle too (#241):\n{fill}"
+    );
+    assert!(
+        scalar.contains("let subRange = sub.out_range();")
+            && scalar.contains("out: subRange"),
+        "the scalar open has no out-meta, so it inherits the arm's own range:\n{scalar}"
+    );
+    assert!(
+        internal.contains("(*outBegIdx) = fillLb;"),
+        "OpenAndFillInternal is a composition seam and keeps the out-meta pair:\n{internal}"
+    );
+
+    assert!(
+        internal.contains("let fillLb = if startIdx > fillLb"),
+        "OpenAndFillInternal must clamp the fill anchor up to startIdx:\n{internal}"
+    );
+    assert!(!fill.contains("startIdx"), "the public fill is anchored at bar 0:\n{fill}");
+
+    assert!(
+        scalar.contains("sma_open_internal(") && !scalar.contains("_OpenAndFill"),
+        "the scalar arms open the sub's OpenInternal:\n{scalar}"
+    );
+    assert!(
+        fill.contains("sma_open_and_fill(") && !fill.contains("_OpenAndFillInternal("),
+        "the public fill arms call the sub's public OpenAndFill:\n{fill}"
+    );
+    assert!(
+        internal.contains("sma_open_and_fill_internal("),
+        "the internal fill arms call the sub's OpenAndFillInternal:\n{internal}"
+    );
+}
+
+#[test]
+fn rust_composed_copy_out_is_stride_guarded() {
+    // Issue #205: at stride 1 the scratch BORROWS the caller's slice, so the
+    // bulk copy-back is gone. The negative would pass on any re-render of the
+    // copy, so it is paired with the positive that must replace it.
+    // BOTH arms are pinned as whole lines, not as a prefix. Asserting only the
+    // `if` arm left two wrong applications passing the whole suite: aliasing the
+    // scalar sink too (`else { &mut *outReal }`, which indexes a 1-element slice
+    // and panics on the first composed Open), and allocating `owned_sc_`
+    // unconditionally, which is value-identical and silently reverts #205 —
+    // invisible to every value gate, since only a timing tool could see it.
+    let s = rust_stream_section("adxr");
+    assert!(
+        s.contains("if outStride == 1 { &mut *outReal } else { &mut owned_sc_outReal };"),
+        "fill mode borrows the caller's slice AND the scalar sink keeps its own buffer:\n{s}"
+    );
+    assert!(
+        s.contains("if outStride == 1 { Vec::new() } else { vec![0.0_f64; historyLen] };"),
+        "the owned buffer is allocated ONLY for the scalar sink — an unconditional \
+         vec![] here reverts the optimization with no value change:\n{s}"
+    );
+    assert!(
+        !s.contains("copy_from_slice"),
+        "no bulk copy-back survives: stride 1 wrote through the borrow"
+    );
+    // The scalar arm must read the value out before writing the slice, or the
+    // scratch's borrow would still be live across the write (borrowck).
+    assert!(
+        s.contains("let last_sc_outReal = sc_outReal[*outNBElement - 1];"),
+        "scalar arm lifts the last value out before the borrow ends"
+    );
+}
+
+/// The `cur_<out>` locals a peek frame declares, in either shape — the type
+/// default (`let mut cur_x: f64 = 0.0_f64;`, most frames) or the handle seed
+/// (`let mut cur_x = sp.cur_x;`, none since #353 but the arm must see one
+/// growing back).
+fn cur_locals_declared(peek: &str) -> Vec<String> {
+    peek.lines()
+        .filter_map(|l| l.trim().strip_prefix("let mut cur_"))
+        .filter_map(|r| {
+            let end = r.find(|c: char| !(c.is_alphanumeric() || c == '_'))?;
+            Some(format!("cur_{}", &r[..end]))
+        })
+        .collect()
+}
+
+/// Does `hay` mention `word` at a word boundary? Plain `contains` would let
+/// `cur_outReal` shadow a mention of `cur_outRealUpper`.
+fn mentions_word(hay: &str, word: &str) -> bool {
+    hay.match_indices(word).any(|(i, _)| {
+        let before_ok = !hay[..i]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_');
+        let after_ok = !hay[i + word.len()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_');
+        before_ok && after_ok
+    })
+}
+
+/// The handle's fixed-size accumulator fields: a `[f64; N]` member.
+fn rust_accumulator_fields(section: &str) -> BTreeSet<String> {
+    section
+        .lines()
+        .filter_map(|l| l.trim_end().strip_suffix(','))
+        .filter_map(|d| d.trim().split_once(": "))
+        .filter(|(n, t)| {
+            t.starts_with("[f64;") && n.chars().all(|c| c.is_alphanumeric() || c == '_')
+        })
+        .map(|(n, _)| n.to_string())
+        .collect()
+}
+
+/// The `Vec<f64>` / `Vec<i32>` fields a struct body declares, `(name, element)`.
+fn heap_buffer_fields(body: &str) -> Vec<(String, String)> {
+    body.lines()
+        .filter_map(|l| l.trim().strip_suffix(',')?.split_once(": "))
+        .filter_map(|(n, t)| {
+            let elem = t.strip_prefix("Vec<")?.strip_suffix('>')?;
+            matches!(elem, "f64" | "i32").then(|| (n.to_string(), elem.to_string()))
+        })
+        .collect()
+}
+
+/// Every `loop`/`while`/`for` block in `body`, brace-balanced.
+fn loop_blocks(body: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for line in body.split_inclusive('\n') {
+        let t = line.trim_start();
+        if (t.starts_with("while ") || t.starts_with("loop {") || t.starts_with("for "))
+            && t.trim_end().ends_with('{')
+        {
+            let open = at + line.rfind('{').expect("block opens on its line");
+            let mut depth = 0usize;
+            for (k, c) in body[open..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            out.push(&body[open..=open + k]);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        at += line.len();
+    }
+    out
+}
+
+/// A state is split exactly when its step stores into a heap buffer inside a
+/// loop; a split state hands every buffer to the step as its own slice and none
+/// to the handle, where an inlined `update` would touch two objects instead of
+/// one — swept over the whole corpus. Every direction compiles and answers
+/// bit-identically, so no value gate sees a regression.
+#[test]
+fn only_a_step_storing_a_buffer_in_a_loop_splits_its_state() {
+    let (mut split, mut flat) = (0usize, 0usize);
+    let mut offenders: Vec<String> = Vec::new();
+    for name in streaming_indicators() {
+        let s = rust_stream_section(&name);
+        let at = s.find("pub struct ").expect("a handle struct") + "pub struct ".len();
+        let handle_ty = &s[at..at + s[at..].find(' ').expect("handle name end")];
+        let handle = body_of(&s, &format!("pub struct {handle_ty} {{"));
+        let state = body_of(&s, &format!("struct {handle_ty}State {{"));
+        let at = s.find("_step_impl(sp: &mut ").expect("a step") + "_step_impl(sp: &mut ".len();
+        let sig = &s[at..at + s[at..].find('\n').expect("signature end")];
+        let sp_ty = &sig[..sig.find(',').expect("sp is not the only parameter")];
+        let sp = body_of(&s, &format!("struct {sp_ty} {{"));
+        let step = body_of(&s, "_step_impl(sp: &mut ");
+
+        let bufs = [heap_buffer_fields(&state), heap_buffer_fields(&sp)].concat();
+        let looped: Vec<&str> = bufs
+            .iter()
+            .map(|(b, _)| b.as_str())
+            .filter(|b| {
+                // A pure shift loop renders as `copy_within` (#437): still a
+                // store into the buffer over a range, just not a visible loop.
+                step.contains(&format!("{b}.copy_within("))
+                    || loop_blocks(&step).iter().any(|l| {
+                        l.lines().any(|x| {
+                            let x = x.trim_start();
+                            x.starts_with(&format!("{b}[")) || x.starts_with(&format!("sp.{b}["))
+                        })
+                    })
+            })
+            .collect();
+        for (b, _) in heap_buffer_fields(&handle) {
+            offenders.push(format!("{name}: {b} sits on the handle, outside the state"));
+        }
+        if looped.is_empty() {
+            flat += 1;
+            if sp_ty != format!("{handle_ty}State") || sig.contains(": &mut [") {
+                offenders.push(format!("{name}: split, with no buffer stored in a loop"));
+            }
+            continue;
+        }
+        split += 1;
+        for (b, _) in heap_buffer_fields(&sp) {
+            offenders.push(format!("{name}: the step reaches {b} through `sp: &mut {sp_ty}`"));
+        }
+        let own = heap_buffer_fields(&state);
+        for (b, t) in &own {
+            if !sig.contains(&format!(", {b}: &mut [{t}]")) {
+                offenders.push(format!("{name}: {b} is not a step parameter"));
+            }
+        }
+        // Outputs are `&mut f64` / `&mut i32`, so a slice parameter is a buffer:
+        // the signature and the struct, read apart, must agree on the count.
+        if sig.matches(": &mut [").count() != own.len() {
+            offenders.push(format!("{name}: {} buffer field(s), signature `{sig}`", own.len()));
+        }
+    }
+    assert!(split > 0 && flat > 0, "{split} split / {flat} flat state(s) swept");
+    assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+}
+
+/// No tier copies a handle to peek it — swept over the whole corpus.
+///
+/// The property is structural, not a value one: a peek that copied and then
+/// wrote the copy would still answer correctly, so no value gate can see it.
+/// What it costs is the thing the frame exists to buy — a peek frame whose own
+/// overhead does not grow with the period — and the only place that is visible
+/// is here.
+///
+/// The accumulator half pins Rust's share of a decision that must be identical
+/// in all four backends; the other three sweeps cannot see a Rust-only
+/// regression, and no runtime gate can (the stores are dead).
+#[test]
+fn no_rust_peek_copies_the_handle() {
+    let mut swept = 0usize;
+    let mut frames = 0usize;
+    let mut stateless = 0usize;
+    let mut cur_readers = 0usize;
+    let mut fully_shadowed: BTreeSet<String> = BTreeSet::new();
+    let mut offenders: Vec<String> = Vec::new();
+    for name in streaming_indicators() {
+        let s = rust_stream_section(&name);
+        let Some(at) = s.find("    pub fn peek(&self") else { continue };
+        let end = s[at..].find("\n    }").map_or(s.len(), |k| at + k);
+        let peek = &s[at..end];
+        swept += 1;
+        // `sp` onto the state or its scalars, and each buffer as a shared borrow
+        // of itself. Anything else that reaches the state could be a copy.
+        let at = s.find("pub struct ").expect("a handle struct") + "pub struct ".len();
+        let handle_ty = &s[at..at + s[at..].find(' ').expect("handle name end")];
+        let split = s.contains(&format!("struct {handle_ty}Scalars {{"));
+        let bufs = if split {
+            heap_buffer_fields(&body_of(&s, &format!("struct {handle_ty}State {{")))
+        } else {
+            Vec::new()
+        };
+        let sp_bind = if split { "let sp = &self.state.scalars;" } else { "let sp = &self.state;" };
+        let is_binding = |l: &str| {
+            let t = l.trim();
+            t == sp_bind || bufs.iter().any(|(b, _)| t == format!("let {b} = &self.state.{b};"))
+        };
+        if peek.lines().any(|l| l.contains("self.state") && !is_binding(l)) {
+            offenders.push(format!("{name}: reaches the state without the shared `&` binding"));
+        } else if peek.contains("self.state") {
+            frames += 1;
+        } else {
+            // Computes from its bar arguments alone, so there is no handle to
+            // bind — the one shape that legitimately runs a frame without `sp`.
+            stateless += 1;
+        }
+        for needle in ["self.clone()", "self.state.clone()", "PEEK_SCRATCH", "restore_from"] {
+            if peek.contains(needle) {
+                offenders.push(format!("{name}: {needle}"));
+            }
+        }
+        let accs = rust_accumulator_fields(&s);
+        for f in accs.iter().filter(|f| peek.contains(&format!("let mut {f} = sp.{f};"))) {
+            offenders.push(format!("{name}: localizes {f}"));
+        }
+        // A `cur_<out>` local the frame never reads is wholly dead: the frame
+        // answers through its out-param, so the declaration asserts a data flow
+        // that does not exist (issue #353; C deletes it too, #344). A read is
+        // any word-boundary mention besides the declaration itself and the
+        // target of a plain store — `return Ok(cur_x)` or an RHS use keeps the
+        // local legitimately, and rustc will never flag the dead one (lib.rs
+        // blanket-allows unused_variables/unused_assignments).
+        for cur in cur_locals_declared(peek) {
+            let read = peek.lines().any(|l| {
+                let t = l.trim();
+                if t.starts_with(&format!("let mut {cur}:"))
+                    || t.starts_with(&format!("let mut {cur} "))
+                {
+                    return false;
+                }
+                match t.strip_prefix(&format!("{cur} = ")) {
+                    Some(rhs) => mentions_word(rhs, &cur),
+                    None => mentions_word(t, &cur),
+                }
+            });
+            if read {
+                cur_readers += 1;
+            } else {
+                offenders.push(format!("{name}: declares dead local {cur}"));
+            }
+        }
+        // The frame must READ an accumulator: a field it never names is
+        // no evidence about the copy either way.
+        if accs.iter().any(|f| peek.contains(&format!("{f}["))) {
+            fully_shadowed.insert(name.clone());
+        }
+    }
+    assert!(swept >= 200, "only {swept} peek(s) swept");
+    assert_eq!(
+        frames + stateless,
+        swept,
+        "{frames} frame(s) + {stateless} stateless do not account for {swept} peek(s) — the \
+         rest copy something"
+    );
+    assert!(
+        stateless > 0,
+        "no peek computes from its bars alone — the arm that must NOT bind the state is \
+         unreachable and this sweep no longer says the binding follows the frame's reads"
+    );
+    assert!(
+        fully_shadowed.len() >= 21,
+        "only {} handle(s) have a peek frame that reads an accumulator — the sweep \
+         is looking for something that is not there",
+        fully_shadowed.len()
+    );
+    // Non-vacuity for the dead-`cur_` arm: frames that legitimately read the
+    // local they declare must exist in force, or the arm is sweeping air.
+    // 29 at issue #353 time — most cur_ declarations live in update frames,
+    // which this sweep does not enter.
+    assert!(
+        cur_readers > 20,
+        "only {cur_readers} peek frame(s) read the cur_ local they declare — the \
+         dead-local arm has nothing to discriminate against"
+    );
+    assert!(
+        offenders.is_empty(),
+        "a peek copies the handle:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// The APO/PPO/PVO period swap is a MEMORY-SAFETY precondition, not a
+/// normalization convenience.
+///
+/// Their `sc_<out>`-writing sub-call passes `optInSlowPeriod`, while the
+/// caller's fill slice is sized by `ma_lookback(max(slow, fast))`. Those agree
+/// only because the body swaps first, so post-swap `slow == max`. Point the
+/// sub-call at the fast period, or drop the swap, and the callee writes
+/// `H - ma_lookback(min)` values into an array holding `H - ma_lookback(max)` —
+/// more than it can take. Since #205 that array is the caller's own, so Rust
+/// and Java would panic and **C would corrupt silently**.
+///
+/// Nothing in the input `.c` says the swap carries this weight, which is why it
+/// is pinned here. Identified by kevinlincg in the issue #205 write-bound proof.
+#[test]
+fn apo_family_period_swap_is_a_write_bound_precondition() {
+    for name in ["apo", "ppo", "pvo"] {
+        let s = rust_stream_section(name);
+        assert!(
+            s.contains("optInSlowPeriod = optInFastPeriod;"),
+            "{name}: the slow/fast swap must survive into the composed Open"
+        );
+        assert!(
+            s.contains("optInSlowPeriod, optInMAType, outBegIdx, outNBElement, &mut sc_"),
+            "{name}: the sub-call filling the caller's array must use the SWAPPED \
+             (larger) period — the fast period would overrun it"
+        );
+    }
+}
+
+/// The stream tier's FMA dispatch is attached by a TEXT pass
+/// (`rust_stream::fma_dispatch_stream`), so a moved signature drops it with
+/// every value gate still green: both arms are bit-identical and only a
+/// benchmark would see the calls come back. Pinned both ways: `update` is
+/// dispatched, and its step force-inlined, exactly when the step pays for it;
+/// `peek` never is.
+#[test]
+fn a_fused_stream_update_is_fma_dispatched() {
+    let (mut dispatched, mut declined) = (0usize, 0usize);
+    let mut drifted: Vec<String> = Vec::new();
+    for name in streaming_indicators() {
+        let s = rust_stream_section(&name);
+        let step_sig = format!("    fn {name}_step_impl(");
+        if !s.contains(&step_sig) {
+            continue;
+        }
+        let step = body_of(&s, &step_sig);
+        let pays = backends::rust_stream::step_pays_for_dispatch(&step);
+        let upd = s.contains("dispatch_fma!(self, update_fma, update_scalar,")
+            && s.contains("    fn update_fma(")
+            && s.contains("    fn update_scalar(");
+        let inlined = s.contains(&format!("    #[inline(always)]\n{step_sig}"));
+        if upd != pays || inlined != pays || s.contains("fn peek_fma(") {
+            drifted.push(format!("{name}: pays={pays}, update dispatched={upd}, step inlined={inlined}"));
+        }
+        dispatched += usize::from(pays);
+        declined += usize::from(!pays && step.contains(".mul_add("));
+    }
+    assert!(drifted.is_empty(), "stream FMA dispatch drifted:\n{}", drifted.join("\n"));
+    assert!(dispatched > 0, "no update dispatched: the rule admits nothing");
+    assert!(declined > 0, "every fused step dispatched: the rule declines nothing");
+}

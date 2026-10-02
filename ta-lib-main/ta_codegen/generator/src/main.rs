@@ -542,8 +542,7 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         // rewrite that breaks stream analyzability fails HERE, not at release.
         // Run it once per language: a `PRAGMA TA_ALT={STREAM,<lang>}` claim can
         // hand one backend a different body, so "streamable" is a per-language
-        // property even though today every function resolves the same way for
-        // all four.
+        // property.
         if func_def.streaming {
             for lang in ir::ALL_LANGS {
                 let resolved = func_def.resolved_for(lang);
@@ -986,12 +985,50 @@ fn generate_bench(backend_filter: Option<&str>) {
 const COMMON_GCC_FLAGS: &[&str] = &[
     "-lm",
     "-O3",
-    "-flto",
     "-DNDEBUG",
     "-ffp-contract=off",
     "-fno-math-errno",
     "-Wno-parentheses-equality",
 ];
+
+/// The `-flto` spelling for `concurrent` heavy compiles running at once:
+/// each gets its share of the caller's `TA_BUILD_JOBS` budget, where `auto`
+/// would give every link one LTRANS job per CPU. Clang takes no count and runs
+/// no parallel LTRANS for one TU, so it keeps `auto`.
+///
+/// Every gcc here must drop the MAKEFLAGS family from its environment: gcc 14's
+/// LTO stage hangs on an inherited pipe jobserver.
+fn gcc_lto_flag(concurrent: usize) -> String {
+    let is_clang = std::process::Command::new("gcc")
+        .arg("--version")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("clang"))
+        .unwrap_or(false);
+    if is_clang {
+        return "-flto=auto".to_string();
+    }
+    let jobs = std::env::var("TA_BUILD_JOBS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()));
+    format!("-flto={}", (jobs / concurrent.max(1)).max(1))
+}
+
+fn gcc_command() -> std::process::Command {
+    let mut cmd = std::process::Command::new("gcc");
+    cmd.env_remove("MAKEFLAGS").env_remove("MFLAGS").env_remove("CARGO_MAKEFLAGS");
+    cmd
+}
+
+/// `-falign-functions=64 -falign-loops=64` on x86 hosts, as the CMake and autotools
+/// builds add them (issue #437), so these builds align code the way the library
+/// does. Clang drops `-falign-loops` under `-flto`: where `gcc` is clang they keep
+/// its default loop alignment.
+const X86_GCC_FLAGS: &[&str] = if cfg!(any(target_arch = "x86_64", target_arch = "x86")) {
+    &["-falign-functions=64", "-falign-loops=64"]
+} else {
+    &[]
+};
 
 /// Verify the hand-maintained Rust `FuncUnstId` enum matches enums.yaml.
 ///
@@ -1056,9 +1093,9 @@ fn verify_hand_maintained_funcunstid(
     // FuncUnstId::COUNT sizes the crate's unstable-period array. The template is
     // copied verbatim, so the literal cannot be interpolated -- check it here
     // instead, or adding an indicator would leave the array one slot short. The
-    // needle is anchored on the impl block, not on `pub const COUNT` alone, which
-    // is a spelling other types in the crate also use.
-    let want_count = format!("pub const COUNT: usize = {};", fu.variants.len());
+    // needle is anchored on the impl block, not on the declaration alone, which
+    // other types in the crate also spell.
+    let want_count = format!("pub(crate) const COUNT: usize = {};", fu.variants.len());
     let counted = src
         .find("impl FuncUnstId {")
         .and_then(|i| src[i..].find('}').map(|j| &src[i..i + j]))
@@ -1087,254 +1124,289 @@ fn verify_hand_maintained_funcunstid(
     }
 }
 
+/// One compile's result, printed only after every backend has finished so
+/// concurrent builds never interleave their output.
+struct BuildStep {
+    label: String,
+    log: String,
+    status: String,
+    ok: bool,
+}
+
+/// Runs `cmd` with its stdout and stderr captured into one temp file, not a
+/// pipe: a build server the tool leaves behind (MSBuild node reuse, the Roslyn
+/// compiler server) inherits the handle, and reading a pipe to EOF would wait
+/// on that daemon instead of on the build. Stdin is closed so a concurrent
+/// child can never block on a prompt.
+fn run_build_step(label: &str, tool: &str, cmd: &mut std::process::Command) -> BuildStep {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    let log_path = std::env::temp_dir().join(format!(
+        "ta_codegen_build_{}_{}.log",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let spawned = std::fs::File::create(&log_path).and_then(|out| {
+        let err = out.try_clone()?;
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(out)
+            .stderr(err)
+            .status()
+    });
+    let log = std::fs::read(&log_path)
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .unwrap_or_default();
+    let _ = std::fs::remove_file(&log_path);
+    let (ok, status) = match spawned {
+        Ok(s) if s.success() => (true, "OK".to_string()),
+        Ok(s) => (false, format!("FAILED (exit {})", s.code().unwrap_or(-1))),
+        Err(e) => (false, format!("FAILED (could not run {tool}: {e})")),
+    };
+    BuildStep {
+        label: label.to_string(),
+        log,
+        status,
+        ok,
+    }
+}
+
+/// `with_rust` counts the concurrent Rust build when sizing gcc's LTO share.
+/// cargo still draws on the whole budget, so the total can exceed it.
+fn build_c(
+    root: &Path,
+    out_base: &Path,
+    bin_dir: &Path,
+    servers_only: bool,
+    with_rust: bool,
+) -> Vec<BuildStep> {
+    let c_dir = out_base.join("c/tools");
+    let include_dir = root.join("include");
+    let src_dir = root.join("src");
+    let ta_func_dir = src_dir.join("ta_func");
+    let ta_common_dir = src_dir.join("ta_common");
+    let ta_abstract_dir = src_dir.join("ta_abstract");
+    let ta_frames_dir = ta_abstract_dir.join("frames");
+    let ta_abstract_serve_dir = root.join("ta_codegen/generator/templates/c");
+    // fuzz_data.h (shared seed-generator/hasher) for stream_verify.
+    let ta_regtest_dir = src_dir.join("tools/ta_regtest");
+    // bench_corpus.h (shared benchmark input corpus) for the benchmark binaries.
+    let ta_bench_dir = src_dir.join("tools/ta_bench");
+    let inc = |d: &Path| format!("-I{}", d.to_str().unwrap());
+    let benches = ["ta_bench_cg.c", "ta_bench_stream.c"]
+        .iter()
+        .filter(|f| !servers_only && c_dir.join(f).exists())
+        .count();
+    let lto = gcc_lto_flag(1 + benches + usize::from(with_rust));
+
+    let server = || {
+        let src = c_dir.join("ta_codegen_serve.c");
+        let dst = bin_dir.join("ta_codegen_serve_c");
+        run_build_step(
+            "C server",
+            "gcc",
+            gcc_command()
+                .arg(&lto)
+                .args(["-o", dst.to_str().unwrap(), src.to_str().unwrap()])
+                .args([
+                    inc(&c_dir),
+                    inc(&ta_abstract_dir),
+                    inc(&ta_frames_dir),
+                    inc(&include_dir),
+                    inc(&src_dir),
+                    inc(&ta_func_dir),
+                    inc(&ta_common_dir),
+                    inc(&ta_abstract_serve_dir),
+                    inc(&ta_regtest_dir),
+                ])
+                .args(COMMON_GCC_FLAGS)
+                .args(X86_GCC_FLAGS),
+        )
+    };
+    let bench = |label: &str, src_name: &str, dst_name: &str| {
+        let src = c_dir.join(src_name);
+        if servers_only || !src.exists() {
+            return None;
+        }
+        let dst = bin_dir.join(dst_name);
+        Some(run_build_step(
+            label,
+            "gcc",
+            gcc_command()
+                .arg(&lto)
+                .args(["-o", dst.to_str().unwrap(), src.to_str().unwrap()])
+                .args([
+                    inc(&c_dir),
+                    inc(&ta_bench_dir),
+                    inc(&include_dir),
+                    inc(&src_dir),
+                    inc(&ta_func_dir),
+                    inc(&ta_common_dir),
+                ])
+                .args(COMMON_GCC_FLAGS)
+                .args(X86_GCC_FLAGS),
+        ))
+    };
+
+    std::thread::scope(|s| {
+        let cg = s.spawn(|| bench("C bench", "ta_bench_cg.c", "ta_bench_cg"));
+        let stream = s.spawn(|| bench("C stream bench", "ta_bench_stream.c", "ta_bench_stream"));
+        let mut steps = vec![server()];
+        for (label, h) in [("C bench", cg), ("C stream bench", stream)] {
+            match h.join() {
+                Ok(step) => steps.extend(step),
+                Err(_) => steps.push(panicked_step(label)),
+            }
+        }
+        steps
+    })
+}
+
+fn build_java(out_base: &Path, bin_dir: &Path) -> Vec<BuildStep> {
+    let java_dir = out_base.join("java/tools");
+    let class_dir = bin_dir.join("ta_codegen_java");
+    // Wipe first. javac's implicit compilation off --source-path does NOT
+    // reliably refresh a class that is already here, so an edited library
+    // source could leave the server running the previous build's bytes, and
+    // every Java gate would agree with it because they all drive this classpath.
+    let _ = std::fs::remove_dir_all(&class_dir);
+    std::fs::create_dir_all(&class_dir).ok();
+    // The server's ta_abstract RPCs answer from the SHIPPED registry, so the
+    // library's main source root is on the source path; never a server-private
+    // table, or the abstract gate would never touch what ships.
+    let lib_src = out_base.join("java/library/src/main/java");
+    vec![run_build_step(
+        "Java server",
+        "javac",
+        std::process::Command::new("javac").args([
+            // The spliced public wrappers return `record OutRange`: a too-old
+            // JDK fails here with a clear unsupported-release error.
+            "--release",
+            JAVA_RELEASE,
+            "-nowarn",
+            "--source-path",
+            lib_src.to_str().unwrap(),
+            "-d",
+            class_dir.to_str().unwrap(),
+            java_dir.join("TaCodegenServe.java").to_str().unwrap(),
+        ]),
+    )]
+}
+
+fn build_csharp(out_base: &Path, bin_dir: &Path) -> Vec<BuildStep> {
+    let csharp_dir = out_base.join("csharp/tools");
+    let csharp_out = bin_dir.join("ta_codegen_csharp");
+    std::fs::create_dir_all(&csharp_out).ok();
+    // The server csproj compiles the shipped library sources directly, so one
+    // publish builds the managed indicators and the server.
+    vec![run_build_step(
+        "C# server",
+        "dotnet",
+        std::process::Command::new("dotnet").args([
+            "publish",
+            "-c",
+            "Release",
+            "-o",
+            csharp_out.to_str().unwrap(),
+            csharp_dir.to_str().unwrap(),
+        ]),
+    )]
+}
+
+fn build_rust(out_base: &Path, bin_dir: &Path) -> Vec<BuildStep> {
+    let rust_dir = out_base.join("rust");
+    let mut step = run_build_step(
+        "Rust server",
+        "cargo",
+        std::process::Command::new("cargo")
+            .args(["build", "--release", "--bin", "ta_codegen_serve"])
+            .current_dir(&rust_dir),
+    );
+    if step.ok {
+        let src = rust_dir.join("target/release/ta_codegen_serve");
+        if let Err(e) = std::fs::copy(&src, bin_dir.join("ta_codegen_serve_rust")) {
+            step.ok = false;
+            step.status = format!("OK (build), FAILED (copy: {e})");
+        }
+    }
+    vec![step]
+}
+
+fn panicked_step(label: &str) -> BuildStep {
+    BuildStep {
+        label: label.to_string(),
+        log: String::new(),
+        status: "FAILED (build thread panicked)".to_string(),
+        ok: false,
+    }
+}
+
 /// `servers_only` skips the two C benchmark binaries. They are the only extra
 /// artifacts any backend arm builds, they are two more whole-library `-flto`
 /// compiles (~3x the C server alone), and they share this function's `failures`
 /// counter -- so a caller that wants a server to talk to would otherwise pay for
 /// them and fail on a break that has nothing to do with it.
+///
+/// Backends build concurrently: each writes only its own directories (its
+/// `bin/` entries and, for C# and Rust, its own `output/<lang>` build tree).
 fn build_servers(backend_filter: Option<&str>, servers_only: bool) {
     let root = repo_root();
     let backends_to_build: Vec<&str> = match backend_filter {
-        Some(b) => b.split(',').map(|s| s.trim()).collect(),
+        Some(b) => b.split(',').map(str::trim).collect(),
         None => backends::all_names(),
     };
 
     let out_base = root.join("ta_codegen/output");
     let bin_dir = root.join("bin");
+    println!("  Building servers concurrently: {}", backends_to_build.join(", "));
 
-    // Track server-build failures so we can exit non-zero. Without this a
-    // failed compile would still exit 0, and ta_regtest would silently reuse
-    // the previously-built (stale) server binary — a real break reads as green.
+    // None marks a backend name no arm recognises.
+    let with_rust = backends_to_build.contains(&"rust");
+    let results: Vec<(&str, Option<Vec<BuildStep>>)> = std::thread::scope(|s| {
+        let handles: Vec<_> = backends_to_build
+            .iter()
+            .map(|&backend| {
+                let (root, out_base, bin_dir) = (&root, &out_base, &bin_dir);
+                let handle = s.spawn(move || match backend {
+                    "c" => Some(build_c(root, out_base, bin_dir, servers_only, with_rust)),
+                    "java" => Some(build_java(out_base, bin_dir)),
+                    "csharp" => Some(build_csharp(out_base, bin_dir)),
+                    "rust" => Some(build_rust(out_base, bin_dir)),
+                    _ => None,
+                });
+                (backend, handle)
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|(backend, h)| {
+                let steps = h
+                    .join()
+                    .unwrap_or_else(|_| Some(vec![panicked_step(&format!("{backend} server"))]));
+                (backend, steps)
+            })
+            .collect()
+    });
+
+    // Track failures so we can exit non-zero. Without this a failed compile
+    // would still exit 0, and ta_regtest would silently reuse the previously
+    // built (stale) server binary: a real break reads as green.
     let mut failures: u32 = 0;
-
-    for backend in &backends_to_build {
-        match *backend {
-            "c" => {
-                print!("  Building C server... ");
-                let c_dir = out_base.join("c/tools");
-                let include_dir = root.join("include");
-                let src_dir = root.join("src");
-                // Option B: the whole C library (indicators + ta_common + the generated
-                // ta_abstract layer) lives in src/; output/c holds only the
-                // server/unity wrappers.
-                let ta_func_dir = src_dir.join("ta_func");
-                let ta_common_dir = src_dir.join("ta_common");
-                let ta_abstract_dir = src_dir.join("ta_abstract");
-                let ta_frames_dir = ta_abstract_dir.join("frames");
-                let ta_abstract_serve_dir = root.join("ta_codegen/generator/templates/c");
-                // fuzz_data.h (shared seed-generator/hasher) for stream_verify.
-                let ta_regtest_dir = src_dir.join("tools/ta_regtest");
-                // bench_corpus.h (shared benchmark input corpus) for the two
-                // generated benchmark binaries below.
-                let ta_bench_dir = src_dir.join("tools/ta_bench");
-                let src = c_dir.join("ta_codegen_serve.c");
-                let dst = bin_dir.join("ta_codegen_serve_c");
-                match std::process::Command::new("gcc")
-                    .args([
-                        "-o",
-                        dst.to_str().unwrap(),
-                        src.to_str().unwrap(),
-                        &format!("-I{}", c_dir.to_str().unwrap()),
-                        &format!("-I{}", ta_abstract_dir.to_str().unwrap()),
-                        &format!("-I{}", ta_frames_dir.to_str().unwrap()),
-                        &format!("-I{}", include_dir.to_str().unwrap()),
-                        &format!("-I{}", src_dir.to_str().unwrap()),
-                        &format!("-I{}", ta_func_dir.to_str().unwrap()),
-                        &format!("-I{}", ta_common_dir.to_str().unwrap()),
-                        &format!("-I{}", ta_abstract_serve_dir.to_str().unwrap()),
-                        &format!("-I{}", ta_regtest_dir.to_str().unwrap()),
-                    ])
-                    .args(COMMON_GCC_FLAGS)
-                    .status()
-                {
-                    Ok(s) if s.success() => println!("OK"),
-                    Ok(s) => {
-                        failures += 1;
-                        println!("FAILED (exit {})", s.code().unwrap_or(-1));
-                    }
-                    Err(e) => {
-                        failures += 1;
-                        println!("FAILED (gcc not found: {})", e);
-                    }
-                }
-                // Also build direct-call benchmark binary if source exists
-                let bench_src = out_base.join("c/tools/ta_bench_cg.c");
-                if bench_src.exists() && !servers_only {
-                    print!("  Building C bench... ");
-                    let bench_dst = bin_dir.join("ta_bench_cg");
-                    let bench_inc_c = out_base.join("c/tools");
-                    match std::process::Command::new("gcc")
-                        .args([
-                            "-o",
-                            bench_dst.to_str().unwrap(),
-                            bench_src.to_str().unwrap(),
-                            &format!("-I{}", bench_inc_c.to_str().unwrap()),
-                            &format!("-I{}", ta_bench_dir.to_str().unwrap()),
-                            &format!("-I{}", include_dir.to_str().unwrap()),
-                            &format!("-I{}", src_dir.to_str().unwrap()),
-                            &format!("-I{}", ta_func_dir.to_str().unwrap()),
-                            &format!("-I{}", ta_common_dir.to_str().unwrap()),
-                        ])
-                        .args(COMMON_GCC_FLAGS)
-                        .status()
-                    {
-                        Ok(s) if s.success() => println!("OK"),
-                        Ok(s) => {
-                            failures += 1;
-                            println!("FAILED (exit {})", s.code().unwrap_or(-1));
-                        }
-                        Err(e) => {
-                            failures += 1;
-                            println!("FAILED (gcc not found: {})", e);
-                        }
-                    }
-                }
-                // Also build the streaming benchmark binary if source exists
-                let sbench_src = out_base.join("c/tools/ta_bench_stream.c");
-                if sbench_src.exists() && !servers_only {
-                    print!("  Building C stream bench... ");
-                    let sbench_dst = bin_dir.join("ta_bench_stream");
-                    let bench_inc_c = out_base.join("c/tools");
-                    match std::process::Command::new("gcc")
-                        .args([
-                            "-o",
-                            sbench_dst.to_str().unwrap(),
-                            sbench_src.to_str().unwrap(),
-                            &format!("-I{}", bench_inc_c.to_str().unwrap()),
-                            &format!("-I{}", ta_bench_dir.to_str().unwrap()),
-                            &format!("-I{}", include_dir.to_str().unwrap()),
-                            &format!("-I{}", src_dir.to_str().unwrap()),
-                            &format!("-I{}", ta_func_dir.to_str().unwrap()),
-                            &format!("-I{}", ta_common_dir.to_str().unwrap()),
-                        ])
-                        .args(COMMON_GCC_FLAGS)
-                        .status()
-                    {
-                        Ok(s) if s.success() => println!("OK"),
-                        Ok(s) => {
-                            failures += 1;
-                            println!("FAILED (exit {})", s.code().unwrap_or(-1));
-                        }
-                        Err(e) => {
-                            failures += 1;
-                            println!("FAILED (gcc not found: {})", e);
-                        }
-                    }
-                }
+    for (backend, steps) in &results {
+        // Counted as a failure: an unrecognised backend built nothing, and
+        // exiting 0 here lets ta_regtest reuse a stale binary and read green.
+        let Some(steps) = steps else {
+            failures += 1;
+            eprintln!("  Unknown backend: {backend}");
+            continue;
+        };
+        for step in steps {
+            print!("{}", step.log);
+            if !step.log.is_empty() && !step.log.ends_with('\n') {
+                println!();
             }
-            "java" => {
-                print!("  Building Java server... ");
-                let java_dir = out_base.join("java/tools");
-                let class_dir = bin_dir.join("ta_codegen_java");
-                // Wipe first. javac's implicit compilation off --source-path does
-                // NOT reliably refresh a class that is already here, so an edited
-                // library source could leave the server running the previous
-                // build's bytes -- and every Java gate would agree with it,
-                // because they all drive this same classpath. Demonstrated by
-                // corrupting FunctionDescription.java: the abstract gate passed
-                // until this directory was removed by hand.
-                let _ = std::fs::remove_dir_all(&class_dir);
-                std::fs::create_dir_all(&class_dir).ok();
-                // The server's ta_abstract RPCs answer from the SHIPPED registry
-                // (io.github.talib.metadata), so the library's sources are on the
-                // source path. Never a server-private table: the abstract gate
-                // would then never touch what ships (issue #164).
-                // The main source root only: under the Maven layout the test
-                // package lives in a sibling root, so it is not on the server's
-                // source path at all.
-                let lib_src = out_base.join("java/library/src/main/java");
-                match std::process::Command::new("javac")
-                    .args([
-                        // JDK 17 (LTS) floor: the spliced public wrappers return
-                        // `record OutRange`. Pinning it here means a too-old JDK
-                        // fails with a clear unsupported-release error.
-                        "--release",
-                        JAVA_RELEASE,
-                        "-nowarn",
-                        "--source-path",
-                        lib_src.to_str().unwrap(),
-                        "-d",
-                        class_dir.to_str().unwrap(),
-                        java_dir.join("TaCodegenServe.java").to_str().unwrap(),
-                    ])
-                    .status()
-                {
-                    Ok(s) if s.success() => println!("OK"),
-                    Ok(s) => {
-                        failures += 1;
-                        println!("FAILED (exit {})", s.code().unwrap_or(-1));
-                    }
-                    Err(e) => {
-                        failures += 1;
-                        println!("FAILED (javac not found: {})", e);
-                    }
-                }
-            }
-            "csharp" => {
-                print!("  Building C# server... ");
-                let csharp_dir = out_base.join("csharp/tools");
-                let csharp_out = bin_dir.join("ta_codegen_csharp");
-                std::fs::create_dir_all(&csharp_out).ok();
-
-                // The server csproj (generated by generate-servers) compiles the
-                // shipped library sources directly, so one publish builds the
-                // managed indicators + the server. No native shared library:
-                // the P/Invoke harness was retired with the managed backend.
-                match std::process::Command::new("dotnet")
-                    .args([
-                        "publish",
-                        "-c",
-                        "Release",
-                        "-o",
-                        csharp_out.to_str().unwrap(),
-                        csharp_dir.to_str().unwrap(),
-                    ])
-                    .status()
-                {
-                    Ok(s) if s.success() => println!("OK"),
-                    Ok(s) => {
-                        failures += 1;
-                        println!("FAILED (exit {})", s.code().unwrap_or(-1));
-                    }
-                    Err(e) => {
-                        failures += 1;
-                        println!("FAILED (dotnet not found: {})", e);
-                    }
-                }
-            }
-            "rust" => {
-                print!("  Building Rust server... ");
-                let rust_dir = out_base.join("rust");
-                match std::process::Command::new("cargo")
-                    .args(["build", "--release", "--bin", "ta_codegen_serve"])
-                    .current_dir(&rust_dir)
-                    .status()
-                {
-                    Ok(s) if s.success() => {
-                        let src = rust_dir.join("target/release/ta_codegen_serve");
-                        let dst = bin_dir.join("ta_codegen_serve_rust");
-                        if let Err(e) = std::fs::copy(&src, &dst) {
-                            failures += 1;
-                            println!("OK (build), FAILED (copy: {})", e);
-                        } else {
-                            println!("OK");
-                        }
-                    }
-                    Ok(s) => {
-                        failures += 1;
-                        println!("FAILED (exit {})", s.code().unwrap_or(-1));
-                    }
-                    Err(e) => {
-                        failures += 1;
-                        println!("FAILED (cargo not found: {})", e);
-                    }
-                }
-            }
-            // Counted as a failure: an unrecognised backend built nothing, and
-            // exiting 0 here lets ta_regtest reuse a stale binary and read green.
-            _ => {
+            println!("  Building {}... {}", step.label, step.status);
+            if !step.ok {
                 failures += 1;
-                eprintln!("  Unknown backend: {}", backend);
             }
         }
     }
@@ -1380,7 +1452,7 @@ fn build_libraries(backend_filter: Option<&str>) {
             }
             "csharp" => {
                 built += 1;
-                if !build_csharp_library(&root) {
+                if !build_csharp_library(&root, &bin_dir) {
                     failures += 1;
                 }
             }
@@ -2148,14 +2220,30 @@ fn collect_java_sources(
 /// so this step exists for what the server build cannot prove: the shipped
 /// csproj itself and its doc-comment gate — `GenerateDocumentationFile` +
 /// `TreatWarningsAsErrors` makes CS1591 an error, the C# analog of the Java
-/// `-Xdoclint` step. Then runs the hand-written suites. Returns `true` on
-/// success.
-fn build_csharp_library(root: &Path) -> bool {
+/// `-Xdoclint` step. Then compiles the doc examples against the built DLL and
+/// runs the hand-written suites. Returns `true` on success.
+fn build_csharp_library(root: &Path, bin_dir: &Path) -> bool {
     let lib_dir = root.join("ta_codegen/output/csharp/library");
     if !lib_dir.exists() {
         println!("  Building C# library... FAILED (no {})", lib_dir.display());
         return false;
     }
+
+    // The suites run once per test TFM, so a TFM only the library declares is
+    // packed and never executed.
+    let lib_tfms = csharp_tfms(&lib_dir.join("TALib.csproj"));
+    let test_tfms = csharp_tfms(&lib_dir.join("test/TALib.Test.csproj"));
+    let as_set = |v: &[String]| v.iter().cloned().collect::<std::collections::BTreeSet<_>>();
+    if lib_tfms.is_empty() || as_set(&lib_tfms) != as_set(&test_tfms) {
+        println!(
+            "  Checking C# target frameworks... FAILED (TALib.csproj declares [{}], \
+             test/TALib.Test.csproj [{}]; they must be the same set)",
+            lib_tfms.join(";"),
+            test_tfms.join(";")
+        );
+        return false;
+    }
+
     print!("  Building C# library... ");
     match std::process::Command::new("dotnet")
         .args(["build", "-c", "Release", "--nologo", "-v", "quiet"])
@@ -2172,17 +2260,263 @@ fn build_csharp_library(root: &Path) -> bool {
             return false;
         }
     }
-    run_csharp_tests(&lib_dir)
+    if !check_csharp_doc_examples(root, &lib_dir, &lib_tfms, bin_dir) {
+        return false;
+    }
+    run_csharp_tests(&lib_dir, &test_tfms)
+}
+
+/// Compile the C# examples a reader copies: `/// <code>` blocks in the shipped
+/// sources, and the `csharp` fences and `<pre>` programs of the package README
+/// and the website. Compiled against the built `TALib.dll`, not its sources, so
+/// an example calling a member that is not public fails here.
+///
+/// A snippet may use `core`, `close`, `outReal`, `history`, `newClose` and
+/// `formingClose` without declaring them; anything else it needs, it declares.
+/// One with no `using` gets `TALib` and `TALib.Metadata`; one with any gets
+/// only its own plus the implicit usings of a new project, so it compiles as
+/// pasted there.
+fn check_csharp_doc_examples(
+    root: &Path,
+    lib_dir: &Path,
+    tfms: &[String],
+    bin_dir: &Path,
+) -> bool {
+    let mut sources: Vec<std::path::PathBuf> = Vec::new();
+    collect_files(lib_dir, "cs", &["test", "bin", "obj"], &mut sources);
+    // Each extractor, and each C# page, must yield something, or it has
+    // stopped matching.
+    let must_yield: Vec<std::path::PathBuf> = vec![
+        lib_dir.join("README.md"),
+        root.join("website/src/api/csharp/README.md"),
+        root.join("website/src/api/csharp/stream/README.md"),
+    ];
+    let mut pages: Vec<std::path::PathBuf> = must_yield.clone();
+    collect_files(&root.join("website/src"), "md", &["node_modules", ".vuepress"], &mut pages);
+    sources.sort();
+    pages.sort();
+    pages.dedup();
+
+    let mut snippets: Vec<(String, String)> = Vec::new();
+    let mut found = [0usize; 3];
+    let rel = |p: &Path| p.strip_prefix(root).unwrap_or(p).display().to_string();
+    let read = |p: &Path| {
+        let text = std::fs::read_to_string(p);
+        if text.is_err() {
+            println!("  Checking C# doc examples... FAILED (cannot read {})", rel(p));
+        }
+        text.ok()
+    };
+    for path in &sources {
+        let Some(text) = read(path) else {
+            return false;
+        };
+        for (i, body) in extract_csharp_xml_code_blocks(&text).into_iter().enumerate() {
+            found[0] += 1;
+            snippets.push((format!("{}#{i}", rel(path)), body));
+        }
+    }
+    for path in &pages {
+        let Some(text) = read(path) else {
+            return false;
+        };
+        let (fences, pres) = extract_csharp_md_blocks(&text);
+        if must_yield.contains(path) && fences.is_empty() && pres.is_empty() {
+            println!("  Checking C# doc examples... FAILED (no example found in {})", rel(path));
+            return false;
+        }
+        found[1] += fences.len();
+        found[2] += pres.len();
+        for (i, body) in fences.into_iter().chain(pres).enumerate() {
+            snippets.push((format!("{}#{i}", rel(path)), body));
+        }
+    }
+
+    print!("  Checking C# doc examples ({})... ", snippets.len());
+    if found.contains(&0) {
+        println!(
+            "FAILED (found {} /// <code>, {} ```csharp and {} <pre> examples; \
+             an extractor is out of step)",
+            found[0], found[1], found[2]
+        );
+        return false;
+    }
+
+    for tfm in tfms {
+        let dll = lib_dir.join(format!("bin/Release/{tfm}/TALib.dll"));
+        let dir = bin_dir.join("ta_codegen_csharp_docex").join(tfm);
+        let _ = std::fs::remove_dir_all(&dir);
+        if std::fs::create_dir_all(&dir).is_err() {
+            println!("FAILED (cannot create {})", dir.display());
+            return false;
+        }
+        let csproj = format!(
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n\
+             \x20 <PropertyGroup>\n\
+             \x20   <TargetFramework>{tfm}</TargetFramework>\n\
+             \x20   <ImplicitUsings>enable</ImplicitUsings>\n\
+             \x20   <Nullable>enable</Nullable>\n\
+             \x20 </PropertyGroup>\n\
+             \x20 <ItemGroup>\n\
+             \x20   <Reference Include=\"{}\" />\n\
+             \x20 </ItemGroup>\n\
+             </Project>\n",
+            dll.display()
+        );
+        if write_if_changed(dir.join("DocExamples.csproj"), csproj).is_err() {
+            println!("FAILED (cannot write into {})", dir.display());
+            return false;
+        }
+        for (n, (origin, body)) in snippets.iter().enumerate() {
+            let mut usings: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            let mut code = String::new();
+            for line in body.lines() {
+                let t = line.trim();
+                let directive = t.starts_with("using ") && t.ends_with(';');
+                if directive && !t.contains('(') && !t.contains('=') {
+                    usings.insert(t.to_string());
+                } else {
+                    code.push_str("        ");
+                    code.push_str(line);
+                    code.push('\n');
+                }
+            }
+            if usings.is_empty() {
+                usings = ["using TALib;", "using TALib.Metadata;"].map(String::from).into();
+            }
+            // Fields, not locals, so a snippet that declares its own shadows them legally.
+            let src = format!(
+                "{}\n\
+                 // From {origin}\n\
+                 internal static class DocExample{n}\n\
+                 {{\n\
+                 \x20   static TALib.Core core = TALib.Core.Default;\n\
+                 \x20   static double[] close = new double[300];\n\
+                 \x20   static double[] outReal = new double[300];\n\
+                 \x20   static double[] history = new double[300];\n\
+                 \x20   static double newClose = 100, formingClose = 100;\n\
+                 \x20   static void Snippet()\n\
+                 \x20   {{\n\
+                 {code}\
+                 \x20   }}\n\
+                 }}\n",
+                usings.into_iter().collect::<Vec<_>>().join("\n")
+            );
+            if write_if_changed(dir.join(format!("DocExample{n}.cs")), src).is_err() {
+                println!("FAILED (cannot write into {})", dir.display());
+                return false;
+            }
+        }
+        match std::process::Command::new("dotnet")
+            .args(["build", "-c", "Release", "--nologo", "-v", "quiet"])
+            .current_dir(&dir)
+            .output()
+        {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => {
+                println!("FAILED ({tfm})");
+                for (n, (origin, _)) in snippets.iter().enumerate() {
+                    println!("    DocExample{n} = {origin}");
+                }
+                print!("{}", String::from_utf8_lossy(&o.stdout));
+                return false;
+            }
+            Err(e) => {
+                println!("FAILED (dotnet not found: {e})");
+                return false;
+            }
+        }
+    }
+    println!("OK");
+    true
+}
+
+/// Files with extension `ext` under `dir`, skipping directories named in `skip`.
+fn collect_files(dir: &Path, ext: &str, skip: &[&str], out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            if !skip.contains(&name.as_str()) {
+                collect_files(&path, ext, skip, out);
+            }
+        } else if path.extension().is_some_and(|e| e == ext) {
+            out.push(path);
+        }
+    }
+}
+
+fn unescape_xml(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+/// The bodies of every `/// <code>` ... `/// </code>` block in `text`.
+fn extract_csharp_xml_code_blocks(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur: Option<Vec<String>> = None;
+    for line in text.lines() {
+        let Some(doc) = line.trim_start().strip_prefix("///") else {
+            continue;
+        };
+        let doc = doc.strip_prefix(' ').unwrap_or(doc);
+        match (cur.as_mut(), doc.trim()) {
+            (None, "<code>") => cur = Some(Vec::new()),
+            (Some(_), "</code>") => out.push(cur.take().unwrap_or_default().join("\n")),
+            (Some(buf), _) => buf.push(unescape_xml(doc)),
+            (None, _) => {}
+        }
+    }
+    out
+}
+
+/// A Markdown page's ```` ```csharp ```` fences, and its `<pre>` blocks that
+/// are programs (open with `using`) rather than signatures, tags stripped.
+fn extract_csharp_md_blocks(text: &str) -> (Vec<String>, Vec<String>) {
+    let tag = regex::Regex::new("<[^>]*>").expect("static regex");
+    let (mut fences, mut pres) = (Vec::new(), Vec::new());
+    let mut fence: Option<Vec<&str>> = None;
+    let mut pre: Option<Vec<String>> = None;
+    for line in text.lines() {
+        let mut rest = line;
+        if fence.is_none() && pre.is_none() {
+            if line.trim() == "```csharp" {
+                fence = Some(Vec::new());
+                continue;
+            }
+            let Some((_, after)) = line.split_once("<pre>") else {
+                continue;
+            };
+            pre = Some(Vec::new());
+            rest = after;
+        }
+        if let Some(buf) = fence.as_mut() {
+            if line.trim() == "```" {
+                fences.push(fence.take().unwrap_or_default().join("\n"));
+            } else {
+                buf.push(line);
+            }
+        } else if let Some(buf) = pre.as_mut() {
+            let (head, done) = rest.split_once("</pre>").map_or((rest, false), |(h, _)| (h, true));
+            buf.push(unescape_xml(&tag.replace_all(head, "")));
+            if done {
+                let body = pre.take().unwrap_or_default().join("\n");
+                if body.trim_start().starts_with("using ") {
+                    pres.push(body);
+                }
+            }
+        }
+    }
+    (fences, pres)
 }
 
 /// Run the hand-written C# suites, once per target framework.
-///
-/// The TFM list is read from the test csproj rather than hardcoded, and the
-/// loop runs every entry. Today that is just `net10.0`, so the loop looks like
-/// overhead — it is not. The library briefly declared `net8.0;net10.0` while
-/// every gate exercised net10.0 alone, which is precisely the failure this
-/// shape prevents: a TFM that is claimed but never run is a promise nobody
-/// checked. Add a TFM to both csprojs and it is executed here automatically.
 ///
 /// A missing RUNTIME for a declared TFM is reported as SKIPPED rather than
 /// failing the build: `dotnet build` only needs the reference assemblies, which
@@ -2193,17 +2527,10 @@ fn build_csharp_library(root: &Path) -> bool {
 /// Skipping them ALL is a failure, though. The tolerance above is "the others
 /// still ran"; with the library on a single TFM there are no others, so one
 /// skip would mean the suite reported success having executed nothing.
-fn run_csharp_tests(lib_dir: &Path) -> bool {
+fn run_csharp_tests(lib_dir: &Path, tfms: &[String]) -> bool {
     let test_dir = lib_dir.join("test");
     if !test_dir.exists() {
         println!("  Running C# tests... FAILED (no {})", test_dir.display());
-        return false;
-    }
-
-    // Parsed from the test csproj so this cannot drift from what is built.
-    let tfms = csharp_test_tfms(&test_dir);
-    if tfms.is_empty() {
-        println!("  Running C# tests... FAILED (no TargetFrameworks in the test csproj)");
         return false;
     }
 
@@ -2225,7 +2552,7 @@ fn run_csharp_tests(lib_dir: &Path) -> bool {
     }
 
     let mut ran = 0;
-    for tfm in &tfms {
+    for tfm in tfms {
         print!("  Running C# tests ({tfm})... ");
         let out = std::process::Command::new("dotnet")
             .args(["run", "-c", "Release", "--no-build", "-f", tfm])
@@ -2273,12 +2600,13 @@ fn run_csharp_tests(lib_dir: &Path) -> bool {
     true
 }
 
-/// The `<TargetFrameworks>` (or singular `<TargetFramework>`) of the C# test
-/// project, in declaration order.
-fn csharp_test_tfms(test_dir: &Path) -> Vec<String> {
-    let Ok(text) = std::fs::read_to_string(test_dir.join("TALib.Test.csproj")) else {
+/// The `<TargetFrameworks>` (or singular `<TargetFramework>`) of a csproj, in
+/// declaration order, ignoring XML comments.
+fn csharp_tfms(csproj: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(csproj) else {
         return Vec::new();
     };
+    let text = regex::Regex::new("(?s)<!--.*?-->").expect("static regex").replace_all(&text, "");
     for (open, close) in [
         ("<TargetFrameworks>", "</TargetFrameworks>"),
         ("<TargetFramework>", "</TargetFramework>"),
@@ -2299,14 +2627,15 @@ fn csharp_test_tfms(test_dir: &Path) -> Vec<String> {
 
 /// The hand-written Rust library sources that ship inside the generated crate,
 /// copied verbatim from `ta_codegen/generator/templates/rust/`. `types.rs` holds
-/// `Core`/`CoreBuilder` and its API tests (issue #144); the rest are
+/// `Core`/`CoreBuilder` and its API tests (issue #144); `c_math.rs` the C-exact
+/// `max`/`min`/`floor`/`ceil` the bodies call (issue #438); the rest are
 /// `#[cfg(test)]`-only modules — DIV's zero-divisor result (issue #249), the
 /// batch bodies' scratch-buffer election (issue #146), the streaming tier's
 /// non-finite input rejection, and a handle's `OutRange` against batch (issue
 /// #241). All are listed in the Rust backend's `clean_keep`, so `generate` never
 /// deletes them.
 const RUST_TEMPLATE_MODULES: &[&str] =
-    &["types", "div_zero", "scratch_election", "stream_finite", "stream_out_range"];
+    &["types", "c_math", "div_zero", "scratch_election", "stream_finite", "stream_out_range"];
 
 /// Of [`RUST_TEMPLATE_MODULES`], the ones that exist only for `cargo test` and so
 /// are declared `#[cfg(test)]` in the generated `mod.rs`.
@@ -2532,8 +2861,11 @@ fn generate_rust_crate_scaffolding(
     println!("  Scaffolding -> {}", lib_dir.join("LICENSE").display());
 
     // --- workspace Cargo.toml (virtual manifest — profiles apply at the root) ---
+    // `tools` alone gets parallel codegen: the server is its build's critical
+    // path, and the indicator code it times is the library's, codegen'd whole.
     let workspace_toml = "[workspace]\nmembers = [\"dispatch\", \"library\", \"tools\"]\nresolver = \"2\"\n\n\
-        [profile.release]\nlto = \"thin\"\ncodegen-units = 1\n";
+        [profile.release]\nlto = \"thin\"\ncodegen-units = 1\n\n\
+        [profile.release.package.ta-lib-tools]\ncodegen-units = 16\n";
     write_if_changed(rust_dir.join("Cargo.toml"), workspace_toml).unwrap();
 
     // --- dispatch/ (issue #156): the runtime FMA-dispatch macro crate ---
@@ -2628,11 +2960,11 @@ macro_rules! dispatch_fma {
 
     // --- library/Cargo.toml (the published `ta-lib` crate — no bin; one
     //     internal dep: the dispatch macro crate, exact-pinned) ---
-    // rust-version: safe #[target_feature] (the FMA dispatch clones)
-    // stabilized in 1.86 — declare the floor so pre-1.86 toolchains get a
-    // clear MSRV message instead of an opaque E0658.
+    // rust-version: `std::hint::select_unpredictable` (1.88), without which
+    // LLVM leaves some C selects as data-dependent branches (#438). The
+    // dispatch crate's own floor stays at its published 1.86.
     let lib_toml_head = format!(
-        "[package]\nname = \"ta-lib\"\nversion = \"{crate_version}\"\nedition = \"2021\"\nrust-version = \"1.86\"\n\
+        "[package]\nname = \"ta-lib\"\nversion = \"{crate_version}\"\nedition = \"2021\"\nrust-version = \"1.88\"\n\
          description = \"Technical analysis library: 200+ indicators (SMA, EMA, RSI, MACD, \
          Bollinger Bands, ATR, Stochastic, candlestick patterns) — the official Rust port of \
          TA-Lib, verified against the C reference.\""
@@ -2671,6 +3003,22 @@ path = "src/lib.rs"
     )
     .unwrap();
     println!("  Scaffolding -> {}", lib_cargo_path.display());
+
+    // Denied in lib.rs. A float max/min the emitter misreads as an integer one
+    // renders as the f64 method and would otherwise compile.
+    let clippy_toml_path = lib_dir.join("clippy.toml");
+    write_if_changed(
+        &clippy_toml_path,
+        r#"disallowed-methods = [
+    { path = "f64::max", reason = "C's max() is `a > b ? a : b`; use c_max" },
+    { path = "f64::min", reason = "C's min() is `a < b ? a : b`; use c_min" },
+    { path = "f64::floor", reason = "a libm call without SSE4.1; use c_floor" },
+    { path = "f64::ceil", reason = "a libm call without SSE4.1; use c_ceil" },
+]
+"#,
+    )
+    .unwrap();
+    println!("  Scaffolding -> {}", clippy_toml_path.display());
 
     // --- tools/Cargo.toml (server/bench crate; depends on the library) ---
     //
@@ -2739,7 +3087,7 @@ $EX_QUICK_START_DOC
 //! * Every call returns [`Result`]`<`[`OutRange`]`, `[`RetCode`]`>`, so it composes with
 //!   `?`. [`OutRange`] says where the values start ([`beg_idx`](OutRange::beg_idx), in the
 //!   input series' coordinates) and how many there are ([`count`](OutRange::count)).
-//!   A range shorter than the lookback is a **success with no values**, not an error.
+//!   A range that ends before the lookback is a **success with no values**, not an error.
 //!
 //! [`Core`] is immutable after construction: its per-instance settings — unstable
 //! period and candlestick thresholds — are chosen up front with
@@ -2756,22 +3104,21 @@ $EX_CONFIGURATION_DOC
 //!
 //! The crate is `#![forbid(unsafe_code)]`: a bounds violation panics, it never
 //! triggers undefined behavior. On x86-64, the batch entry
-//! points of indicators built on fused multiply-adds are compiled twice and the
+//! points of indicators built on fused multiply-adds, and the stream `update`
+//! of those with enough fused arithmetic per bar, are compiled twice and the
 //! hardware-FMA clone is selected at runtime (the same dispatch the C library
 //! performs via `target_clones`); both paths are correctly rounded, so results
 //! are bit-identical either way. Calling that clone is the one `unsafe` in the
 //! crate's shipped dependency graph: it lives in `ta-lib-dispatch`, inside the
 //! `is_x86_feature_detected!("fma")` test that has just proved it sound, and
 //! `forbid` here does not see it because it expands from another crate's macro.
-//! The streaming tier stays single-path.
 //!
 //! # Live data
 //!
 //! The calls above take a whole series at once. For a feed that arrives one bar
 //! at a time, each indicator also has a *streaming* form: an `*_open` method
 //! ([`Core::sma_open`], [`Core::rsi_open`], …) warms a handle up on the history
-//! you already have, and from then on one bar in gives that bar's value out,
-//! with no re-scan of the series and no allocation per bar.
+//! you already have, and from then on one bar in gives that bar's value out.
 //!
 $EX_LIVE_DATA_DOC
 //!
@@ -2813,6 +3160,7 @@ $FUNC_INDEX
 // than applied. `too_many_arguments` is inherent to the C API arity.
 #![allow(clippy::all, clippy::pedantic)]
 #![allow(clippy::approx_constant)] // PI (180/3.141592653589793) is copied verbatim from the C source.
+#![deny(clippy::disallowed_methods)] // clippy.toml: the f64 methods that are not C's.
 // Private, so every public type has exactly one path. `ta_func` is the C source
 // directory's name, and `ta_lib::ta_func::Core` would stutter; the glob below is
 // the only way in (#179 C5).
@@ -2876,7 +3224,7 @@ start (`beg_idx`, in the input series' coordinates) and how many there are
 (`count`); `*_lookback` methods return how many leading values an indicator
 consumes before the first one exists.
 
-A range shorter than the lookback is a **success with no values** (`count == 0`),
+A range that ends before the lookback is a **success with no values** (`count == 0`),
 not an error — the same contract as C, Java and C#.
 
 ## Configuration
@@ -2899,8 +3247,8 @@ indicator calls) without locking. To change a setting, build a new `Core`.
 The calls above take a whole series at once. For a feed that arrives one bar at
 a time, each indicator also has a **streaming** form: an `*_open` method warms a
 handle up on the history you already have, and from then on one bar in gives
-that bar's value out — no re-scan of the series, no allocation per bar, and
-bit-identical to what the batch call reports for the same bar.
+that bar's value out, bit-identical to what the batch call reports for the
+same bar.
 
 $EX_LIVE_DATA_MD
 
@@ -2944,6 +3292,8 @@ BSD-3-Clause — see [LICENSE](https://github.com/TA-Lib/ta-lib/blob/main/LICENS
 // Types and Core struct are in types.rs (hand-written, not generated).
 mod types;
 pub use types::*;
+mod c_math;
+pub(crate) use c_math::*;
 "#,
     );
 

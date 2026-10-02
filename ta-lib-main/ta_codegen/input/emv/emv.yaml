@@ -1,0 +1,27 @@
+name: EMV
+group: Volume Indicators
+hint: Arms Ease of Movement
+flags: [stream]
+inputs:
+  - name: inPriceHLV
+    type: price
+    price_components: [high, low, volume]
+optional_inputs:
+  - name: optInTimePeriod
+    type: integer
+    display_name: Time Period
+    hint: Bars in the SMA of the one-bar values (1 = unsmoothed)
+    range: [1, 100000]
+    default: 14
+    suggested: [1, 200, 1]
+  - name: optInVolumeDivisor
+    type: real
+    display_name: Volume Divisor
+    hint: Volume is divided by this before forming the box ratio
+    range: [1, TA_REAL_MAX]
+    default: 10000
+    precision: 0
+outputs:
+  - name: outReal
+    type: real
+    flags: [line]

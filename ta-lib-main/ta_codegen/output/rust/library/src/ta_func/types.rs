@@ -1,4 +1,5 @@
-/// Return codes for TA-Lib function calls.
+/// Return codes for TA-Lib function calls. Each value is C's `TA_RetCode`
+/// number for the same condition.
 ///
 /// `#[must_use]` because a `RetCode` is the whole report of what a call did: a
 /// rejected parameter writes no output and leaves whatever was already in the
@@ -10,30 +11,30 @@
 #[non_exhaustive]
 pub enum RetCode {
     /// Function completed successfully.
-    Success,
+    Success = 0,
     /// One or more parameters are invalid.
-    BadParam,
-    /// The start index is out of range.
-    OutOfRangeStartIndex,
-    /// The end index is out of range or less than start index.
-    OutOfRangeEndIndex,
+    BadParam = 2,
     /// C parity only, never returned here: an allocation failure terminates the process (#178).
-    AllocErr,
-    /// Internal error occurred.
-    InternalError,
+    AllocErr = 3,
+    /// The start index is out of range.
+    OutOfRangeStartIndex = 12,
+    /// The end index is out of range or less than start index.
+    OutOfRangeEndIndex = 13,
     /// The history given to a stream opener is shorter than `lookback + 1` bars.
     ///
     /// The library's one **recoverable** condition: accumulate more bars and
     /// retry, rather than fix the call. Streaming only — the batch tier answers
-    /// a range shorter than its lookback with `Ok` and a zero count.
-    InsufficientHistory,
+    /// a range that ends before its lookback with `Ok` and a zero count.
+    InsufficientHistory = 17,
+    /// Internal error occurred.
+    InternalError = 5000,
 }
 
 /// Where a successful call's output starts and how many values it wrote.
 ///
 /// Returned by every batch entry point and by the abstraction layer's
 /// [`ParamHolder::call`](crate::abstract_api::ParamHolder::call). A valid range
-/// shorter than the function's lookback is a **success with no values**
+/// that ends before the function's lookback is a **success with no values**
 /// (`count == 0`), not an error — the same contract as C's `TA_SUCCESS` with
 /// `outNBElement == 0`, and the same type Java and C# return.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,24 +57,9 @@ impl OutRange {
 }
 
 impl RetCode {
-    /// This code's `TA_RetCode` integer — the value C returns for the same
-    /// condition (`include/ta_defs.h`).
-    ///
-    /// It lives here, and not in whichever crate needs to serialize it, because
-    /// `#[non_exhaustive]` does not apply inside the defining crate: the match
-    /// below must stay total, so a new variant is a compile error. Downstream the
-    /// same match would need a wildcard arm, and a new variant would silently
-    /// report as whatever that arm says.
+    /// This code's `TA_RetCode` number.
     pub const fn as_c_int(self) -> i32 {
-        match self {
-            RetCode::Success => 0,
-            RetCode::BadParam => 2,
-            RetCode::AllocErr => 3,
-            RetCode::OutOfRangeStartIndex => 12,
-            RetCode::OutOfRangeEndIndex => 13,
-            RetCode::InsufficientHistory => 17,
-            RetCode::InternalError => 5000,
-        }
+        self as i32
     }
 }
 
@@ -86,7 +72,7 @@ impl std::fmt::Display for RetCode {
             RetCode::OutOfRangeEndIndex => "end index out of range",
             RetCode::AllocErr => "allocation error",
             RetCode::InternalError => "internal error",
-            RetCode::InsufficientHistory => "history shorter than the lookback",
+            RetCode::InsufficientHistory => "history shorter than lookback + 1",
         };
         f.write_str(s)
     }
@@ -155,6 +141,14 @@ pub enum FuncUnstId {
     HA,
     /// Unstable period of [`Core::rvi`].
     RVI,
+    /// Unstable period of [`Core::frama`].
+    FRAMA,
+    /// Unstable period of [`Core::mcgd`].
+    MCGD,
+    /// Unstable period of [`Core::vidya`].
+    VIDYA,
+    /// Unstable period of [`Core::stc`].
+    STC,
     /// Wildcard: set the unstable period for all functions at once.
     ///
     /// Pinned rather than sitting one past the last function id, so that adding
@@ -163,10 +157,10 @@ pub enum FuncUnstId {
 }
 
 impl FuncUnstId {
-    /// Number of [`FuncUnstId`] function ids — the size of the unstable-period
-    /// table. Not an id, and not [`FuncUnstId::ALL`]. Mirrors C's
-    /// `TA_FUNC_UNST_COUNT` and Java's `FuncUnstId.COUNT`.
-    pub const COUNT: usize = 27;
+    /// Size of the unstable-period table: one past the highest function id.
+    /// [`FuncUnstId::ALL`] selects every slot and is not one. Mirrors C's
+    /// `TA_FUNC_UNST_COUNT`.
+    pub(crate) const COUNT: usize = 31;
 }
 
 /// What a candlestick setting measures a candle against. Mirrors the C
@@ -268,29 +262,31 @@ impl CandleSettings {
 #[non_exhaustive]
 pub enum CandleSettingType {
     /// Selects [`CandleSettings::body_long`].
-    BodyLong,
+    BodyLong = 0,
     /// Selects [`CandleSettings::body_very_long`].
-    BodyVeryLong,
+    BodyVeryLong = 1,
     /// Selects [`CandleSettings::body_short`].
-    BodyShort,
+    BodyShort = 2,
     /// Selects [`CandleSettings::body_doji`].
-    BodyDoji,
+    BodyDoji = 3,
     /// Selects [`CandleSettings::shadow_long`].
-    ShadowLong,
+    ShadowLong = 4,
     /// Selects [`CandleSettings::shadow_very_long`].
-    ShadowVeryLong,
+    ShadowVeryLong = 5,
     /// Selects [`CandleSettings::shadow_short`].
-    ShadowShort,
+    ShadowShort = 6,
     /// Selects [`CandleSettings::shadow_very_short`].
-    ShadowVeryShort,
+    ShadowVeryShort = 7,
     /// Selects [`CandleSettings::near`].
-    Near,
+    Near = 8,
     /// Selects [`CandleSettings::far`].
-    Far,
+    Far = 9,
     /// Selects [`CandleSettings::equal`].
-    Equal,
-    /// Wildcard sentinel — not a valid target for a single setting.
-    AllCandleSettings,
+    Equal = 10,
+    /// Selects every setting; not a valid target for a single setting. Pinned
+    /// at 11 like C's `TA_AllCandleSettings`, and not a count: a setting added
+    /// later takes 12.
+    AllCandleSettings = 11,
 }
 
 /// Provides access to all TA-Lib technical-analysis functions.
@@ -350,7 +346,7 @@ impl Core {
     /// Highest value an `i32` optional parameter may take (C's `TA_INTEGER_MAX`).
     pub const INTEGER_MAX: i32 = i32::MAX;
 
-    /// Largest value `startIdx` or `endIdx` may take (C's `TA_MAX_INDEX`). Above it,
+    /// Largest value `startIdx` or `endIdx` may take (C's `TA_INDEX_MAX`). Above it,
     /// a call returns [`RetCode::OutOfRangeStartIndex`] or
     /// [`RetCode::OutOfRangeEndIndex`] rather than computing.
     ///
@@ -359,7 +355,7 @@ impl Core {
     /// grows with the series length and are already imprecise well below this cap.
     /// It is a `usize` here and an `int` in C, Java and C#, so the same call is
     /// accepted or rejected identically in all four.
-    pub const MAX_INDEX: usize = 100_000_000;
+    pub const INDEX_MAX: usize = 100_000_000;
 
     /// Create a new `Core` with default settings.
     ///
@@ -412,7 +408,7 @@ impl Core {
         }
         // Stored as i32 for the generated indicators' signed lookback arithmetic;
         // every value that reaches the array came through the builder's
-        // `0..=MAX_INDEX` guard, so the conversion cannot fail.
+        // `0..=INDEX_MAX` guard, so the conversion cannot fail.
         Ok(self.unstable_period[id as usize] as u32)
     }
 }
@@ -483,21 +479,21 @@ impl CoreBuilder {
     ///
     /// # Errors
     ///
-    /// A `period` above [`Core::MAX_INDEX`] is rejected, and [`CoreBuilder::build`]
+    /// A `period` above [`Core::INDEX_MAX`] is rejected, and [`CoreBuilder::build`]
     /// then reports [`RetCode::BadParam`]. The period is added to a lookback that
     /// is then used as an index, so an unbounded one overflows that lookback
     /// negative and the function indexes far past the end of its input.
-    /// `MAX_INDEX` is the ceiling the index space already enforces on
+    /// `INDEX_MAX` is the ceiling the index space already enforces on
     /// `startIdx`/`endIdx`; a warm-up longer than the largest addressable series
     /// could never produce output, so nothing legitimate is refused.
     ///
     /// A rejected call writes nothing — every slot keeps the value it had.
     #[must_use]
     pub fn unstable_period(mut self, id: FuncUnstId, period: u32) -> Self {
-        // Widened both sides rather than narrowing MAX_INDEX: u32 and usize are
-        // the same width on a 32-bit target, so a `MAX_INDEX as u32` would be a
+        // Widened both sides rather than narrowing INDEX_MAX: u32 and usize are
+        // the same width on a 32-bit target, so an `INDEX_MAX as u32` would be a
         // truncating cast there and a lint everywhere.
-        if u64::from(period) > Core::MAX_INDEX as u64 {
+        if u64::from(period) > Core::INDEX_MAX as u64 {
             return self.reject(RetCode::BadParam);
         }
         // In range by the check above, so it round-trips through the i32 storage
@@ -522,7 +518,7 @@ impl CoreBuilder {
     ///
     /// [`CoreBuilder::build`] reports [`RetCode::BadParam`] unless `setting_type`
     /// names a single setting, `setting.avg_period` is between `0` and
-    /// [`Core::MAX_INDEX`], and `setting.factor` is not NaN. The range type needs no
+    /// [`Core::INDEX_MAX`], and `setting.factor` is not NaN. The range type needs no
     /// check: [`RangeType`] has no out-of-domain value to reject, which is the
     /// point of it being an enum rather than the `int` C carries.
     /// `avg_period` is the lookback of every CDL\*
@@ -541,7 +537,7 @@ impl CoreBuilder {
         // a value that can arrive from a config file is a worse failure than one
         // the caller can handle, and every check here precedes the write, so a
         // rejection leaves the settings exactly as they were.
-        if setting.avg_period < 0 || setting.avg_period as i64 > Core::MAX_INDEX as i64 {
+        if setting.avg_period < 0 || setting.avg_period as i64 > Core::INDEX_MAX as i64 {
             return self.reject(RetCode::BadParam);
         }
         if setting.factor.is_nan() {
@@ -668,7 +664,8 @@ mod tests {
     /// The distinction is the whole point of the member: a short history means
     /// "send more bars" and is recoverable, while `BadParam` always means the
     /// call itself is wrong. Before it existed, both answered `BadParam` and a
-    /// caller could not tell them apart (docs/error-handling-spec.md, rule S6).
+    /// caller could not tell them apart (rule S7,
+    /// `https://ta-lib.org/spec/streaming/#s7`).
     ///
     /// Three arms, because the first alone would pass against a body that
     /// answered `InsufficientHistory` for everything: the second shows one more
@@ -750,14 +747,14 @@ mod tests {
     }
 
     #[test]
-    fn unstable_period_rejects_above_max_index() {
+    fn unstable_period_rejects_above_index_max() {
         // The period is added to a lookback that is then used as an index, so an
         // unbounded one overflows that lookback negative and the function indexes
         // far past its input. C rejects the same values (ta_utility.c).
-        let too_big = u32::try_from(Core::MAX_INDEX).unwrap() + 1;
+        let too_big = u32::try_from(Core::INDEX_MAX).unwrap() + 1;
         for id in [FuncUnstId::EMA, FuncUnstId::ALL] {
             let err = Core::builder().unstable_period(id, too_big).build().unwrap_err();
-            assert_eq!(err, RetCode::BadParam, "{id:?} must reject MAX_INDEX + 1");
+            assert_eq!(err, RetCode::BadParam, "{id:?} must reject INDEX_MAX + 1");
             let err = Core::builder().unstable_period(id, u32::MAX).build().unwrap_err();
             assert_eq!(err, RetCode::BadParam, "{id:?} must reject u32::MAX");
         }
@@ -765,9 +762,9 @@ mod tests {
 
     #[test]
     fn unstable_period_bound_is_a_bound_not_an_off_by_one() {
-        // MAX_INDEX itself is legal -- C accepts it and rejects MAX_INDEX + 1, so
+        // INDEX_MAX itself is legal -- C accepts it and rejects INDEX_MAX + 1, so
         // a guard tightened by one would be caught here rather than shipping.
-        let ceiling = u32::try_from(Core::MAX_INDEX).unwrap();
+        let ceiling = u32::try_from(Core::INDEX_MAX).unwrap();
         let core = Core::builder().unstable_period(FuncUnstId::EMA, ceiling).build().unwrap();
         assert_eq!(core.get_unstable_period(FuncUnstId::EMA), Ok(ceiling));
     }
@@ -777,7 +774,7 @@ mod tests {
         // The half of the contract that an "it errors" assertion cannot see. C
         // checks before every store (ta_utility.c), so a rejected call is a true
         // no-op; latching the error must not come at the cost of a partial write.
-        let ceiling = u32::try_from(Core::MAX_INDEX).unwrap();
+        let ceiling = u32::try_from(Core::INDEX_MAX).unwrap();
         let builder = Core::builder()
             .unstable_period(FuncUnstId::ALL, 3)
             .unstable_period(FuncUnstId::EMA, ceiling + 1);
@@ -800,7 +797,7 @@ mod tests {
         // observable through the public API and a test claiming otherwise would
         // assert nothing. What is worth pinning is that combining them does not
         // cancel out into a successful build.
-        let ceiling = u32::try_from(Core::MAX_INDEX).unwrap();
+        let ceiling = u32::try_from(Core::INDEX_MAX).unwrap();
         let err = Core::builder()
             .unstable_period(FuncUnstId::EMA, ceiling + 1)
             .candle_setting(
@@ -816,7 +813,7 @@ mod tests {
     fn a_later_good_value_does_not_clear_the_latch() {
         // A corrected value repairs the STATE but not the report: a misuse that
         // was silently swallowed is exactly what #186 exists to stop.
-        let ceiling = u32::try_from(Core::MAX_INDEX).unwrap();
+        let ceiling = u32::try_from(Core::INDEX_MAX).unwrap();
         let err = Core::builder()
             .unstable_period(FuncUnstId::EMA, ceiling + 1)
             .unstable_period(FuncUnstId::EMA, 5)
@@ -829,7 +826,7 @@ mod tests {
     fn to_builder_round_trip_is_total() {
         // A Core only exists if it validated, so rebuilding one can never fail --
         // including at the ceiling, the only value where the bound is in play.
-        let ceiling = u32::try_from(Core::MAX_INDEX).unwrap();
+        let ceiling = u32::try_from(Core::INDEX_MAX).unwrap();
         let core = Core::builder().unstable_period(FuncUnstId::ALL, ceiling).build().unwrap();
         let again = core.to_builder().build().expect("a built Core must always rebuild");
         assert_eq!(again.get_unstable_period(FuncUnstId::T3), Ok(ceiling));
@@ -957,6 +954,11 @@ mod tests {
     }
 
     #[test]
+    fn the_candle_wildcard_is_pinned_at_11() {
+        assert_eq!(CandleSettingType::AllCandleSettings as i32, 11);
+    }
+
+    #[test]
     fn a_rejected_candle_setting_writes_nothing() {
         // Same no-write rule as the period: the wildcard names no slot, so a
         // rejection must not have scribbled into one on the way out.
@@ -999,13 +1001,13 @@ mod tests {
     }
 
     #[test]
-    fn candle_setting_rejects_an_avg_period_past_max_index() {
+    fn candle_setting_rejects_an_avg_period_past_index_max() {
         // Same ceiling the unstable period already carries: an average longer
         // than the largest addressable series could never produce output, and an
         // unbounded one overflows the lookback it feeds.
         let custom = CandleSetting {
             range_type: RangeType::HighLow,
-            avg_period: (Core::MAX_INDEX as i32).saturating_add(1),
+            avg_period: (Core::INDEX_MAX as i32).saturating_add(1),
             factor: 0.1,
         };
         let err = Core::builder()
@@ -1038,14 +1040,14 @@ mod tests {
         // The upper boundary on the legal side, for both bounded fields.
         let custom = CandleSetting {
             range_type: RangeType::Shadows,
-            avg_period: i32::try_from(Core::MAX_INDEX).unwrap(),
+            avg_period: i32::try_from(Core::INDEX_MAX).unwrap(),
             factor: 0.1,
         };
         let core = Core::builder()
             .candle_setting(CandleSettingType::BodyDoji, custom)
             .build()
             .expect("the ceilings are on the legal side of the bound");
-        assert_eq!(core.candle_settings.body_doji.avg_period, i32::try_from(Core::MAX_INDEX).unwrap());
+        assert_eq!(core.candle_settings.body_doji.avg_period, i32::try_from(Core::INDEX_MAX).unwrap());
         assert_eq!(core.candle_settings.body_doji.range_type, RangeType::Shadows);
     }
 
@@ -1071,7 +1073,7 @@ mod tests {
                 .build()
                 .expect("every avg_period in this sweep is inside the bound");
             let lookback = core.cdldoji_lookback().expect("valid params");
-            assert!(lookback <= Core::MAX_INDEX, "avg_period {avg_period} gave lookback {lookback}");
+            assert!(lookback <= Core::INDEX_MAX, "avg_period {avg_period} gave lookback {lookback}");
 
             let mut out = vec![0_i32; n];
             let r = core

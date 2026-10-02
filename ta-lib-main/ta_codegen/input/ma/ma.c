@@ -19,6 +19,8 @@
  *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
  *  090426 MF,CC Add ZLEMA (issue #347).
  *  090426 MF,CC Add RMA (issue #348).
+ *  092926 MF,CC Add VIDYA (issue #474).
+ *  092926 MF,CC Add ALMA (issue #475).
  */
 
 int ma_lookback(int optInTimePeriod, TA_MAType optInMAType)
@@ -78,6 +80,14 @@ int ma_lookback(int optInTimePeriod, TA_MAType optInMAType)
          retValue = rma_lookback( optInTimePeriod );
          break;
 
+      case TA_MAType_VIDYA:
+         retValue = vidya_lookback( optInTimePeriod, (3*optInTimePeriod+2)/4 );
+         break;
+
+      case TA_MAType_ALMA:
+         retValue = alma_lookback( optInTimePeriod, 6.0, 0.85 );
+         break;
+
       default:
          retValue = 0;
    }
@@ -97,7 +107,7 @@ TA_RetCode ma(int startIdx, int endIdx,
    int nbElement;
    int outIdx, todayIdx;
 
-   /* Nothing to produce: the range is shorter than the lookback. Answer here
+   /* Nothing to produce: the range ends before the lookback. Answer here
     * rather than forwarding.
     *
     * The VALUE is the same either way: ma_lookback returns exactly the lookback
@@ -205,6 +215,20 @@ TA_RetCode ma(int startIdx, int endIdx,
 
       case TA_MAType_RMA:
          retCode = rma( startIdx, endIdx, inReal, optInTimePeriod,
+            outBegIdx, outNBElement, outReal );
+         break;
+
+      case TA_MAType_VIDYA:
+         /* The one period is the EMA length; the CMO period is round(3n/4),
+          * Chande's 12:9 ratio. */
+         retCode = vidya( startIdx, endIdx, inReal,
+            optInTimePeriod, (3*optInTimePeriod+2)/4,
+            outBegIdx, outNBElement, outReal );
+         break;
+
+      case TA_MAType_ALMA:
+         retCode = alma( startIdx, endIdx, inReal,
+            optInTimePeriod, 6.0, 0.85,
             outBegIdx, outNBElement, outReal );
          break;
 

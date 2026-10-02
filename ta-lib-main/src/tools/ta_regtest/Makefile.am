@@ -30,12 +30,14 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_per_ohlc.c \
 	ta_test_func/test_stddev.c \
 	ta_test_func/test_correl.c \
+	ta_test_func/test_cti.c \
 	ta_test_func/test_beta.c \
 	ta_test_func/test_linearreg.c \
 	ta_test_func/test_wma.c \
 	ta_test_func/test_reference.c \
 	ta_test_func/test_bbands.c \
 	ta_test_func/test_ma.c \
+	ta_test_func/test_median.c \
 	ta_test_func/test_po.c \
 	ta_test_func/test_per_hl.c \
 	ta_test_func/test_trange.c \
@@ -51,11 +53,17 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_composite1.c \
 	ta_test_func/test_composite2.c \
 	ta_test_func/test_marketfi.c \
+	ta_test_func/test_emv.c \
+	ta_test_func/test_kst.c \
+	ta_test_func/test_kstext.c \
+	ta_test_func/test_chop.c \
 	ta_test_func/test_vwap.c \
 	ta_test_func/test_cmf.c \
 	ta_test_func/test_kc.c \
+	ta_test_func/test_kurtosis.c \
 	ta_test_func/test_donchian.c \
 	ta_test_func/test_rma.c \
+	ta_test_func/test_cksp.c \
 	ta_test_func/test_supertrend.c \
 	ta_test_func/test_mfi.c \
 	ta_test_func/test_cmou.c \
@@ -65,6 +73,13 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_zlema.c \
 	ta_test_func/test_vhf.c \
 	ta_test_func/test_rvi.c \
+	ta_test_func/test_rvir.c \
+	ta_test_func/test_ibs.c \
+	ta_test_func/test_frama.c \
+	ta_test_func/test_mcgd.c \
+	ta_test_func/test_vidya.c \
+	ta_test_func/test_alma.c \
+	ta_test_func/test_stc.c \
 	ta_test_func/test_fractal.c \
 	ta_test_func/test_ha.c \
 	ta_test_func/test_tsi.c \
@@ -72,6 +87,11 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_fosc.c \
 	ta_test_func/test_dpo.c \
 	ta_test_func/test_percentrank.c \
+	ta_test_func/test_crsi.c \
+	ta_test_func/test_bbw.c \
+	ta_test_func/test_cg.c \
+	ta_test_func/test_percentb.c \
+	ta_test_func/test_si.c \
 	ta_test_func/test_percentile.c \
 	ta_test_func/test_cvi.c \
 	ta_test_func/test_massi.c \
@@ -87,6 +107,8 @@ ta_regtest_CPPFLAGS = -I../../ta_func \
 		      -I../../ta_common \
 		      -I../../ta_abstract
 ta_regtest_LDFLAGS = -no-undefined
+# Keep linking the libtool library: packagers install and run
+# .libs/ta_regtest, which libtool creates only for a libtool-linked binary.
 ta_regtest_LDADD = ../../libta-lib.la $(LIBM)
 
 all-local: ta_regtest

@@ -16,6 +16,7 @@
  *  072726 MF,CC  #145. Index the bucket table relative to the smallest period
  *                used, and bound it so an off-contract period cannot overflow.
  *  080326 MF,CC  Split the size temp from the cast-fed period temp (#160).
+ *  092526 MF,CC  #442. Allocate the multi-period buffers on that path only.
  */
 
 int mavp_lookback(int optInMinPeriod, int optInMaxPeriod, TA_MAType optInMAType)
@@ -99,17 +100,9 @@ TA_RetCode mavp(int startIdx, int endIdx,
    }
    outputSize = endIdx - firstOut + 1;
 
-   /* Allocate intermediate local buffer. */
-   double *localOutputArray = malloc((outputSize) * sizeof(double));
    int *localPeriodArray = malloc((outputSize) * sizeof(int));
-
-   /* Output indices grouped by clamped period (counting sort below). */
-   sortedIdx = malloc((outputSize) * sizeof(int));
-   if( localOutputArray == NULL || localPeriodArray == NULL || sortedIdx == NULL )
+   if( localPeriodArray == NULL )
    {
-      free(localOutputArray);
-      free(localPeriodArray);
-      free(sortedIdx);
       *outBegIdx = 0;
       *outNBElement = 0;
       return TA_ALLOC_ERR;
@@ -126,9 +119,7 @@ TA_RetCode mavp(int startIdx, int endIdx,
       localFinalArray = malloc((outputSize) * sizeof(double));
       if( localFinalArray == NULL )
       {
-         free(localOutputArray);
          free(localPeriodArray);
-         free(sortedIdx);
          *outBegIdx = 0;
          *outNBElement = 0;
          return TA_ALLOC_ERR;
@@ -143,8 +134,8 @@ TA_RetCode mavp(int startIdx, int endIdx,
     * range of periods actually used so all later work is sized by the data,
     * not by optInMaxPeriod. The floor at 1 (and on minUsed's start value)
     * keeps a period below 1 from indexing the occurrence tables out of range.
-    * mavp.yaml caps both periods at [1, 100000], so it is inert through the
-    * API; it is kept because this file is the source of truth for four
+    * mavp.yaml's period range starts at 1, so it is inert through the API;
+    * it is kept because this file is the source of truth for four
     * backends and it makes the shared source safe by construction rather than
     * by trusting each backend's prologue to be identical.
     */
@@ -186,8 +177,8 @@ TA_RetCode mavp(int startIdx, int endIdx,
 
    /* Bound the bucket table before sizing it.
     *
-    * Unreachable through the API: mavp.yaml caps both periods at 100000, so
-    * the widest spread expressible is 99999. It is kept because it protects a
+    * Unreachable through the API: mavp.yaml's period range keeps the spread
+    * below this bound. It is kept because it protects a
     * memory-safety property and this file is the source of truth for four
     * backends — without it the size expression below can overflow (signed
     * overflow in C, a wrapped negative in Java, a usize underflow panic in
@@ -205,31 +196,11 @@ TA_RetCode mavp(int startIdx, int endIdx,
     */
    if( maxUsed < minUsed || maxUsed - minUsed > 100000 )
    {
-      free(localOutputArray);
       free(localPeriodArray);
-      free(sortedIdx);
       if( finalIsAllocated ) { free(localFinalArray); }
       *outBegIdx = 0;
       *outNBElement = 0;
       return TA_BAD_PARAM;
-   }
-
-   /* Per-period bucket cursor for the counting sort. Indexed RELATIVE to
-    * minUsed: only [minUsed, maxUsed+1] is ever touched, so sizing from the
-    * largest period used allocated up to 400KB for a band of periods that
-    * may be a handful wide — and allocated it even on the single-period
-    * fast path below.
-    */
-   bucketOfs = malloc((maxUsed-minUsed+2) * sizeof(int));
-   if( bucketOfs == NULL )
-   {
-      free(localOutputArray);
-      free(localPeriodArray);
-      free(sortedIdx);
-      if( finalIsAllocated ) { free(localFinalArray); }
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_ALLOC_ERR;
    }
 
    if( minUsed == maxUsed )
@@ -243,10 +214,7 @@ TA_RetCode mavp(int startIdx, int endIdx,
 
       if( retCode != TA_SUCCESS )
       {
-         free(localOutputArray);
          free(localPeriodArray);
-         free(sortedIdx);
-         free(bucketOfs);
          if( finalIsAllocated ) { free(localFinalArray); }
          *outBegIdx = 0;
          *outNBElement = 0;
@@ -255,6 +223,21 @@ TA_RetCode mavp(int startIdx, int endIdx,
    }
    else
    {
+      localOutputArray = malloc((outputSize) * sizeof(double));
+      sortedIdx = malloc((outputSize) * sizeof(int));
+      bucketOfs = malloc((maxUsed-minUsed+2) * sizeof(int));
+      if( localOutputArray == NULL || sortedIdx == NULL || bucketOfs == NULL )
+      {
+         free(localOutputArray);
+         free(sortedIdx);
+         free(bucketOfs);
+         free(localPeriodArray);
+         if( finalIsAllocated ) { free(localFinalArray); }
+         *outBegIdx = 0;
+         *outNBElement = 0;
+         return TA_ALLOC_ERR;
+      }
+
       /* Counting sort: sortedIdx ends up holding the output indices ordered
        * by period, one contiguous ascending slice per distinct period, with
        * bucketOfs[p] the end of period p's slice.
@@ -335,20 +318,17 @@ TA_RetCode mavp(int startIdx, int endIdx,
          }
          bucketStart = bucketEnd;
       }
+      free(localOutputArray);
+      free(sortedIdx);
+      free(bucketOfs);
    }
 
-   /* Pointer-inequality guard, not finalIsAllocated: in backends where the
-    * scratch election materializes as a copy (Rust), the copy-back must
-    * always run; in C/Java the non-aliased self-copy is skipped. */
    if( localFinalArray != outReal )
    {
       memcpy(outReal, localFinalArray, outputSize * sizeof(double));
    }
 
-   free(localOutputArray);
    free(localPeriodArray);
-   free(sortedIdx);
-   free(bucketOfs);
    if( finalIsAllocated ) { free(localFinalArray); }
 
    /* Done. Inform the caller of the success. */

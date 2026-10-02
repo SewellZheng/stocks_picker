@@ -101,9 +101,9 @@ TA_LIB_API TA_RetCode TA_MACDFIX( int    startIdx,
    int optInFastPeriod;
    int optInSlowPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInSignalPeriod == TA_INTEGER_DEFAULT )
@@ -300,9 +300,9 @@ TA_RetCode TA_S_MACDFIX( int    startIdx,
    int optInFastPeriod;
    int optInSlowPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInSignalPeriod == TA_INTEGER_DEFAULT )
@@ -430,13 +430,14 @@ struct TA_MACDFIX_Stream {
    double prevFast;
    double prevSlow;
    double prevSignal;
+   double pad_0;
    double slowK;
    double fastK;
    double signalK;
 };
 
 /* Private function, not in public API. */
-static void TA_MACDFIX_StepImpl( struct TA_MACDFIX_Stream *sp, double inReal, double *outMACD, double *outMACDSignal, double *outMACDHist )
+static TA_FMA_STEP_INLINE void TA_MACDFIX_StepImpl( struct TA_MACDFIX_Stream *sp, double inReal, double *outMACD, double *outMACDSignal, double *outMACDHist )
 {
    double macdValue;
    double tempReal;
@@ -471,7 +472,7 @@ static TA_RetCode TA_MACDFIX_OpenImpl( struct TA_MACDFIX_Stream **stream, const 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
    if( (int)optInSignalPeriod == TA_INTEGER_DEFAULT )
       optInSignalPeriod = 9;
@@ -693,7 +694,7 @@ TA_LIB_API TA_RetCode TA_MACDFIX_Open( TA_MACDFIX_Stream **stream, const double 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
    return TA_MACDFIX_OpenInternal( stream, inReal, 0, historyLen, optInSignalPeriod, outMACD, outMACDSignal, outMACDHist );
 }
@@ -703,7 +704,7 @@ TA_LIB_API TA_RetCode TA_MACDFIX_OpenAndFill( TA_MACDFIX_Stream **stream, const 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
    if( (const void *)outMACD == (const void *)inReal || (const void *)outMACDSignal == (const void *)inReal || (const void *)outMACDHist == (const void *)inReal || (const void *)outMACD == (const void *)outMACDSignal || (const void *)outMACD == (const void *)outMACDHist || (const void *)outMACDSignal == (const void *)outMACDHist ) return TA_BAD_PARAM;
    return TA_MACDFIX_OpenAndFillInternal( stream, inReal, 0, historyLen, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist );
@@ -715,10 +716,11 @@ TA_RetCode TA_MACDFIX_OpenAndFillInternal( struct TA_MACDFIX_Stream **stream, co
    return TA_MACDFIX_OpenImpl( stream, inReal, startIdx, historyLen, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_MACDFIX_Update( TA_MACDFIX_Stream *stream, double inReal, double *outMACD, double *outMACDSignal, double *outMACDHist )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -785,7 +787,7 @@ TA_LIB_API TA_RetCode TA_MACDFIX_OutRange( const TA_MACDFIX_Stream *stream, int 
 TA_LIB_API TA_RetCode TA_MACDFIX_Advance( TA_MACDFIX_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

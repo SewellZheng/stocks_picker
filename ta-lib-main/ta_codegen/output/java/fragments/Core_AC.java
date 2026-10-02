@@ -80,10 +80,10 @@
       double[] oscBuffer;
       int oscBuffer_Idx = 0;
       int maxIdx_oscBuffer = (32)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -268,10 +268,10 @@
       double[] oscBuffer;
       int oscBuffer_Idx = 0;
       int maxIdx_oscBuffer = (32)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -380,8 +380,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#acLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#acLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -398,12 +398,13 @@
     *        selects the default).
     * @param outReal Distance of the Awesome Oscillator (<a
     *        href="https://ta-lib.org/functions/ao">{@code AO}</a>) from its own moving
-    *        average, centred on zero. Must hold at least {@code endIdx - startIdx + 1}
-    *        values.
+    *        average, centred on zero. Must hold at least
+    *        {@code endIdx - max(startIdx, acLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -469,8 +470,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#acLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#acLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -487,12 +488,13 @@
     *        selects the default).
     * @param outReal Distance of the Awesome Oscillator (<a
     *        href="https://ta-lib.org/functions/ao">{@code AO}</a>) from its own moving
-    *        average, centred on zero. Must hold at least {@code endIdx - startIdx + 1}
-    *        values.
+    *        average, centred on zero. Must hold at least
+    *        {@code endIdx - max(startIdx, acLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -583,7 +585,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -597,12 +599,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("AC advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -644,15 +646,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inHigh, double inLow ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("AC update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TALibArgumentException("AC update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("AC update", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
          core.acStepImpl(this, inHigh, inLow);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -662,15 +664,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TALibArgumentException("AC peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("AC peek", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
          AcStream sp = this;
          double medianPrice = 0.0;
          double osc = 0.0;
@@ -682,18 +682,6 @@
          double sumSlow = sp.sumSlow;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         int pkSlot1 = -1;
-         double pkVal1 = 0.0;
-         int pkSlot2 = -1;
-         double pkVal2 = 0.0;
-         if( sp.ringCap_trailingFastIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = (inHigh + inLow) / 2.0;
-         }
-         if( sp.ringCap_trailingSlowIdx == 0 ) {
-            pkSlot1 = 0;
-            pkVal1 = (inHigh + inLow) / 2.0;
-         }
          medianPrice = (inHigh + inLow) / 2.0;
          sumFast += medianPrice;
          sumSlow += medianPrice;
@@ -701,22 +689,22 @@
           * mirroring the add-new / snapshot / subtract-old order of TA_SMA.
           */
          osc = sumFast / (double)sp.optInFastPeriod - sumSlow / (double)sp.optInSlowPeriod;
-         sumFast -= (sp.ringPos_trailingFastIdx != pkSlot0) ? sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx] : pkVal0;
-         sumSlow -= (sp.ringPos_trailingSlowIdx != pkSlot1) ? sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx] : pkVal1;
+         sumFast -= sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx];
+         sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx];
          /* Today's oscillator enters the signal window at its own slot, and the
           * bar leaving that window is read only after the ring has advanced onto
           * it -- writing first is what makes the slot the loop is about to
           * overwrite the newest value rather than the oldest one.
           */
-         pkSlot2 = oscBuffer_Idx;
-         pkVal2 = osc;
+         pkSlot0 = oscBuffer_Idx;
+         pkVal0 = osc;
          sumSignal += osc;
          tempReal = osc - sumSignal / (double)sp.optInSignalPeriod;
          oscBuffer_Idx = oscBuffer_Idx + 1;
          if( oscBuffer_Idx > sp.maxIdx_oscBuffer ) {
             oscBuffer_Idx = 0;
          }
-         sumSignal -= (oscBuffer_Idx != pkSlot2) ? sp.cb_oscBuffer[oscBuffer_Idx] : pkVal2;
+         sumSignal -= (oscBuffer_Idx != pkSlot0) ? sp.cb_oscBuffer[oscBuffer_Idx] : pkVal0;
          /* Every input read for this bar is done above, so the store is safe
           * when the caller aliases outReal over inHigh or inLow. Unlike ao.c
           * there is slack here -- the signal window puts both trailing indices
@@ -760,12 +748,8 @@
       double medianPrice = 0.0;
       double osc = 0.0;
       double tempReal = 0.0;
-      if( sp.ringCap_trailingFastIdx == 0 ) {
-         sp.ring_trailingFastIdx_derived[0] = (inHigh + inLow) / 2.0;
-      }
-      if( sp.ringCap_trailingSlowIdx == 0 ) {
-         sp.ring_trailingSlowIdx_derived[0] = (inHigh + inLow) / 2.0;
-      }
+      int ringCapL_trailingFastIdx = 0;
+      int ringCapL_trailingSlowIdx = 0;
       medianPrice = (inHigh + inLow) / 2.0;
       sp.sumFast += medianPrice;
       sp.sumSlow += medianPrice;
@@ -797,14 +781,16 @@
        * the collision ao.c has to guard against.
        */
       sp.cur_outReal = tempReal;
+      ringCapL_trailingFastIdx = sp.ringCap_trailingFastIdx;
       sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx] = (inHigh + inLow) / 2.0;
       sp.ringPos_trailingFastIdx = sp.ringPos_trailingFastIdx + 1;
-      if( sp.ringPos_trailingFastIdx >= sp.ringCap_trailingFastIdx ) {
+      if( sp.ringPos_trailingFastIdx >= ringCapL_trailingFastIdx ) {
          sp.ringPos_trailingFastIdx = 0;
       }
+      ringCapL_trailingSlowIdx = sp.ringCap_trailingSlowIdx;
       sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx] = (inHigh + inLow) / 2.0;
       sp.ringPos_trailingSlowIdx = sp.ringPos_trailingSlowIdx + 1;
-      if( sp.ringPos_trailingSlowIdx >= sp.ringCap_trailingSlowIdx ) {
+      if( sp.ringPos_trailingSlowIdx >= ringCapL_trailingSlowIdx ) {
          sp.ringPos_trailingSlowIdx = 0;
       }
    }
@@ -830,7 +816,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length ) {
@@ -997,7 +983,7 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingFastIdx = i - trailingFastIdx;
-      if( cap_trailingFastIdx < 0 || cap_trailingFastIdx > historyLen ) {
+      if( cap_trailingFastIdx < 1 || cap_trailingFastIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingFastIdx = (cap_trailingFastIdx > 0)? cap_trailingFastIdx : 1;
@@ -1006,7 +992,7 @@
          capRing_trailingFastIdx_derived[fillJ - (historyLen - cap_trailingFastIdx)] = (inHigh[fillJ] + inLow[fillJ]) / 2.0;
       }
       int cap_trailingSlowIdx = i - trailingSlowIdx;
-      if( cap_trailingSlowIdx < 0 || cap_trailingSlowIdx > historyLen ) {
+      if( cap_trailingSlowIdx < 1 || cap_trailingSlowIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingSlowIdx = (cap_trailingSlowIdx > 0)? cap_trailingSlowIdx : 1;
@@ -1048,12 +1034,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("AC openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("AC openAndFill", inHigh.length, startIdx, acLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("AC openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("AC openAndFill: " + retCode, retCode);
+      throw streamFailure("AC openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind acOpen (composition seam). */
    AcStream acOpenInternal( double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
@@ -1069,12 +1052,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("AC open: history shorter than lookback + 1");
+         throw insufficientHistory("AC open", inHigh.length, startIdx, acLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("AC open: internal error", retCode);
-      }
-      throw new TALibArgumentException("AC open: " + retCode, retCode);
+      throw streamFailure("AC open", retCode);
    }
    /**
     * Open a live AC stream over the warm-up history; the handle's
@@ -1117,7 +1097,7 @@
       requireHistoryLength("AC openAndFill", "inLow", inLow.length, inHigh.length);
       requireLength("AC openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
-         throw new TALibArgumentException("AC openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("AC openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

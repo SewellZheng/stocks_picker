@@ -46,6 +46,11 @@
  */
 
 using System;
+using System.Collections.Concurrent;
+using System.Globalization;
+using System.Linq;
+using System.Reflection;
+using System.Threading;
 
 namespace TALib.Test;
 
@@ -54,7 +59,7 @@ namespace TALib.Test;
 /// <remarks>
 /// <para>Ported case-for-case from the Java <c>CoreApiTest</c> so the two
 /// managed bindings are held to the same contract, which is in turn the C
-/// library's: a period outside <c>0..=MaxIndex</c> is refused, and a refused
+/// library's: a period outside <c>0..=IndexMax</c> is refused, and a refused
 /// call writes nothing.</para>
 /// <para>Framework-free, like the other suites here — discovered by name and
 /// run through <c>public static int Run()</c>.</para>
@@ -139,14 +144,14 @@ public static class CoreBuilderTest
             () => Core.Builder().UnstablePeriod(FuncUnstId.RSI, -1),
             "negative period -> ArgumentOutOfRangeException");
         CheckThrows<ArgumentOutOfRangeException>(
-            () => Core.Builder().UnstablePeriod(FuncUnstId.RSI, Core.MaxIndex + 1),
-            "period above MaxIndex -> ArgumentOutOfRangeException");
+            () => Core.Builder().UnstablePeriod(FuncUnstId.RSI, Core.IndexMax + 1),
+            "period above IndexMax -> ArgumentOutOfRangeException");
         CheckThrows<ArgumentOutOfRangeException>(
             () => Core.Builder().UnstablePeriod(FuncUnstId.RSI, int.MaxValue),
             "int.MaxValue period -> ArgumentOutOfRangeException");
         CheckThrows<ArgumentOutOfRangeException>(
-            () => Core.Builder().UnstablePeriod(FuncUnstId.ALL, Core.MaxIndex + 1),
-            "wildcard period above MaxIndex -> ArgumentOutOfRangeException");
+            () => Core.Builder().UnstablePeriod(FuncUnstId.ALL, Core.IndexMax + 1),
+            "wildcard period above IndexMax -> ArgumentOutOfRangeException");
         // Unlike Java, a C# enum is not a closed domain -- (FuncUnstId)(-1) and
         // (FuncUnstId)9999 are representable values a caller can pass, and both
         // index off the end of a 24-slot array. C guards this with an unsigned
@@ -164,11 +169,11 @@ public static class CoreBuilderTest
 
     private static void BoundIsABoundNotAnOffByOne()
     {
-        // MaxIndex itself is legal: C accepts it and rejects MaxIndex + 1, so a
+        // IndexMax itself is legal: C accepts it and rejects IndexMax + 1, so a
         // guard tightened by one would be caught here rather than shipping.
-        Core core = Core.Builder().UnstablePeriod(FuncUnstId.EMA, Core.MaxIndex).Build();
-        Check(core.UnstablePeriod(FuncUnstId.EMA) == Core.MaxIndex,
-            "the MaxIndex ceiling is accepted, not rejected");
+        Core core = Core.Builder().UnstablePeriod(FuncUnstId.EMA, Core.IndexMax).Build();
+        Check(core.UnstablePeriod(FuncUnstId.EMA) == Core.IndexMax,
+            "the IndexMax ceiling is accepted, not rejected");
     }
 
     private static void ARejectedCallWritesNothing()
@@ -176,12 +181,12 @@ public static class CoreBuilderTest
         // The half of the contract an "it throws" assertion cannot see.
         CoreBuilder b = Core.Builder().UnstablePeriod(FuncUnstId.EMA, 7);
         CheckThrows<ArgumentOutOfRangeException>(
-            () => b.UnstablePeriod(FuncUnstId.EMA, Core.MaxIndex + 1),
+            () => b.UnstablePeriod(FuncUnstId.EMA, Core.IndexMax + 1),
             "the rejected overwrite still throws");
         Check(b.Build().UnstablePeriod(FuncUnstId.EMA) == 7,
             "a rejected period leaves the previous value in place");
 
-        // The wildcard path writes 24 slots, so a rejection there must not have
+        // The wildcard path writes every slot, so a rejection there must not have
         // filled any of them before noticing.
         CoreBuilder w = Core.Builder().UnstablePeriod(FuncUnstId.ALL, 3);
         CheckThrows<ArgumentOutOfRangeException>(
@@ -196,7 +201,7 @@ public static class CoreBuilderTest
                 intact = false;
             }
         }
-        Check(intact, "a rejected wildcard leaves all 24 slots at their previous value");
+        Check(intact, "a rejected wildcard leaves every slot at its previous value");
     }
 
     private static void BuiltCoreIsIsolatedFromTheBuilder()
@@ -234,6 +239,29 @@ public static class CoreBuilderTest
         Check(doji.RangeType == RangeType.HighLow, "BodyDoji defaults to the HighLow range");
         Check(doji.AvgPeriod == 10, "BodyDoji defaults to a 10-bar average");
         Check(doji.Factor == 0.1, "BodyDoji defaults to a 0.1 factor");
+    }
+
+    private static void DefaultIsOneSharedInstance()
+    {
+        Check(ReferenceEquals(Core.Default, Core.Default), "Core.Default is one instance");
+    }
+
+    private static void CandleSettingToStringIgnoresTheCulture()
+    {
+        var comma = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+        comma.NumberFormat.NumberDecimalSeparator = ",";
+        CultureInfo saved = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = comma;
+            string text = Core.Default.CandleSettings(CandleSettingType.BodyDoji).ToString();
+            Check(text == "CandleSetting { RangeType = HighLow, AvgPeriod = 10, Factor = 0.1 }",
+                $"CandleSetting.ToString is culture-invariant, got {text}");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = saved;
+        }
     }
 
     private static void CandleSettingOverridesOneLeavesTheRest()
@@ -302,8 +330,8 @@ public static class CoreBuilderTest
             "negative avgPeriod -> ArgumentOutOfRangeException");
         CheckThrows<ArgumentOutOfRangeException>(
             () => Core.Builder().CandleSetting(
-                CandleSettingType.BodyDoji, RangeType.HighLow, Core.MaxIndex + 1, 1.0),
-            "avgPeriod above MaxIndex -> ArgumentOutOfRangeException");
+                CandleSettingType.BodyDoji, RangeType.HighLow, Core.IndexMax + 1, 1.0),
+            "avgPeriod above IndexMax -> ArgumentOutOfRangeException");
         CheckThrows<ArgumentOutOfRangeException>(
             () => Core.Builder().CandleSetting(
                 CandleSettingType.BodyDoji, RangeType.HighLow, 10, double.NaN),
@@ -311,6 +339,7 @@ public static class CoreBuilderTest
         CheckThrows<ArgumentOutOfRangeException>(
             () => new Core().CandleSettings(CandleSettingType.AllCandleSettings),
             "AllCandleSettings has no single value to read -> ArgumentOutOfRangeException");
+        Check((int)CandleSettingType.AllCandleSettings == 11, "AllCandleSettings is pinned at C's 11");
     }
 
     private static void CandleBoundsAreBoundsNotOffByOnes()
@@ -323,9 +352,9 @@ public static class CoreBuilderTest
             "a zero avgPeriod means no averaging and is legal");
 
         Core ceiling = Core.Builder()
-            .CandleSetting(CandleSettingType.BodyDoji, RangeType.Shadows, Core.MaxIndex, 0.1).Build();
-        Check(ceiling.CandleSettings(CandleSettingType.BodyDoji).AvgPeriod == Core.MaxIndex,
-            "the MaxIndex ceiling is accepted, not rejected");
+            .CandleSetting(CandleSettingType.BodyDoji, RangeType.Shadows, Core.IndexMax, 0.1).Build();
+        Check(ceiling.CandleSettings(CandleSettingType.BodyDoji).AvgPeriod == Core.IndexMax,
+            "the IndexMax ceiling is accepted, not rejected");
 
         // Only NaN is refused; a negative factor is unusual but legal, and C
         // accepts it too.
@@ -385,6 +414,80 @@ public static class CoreBuilderTest
             "overriding a setting never mutates the shared defaults");
     }
 
+    /// <summary>Necessary for the thread-safety promise, not sufficient: a
+    /// <c>readonly</c> array field can still be written through.</summary>
+    private static void CoreIsSealedWithReadonlyFields()
+    {
+        Check(typeof(Core).IsSealed, "Core is sealed");
+        Check(typeof(CoreBuilder).IsSealed, "CoreBuilder is sealed");
+
+        FieldInfo[] fields = typeof(Core).GetFields(
+            BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        string[] writable = fields.Where(f => !f.IsLiteral && !f.IsInitOnly).Select(f => f.Name).ToArray();
+        Check(writable.Length == 0, $"every Core field is readonly (writable: [{string.Join(",", writable)}])");
+        Check(fields.Count(f => !f.IsStatic) >= 2, "the field walk sees Core's instance fields");
+    }
+
+    /// <summary>One Core shared by many threads, with no synchronization,
+    /// produces the single-threaded values bit for bit.</summary>
+    private static void SharedAcrossThreads()
+    {
+        var input = new double[500];
+        for (int i = 0; i < input.Length; i++)
+        {
+            input[i] = 100.0 + 10.0 * Math.Sin(i / 7.0) + 3.0 * Math.Cos(i / 3.0);
+        }
+        Core shared = Core.Builder().UnstablePeriod(FuncUnstId.RSI, 4).Build();
+        var reference = new double[input.Length];
+        OutRange refRange = shared.Rsi(0, input.Length - 1, input, 14, reference);
+
+        const int threads = 8;
+        var problems = new ConcurrentQueue<string>();
+        using var start = new ManualResetEventSlim(false);
+        var workers = new Thread[threads];
+        for (int t = 0; t < threads; t++)
+        {
+            workers[t] = new Thread(() =>
+            {
+                try
+                {
+                    start.Wait();
+                    for (int rep = 0; rep < 50; rep++)
+                    {
+                        var output = new double[input.Length];
+                        OutRange r = shared.Rsi(0, input.Length - 1, input, 14, output);
+                        if (r != refRange)
+                        {
+                            problems.Enqueue($"range diverged: {r} != {refRange}");
+                            return;
+                        }
+                        for (int i = 0; i < r.Count; i++)
+                        {
+                            if (BitConverter.DoubleToInt64Bits(output[i]) != BitConverter.DoubleToInt64Bits(reference[i]))
+                            {
+                                problems.Enqueue($"value diverged at {i}");
+                                return;
+                            }
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    problems.Enqueue(e.ToString());
+                }
+            });
+            workers[t].Start();
+        }
+        start.Set();
+        foreach (Thread w in workers)
+        {
+            w.Join();
+        }
+        Check(!refRange.IsEmpty && refRange.BegIdx == new Core().RsiLookback(14) + 4,
+            "the threaded check computed something, on the tuned Core");
+        Check(problems.IsEmpty, $"{threads} threads sharing one Core agree bitwise [{string.Join("; ", problems)}]");
+    }
+
     /// <summary>Runs every check in this suite.</summary>
     /// <returns>0 when they all pass, 1 otherwise.</returns>
     public static int Run()
@@ -399,6 +502,8 @@ public static class CoreBuilderTest
         BuiltCoreIsIsolatedFromTheBuilder();
         ToBuilderRoundTrips();
         CandleDefaultsAreTheDocumentedOnes();
+        DefaultIsOneSharedInstance();
+        CandleSettingToStringIgnoresTheCulture();
         CandleSettingOverridesOneLeavesTheRest();
         CandleSettingReachesTheIndicator();
         CandleMisuseThrows();
@@ -406,6 +511,8 @@ public static class CoreBuilderTest
         ARejectedCandleSettingWritesNothing();
         RestoreCandleDefaultUndoesAnOverride();
         BuiltCoreDoesNotAliasTheBuildersCandles();
+        CoreIsSealedWithReadonlyFields();
+        SharedAcrossThreads();
 
         if (_failures == 0)
         {

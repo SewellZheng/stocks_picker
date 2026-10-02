@@ -63,6 +63,8 @@
  *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
  *  090426 MF,CC Add ZLEMA (issue #347).
  *  090426 MF,CC Add RMA (issue #348).
+ *  092926 MF,CC Add VIDYA (issue #474).
+ *  092926 MF,CC Add ALMA (issue #475).
  */
 
 TA_LIB_API int TA_MA_Lookback( int optInTimePeriod, TA_MAType optInMAType )
@@ -118,6 +120,12 @@ TA_LIB_API int TA_MA_Lookback( int optInTimePeriod, TA_MAType optInMAType )
    case TA_MAType_RMA:
       retValue = TA_RMA_Lookback(optInTimePeriod);
       break;
+   case TA_MAType_VIDYA:
+      retValue = TA_VIDYA_Lookback(optInTimePeriod,(3 * optInTimePeriod + 2) / 4);
+      break;
+   case TA_MAType_ALMA:
+      retValue = TA_ALMA_Lookback(optInTimePeriod,6.0,0.85);
+      break;
    default:
       retValue = 0;
       break;
@@ -139,9 +147,9 @@ TA_LIB_API TA_RetCode TA_MA( int    startIdx,
    int outIdx;
    int todayIdx;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -159,7 +167,7 @@ TA_LIB_API TA_RetCode TA_MA( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   /* Nothing to produce: the range is shorter than the lookback. Answer here
+   /* Nothing to produce: the range ends before the lookback. Answer here
     * rather than forwarding.
     *
     * The VALUE is the same either way: ma_lookback returns exactly the lookback
@@ -246,6 +254,15 @@ TA_LIB_API TA_RetCode TA_MA( int    startIdx,
    case TA_MAType_RMA:
       retCode = TA_RMA(startIdx,endIdx,inReal,optInTimePeriod,outBegIdx,outNBElement,outReal);
       break;
+   case TA_MAType_VIDYA:
+      /* The one period is the EMA length; the CMO period is round(3n/4),
+       * Chande's 12:9 ratio.
+       */
+      retCode = TA_VIDYA(startIdx,endIdx,inReal,optInTimePeriod,(3 * optInTimePeriod + 2) / 4,outBegIdx,outNBElement,outReal);
+      break;
+   case TA_MAType_ALMA:
+      retCode = TA_ALMA(startIdx,endIdx,inReal,optInTimePeriod,6.0,0.85,outBegIdx,outNBElement,outReal);
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -267,9 +284,9 @@ TA_RetCode TA_S_MA( int    startIdx,
    int outIdx;
    int todayIdx;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -342,6 +359,12 @@ TA_RetCode TA_S_MA( int    startIdx,
    case TA_MAType_RMA:
       retCode = TA_S_RMA(startIdx,endIdx,inReal,optInTimePeriod,outBegIdx,outNBElement,outReal);
       break;
+   case TA_MAType_VIDYA:
+      retCode = TA_S_VIDYA(startIdx,endIdx,inReal,optInTimePeriod,(3 * optInTimePeriod + 2) / 4,outBegIdx,outNBElement,outReal);
+      break;
+   case TA_MAType_ALMA:
+      retCode = TA_S_ALMA(startIdx,endIdx,inReal,optInTimePeriod,6.0,0.85,outBegIdx,outNBElement,outReal);
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -372,7 +395,7 @@ TA_RetCode TA_MA_OpenInternal( struct TA_MA_Stream **stream, const double inReal
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -513,6 +536,24 @@ TA_RetCode TA_MA_OpenInternal( struct TA_MA_Stream **stream, const double inReal
             TA_RMA_OutRange( sub, &sp->outRangeBegIdx, &sp->outRangeCount );
       }
       break;
+   case TA_MAType_VIDYA:
+      {
+         TA_VIDYA_Stream *sub = NULL;
+         retCode = TA_VIDYA_OpenInternal( &sub, inReal, startIdx, historyLen, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal );
+         sp->sub = sub;
+         if( retCode == TA_SUCCESS )
+            TA_VIDYA_OutRange( sub, &sp->outRangeBegIdx, &sp->outRangeCount );
+      }
+      break;
+   case TA_MAType_ALMA:
+      {
+         TA_ALMA_Stream *sub = NULL;
+         retCode = TA_ALMA_OpenInternal( &sub, inReal, startIdx, historyLen, optInTimePeriod, 6.0, 0.85, outReal );
+         sp->sub = sub;
+         if( retCode == TA_SUCCESS )
+            TA_ALMA_OutRange( sub, &sp->outRangeBegIdx, &sp->outRangeCount );
+      }
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -533,7 +574,7 @@ TA_LIB_API TA_RetCode TA_MA_Open( TA_MA_Stream **stream, const double inReal[], 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_MA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInMAType, outReal );
 }
@@ -546,7 +587,7 @@ TA_LIB_API TA_RetCode TA_MA_OpenAndFill( TA_MA_Stream **stream, const double inR
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -671,6 +712,20 @@ TA_LIB_API TA_RetCode TA_MA_OpenAndFill( TA_MA_Stream **stream, const double inR
          sp->sub = sub;
       }
       break;
+   case TA_MAType_VIDYA:
+      {
+         TA_VIDYA_Stream *sub = NULL;
+         retCode = TA_VIDYA_OpenAndFill( &sub, inReal, historyLen, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outBegIdx, outNBElement, outReal );
+         sp->sub = sub;
+      }
+      break;
+   case TA_MAType_ALMA:
+      {
+         TA_ALMA_Stream *sub = NULL;
+         retCode = TA_ALMA_OpenAndFill( &sub, inReal, historyLen, optInTimePeriod, 6.0, 0.85, outBegIdx, outNBElement, outReal );
+         sp->sub = sub;
+      }
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -697,7 +752,7 @@ TA_RetCode TA_MA_OpenAndFillInternal( struct TA_MA_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -822,6 +877,20 @@ TA_RetCode TA_MA_OpenAndFillInternal( struct TA_MA_Stream **stream, const double
          sp->sub = sub;
       }
       break;
+   case TA_MAType_VIDYA:
+      {
+         TA_VIDYA_Stream *sub = NULL;
+         retCode = TA_VIDYA_OpenAndFillInternal( &sub, inReal, startIdx, historyLen, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outBegIdx, outNBElement, outReal );
+         sp->sub = sub;
+      }
+      break;
+   case TA_MAType_ALMA:
+      {
+         TA_ALMA_Stream *sub = NULL;
+         retCode = TA_ALMA_OpenAndFillInternal( &sub, inReal, startIdx, historyLen, optInTimePeriod, 6.0, 0.85, outBegIdx, outNBElement, outReal );
+         sp->sub = sub;
+      }
+      break;
    default:
       retCode = TA_BAD_PARAM;
       break;
@@ -844,7 +913,7 @@ TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double 
    TA_RetCode retCode;
 
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -893,6 +962,12 @@ TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double 
    case TA_MAType_RMA:
       retCode = TA_RMA_Update( (TA_RMA_Stream *)stream->sub, inReal, outReal );
       break;
+   case TA_MAType_VIDYA:
+      retCode = TA_VIDYA_Update( (TA_VIDYA_Stream *)stream->sub, inReal, outReal );
+      break;
+   case TA_MAType_ALMA:
+      retCode = TA_ALMA_Update( (TA_ALMA_Stream *)stream->sub, inReal, outReal );
+      break;
    default:
       /* Unreachable: Open rejects arms without a sub-stream. */
       return TA_INTERNAL_ERROR(343);
@@ -938,9 +1013,171 @@ TA_LIB_API TA_RetCode TA_MA_Peek( const TA_MA_Stream *stream, double inReal, dou
       return TA_ZLEMA_Peek( (const TA_ZLEMA_Stream *)stream->sub, inReal, outReal );
    case TA_MAType_RMA:
       return TA_RMA_Peek( (const TA_RMA_Stream *)stream->sub, inReal, outReal );
+   case TA_MAType_VIDYA:
+      return TA_VIDYA_Peek( (const TA_VIDYA_Stream *)stream->sub, inReal, outReal );
+   case TA_MAType_ALMA:
+      return TA_ALMA_Peek( (const TA_ALMA_Stream *)stream->sub, inReal, outReal );
    default:
       /* Unreachable: Open rejects arms without a sub-stream. */
       return TA_INTERNAL_ERROR(344);
+   }
+}
+
+/* Private function, not in public API. */
+void TA_MA_StepTape( struct TA_MA_Stream *stream, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   if( stream->optInTimePeriod == 1 || stream->optInMAType == TA_MAType_DISABLED )
+   {
+      *outReal = inReal;
+      stream->cur_outReal = *outReal;
+      stream->outRangeCount++;
+      return;
+   }
+   switch( stream->optInMAType )
+   {
+   case TA_MAType_SMA:
+      TA_SMA_StepTape( (struct TA_SMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_EMA:
+      TA_EMA_StepTape( (struct TA_EMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_WMA:
+      TA_WMA_StepTape( (struct TA_WMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_DEMA:
+      TA_DEMA_StepTape( (struct TA_DEMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_TEMA:
+      TA_TEMA_StepTape( (struct TA_TEMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_TRIMA:
+      TA_TRIMA_StepTape( (struct TA_TRIMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_KAMA:
+      TA_KAMA_StepTape( (struct TA_KAMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_MAMA:
+      TA_MAMA_StepTape( (struct TA_MAMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal, NULL );
+      break;
+   case TA_MAType_T3:
+      TA_T3_StepTape( (struct TA_T3_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_HMA:
+      TA_HMA_StepTape( (struct TA_HMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_ZLEMA:
+      TA_ZLEMA_StepTape( (struct TA_ZLEMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_RMA:
+      TA_RMA_StepTape( (struct TA_RMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_VIDYA:
+      TA_VIDYA_StepTape( (struct TA_VIDYA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_ALMA:
+      TA_ALMA_StepTape( (struct TA_ALMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   default:
+      /* Unreachable: Open rejects arms without a sub-stream. */
+      break;
+   }
+   stream->cur_outReal = *outReal;
+   stream->outRangeCount++;
+}
+
+/* Private function, not in public API. */
+void TA_MA_PeekTape( const struct TA_MA_Stream *stream, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   if( stream->optInTimePeriod == 1 || stream->optInMAType == TA_MAType_DISABLED )
+   {
+      *outReal = inReal;
+      return;
+   }
+   switch( stream->optInMAType )
+   {
+   case TA_MAType_SMA:
+      TA_SMA_PeekTape( (const struct TA_SMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_EMA:
+      TA_EMA_PeekTape( (const struct TA_EMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_WMA:
+      TA_WMA_PeekTape( (const struct TA_WMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_DEMA:
+      TA_DEMA_PeekTape( (const struct TA_DEMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_TEMA:
+      TA_TEMA_PeekTape( (const struct TA_TEMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_TRIMA:
+      TA_TRIMA_PeekTape( (const struct TA_TRIMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_KAMA:
+      TA_KAMA_PeekTape( (const struct TA_KAMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_MAMA:
+      TA_MAMA_PeekTape( (const struct TA_MAMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal, NULL );
+      break;
+   case TA_MAType_T3:
+      TA_T3_PeekTape( (const struct TA_T3_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_HMA:
+      TA_HMA_PeekTape( (const struct TA_HMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_ZLEMA:
+      TA_ZLEMA_PeekTape( (const struct TA_ZLEMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_RMA:
+      TA_RMA_PeekTape( (const struct TA_RMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_VIDYA:
+      TA_VIDYA_PeekTape( (const struct TA_VIDYA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   case TA_MAType_ALMA:
+      TA_ALMA_PeekTape( (const struct TA_ALMA_Stream *)stream->sub, tape, tapeBase, tapeMask, inReal, outReal );
+      break;
+   default:
+      break;
+   }
+}
+
+/* Private function, not in public API. */
+int TA_MA_TapeDetach( struct TA_MA_Stream *stream )
+{
+   if( stream->optInTimePeriod == 1 || stream->optInMAType == TA_MAType_DISABLED ) return 0;
+   switch( stream->optInMAType )
+   {
+   case TA_MAType_SMA:
+      return TA_SMA_TapeDetach( (struct TA_SMA_Stream *)stream->sub );
+   case TA_MAType_EMA:
+      return TA_EMA_TapeDetach( (struct TA_EMA_Stream *)stream->sub );
+   case TA_MAType_WMA:
+      return TA_WMA_TapeDetach( (struct TA_WMA_Stream *)stream->sub );
+   case TA_MAType_DEMA:
+      return TA_DEMA_TapeDetach( (struct TA_DEMA_Stream *)stream->sub );
+   case TA_MAType_TEMA:
+      return TA_TEMA_TapeDetach( (struct TA_TEMA_Stream *)stream->sub );
+   case TA_MAType_TRIMA:
+      return TA_TRIMA_TapeDetach( (struct TA_TRIMA_Stream *)stream->sub );
+   case TA_MAType_KAMA:
+      return TA_KAMA_TapeDetach( (struct TA_KAMA_Stream *)stream->sub );
+   case TA_MAType_MAMA:
+      return TA_MAMA_TapeDetach( (struct TA_MAMA_Stream *)stream->sub );
+   case TA_MAType_T3:
+      return TA_T3_TapeDetach( (struct TA_T3_Stream *)stream->sub );
+   case TA_MAType_HMA:
+      return TA_HMA_TapeDetach( (struct TA_HMA_Stream *)stream->sub );
+   case TA_MAType_ZLEMA:
+      return TA_ZLEMA_TapeDetach( (struct TA_ZLEMA_Stream *)stream->sub );
+   case TA_MAType_RMA:
+      return TA_RMA_TapeDetach( (struct TA_RMA_Stream *)stream->sub );
+   case TA_MAType_VIDYA:
+      return TA_VIDYA_TapeDetach( (struct TA_VIDYA_Stream *)stream->sub );
+   case TA_MAType_ALMA:
+      return TA_ALMA_TapeDetach( (struct TA_ALMA_Stream *)stream->sub );
+   default:
+      return 0;
    }
 }
 
@@ -985,6 +1222,12 @@ TA_LIB_API TA_RetCode TA_MA_Close( TA_MA_Stream *stream )
    case TA_MAType_RMA:
       TA_RMA_Close( (TA_RMA_Stream *)stream->sub );
       break;
+   case TA_MAType_VIDYA:
+      TA_VIDYA_Close( (TA_VIDYA_Stream *)stream->sub );
+      break;
+   case TA_MAType_ALMA:
+      TA_ALMA_Close( (TA_ALMA_Stream *)stream->sub );
+      break;
    default:
       break; /* identity-only or rejected arm: no sub-stream */
    }
@@ -1010,7 +1253,7 @@ TA_LIB_API TA_RetCode TA_MA_OutRange( const TA_MA_Stream *stream, int *outBegIdx
 TA_LIB_API TA_RetCode TA_MA_Advance( TA_MA_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1113,6 +1356,20 @@ TA_LIB_API TA_RetCode TA_MA_Clone( const TA_MA_Stream *stream, TA_MA_Stream **cl
          {
             TA_RMA_Stream *subClone = NULL;
             subRc = TA_RMA_Clone( (const TA_RMA_Stream *)stream->sub, &subClone );
+            sp->sub = subClone;
+         }
+         break;
+      case TA_MAType_VIDYA:
+         {
+            TA_VIDYA_Stream *subClone = NULL;
+            subRc = TA_VIDYA_Clone( (const TA_VIDYA_Stream *)stream->sub, &subClone );
+            sp->sub = subClone;
+         }
+         break;
+      case TA_MAType_ALMA:
+         {
+            TA_ALMA_Stream *subClone = NULL;
+            subRc = TA_ALMA_Clone( (const TA_ALMA_Stream *)stream->sub, &subClone );
             sp->sub = subClone;
          }
          break;

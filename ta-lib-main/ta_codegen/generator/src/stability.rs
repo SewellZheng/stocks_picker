@@ -22,6 +22,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use crate::backends::builtins::SpecialBuiltin;
 use crate::ir::{Expr, FuncDef, LookbackExpr, ParamType, Statement};
 
 /// The dynamic moving-average dispatcher. Calls into it are MA-type-conditional.
@@ -32,8 +33,9 @@ const MA_DISPATCHER: &str = "ma";
 pub struct Stability {
     /// Declares `unstable_period`: it owns a `TA_FUNC_UNST_*` id of its own.
     pub intrinsic: bool,
-    /// Reaches an intrinsically-unstable function through hard-coded calls. Names are
-    /// upper-case function names (`EMA`), sorted; empty when there is no such path.
+    /// Reaches an intrinsically-unstable function through hard-coded calls, or reads its
+    /// id directly. Names are upper-case function names (`EMA`), sorted; empty when there is
+    /// no such path.
     pub inherited_from: Vec<String>,
     /// Takes an MAType parameter, or reaches `ma()`: some MA types carry an unstable
     /// period, so stability is the caller's choice.
@@ -216,6 +218,7 @@ pub(crate) fn collect_vars(expr: &Expr, out: &mut BTreeSet<String>) {
         }
         Expr::Cast(_, e)
         | Expr::Not(e)
+        | Expr::Neg(e)
         | Expr::BitwiseNot(e)
         | Expr::AddressOf(e)
         | Expr::PostIncrement(e)
@@ -227,7 +230,7 @@ pub(crate) fn collect_vars(expr: &Expr, out: &mut BTreeSet<String>) {
 }
 
 
-/// Collect every `FuncCall` name reachable from a statement.
+/// Collect every `FuncCall` name reachable from a statement, as `walk_expr` does.
 ///
 /// Exhaustive by construction — see the module note on why there is no `_` arm.
 fn walk_stmt(stmt: &Statement, out: &mut BTreeSet<String>) {
@@ -297,11 +300,27 @@ fn walk_stmt(stmt: &Statement, out: &mut BTreeSet<String>) {
     }
 }
 
-/// Collect every `FuncCall` name reachable from an expression.
+/// The function, upper-case, whose unstable-period id a `TA_GetUnstablePeriod(...)` call
+/// reads. A lookback that reads another function's id (EFI reads EMA's) grows with that id
+/// exactly as one that calls its lookback.
+pub(crate) fn unstable_period_owner(expr: &Expr) -> Option<String> {
+    let Expr::FuncCall(name, args) = expr else { return None };
+    if !matches!(SpecialBuiltin::from_name(name), Some(SpecialBuiltin::UnstablePeriod)) {
+        return None;
+    }
+    let Some(Expr::Var(id)) = args.first() else { return None };
+    Some(id.strip_prefix("FUNC_UNST_").unwrap_or(id).to_uppercase())
+}
+
+/// Collect every `FuncCall` name reachable from an expression, plus the owner of every
+/// unstable-period id it reads.
 fn walk_expr(expr: &Expr, out: &mut BTreeSet<String>) {
     match expr {
         Expr::FuncCall(name, args) => {
             out.insert(name.clone());
+            if let Some(owner) = unstable_period_owner(expr) {
+                out.insert(owner.to_lowercase());
+            }
             for a in args {
                 walk_expr(a, out);
             }
@@ -318,6 +337,7 @@ fn walk_expr(expr: &Expr, out: &mut BTreeSet<String>) {
         Expr::ArrayAccess(_, i) => walk_expr(i, out),
         Expr::Cast(_, e)
         | Expr::Not(e)
+        | Expr::Neg(e)
         | Expr::BitwiseNot(e)
         | Expr::AddressOf(e)
         | Expr::PostIncrement(e)

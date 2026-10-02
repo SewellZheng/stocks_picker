@@ -78,8 +78,8 @@
  *   there is no batch retCode/outBegIdx/outNBElement triple to ship.
  *
  *   TA_ALLOC_ERR IS OUT OF SCOPE rather than a hole: nothing past it is defined
- *   (docs/error-handling-spec.md, rule B7), and nothing here could provoke one
- *   anyway. Every rejection this sweep drives is a defined one.
+ *   (rule B7, https://ta-lib.org/spec/errors/#b7), and nothing here could
+ *   provoke one anyway. Every rejection this sweep drives is a defined one.
  *
  *   The undersized-output class has no C expression at all -- TA_<N>_Open takes
  *   a bare output pointer and carries no length -- so it stays in the Rust
@@ -106,7 +106,7 @@
 
 #define OC_MAX_IN     8      /* Widest flattened input list (4 today). */
 #define OC_MAX_OUT    8      /* Widest output list (4 today). */
-#define OC_MAX_OPT    8
+#define OC_MAX_OPT    16
 
 /* Leg A's parameter passes: the defaults, then the minimum integer/enum ones. */
 #define OC_NB_PASS    2

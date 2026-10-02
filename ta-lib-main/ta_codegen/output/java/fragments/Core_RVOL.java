@@ -10,6 +10,8 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  090426 MF,CC  Initial version (#370).
+ *  092526 MF,CC  #446 exact zero total on a dead volume window.
+ *  092626 MF,CC  #446 branch-free zero count.
  */
 
    /**
@@ -45,14 +47,18 @@
       double periodTotal = 0;
       double baseline = 0;
       double todayVolume = 0;
+      double trailingVolume = 0;
       int i = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      int zeroCount = 0;
+      int zeroIn = 0;
+      int zeroOut = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -74,24 +80,38 @@
       }
       periodTotal = 0.0;
       trailingIdx = startIdx - lookbackTotal;
+      /* Zero-volume bars in the window. Once they fill it the total is exactly
+       * zero, where add-then-subtract would leave the rounding residue of the
+       * volumes that departed, of either sign. The test is fabs(v) <= 0.0 rather
+       * than == 0.0: the same result, NaN included, from one flag instead of two.
+       */
+      zeroCount = 0;
       i = trailingIdx;
       while( i < startIdx ) {
          periodTotal += (double)inVolume[i];
+         zeroCount += (Math.abs(inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
       }
       outIdx = 0;
       while( i <= endIdx ) {
-         /* Drop the trailing bar BEFORE adding today's. That order makes each
-          * baseline bit-identical to the moving average of the same period at the
-          * previous bar; the reverse order differs only in the last ulp, so no
-          * tolerance can tell the two apart.
+         /* Drop the trailing bar BEFORE adding today's. Up to the first dead
+          * window, that order makes each baseline bit-identical to the moving
+          * average of the same period at the previous bar; the reverse order
+          * differs only in the last ulp, so no tolerance can tell the two apart.
           */
          baseline = periodTotal / (double)optInTimePeriod;
-         periodTotal -= (double)inVolume[trailingIdx];
+         trailingVolume = (double)inVolume[trailingIdx];
+         periodTotal -= trailingVolume;
+         zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          todayVolume = (double)inVolume[i];
          i = i + 1;
          periodTotal += todayVolume;
+         zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
+         zeroCount = zeroCount + zeroIn - zeroOut;
+         if( zeroCount >= optInTimePeriod ) {
+            periodTotal = 0.0;
+         }
          outReal[outIdx] = todayVolume / baseline;
          outIdx = outIdx + 1;
       }
@@ -110,14 +130,18 @@
       double periodTotal = 0;
       double baseline = 0;
       double todayVolume = 0;
+      double trailingVolume = 0;
       int i = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      int zeroCount = 0;
+      int zeroIn = 0;
+      int zeroOut = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -136,19 +160,28 @@
       }
       periodTotal = 0.0;
       trailingIdx = startIdx - lookbackTotal;
+      zeroCount = 0;
       i = trailingIdx;
       while( i < startIdx ) {
          periodTotal += (double)inVolume[i];
+         zeroCount += (Math.abs((double)inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
       }
       outIdx = 0;
       while( i <= endIdx ) {
          baseline = periodTotal / (double)optInTimePeriod;
-         periodTotal -= (double)inVolume[trailingIdx];
+         trailingVolume = (double)inVolume[trailingIdx];
+         periodTotal -= trailingVolume;
+         zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          todayVolume = (double)inVolume[i];
          i = i + 1;
          periodTotal += todayVolume;
+         zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
+         zeroCount = zeroCount + zeroIn - zeroOut;
+         if( zeroCount >= optInTimePeriod ) {
+            periodTotal = 0.0;
+         }
          outReal[outIdx] = todayVolume / baseline;
          outIdx = outIdx + 1;
       }
@@ -176,8 +209,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#rvolLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#rvolLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -186,11 +219,13 @@
     *        baseline (default 20; range 1..100000; {@code Integer.MIN_VALUE} selects
     *        the default).
     * @param outReal Ratio of the current bar's volume to the average of the
-    *        preceding window. Must hold at least {@code endIdx - startIdx + 1} values.
+    *        preceding window. Must hold at least
+    *        {@code endIdx - max(startIdx, rvolLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -249,8 +284,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#rvolLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#rvolLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -259,11 +294,13 @@
     *        baseline (default 20; range 1..100000; {@code Integer.MIN_VALUE} selects
     *        the default).
     * @param outReal Ratio of the current bar's volume to the average of the
-    *        preceding window. Must hold at least {@code endIdx - startIdx + 1} values.
+    *        preceding window. Must hold at least
+    *        {@code endIdx - max(startIdx, rvolLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -319,6 +356,7 @@
       private Core core;
       private int optInTimePeriod;
       private double periodTotal;
+      private int zeroCount;
       private int ringPos_trailingIdx;
       private int ringCap_trailingIdx;
       private double[] ring_trailingIdx_inVolume;
@@ -338,7 +376,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -352,12 +390,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("RVOL advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -366,6 +404,7 @@
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.periodTotal = other.periodTotal;
+         this.zeroCount = other.zeroCount;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inVolume = other.ring_trailingIdx_inVolume.clone();
@@ -388,15 +427,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inVolume ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("RVOL update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inVolume) )
-            throw new TALibArgumentException("RVOL update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("RVOL update", "inVolume");
          core.rvolStepImpl(this, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -406,35 +445,38 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inVolume ) {
          if( !Double.isFinite(inVolume) )
-            throw new TALibArgumentException("RVOL peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("RVOL peek", "inVolume");
          RvolStream sp = this;
          double baseline = 0.0;
          double todayVolume = 0.0;
+         double trailingVolume = 0.0;
+         int zeroIn = 0;
+         int zeroOut = 0;
          double cur_outReal = 0.0;
          double periodTotal = sp.periodTotal;
-         int pkSlot0 = -1;
-         double pkVal0 = 0.0;
-         if( sp.ringCap_trailingIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inVolume;
-         }
-         /* Drop the trailing bar BEFORE adding today's. That order makes each
-          * baseline bit-identical to the moving average of the same period at the
-          * previous bar; the reverse order differs only in the last ulp, so no
-          * tolerance can tell the two apart.
+         int zeroCount = sp.zeroCount;
+         /* Drop the trailing bar BEFORE adding today's. Up to the first dead
+          * window, that order makes each baseline bit-identical to the moving
+          * average of the same period at the previous bar; the reverse order
+          * differs only in the last ulp, so no tolerance can tell the two apart.
           */
          baseline = periodTotal / (double)sp.optInTimePeriod;
-         periodTotal -= (double)((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] : pkVal0);
+         trailingVolume = (double)sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+         periodTotal -= trailingVolume;
+         zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          todayVolume = (double)inVolume;
          periodTotal += todayVolume;
+         zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
+         zeroCount = zeroCount + zeroIn - zeroOut;
+         if( zeroCount >= sp.optInTimePeriod ) {
+            periodTotal = 0.0;
+         }
          cur_outReal = todayVolume / baseline;
          return cur_outReal;
       }
@@ -469,22 +511,31 @@
    {
       double baseline = 0.0;
       double todayVolume = 0.0;
-      if( sp.ringCap_trailingIdx == 0 ) {
-         sp.ring_trailingIdx_inVolume[0] = inVolume;
-      }
-      /* Drop the trailing bar BEFORE adding today's. That order makes each
-       * baseline bit-identical to the moving average of the same period at the
-       * previous bar; the reverse order differs only in the last ulp, so no
-       * tolerance can tell the two apart.
+      double trailingVolume = 0.0;
+      int zeroIn = 0;
+      int zeroOut = 0;
+      int ringCapL_trailingIdx = 0;
+      /* Drop the trailing bar BEFORE adding today's. Up to the first dead
+       * window, that order makes each baseline bit-identical to the moving
+       * average of the same period at the previous bar; the reverse order
+       * differs only in the last ulp, so no tolerance can tell the two apart.
        */
       baseline = sp.periodTotal / (double)sp.optInTimePeriod;
-      sp.periodTotal -= (double)sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+      trailingVolume = (double)sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+      sp.periodTotal -= trailingVolume;
+      zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
       todayVolume = (double)inVolume;
       sp.periodTotal += todayVolume;
+      zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
+      sp.zeroCount = sp.zeroCount + zeroIn - zeroOut;
+      if( sp.zeroCount >= sp.optInTimePeriod ) {
+         sp.periodTotal = 0.0;
+      }
       sp.cur_outReal = todayVolume / baseline;
+      ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
          sp.ringPos_trailingIdx = 0;
       }
    }
@@ -493,16 +544,20 @@
       double periodTotal = 0;
       double baseline = 0;
       double todayVolume = 0;
+      double trailingVolume = 0;
       int i = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
+      int zeroCount = 0;
+      int zeroIn = 0;
+      int zeroOut = 0;
       int historyLen = inVolume.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -529,24 +584,38 @@
       }
       periodTotal = 0.0;
       trailingIdx = startIdx - lookbackTotal;
+      /* Zero-volume bars in the window. Once they fill it the total is exactly
+       * zero, where add-then-subtract would leave the rounding residue of the
+       * volumes that departed, of either sign. The test is fabs(v) <= 0.0 rather
+       * than == 0.0: the same result, NaN included, from one flag instead of two.
+       */
+      zeroCount = 0;
       i = trailingIdx;
       while( i < startIdx ) {
          periodTotal += (double)inVolume[i];
+         zeroCount += (Math.abs(inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
       }
       outIdx = 0;
       while( i <= endIdx ) {
-         /* Drop the trailing bar BEFORE adding today's. That order makes each
-          * baseline bit-identical to the moving average of the same period at the
-          * previous bar; the reverse order differs only in the last ulp, so no
-          * tolerance can tell the two apart.
+         /* Drop the trailing bar BEFORE adding today's. Up to the first dead
+          * window, that order makes each baseline bit-identical to the moving
+          * average of the same period at the previous bar; the reverse order
+          * differs only in the last ulp, so no tolerance can tell the two apart.
           */
          baseline = periodTotal / (double)optInTimePeriod;
-         periodTotal -= (double)inVolume[trailingIdx];
+         trailingVolume = (double)inVolume[trailingIdx];
+         periodTotal -= trailingVolume;
+         zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          todayVolume = (double)inVolume[i];
          i = i + 1;
          periodTotal += todayVolume;
+         zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
+         zeroCount = zeroCount + zeroIn - zeroOut;
+         if( zeroCount >= optInTimePeriod ) {
+            periodTotal = 0.0;
+         }
          outReal[outIdx * outStride] = todayVolume / baseline;
          outIdx = outIdx + 1;
       }
@@ -554,7 +623,7 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = i - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+      if( cap_trailingIdx < 1 || cap_trailingIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -562,6 +631,7 @@
       System.arraycopy(inVolume, historyLen - cap_trailingIdx, capRing_trailingIdx_inVolume, 0, cap_trailingIdx);
       sp.optInTimePeriod = optInTimePeriod;
       sp.periodTotal = periodTotal;
+      sp.zeroCount = zeroCount;
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inVolume = capRing_trailingIdx_inVolume;
@@ -579,12 +649,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("RVOL openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("RVOL openAndFill", inVolume.length, startIdx, rvolLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("RVOL openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("RVOL openAndFill: " + retCode, retCode);
+      throw streamFailure("RVOL openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind rvolOpen (composition seam). */
    RvolStream rvolOpenInternal( double inVolume[], int startIdx, int optInTimePeriod )
@@ -600,12 +667,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("RVOL open: history shorter than lookback + 1");
+         throw insufficientHistory("RVOL open", inVolume.length, startIdx, rvolLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("RVOL open: internal error", retCode);
-      }
-      throw new TALibArgumentException("RVOL open: " + retCode, retCode);
+      throw streamFailure("RVOL open", retCode);
    }
    /**
     * Open a live RVOL stream over the warm-up history; the handle's
@@ -644,7 +708,7 @@
       int guardOutLen = openFillCount("RVOL openAndFill", inVolume.length, rvolLookback(optInTimePeriod));
       requireLength("RVOL openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inVolume ) {
-         throw new TALibArgumentException("RVOL openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("RVOL openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

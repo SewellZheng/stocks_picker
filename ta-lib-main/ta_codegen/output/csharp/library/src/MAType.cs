@@ -67,10 +67,14 @@ public enum MAType
     ZLEMA = 12,
     /// <summary>The <c>TA_MAType_RMA</c> moving average.</summary>
     RMA = 13,
+    /// <summary>The <c>TA_MAType_VIDYA</c> moving average.</summary>
+    VIDYA = 14,
+    /// <summary>The <c>TA_MAType_ALMA</c> moving average.</summary>
+    ALMA = 15,
 }
 
 /// <summary>Companion constants for <see cref="MAType"/>.</summary>
-public static class MATypes
+internal static class MATypes
 {
     /// <summary>Lowest value <see cref="MAType"/> defines. Not a member:
     /// the inclusive lower bound of the domain a parameter of that type
@@ -79,5 +83,5 @@ public static class MATypes
 
     /// <summary>Highest value <see cref="MAType"/> defines. Grows when a
     /// member is appended.</summary>
-    public const int Max = 13;
+    public const int Max = 15;
 }

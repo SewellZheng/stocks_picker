@@ -48,8 +48,10 @@
 /* Hand-written test; ta_codegen never opens this file. */
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.InteropServices;
 using TALib;
 using TALib.Metadata;
@@ -269,6 +271,79 @@ public static class StreamApiTest
         Check(Bits(plain.Value) == Bits(s.Value), "both openers agree on the current value");
     }
 
+    /// <summary>MAVP's bank reads every slot's history from one shared tape: it
+    /// stays bit-identical to batch on every MAType, through Peek, OpenAndFill
+    /// and a Clone.</summary>
+    /// <remarks>The fork runs to the end before its original moves: fed in
+    /// lockstep, two handles sharing a tape both write each bar before reading
+    /// and never disagree. A band whose deepest lag is a power of two (SMA over
+    /// [5, 33], KAMA over [2, 32]) is the one a tape sized AT the lag rather
+    /// than above it gets wrong.</remarks>
+    private static void MavpBankMatchesBatchOnEveryMaType()
+    {
+        var core = new Core();
+        double[] closes = Closes(1200);
+        int n = closes.Length;
+        var periods = new double[n];
+        foreach (MAType ma in Enum.GetValues<MAType>())
+        {
+            if (ma == MAType.DEFAULT)
+            {
+                continue;
+            }
+            foreach (var (min, max) in new[] { (2, 8), (2, 32), (5, 33) })
+            {
+                for (int t = 0; t < n; t++)
+                {
+                    periods[t] = min + (t % (max - min + 3)) - 1;
+                }
+                var batch = new double[n];
+                OutRange r = core.Mavp(0, n - 1, closes, periods, min, max, ma, batch);
+                int lb = r.BegIdx;
+                string what = $"MAVP {ma} [{min}, {max}]";
+
+                bool Step(Core.MavpStream h, int t)
+                {
+                    double pk = h.Peek(closes[t], periods[t]);
+                    double up = h.Update(closes[t], periods[t]);
+                    return Bits(pk) == Bits(up) && Bits(up) == Bits(batch[t - lb]);
+                }
+
+                Core.MavpStream s = core.MavpOpen(closes[..(lb + 1)], periods[..(lb + 1)], min, max, ma);
+                bool ok = Bits(s.Value) == Bits(batch[0]);
+                int mid = (lb + 1 + n) / 2;
+                for (int t = lb + 1; ok && t < mid; t++)
+                {
+                    ok = Step(s, t);
+                }
+                Check(ok, what + ": Open, then Peek and Update, track batch");
+                Core.MavpStream fork = s.Clone();
+                for (int t = mid; ok && t < n; t++)
+                {
+                    ok = Step(fork, t);
+                }
+                Check(ok, what + ": the fork tracks batch");
+                for (int t = mid; ok && t < n; t++)
+                {
+                    ok = Step(s, t);
+                }
+                Check(ok, what + ": the original tracks batch after its fork ran ahead");
+
+                var filled = new double[r.Count];
+                Core.MavpStream f = core.MavpOpenAndFill(closes, periods, min, max, ma, filled);
+                bool same = Bits(f.Value) == Bits(batch[r.Count - 1]);
+                for (int i = 0; i < r.Count; i++)
+                {
+                    same &= Bits(filled[i]) == Bits(batch[i]);
+                }
+                Check(same, what + ": OpenAndFill is bit-identical to batch");
+                _mavpConfigs++;
+            }
+        }
+    }
+
+    private static int _mavpConfigs;
+
     /// <summary>#241: feed a stream N bars by any mixture of opener and updates
     /// and its <c>OutRange</c> is the batch range over those same N bars.</summary>
     private static void OutRangeTracksTheBatchRange()
@@ -373,20 +448,31 @@ public static class StreamApiTest
             () => core.SmaOpen(closes, 0),
             "an out-of-range period throws ArgumentException");
 
-        // The message carries the stable "<NAME> open: " prefix.
+        // The message carries the stable "<NAME> open: " prefix, and the counts.
+        ShortHistoryMessage(() => core.SmaOpen(closes[..lookback], period),
+            "SMA open: history has length " + lookback + ", needs " + (lookback + 1));
+        // The dispatch tier converts the code on its own frame.
+        int maLb = core.MaLookback(10, MAType.EMA);
+        ShortHistoryMessage(() => core.MaOpenAndFill(closes[..maLb], 10, MAType.EMA, new double[closes.Length]),
+            "MA openAndFill: history has length " + maLb + ", needs " + (maLb + 1));
+    }
+
+    private static void ShortHistoryMessage(Action open, string want)
+    {
         _checks++;
         try
         {
-            core.SmaOpen(closes[..lookback], period);
+            open();
             _failures++;
-            Console.WriteLine("  FAIL: expected a short-history rejection");
+            Console.WriteLine("  FAIL: expected a short-history rejection: " + want);
         }
         catch (InsufficientHistoryException e)
         {
-            if (!e.Message.StartsWith("SMA open:", StringComparison.Ordinal))
+            if (!e.Message.StartsWith(want + " (Parameter '", StringComparison.Ordinal) || e.ParamName != "inReal")
             {
                 _failures++;
-                Console.WriteLine("  FAIL: reject message lacks the \"SMA open:\" prefix: " + e.Message);
+                Console.WriteLine("  FAIL: short-history message \"" + e.Message + "\", expected \"" + want
+                                  + "\" naming the history");
             }
         }
     }
@@ -492,7 +578,7 @@ public static class StreamApiTest
 
     /// <summary>The thrown object carries the code; the type alone cannot say
     /// which of two index rules fired.</summary>
-    private static void CheckRetCode(Action body, RetCode expected, string what)
+    private static void CheckRetCode(Action body, RetCode expected, string what, string? prefix = null)
     {
         _checks++;
         try
@@ -508,6 +594,11 @@ public static class StreamApiTest
             {
                 _failures++;
                 Console.WriteLine("  FAIL: " + what + " (carried " + got + ")");
+            }
+            else if (prefix != null && !e.Message.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                _failures++;
+                Console.WriteLine("  FAIL: " + what + " (message \"" + e.Message + "\", expected \"" + prefix + "...\")");
             }
         }
     }
@@ -776,9 +867,10 @@ public static class StreamApiTest
     /// <remarks>
     /// <para>This is the C# half of a property no value gate can see, and the
     /// only backend where it is worth measuring at runtime: a C# array field is
-    /// a reference, so a frame that copied one would allocate — and RyuJIT does
-    /// not stack-allocate arrays, so the bytes are real. Java's escape analysis
-    /// can hide the same copy, and C and Rust never had it.</para>
+    /// a reference, so a frame that copied one would allocate. The JIT may
+    /// stack-allocate a small copy it proves does not escape, as Java's escape
+    /// analysis may, so a zero here can hide a copy but a nonzero is always
+    /// real. C and Rust never had it.</para>
     /// <para>HT_DCPERIOD is the sharpest case in the corpus, with eight
     /// <c>double[3]</c> accumulators — 384 B per call when they are copied. SMA
     /// is the control: no accumulator, so it reads zero either way, and a run
@@ -932,12 +1024,13 @@ public static class StreamApiTest
     private static int _nfBar;
     private static int _nfState;
 
-    /* The MESSAGE is checked, not just the type. InsufficientHistoryException
+    /* The CODE is checked, not just the type. InsufficientHistoryException
        derives from ArgumentException, so asserting the base type alone would let
        "rejected because the history was too short" pass as "rejected the
        non-finite value" -- and every probe here deliberately supplies enough
-       history, so the confusion would surface only the day a lookback grew. */
-    private static void ThrowsBadParam(string what, Action body)
+       history, so the confusion would surface only the day a lookback grew.
+       `paramName`, when given, is the argument the rejection must name. */
+    private static void ThrowsBadParam(string what, Action body, string? paramName = null)
     {
         _checks++;
         try
@@ -946,7 +1039,8 @@ public static class StreamApiTest
             _failures++;
             Console.WriteLine("  FAIL: " + what + " (no exception thrown)");
         }
-        catch (ArgumentException e) when (e.Message.EndsWith(": BadParam", StringComparison.Ordinal))
+        catch (ArgumentException e) when (e is ITALibFailure { RetCode: RetCode.BadParam }
+                                          && (paramName is null || e.ParamName == paramName))
         {
             /* expected */
         }
@@ -963,9 +1057,10 @@ public static class StreamApiTest
         _nfOpen++;
     }
 
-    private static void BarMustReject(string what, Action body)
+    private static void BarMustReject(string what, string paramName, Action body)
     {
-        ThrowsBadParam(what + ": Update/Peek must reject a non-finite bar", body);
+        ThrowsBadParam(what + ": Update/Peek must reject a non-finite bar naming " + paramName,
+                       body, paramName);
         _nfBar++;
     }
 
@@ -985,8 +1080,8 @@ public static class StreamApiTest
     /// more useful.</para>
     /// <para>The warm-up history handed to <c>Open</c>/<c>OpenAndFill</c> is
     /// deliberately NOT checked: it is an input array, and the library does not
-    /// scan input arrays. Passing a non-finite one is undefined behaviour — see
-    /// <c>docs/error-handling-spec.md</c>, "Non-finite input".</para>
+    /// scan input arrays. Passing a non-finite one is undefined behaviour (rule I5,
+    /// https://ta-lib.org/spec/inputs-outputs/#i5).</para>
     /// <para>Coverage is by stream TIER, not by function count. The check is emitted
     /// from one place, but into the entry points of five different tiers: SMA is
     /// the loop tier, MINUS_DI dual-mode, MA the dispatch tier (including its
@@ -1030,44 +1125,44 @@ public static class StreamApiTest
 
             var sa = core.SmaOpen(c, 14);
             var sb = core.SmaOpen(c, 14);
-            BarMustReject("SMA.Update", () => sa.Update(v));
-            BarMustReject("SMA.Peek", () => sa.Peek(v));
+            BarMustReject("SMA.Update", "inReal", () => sa.Update(v));
+            BarMustReject("SMA.Peek", "inReal", () => sa.Peek(v));
             StateMustHold("SMA", sa.Update(closes[warm]), sb.Update(closes[warm]));
 
             var da = core.MinusDiOpen(h, l, c, 14);
             var db = core.MinusDiOpen(h, l, c, 14);
-            BarMustReject("MINUS_DI.Update(high)", () => da.Update(v, lows[warm], closes[warm]));
-            BarMustReject("MINUS_DI.Update(low)", () => da.Update(highs[warm], v, closes[warm]));
-            BarMustReject("MINUS_DI.Update(close)", () => da.Update(highs[warm], lows[warm], v));
-            BarMustReject("MINUS_DI.Peek", () => da.Peek(v, lows[warm], closes[warm]));
+            BarMustReject("MINUS_DI.Update(high)", "inHigh", () => da.Update(v, lows[warm], closes[warm]));
+            BarMustReject("MINUS_DI.Update(low)", "inLow", () => da.Update(highs[warm], v, closes[warm]));
+            BarMustReject("MINUS_DI.Update(close)", "inClose", () => da.Update(highs[warm], lows[warm], v));
+            BarMustReject("MINUS_DI.Peek", "inHigh", () => da.Peek(v, lows[warm], closes[warm]));
             StateMustHold("MINUS_DI",
                 da.Update(highs[warm], lows[warm], closes[warm]),
                 db.Update(highs[warm], lows[warm], closes[warm]));
 
             var ma = core.MaOpen(c, 14, MAType.EMA);
             var mb = core.MaOpen(c, 14, MAType.EMA);
-            BarMustReject("MA.Update", () => ma.Update(v));
-            BarMustReject("MA.Peek", () => ma.Peek(v));
+            BarMustReject("MA.Update", "inReal", () => ma.Update(v));
+            BarMustReject("MA.Peek", "inReal", () => ma.Peek(v));
             StateMustHold("MA", ma.Update(closes[warm]), mb.Update(closes[warm]));
 
             /* Period 1 is the dispatch identity arm: it copies the bar to the
                output and never reaches a sub-stream, so a check delegated to the
                sub would miss it. */
             var mi = core.MaOpen(c, 1, MAType.SMA);
-            BarMustReject("MA(identity).Update", () => mi.Update(v));
-            BarMustReject("MA(identity).Peek", () => mi.Peek(v));
+            BarMustReject("MA(identity).Update", "inReal", () => mi.Update(v));
+            BarMustReject("MA(identity).Peek", "inReal", () => mi.Peek(v));
 
             var va = core.MavpOpen(c, p, 2, 30, MAType.SMA);
             var vb = core.MavpOpen(c, p, 2, 30, MAType.SMA);
-            BarMustReject("MAVP.Update(real)", () => va.Update(v, p[0]));
-            BarMustReject("MAVP.Update(period)", () => va.Update(closes[warm], v));
-            BarMustReject("MAVP.Peek(period)", () => va.Peek(closes[warm], v));
+            BarMustReject("MAVP.Update(real)", "inReal", () => va.Update(v, p[0]));
+            BarMustReject("MAVP.Update(period)", "inPeriods", () => va.Update(closes[warm], v));
+            BarMustReject("MAVP.Peek(period)", "inPeriods", () => va.Peek(closes[warm], v));
             StateMustHold("MAVP", va.Update(closes[warm], p[0]), vb.Update(closes[warm], p[0]));
 
             var ba = core.BbandsOpen(c, 20, 2.0, 2.0, MAType.SMA);
             var bb = core.BbandsOpen(c, 20, 2.0, 2.0, MAType.SMA);
-            BarMustReject("BBANDS.Update", () => ba.Update(v));
-            BarMustReject("BBANDS.Peek", () => ba.Peek(v));
+            BarMustReject("BBANDS.Update", "inReal", () => ba.Update(v));
+            BarMustReject("BBANDS.Peek", "inReal", () => ba.Peek(v));
             var bav = ba.Update(closes[warm]);
             var bbv = bb.Update(closes[warm]);
             StateMustHold("BBANDS.upper", bav.RealUpperBand, bbv.RealUpperBand);
@@ -1075,8 +1170,8 @@ public static class StreamApiTest
 
             var ka = core.StochOpen(h, l, c, 5, 3, MAType.SMA, 3, MAType.SMA);
             var kb = core.StochOpen(h, l, c, 5, 3, MAType.SMA, 3, MAType.SMA);
-            BarMustReject("STOCH.Update", () => ka.Update(v, lows[warm], closes[warm]));
-            BarMustReject("STOCH.Peek", () => ka.Peek(highs[warm], v, closes[warm]));
+            BarMustReject("STOCH.Update", "inHigh", () => ka.Update(v, lows[warm], closes[warm]));
+            BarMustReject("STOCH.Peek", "inLow", () => ka.Peek(highs[warm], v, closes[warm]));
             var kav = ka.Update(highs[warm], lows[warm], closes[warm]);
             var kbv = kb.Update(highs[warm], lows[warm], closes[warm]);
             StateMustHold("STOCH.slowK", kav.SlowK, kbv.SlowK);
@@ -1084,9 +1179,9 @@ public static class StreamApiTest
 
             var ja = core.CdldojiOpen(o, h, l, c);
             var jb = core.CdldojiOpen(o, h, l, c);
-            BarMustReject("CDLDOJI.Update(open)",
+            BarMustReject("CDLDOJI.Update(open)", "inOpen",
                 () => ja.Update(v, highs[warm], lows[warm], closes[warm]));
-            BarMustReject("CDLDOJI.Peek(close)",
+            BarMustReject("CDLDOJI.Peek(close)", "inClose",
                 () => ja.Peek(opens[warm], highs[warm], lows[warm], v));
             Check(ja.Update(opens[warm], highs[warm], lows[warm], closes[warm])
                     == jb.Update(opens[warm], highs[warm], lows[warm], closes[warm]),
@@ -1111,7 +1206,7 @@ public static class StreamApiTest
               + $"({_nfOpen}/{_nfBar}/{_nfState})");
     }
 
-    /* ---- rule U3, stated absolutely (docs/error-handling-spec.md 2.4) ---- */
+    /* ---- rules U3, H4, H5 and N7, stated absolutely (https://ta-lib.org/spec/streaming/#u3, #h4, #h5, #n7) ---- */
 
     /* Advance counters, one per property, each incremented AT its assertion. */
     private static int _advRejects;
@@ -1427,9 +1522,9 @@ public static class StreamApiTest
     private static int _u4Rejects;
     private static int _u4Holds;
 
-    /// <summary>Rule U4: the last bar a stream can count is <c>MaxIndex</c>.</summary>
+    /// <summary>Rule U4: the last bar a stream can count is <c>IndexMax</c>.</summary>
     /// <remarks>
-    /// <para>No feed reaches it — <c>MaxIndex</c> is 100 million bars — and
+    /// <para>No feed reaches it — <c>IndexMax</c> is 100 million bars — and
     /// <c>Advance()</c> is the only call that moves the count without O(period) work
     /// per bar.</para>
     /// <para>What this adds over the generator's source-text gate is the throw itself:
@@ -1438,18 +1533,18 @@ public static class StreamApiTest
     /// The ceiling is on the BAR, <c>BegIdx + Count</c>, not on the count, so the
     /// trip count comes from the range the opener reported.</para>
     /// </remarks>
-    private static void TheLastBarAStreamCanCountIsMaxIndex()
+    private static void TheLastBarAStreamCanCountIsIndexMax()
     {
         var core = new Core();
         Core.SmaStream s = core.SmaOpen(Closes(60), 14);
         OutRange at = s.OutRange;
-        for (int i = at.BegIdx + at.Count; i <= Core.MaxIndex; i++)
+        for (int i = at.BegIdx + at.Count; i <= Core.IndexMax; i++)
         {
             s.Advance();
         }
         OutRange full = s.OutRange;
-        Check(full.BegIdx == at.BegIdx && full.BegIdx + full.Count == Core.MaxIndex + 1,
-              $"the last bar a stream counts is MaxIndex, reached ({full.BegIdx},{full.Count})");
+        Check(full.BegIdx == at.BegIdx && full.BegIdx + full.Count == Core.IndexMax + 1,
+              $"the last bar a stream counts is IndexMax, reached ({full.BegIdx},{full.Count})");
         _u4Ceilings++;
 
         /* Terminal, unlike a non-finite bar: the repeat is what proves no call
@@ -1457,7 +1552,7 @@ public static class StreamApiTest
         Check(RefusesPastTheCeiling(() => s.Advance())
                   && RefusesPastTheCeiling(() => s.Update(1.0))
                   && RefusesPastTheCeiling(() => s.Advance()),
-              "every counting call past MaxIndex must throw OutOfRangeEndIndex");
+              "every counting call past IndexMax must throw OutOfRangeEndIndex");
         Check(double.IsFinite(s.Peek(1.0)),
               "Peek counts no bar, so it stays answerable past the ceiling");
         _u4Rejects++;
@@ -1488,17 +1583,496 @@ public static class StreamApiTest
         }
     }
 
+    /* ------------------------------------------------- opener arguments */
+
+    private static void StreamRejects(Action body, string what, string? paramName, params string[] needles)
+    {
+        _checks++;
+        try
+        {
+            body();
+            _failures++;
+            Console.WriteLine("  FAIL: " + what + " (no exception thrown)");
+        }
+        catch (Exception e)
+        {
+            string msg = e.Message ?? "";
+            string? missing = needles.FirstOrDefault(n => !msg.Contains(n, StringComparison.Ordinal));
+            if (e is not ArgumentException ae || e is ArgumentOutOfRangeException
+                || (e as ITALibFailure)?.RetCode != RetCode.BadParam
+                || ae.ParamName != paramName || missing != null)
+            {
+                _failures++;
+                Console.WriteLine("  FAIL: " + what + " (threw " + e.GetType().Name + " \"" + msg + "\" naming "
+                                  + ((e as ArgumentException)?.ParamName ?? "nothing") + ")");
+            }
+        }
+    }
+
+    private static void StreamAccepts(Action body, string what)
+    {
+        _checks++;
+        try
+        {
+            body();
+        }
+        catch (Exception e)
+        {
+            _failures++;
+            Console.WriteLine("  FAIL: " + what + " must open (threw " + e.GetType().Name + ": " + e.Message + ")");
+        }
+    }
+
+    /// <summary>Every opener tier names an empty leg or output under its own
+    /// <c>"&lt;NAME&gt; &lt;verb&gt;: "</c> prefix.</summary>
+    /// <remarks>A span cannot be null, so "absent" is an empty span. The history
+    /// leg is the exception: empty there is rule S1, an index fault.</remarks>
+    private static void OpenersCheckTheirArguments()
+    {
+        var core = new Core();
+        double[] input = Closes(252);
+        var output = new double[252];
+        var output2 = new double[252];
+        var outI = new int[252];
+        var periods = new double[252];
+        Array.Fill(periods, 5.0);
+        double[] empty = [];
+
+        StreamRejects(() => core.SmaOpenAndFill(input, 30, empty),
+            "SmaOpenAndFill(outReal empty)", "outReal", "SMA openAndFill: outReal has length 0");
+        StreamRejects(() => core.Cdl3outsideOpen(input, empty, input, input),
+            "Cdl3outsideOpen(inHigh empty), a leg the body never reads", "inHigh", "CDL3OUTSIDE open: inHigh is empty");
+        StreamRejects(() => core.Cdl3outsideOpenAndFill(input, input, empty, input, outI),
+            "Cdl3outsideOpenAndFill(inLow empty)", "inLow", "CDL3OUTSIDE openAndFill: inLow is empty");
+        StreamRejects(() => core.CdldojiOpen(input, input, input, empty),
+            "CdldojiOpen(inClose empty)", "inClose", "CDLDOJI open: inClose is empty");
+        StreamRejects(() => core.CdldojiOpen(input, input, input, input.AsSpan(0, 251)),
+            "CdldojiOpen(inClose one short)", "inClose", "CDLDOJI open: inClose has length 251, needs 252");
+        StreamRejects(() => core.StochOpen(input, input, empty, 5, 3, MAType.SMA, 3, MAType.SMA),
+            "StochOpen(inClose empty)", "inClose", "STOCH open: inClose is empty");
+        StreamRejects(() => core.StochOpenAndFill(input, input, input, 5, 3, MAType.SMA, 3, MAType.SMA, output, empty),
+            "StochOpenAndFill(outSlowD empty)", "outSlowD", "STOCH openAndFill: outSlowD has length 0");
+        StreamRejects(() => core.MavpOpen(input, empty, 2, 30, MAType.SMA),
+            "MavpOpen(inPeriods empty)", "inPeriods", "MAVP open: inPeriods is empty");
+        StreamRejects(() => core.MavpOpenAndFill(input, periods, 2, 30, MAType.SMA, empty),
+            "MavpOpenAndFill(outReal empty)", "outReal", "MAVP openAndFill: outReal has length 0");
+        StreamRejects(() => core.MaOpenAndFill(input, 30, MAType.EMA, empty),
+            "MaOpenAndFill(outReal empty)", "outReal", "MA openAndFill: outReal has length 0");
+
+        // Rule S3 ahead of the buffer rules.
+        StreamRejects(() => core.SmaOpenAndFill(input, 0, empty),
+            "a bad parameter outranks an empty output", null, "SMA openAndFill: bad parameter");
+        StreamRejects(() => core.StochOpenAndFill(input, input, input, 0, 3, MAType.SMA, 3, MAType.SMA, output, empty),
+            "a bad parameter outranks an empty output on a composed tier", null, "STOCH openAndFill: bad parameter");
+
+        // A C# enum is not a closed domain.
+        foreach (int raw in new[] { 999, -1, (int)Enum.GetValues<MAType>()[^1] + 1 })
+        {
+            var t = (MAType)raw;
+            StreamRejects(() => core.MaOpen(input, 30, t), $"MaOpen((MAType){raw})", null, "MA open: bad parameter");
+            StreamRejects(() => core.MaOpenAndFill(input, 30, t, output), $"MaOpenAndFill((MAType){raw})", null,
+                "MA openAndFill: bad parameter");
+            StreamRejects(() => core.BbandsOpen(input, 20, 2.0, 2.0, t), $"BbandsOpen((MAType){raw})", null,
+                "BBANDS open: bad parameter");
+            StreamRejects(() => core.MavpOpen(input, periods, 2, 30, t), $"MavpOpen((MAType){raw})", null,
+                "MAVP open: bad parameter");
+        }
+
+        // Controls: the same calls with every argument supplied still open.
+        StreamAccepts(() => core.SmaOpenAndFill(input, 30, output), "SmaOpenAndFill");
+        StreamAccepts(() => core.Cdl3outsideOpen(input, input, input, input), "Cdl3outsideOpen");
+        StreamAccepts(() => core.StochOpenAndFill(input, input, input, 5, 3, MAType.SMA, 3, MAType.SMA, output, output2),
+            "StochOpenAndFill");
+        StreamAccepts(() => core.MavpOpenAndFill(input, periods, 2, 30, MAType.SMA, output), "MavpOpenAndFill");
+        var last = Enum.GetValues<MAType>()[^1];
+        StreamAccepts(() => core.MaOpen(input, 30, last), $"MaOpen({last})");
+        StreamAccepts(() => core.BbandsOpen(input, 20, 2.0, 2.0, last), $"BbandsOpen({last})");
+    }
+
+    /// <summary>Rule S1 ahead of every other opener check: an empty history is
+    /// an index fault whatever else is wrong with the call.</summary>
+    private static void AnEmptyHistoryOutranksAnEmptyArgument()
+    {
+        var core = new Core();
+        double[] empty = [];
+        double[] input = Closes(252);
+
+        CheckRetCode(() => core.CdldojiOpen(empty, empty, empty, empty), RetCode.OutOfRangeStartIndex,
+            "a candlestick reaches it through four empty legs", "CDLDOJI open: ");
+        CheckRetCode(() => core.CdldojiOpen(empty, input, input, input), RetCode.OutOfRangeStartIndex,
+            "an empty history outranks the legs' length disagreement", "CDLDOJI open: ");
+        CheckRetCode(() => core.MaOpen(empty, 30, MAType.EMA), RetCode.OutOfRangeStartIndex,
+            "the dispatch tier answers it too", "MA open: ");
+        CheckRetCode(() => core.MaOpen(empty, 30, (MAType)999), RetCode.OutOfRangeStartIndex,
+            "an empty history outranks an out-of-domain MAType", "MA open: ");
+        CheckRetCode(() => core.SmaOpenAndFill(empty, 0, empty), RetCode.OutOfRangeStartIndex,
+            "an empty history outranks a bad parameter and an empty output", "SMA openAndFill: ");
+        CheckRetCode(() => core.MavpOpen(empty, input, 2, 30, MAType.SMA), RetCode.OutOfRangeStartIndex,
+            "the period bank answers it too", "MAVP open: ");
+
+        // A one-bar history is inside the domain; it reaches the warm-up check.
+        CheckThrows<InsufficientHistoryException>(
+            () => core.SmaOpen(new double[1], 30), "a one-bar history reaches the warm-up check");
+    }
+
+    /* ------------------------------------------- handle state, field by field */
+
+    private static int _stLeaves;
+    private static int _stArrays;
+    private static int _stSubs;
+    private static int _stRejects;
+
+    /// <summary>Append the path of every field where <paramref name="a"/> and
+    /// <paramref name="b"/> differ, walking arrays element by element and
+    /// sub-handles recursively.</summary>
+    /// <remarks>Reference identity ends the walk, which keeps the shared
+    /// <see cref="Core"/> out of it. With <paramref name="clone"/> set, identity
+    /// is itself a finding for anything a later <c>Update</c> could write
+    /// through: an empty array has no element to write.</remarks>
+    private static void StateDiff(object? a, object? b, string path, List<string> diffs, bool clone, int depth = 0)
+    {
+        if (ReferenceEquals(a, b))
+        {
+            if (clone && a is not null and not Core and not string && a is not Array { Length: 0 })
+            {
+                diffs.Add(path + ": the clone shares this " + a.GetType().Name);
+            }
+            return;
+        }
+        if (a is null || b is null)
+        {
+            diffs.Add(path + ": one side is null");
+            return;
+        }
+        Type t = a.GetType();
+        if (t != b.GetType())
+        {
+            diffs.Add(path + ": " + t.Name + " vs " + b.GetType().Name);
+            return;
+        }
+        if (depth > 24)
+        {
+            diffs.Add(path + ": nested deeper than this walk goes");
+            return;
+        }
+        if (a is Array aa)
+        {
+            var ba = (Array)b;
+            if (aa.Length != ba.Length)
+            {
+                diffs.Add(path + ": length " + aa.Length + " vs " + ba.Length);
+                return;
+            }
+            for (int i = 0; i < aa.Length; i++)
+            {
+                StateDiff(aa.GetValue(i), ba.GetValue(i), path + "[" + i + "]", diffs, clone, depth + 1);
+            }
+            return;
+        }
+        // Raw bits, not Equals: a slot holding -0.0 where the twin holds 0.0 was written.
+        if (a is double da)
+        {
+            _stLeaves++;
+            if (BitConverter.DoubleToInt64Bits(da) != BitConverter.DoubleToInt64Bits((double)b))
+            {
+                diffs.Add(path + ": " + da + " vs " + b);
+            }
+            return;
+        }
+        if (a is float fa)
+        {
+            _stLeaves++;
+            if (BitConverter.SingleToInt32Bits(fa) != BitConverter.SingleToInt32Bits((float)b))
+            {
+                diffs.Add(path + ": " + fa + " vs " + b);
+            }
+            return;
+        }
+        if (t.IsPrimitive || t.IsEnum || a is string)
+        {
+            _stLeaves++;
+            if (!a.Equals(b))
+            {
+                diffs.Add(path + ": " + a + " vs " + b);
+            }
+            return;
+        }
+        foreach (FieldInfo f in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            StateDiff(f.GetValue(a), f.GetValue(b), path + "." + f.Name, diffs, clone, depth + 1);
+        }
+    }
+
+    private static string Report(List<string> diffs) =>
+        diffs.Count > 4 ? string.Join("; ", diffs.Take(4)) + $" (+{diffs.Count - 4} more)" : string.Join("; ", diffs);
+
+    /* An opener takes spans, which reflection cannot box, so each one gets an
+       IL thunk that converts its array arguments on the way in. */
+    private static Func<Core, object[], object> OpenerThunk(MethodInfo open)
+    {
+        var dm = new DynamicMethod("open_" + open.Name, typeof(object), [typeof(Core), typeof(object[])],
+                                   typeof(StreamApiTest).Module, skipVisibility: true);
+        ILGenerator il = dm.GetILGenerator();
+        MethodInfo toSpan = typeof(ReadOnlySpan<double>).GetMethod("op_Implicit", [typeof(double[])])!;
+        il.Emit(OpCodes.Ldarg_0);
+        ParameterInfo[] ps = open.GetParameters();
+        for (int i = 0; i < ps.Length; i++)
+        {
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Ldc_I4, i);
+            il.Emit(OpCodes.Ldelem_Ref);
+            if (ps[i].ParameterType == typeof(ReadOnlySpan<double>))
+            {
+                il.Emit(OpCodes.Castclass, typeof(double[]));
+                il.Emit(OpCodes.Call, toSpan);
+            }
+            else
+            {
+                il.Emit(OpCodes.Unbox_Any, ps[i].ParameterType);
+            }
+        }
+        il.Emit(OpCodes.Call, open);
+        il.Emit(OpCodes.Ret);
+        return dm.CreateDelegate<Func<Core, object[], object>>();
+    }
+
+    /* Bar i of the series feeding one input, keeping high above and low below
+       the body, volume positive, and the body's size varying bar to bar. */
+    private static double SlotBar(string slot, int i, bool unitDomain)
+    {
+        if (unitDomain)
+        {
+            return slot == "inReal1" ? 0.5 * Math.Cos(0.07 * i) : 0.6 * Math.Sin(0.1 * i);
+        }
+        double close = 100.0 + 10.0 * Math.Sin(0.1 * i) + 0.013 * i;
+        return slot switch
+        {
+            "inOpen" => close - 0.4 - 0.3 * Math.Sin(0.23 * i),
+            "inHigh" => close + Math.Abs(Math.Sin(1.3 * i)) + 0.9,
+            "inLow" => close - Math.Abs(Math.Sin(1.7 * i)) - 0.9,
+            "inVolume" => 1000.0 + 10.0 * i,
+            "inPeriods" => 5.0 + (i % 20),
+            "inReal1" => 95.0 + 8.0 * Math.Cos(0.07 * i) + 0.01 * i,
+            _ => close,
+        };
+    }
+
+    /* A legal bar far off the series. Probed in both directions because a gap up
+       never moves a rolling MIN and a gap down never moves a MAX, and the body
+       flips so a candlestick sees a different direction, not just a level. */
+    private static double OutlierBar(string slot, int i, bool up, bool unitDomain)
+    {
+        if (unitDomain)
+        {
+            return up ? 0.98 : -0.98;
+        }
+        double b = (up ? 1.4 : 0.6) * (100.0 + 10.0 * Math.Sin(0.1 * i) + 0.013 * i);
+        return slot switch
+        {
+            "inOpen" => up ? b - 2.0 : b + 2.0,
+            "inHigh" => b + 3.0,
+            "inLow" => b - 3.0,
+            "inVolume" => up ? 9000.0 : 40.0,
+            "inPeriods" => up ? 27.0 : 3.0,
+            "inReal1" => 0.9 * b,
+            _ => b,
+        };
+    }
+
+    private static object? Call(MethodInfo m, object target, object?[]? args)
+    {
+        try
+        {
+            return m.Invoke(target, args);
+        }
+        catch (TargetInvocationException e) when (e.InnerException != null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw();
+            throw;
+        }
+    }
+
+    /// <summary>Every handle's whole state, not just its value, survives a
+    /// <c>Peek</c> and a rejected <c>Update</c>, and a <c>Clone</c> is equal to
+    /// its source and shares nothing a later <c>Update</c> writes.</summary>
+    /// <remarks>
+    /// <para>The value legs elsewhere cannot see a write that leaves the value
+    /// alone: a candlestick whose pattern this series never fires reads 0 either
+    /// side of it. <c>twin</c> has the same opener and none of the probes, so
+    /// every field of the two must agree bit for bit.</para>
+    /// <para>The handle count is reflection over the emitted types, not the walk's
+    /// own tally, so a handle the sweep skips is a failure.</para>
+    /// </remarks>
+    private static void HandleStateHoldsOnEveryHandle()
+    {
+        var core = new Core();
+        var unhandled = new List<string>();
+        int swept = 0;
+        int registered = typeof(Core).GetNestedTypes(BindingFlags.Public)
+            .Count(t => t.Name.EndsWith("Stream", StringComparison.Ordinal));
+
+        foreach (FuncInfo f in FunctionCatalog.Default.Where(f => (f.Flags & FuncFlags.Stream) != 0))
+        {
+            string pascal = string.Concat(f.Name.Split('_')
+                .Select(w => char.ToUpperInvariant(w[0]) + w[1..].ToLowerInvariant()));
+            Type? handle = typeof(Core).GetNestedType(pascal + "Stream", BindingFlags.Public);
+            MethodInfo? open = typeof(Core).GetMethod(pascal + "Open", BindingFlags.Public | BindingFlags.Instance);
+            MethodInfo? update = handle?.GetMethod("Update", BindingFlags.Public | BindingFlags.Instance);
+            MethodInfo? peek = handle?.GetMethod("Peek", BindingFlags.Public | BindingFlags.Instance);
+            MethodInfo? clone = handle?.GetMethod("Clone", BindingFlags.Public | BindingFlags.Instance);
+            if (handle == null || open == null || update == null || peek == null || clone == null)
+            {
+                unhandled.Add(f.Name + ": missing one of the handle, Open, Update, Peek or Clone");
+                continue;
+            }
+
+            bool unitDomain = f.Group == FunctionGroup.MathTransform;
+            int n = f.CreateCall(core).Lookback() + 4;
+            ParameterInfo[] ops = open.GetParameters();
+            var args = new object[ops.Length];
+            bool skip = false;
+            for (int i = 0; i < ops.Length && !skip; i++)
+            {
+                Type pt = ops[i].ParameterType;
+                if (pt == typeof(ReadOnlySpan<double>))
+                {
+                    var series = new double[n];
+                    for (int k = 0; k < n; k++)
+                    {
+                        series[k] = SlotBar(ops[i].Name!, k, unitDomain);
+                    }
+                    args[i] = series;
+                }
+                else if (pt == typeof(int))
+                {
+                    args[i] = int.MinValue;
+                }
+                else if (pt == typeof(double))
+                {
+                    args[i] = Core.RealDefault;
+                }
+                else if (pt == typeof(MAType))
+                {
+                    args[i] = (MAType)int.MinValue;
+                }
+                else
+                {
+                    unhandled.Add(f.Name + ": opener parameter of type " + pt.Name);
+                    skip = true;
+                }
+            }
+            if (skip)
+            {
+                continue;
+            }
+
+            string[] slots = update.GetParameters().Select(p => p.Name!).ToArray();
+            object[] Bar(Func<string, double> value) => slots.Select(sl => (object)value(sl)).ToArray();
+            object[] barA = Bar(sl => SlotBar(sl, n, unitDomain));
+            object[] barB = Bar(sl => SlotBar(sl, n + 1, unitDomain));
+            object[] barUp = Bar(sl => OutlierBar(sl, n, true, unitDomain));
+            object[] barDown = Bar(sl => OutlierBar(sl, n, false, unitDomain));
+
+            try
+            {
+                Func<Core, object[], object> opener = OpenerThunk(open);
+                object h = opener(core, args);
+                object twin = opener(core, args);
+                var diffs = new List<string>();
+
+                Call(peek, h, barUp);
+                Call(peek, h, barDown);
+                StateDiff(h, twin, f.Name, diffs, clone: false);
+                Check(diffs.Count == 0, f.Name + ": Peek wrote the handle -> " + Report(diffs));
+
+                for (int j = 0; j < slots.Length; j++)
+                {
+                    object[] bad = (object[])barA.Clone();
+                    bad[j] = double.NaN;
+                    StreamRejects(() => Call(update, h, bad), f.Name + ": Update with a NaN " + slots[j],
+                                  slots[j], f.Name + " update: ");
+                    StreamRejects(() => Call(peek, h, bad), f.Name + ": Peek with a NaN " + slots[j],
+                                  slots[j], f.Name + " peek: ");
+                    _stRejects++;
+                }
+                diffs.Clear();
+                StateDiff(h, twin, f.Name, diffs, clone: false);
+                Check(diffs.Count == 0, f.Name + ": a rejected Update wrote the handle -> " + Report(diffs));
+
+                object c = Call(clone, h, null)!;
+                diffs.Clear();
+                StateDiff(c, h, f.Name, diffs, clone: true);
+                Check(diffs.Count == 0, f.Name + ": Clone is not an equal, unshared copy -> " + Report(diffs));
+
+                Call(update, c, barA);
+                diffs.Clear();
+                StateDiff(h, twin, f.Name, diffs, clone: false);
+                Check(diffs.Count == 0, f.Name + ": the clone's Update reached the original -> " + Report(diffs));
+                diffs.Clear();
+                StateDiff(c, h, f.Name, diffs, clone: false);
+                Check(diffs.Count > 0, f.Name + ": an Update left no trace the walk can see");
+
+                object? onH = Call(update, h, barA);
+                object? onTwin = Call(update, twin, barA);
+                diffs.Clear();
+                StateDiff(onH, onTwin, f.Name + ".Update", diffs, clone: false);
+                StateDiff(h, twin, f.Name, diffs, clone: false);
+                StateDiff(c, h, f.Name, diffs, clone: false);
+                Check(diffs.Count == 0, f.Name + ": the probed handle, its twin and its clone diverge on one bar -> "
+                      + Report(diffs));
+
+                Call(update, c, barB);
+                Call(update, h, barB);
+                diffs.Clear();
+                StateDiff(c, h, f.Name, diffs, clone: false);
+                Check(diffs.Count == 0, f.Name + ": the clone and the original diverge on a second bar -> "
+                      + Report(diffs));
+
+                FieldInfo[] fields = handle.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (fields.Any(fl => fl.FieldType.IsArray))
+                {
+                    _stArrays++;
+                }
+                if (fields.Any(fl => fl.GetValue(h)?.GetType().Name.EndsWith("Stream", StringComparison.Ordinal) == true))
+                {
+                    _stSubs++;
+                }
+                swept++;
+            }
+            catch (Exception e)
+            {
+                unhandled.Add(f.Name + " -> " + e.GetType().Name + ": " + e.Message);
+            }
+        }
+
+        foreach (string u in unhandled)
+        {
+            Console.WriteLine("  (not swept: " + u + ")");
+        }
+        Check(unhandled.Count == 0, "every registered handle is reachable and opens on its own lookback");
+        Check(registered > 0 && swept == registered,
+            $"the state sweep covered every emitted handle type ({swept}/{registered})");
+        Check(_stLeaves > 50000, $"the state walk compared only {_stLeaves} field value(s)");
+        Check(_stArrays > 100, $"only {_stArrays} handle(s) carry an array field");
+        Check(_stSubs >= 13, $"only {_stSubs} handle(s) hold a sub-stream");
+        Console.WriteLine($"  Handle-state sweep: {swept}/{registered} handles, {_stLeaves} leaves, "
+                          + $"{_stArrays} with arrays, {_stSubs} with sub-streams, {_stRejects} rejected bars");
+    }
+
     public static int Run()
     {
         StreamMatchesBatch();
         PeekDoesNotCommit();
         CloneIsAnIndependentDeepCopy();
         OpenAndFillMatchesBatch();
+        MavpBankMatchesBatchOnEveryMaType();
         OutRangeTracksTheBatchRange();
         MisuseThrowsTheDocumentedException();
         OpenAndFillRejectsAliasing();
         CrossTypedOpenAndFillOverlapIsRejected();
         NullArgumentsAreNamed();
+        OpenersCheckTheirArguments();
+        AnEmptyHistoryOutranksAnEmptyArgument();
         TheFillOutputBoundFromBothSides();
         ADeclinedFillOutputIsStillComputed();
         TheFillOutputBoundHoldsOnEveryTier();
@@ -1506,6 +2080,7 @@ public static class StreamApiTest
         // rides its own method is deleted along with the call it guards.
         Check(_s5 >= 5, $"the fill-capacity gate ran fewer checks than it was written with ({_s5})");
         Check(_b6a >= 6, $"the declined-output gate ran fewer checks than it was written with ({_b6a})");
+        Check(_mavpConfigs >= 39, $"the MAVP bank sweep ran fewer configurations than it was written with ({_mavpConfigs})");
         IntegerSentinelSelectsTheDocumentedDefault();
         SettingsAreCapturedFromTheOpeningCore();
         UpdateDoesNotAllocate();
@@ -1514,7 +2089,8 @@ public static class StreamApiTest
         CatalogueAgreesWithTheEmittedSurface();
         NonFiniteInputsAreRejected();
         ARejectedUpdateCostsNothingAndAdvanceCostsOneBar();
-        TheLastBarAStreamCanCountIsMaxIndex();
+        TheLastBarAStreamCanCountIsIndexMax();
+        HandleStateHoldsOnEveryHandle();
 
         if (_failures == 0)
         {

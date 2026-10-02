@@ -336,6 +336,55 @@ DEF_FUNCTION( SAREXT,
              );
 /* SAREXT END */
 
+/* SI BEGIN */
+static const TA_RealRange TA_DEF_SI_LimitMove =
+{
+   0.00000001,
+   TA_REAL_MAX,
+   4,
+   0.5,
+   30.0,
+   0.5
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_SI_LimitMove =
+{
+   TA_OptInput_RealRange,
+   "optInLimitMove",
+   0,
+
+   "Limit Move",
+   (const void *)&TA_DEF_SI_LimitMove,
+   3.0,
+   "Largest one-bar price move the index is scaled against, in price units",
+
+   NULL
+};
+
+static const TA_InputParameterInfo    *TA_SI_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Price_OHLC,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_SI_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_SI_OptInputs[] =
+{ &TA_DEF_UI_D_SI_LimitMove,
+  NULL
+};
+
+DEF_FUNCTION( SI,
+              TA_GroupId_MomentumIndicators,
+              "Wilder Swing Index",
+              TA_FUNC_FLG_STREAM
+             );
+/* SI END */
+
 /* SIN BEGIN */
 static const TA_InputParameterInfo    *TA_SIN_Inputs[]    =
 {
@@ -547,6 +596,84 @@ DEF_FUNCTION( SQRT,
               TA_FUNC_FLG_STREAM | TA_FUNC_FLG_NAN_INF_OUT
              );
 /* SQRT END */
+
+/* STC BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_STC_FastPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInFastPeriod",
+   0,
+
+   "Fast Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   23,
+   "Period of the fast EMA",
+
+   NULL
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_STC_SlowPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInSlowPeriod",
+   0,
+
+   "Slow Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   50,
+   "Period of the slow EMA",
+
+   NULL
+};
+
+static const TA_IntegerRange TA_DEF_STC_CyclePeriod =
+{
+   2,
+   100000,
+   2,
+   200,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_STC_CyclePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInCyclePeriod",
+   0,
+
+   "Cycle Period",
+   (const void *)&TA_DEF_STC_CyclePeriod,
+   10,
+   "Window of both stochastic stages",
+
+   NULL
+};
+
+static const TA_InputParameterInfo    *TA_STC_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_STC_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_STC_OptInputs[] =
+{ &TA_DEF_UI_D_STC_FastPeriod,
+  &TA_DEF_UI_D_STC_SlowPeriod,
+  &TA_DEF_UI_D_STC_CyclePeriod,
+  NULL
+};
+
+DEF_FUNCTION( STC,
+              TA_GroupId_MomentumIndicators,
+              "Schaff Trend Cycle",
+              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
+             );
+/* STC END */
 
 /* STDDEV BEGIN */
 static const TA_InputParameterInfo    *TA_STDDEV_Inputs[]    =
@@ -961,11 +1088,13 @@ const TA_FuncDef *TA_DEF_TableS[] =
 {
    ADD_TO_TABLE(SAR),
    ADD_TO_TABLE(SAREXT),
+   ADD_TO_TABLE(SI),
    ADD_TO_TABLE(SIN),
    ADD_TO_TABLE(SINH),
    ADD_TO_TABLE(SMA),
    ADD_TO_TABLE(SMI),
    ADD_TO_TABLE(SQRT),
+   ADD_TO_TABLE(STC),
    ADD_TO_TABLE(STDDEV),
    ADD_TO_TABLE(STOCH),
    ADD_TO_TABLE(STOCHF),

@@ -62,6 +62,9 @@
  *  090926 MF,CC #410 Scale the Wilder step by a hoisted 1/period and split the
  *               gain/loss without a branch; the loop-carried chain keeps
  *               neither a divide nor a 50/50 mispredict.
+ *  092826 MF,CC #466 Drop the period-1 copy-through; the range starts at 2.
+ *  093026 MF,CC #480 Answer the neutral 50 instead of 0 when neither a gain nor
+ *               a loss has been seen; 0 read as extremely oversold.
  */
 
 TA_LIB_API int TA_RSI_Lookback( int optInTimePeriod )
@@ -95,9 +98,9 @@ TA_LIB_API TA_RetCode TA_RSI( int    startIdx,
    double tempValue1;
    double tempValue2;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -130,26 +133,6 @@ TA_LIB_API TA_RetCode TA_RSI( int    startIdx,
    }
    outIdx = 0;
    /* Index into the output. */
-   /* Trap special case where the period is '1'.
-    * In that case, just copy the input into the
-    * output for the requested range (as-is !)
-    */
-   if( optInTimePeriod == 1 )
-   {
-      *outBegIdx= startIdx;
-      i = (int)(endIdx - startIdx + 1);
-      *outNBElement= (int)i;
-      /* Element loop, not a block copy: the C single-precision variant reads a
-       * float array, so a double-sized byte copy would reinterpret and
-       * over-read it (#137). Forward order keeps the in-place case correct (#94).
-       */
-      today = (int)startIdx;
-      for( outIdx = 0; outIdx < (int)i; outIdx += 1 )
-      {
-         outReal[outIdx] = inReal[today++];
-      }
-      return TA_SUCCESS;
-   }
    invPeriod = 1.0 / (double)optInTimePeriod;
    /* Accumulate Wilder's "Average Gain" and "Average Loss"
     * among the initial period.
@@ -187,11 +170,15 @@ TA_LIB_API TA_RetCode TA_RSI( int    startIdx,
     *
     * The second equation is used here for speed optimization.
     *
-    * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
-    * when every change since the seed was exactly zero -- test it exactly, never
-    * against a fixed band. A gain carries the quote unit, so a constant put
-    * against it zeroes a healthy oscillator for an instrument quoted below it
-    * (issue #253).
+    * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero when
+    * every change since the seed was exactly zero, or once both have decayed to
+    * zero. Test it exactly, never against a fixed band: a gain carries the
+    * quote unit, so a constant put against it zeroes a healthy oscillator for
+    * an instrument quoted below it (issue #253).
+    *
+    * A zero total is 0/0, no gain against no loss, so it answers the neutral
+    * 50 (issue #480). Keep it apart from the one-sided cases, which are 0 and
+    * 100 and reach the division.
     */
    if( today > startIdx )
    {
@@ -202,7 +189,7 @@ TA_LIB_API TA_RetCode TA_RSI( int    startIdx,
          outIdx = outIdx + 1;
       } else 
       {
-         outReal[outIdx] = 0.0;
+         outReal[outIdx] = 50.0;
          outIdx = outIdx + 1;
       }
    } else 
@@ -248,7 +235,7 @@ TA_LIB_API TA_RetCode TA_RSI( int    startIdx,
          outIdx = outIdx + 1;
       } else 
       {
-         outReal[outIdx] = 0.0;
+         outReal[outIdx] = 50.0;
          outIdx = outIdx + 1;
       }
    }
@@ -277,9 +264,9 @@ TA_RetCode TA_S_RSI( int    startIdx,
    double tempValue1;
    double tempValue2;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -305,18 +292,6 @@ TA_RetCode TA_S_RSI( int    startIdx,
       return TA_SUCCESS;
    }
    outIdx = 0;
-   if( optInTimePeriod == 1 )
-   {
-      *outBegIdx= startIdx;
-      i = (int)(endIdx - startIdx + 1);
-      *outNBElement= (int)i;
-      today = (int)startIdx;
-      for( outIdx = 0; outIdx < (int)i; outIdx += 1 )
-      {
-         outReal[outIdx] = (double)inReal[today++];
-      }
-      return TA_SUCCESS;
-   }
    invPeriod = 1.0 / (double)optInTimePeriod;
    today = startIdx - lookbackTotal;
    prevValue = (double)inReal[today];
@@ -344,7 +319,7 @@ TA_RetCode TA_S_RSI( int    startIdx,
          outIdx = outIdx + 1;
       } else 
       {
-         outReal[outIdx] = 0.0;
+         outReal[outIdx] = 50.0;
          outIdx = outIdx + 1;
       }
    } else 
@@ -384,7 +359,7 @@ TA_RetCode TA_S_RSI( int    startIdx,
          outIdx = outIdx + 1;
       } else 
       {
-         outReal[outIdx] = 0.0;
+         outReal[outIdx] = 50.0;
          outIdx = outIdx + 1;
       }
    }
@@ -403,6 +378,7 @@ struct TA_RSI_Stream {
    double cur_outReal;
    int optInTimePeriod;
    double invPeriod;
+   double pad_0;
    double prevGain;
    double prevLoss;
    double prevValue;
@@ -415,12 +391,6 @@ static void TA_RSI_StepImpl( struct TA_RSI_Stream *sp, double inReal, double *ou
    double tempValue1;
    double tempValue2;
 
-   if( sp->optInTimePeriod == 1 )
-   {
-      *outReal= inReal;
-      sp->cur_outReal = *outReal;
-      return;
-   }
    tempValue1 = (double)inReal;
    tempValue2 = tempValue1 - sp->prevValue;
    sp->prevValue = tempValue1;
@@ -437,7 +407,7 @@ static void TA_RSI_StepImpl( struct TA_RSI_Stream *sp, double inReal, double *ou
       *outReal= 100.0 * (sp->prevGain / tempValue1);
    } else 
    {
-      *outReal= 0.0;
+      *outReal= 50.0;
    }
    sp->cur_outReal = *outReal;
 }
@@ -450,7 +420,7 @@ static TA_RetCode TA_RSI_OpenImpl( struct TA_RSI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
@@ -464,43 +434,6 @@ static TA_RetCode TA_RSI_OpenImpl( struct TA_RSI_Stream **stream, const double i
    }
 
    endIdx = historyLen - 1;
-
-   if( optInTimePeriod == 1 )
-   {
-      int fillLb = TA_RSI_Lookback( optInTimePeriod );
-      if( startIdx > fillLb ) fillLb = startIdx;
-      if( historyLen < fillLb + 1 )
-      {
-         *outBegIdx = 0;
-         *outNBElement = 0;
-         return TA_INSUFFICIENT_HISTORY;
-      }
-      sp = (struct TA_RSI_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { return TA_ALLOC_ERR; }
-      memset( sp, 0, sizeof(*sp) );
-      sp->optInTimePeriod = optInTimePeriod;
-      {
-         int fillIdx;
-         *outBegIdx = fillLb;
-         *outNBElement = historyLen - fillLb;
-         if( outStride )
-         {
-            for( fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ )
-            {
-               outReal[fillIdx] = inReal[fillLb + fillIdx];
-            }
-         }
-         else
-         {
-            outReal[0] = inReal[historyLen - 1];
-         }
-      }
-      sp->outRangeBegIdx = *outBegIdx;
-      sp->outRangeCount = *outNBElement;
-      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
-      *stream = sp;
-      return TA_SUCCESS;
-   }
 
    {
       int outIdx;
@@ -570,11 +503,15 @@ static TA_RetCode TA_RSI_OpenImpl( struct TA_RSI_Stream **stream, const double i
        *
        * The second equation is used here for speed optimization.
        *
-       * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
-       * when every change since the seed was exactly zero -- test it exactly, never
-       * against a fixed band. A gain carries the quote unit, so a constant put
-       * against it zeroes a healthy oscillator for an instrument quoted below it
-       * (issue #253).
+       * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero when
+       * every change since the seed was exactly zero, or once both have decayed to
+       * zero. Test it exactly, never against a fixed band: a gain carries the
+       * quote unit, so a constant put against it zeroes a healthy oscillator for
+       * an instrument quoted below it (issue #253).
+       *
+       * A zero total is 0/0, no gain against no loss, so it answers the neutral
+       * 50 (issue #480). Keep it apart from the one-sided cases, which are 0 and
+       * 100 and reach the division.
        */
       if( today > startIdx )
       {
@@ -585,7 +522,7 @@ static TA_RetCode TA_RSI_OpenImpl( struct TA_RSI_Stream **stream, const double i
             outIdx = outIdx + 1;
          } else 
          {
-            outReal[outIdx * outStride] = 0.0;
+            outReal[outIdx * outStride] = 50.0;
             outIdx = outIdx + 1;
          }
       } else 
@@ -631,7 +568,7 @@ static TA_RetCode TA_RSI_OpenImpl( struct TA_RSI_Stream **stream, const double i
             outIdx = outIdx + 1;
          } else 
          {
-            outReal[outIdx * outStride] = 0.0;
+            outReal[outIdx * outStride] = 50.0;
             outIdx = outIdx + 1;
          }
       }
@@ -675,7 +612,7 @@ TA_LIB_API TA_RetCode TA_RSI_Open( TA_RSI_Stream **stream, const double inReal[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_RSI_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -685,7 +622,7 @@ TA_LIB_API TA_RetCode TA_RSI_OpenAndFill( TA_RSI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_RSI_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -700,7 +637,7 @@ TA_RetCode TA_RSI_OpenAndFillInternal( struct TA_RSI_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_RSI_Update( TA_RSI_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -724,11 +661,6 @@ TA_LIB_API TA_RetCode TA_RSI_Peek( const TA_RSI_Stream *stream, double inReal, d
    prevGain = sp->prevGain;
    prevLoss = sp->prevLoss;
    prevValue = sp->prevValue;
-   if( sp->optInTimePeriod == 1 )
-   {
-      *outReal= inReal;
-      return TA_SUCCESS;
-   }
    tempValue1 = (double)inReal;
    tempValue2 = tempValue1 - prevValue;
    prevValue = tempValue1;
@@ -745,7 +677,7 @@ TA_LIB_API TA_RetCode TA_RSI_Peek( const TA_RSI_Stream *stream, double inReal, d
       *outReal= 100.0 * (prevGain / tempValue1);
    } else 
    {
-      *outReal= 0.0;
+      *outReal= 50.0;
    }
    return TA_SUCCESS;
 }
@@ -774,7 +706,7 @@ TA_LIB_API TA_RetCode TA_RSI_OutRange( const TA_RSI_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_RSI_Advance( TA_RSI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

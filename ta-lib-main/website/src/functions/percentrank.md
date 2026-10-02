@@ -39,7 +39,7 @@ The comparison is strictly less-than, so a value tied with a predecessor does no
 
 | Parameter | Type | Default | Accepted values | Description |
 | --- | --- | --- | --- | --- |
-| `optInTimePeriod` | integer | 100 | 2–100000 | Number of preceding values the current value is ranked against |
+| `optInTimePeriod` | integer | 100 | 2–10000 | Number of preceding values the current value is ranked against |
 
 ## Properties
 
@@ -66,6 +66,7 @@ TA-Lib Definition: [`percentrank.c`](https://github.com/TA-Lib/ta-lib/blob/main/
 | C | [`ta_PERCENTRANK.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_PERCENTRANK.c) |
 | Rust | [`percentrank.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/percentrank.rs) |
 | Java | [`Core_PERCENTRANK.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_PERCENTRANK.java) |
+| C# | [`Core_PERCENTRANK.cs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/csharp/library/src/Core_PERCENTRANK.cs) |
 
 TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 

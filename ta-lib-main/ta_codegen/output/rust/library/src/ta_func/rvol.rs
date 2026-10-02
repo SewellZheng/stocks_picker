@@ -52,6 +52,8 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  090426 MF,CC  Initial version (#370).
+ *  092526 MF,CC  #446 exact zero total on a dead volume window.
+ *  092626 MF,CC  #446 branch-free zero count.
  */
 
 // Import types from parent module
@@ -99,10 +101,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -118,10 +120,14 @@ impl Core {
         let mut periodTotal: f64 = 0.0_f64;
         let mut baseline: f64 = 0.0_f64;
         let mut todayVolume: f64 = 0.0_f64;
+        let mut trailingVolume: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
+        let mut zeroCount: usize = 0_usize;
+        let mut zeroIn: usize = 0_usize;
+        let mut zeroOut: usize = 0_usize;
         // One bar more than a moving average of the same period: today is excluded
         // from its own baseline.
         lookbackTotal = optInTimePeriod as usize;
@@ -133,25 +139,39 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inVolume = &inVolume[..=endIdx];
         periodTotal = 0.0;
         trailingIdx = startIdx - lookbackTotal;
+        // Zero-volume bars in the window. Once they fill it the total is exactly
+        // zero, where add-then-subtract would leave the rounding residue of the
+        // volumes that departed, of either sign. The test is fabs(v) <= 0.0 rather
+        // than == 0.0: the same result, NaN included, from one flag instead of two.
+        zeroCount = 0;
         i = trailingIdx;
         while i < startIdx {
             periodTotal += inVolume[i] as f64;
+            zeroCount += (if (inVolume[i]).abs() <= 0.0 { 1 } else { 0 });
             i = i + 1;
         }
         outIdx = 0;
         while i <= endIdx {
-            // Drop the trailing bar BEFORE adding today's. That order makes each
-            // baseline bit-identical to the moving average of the same period at the
-            // previous bar; the reverse order differs only in the last ulp, so no
-            // tolerance can tell the two apart.
+            // Drop the trailing bar BEFORE adding today's. Up to the first dead
+            // window, that order makes each baseline bit-identical to the moving
+            // average of the same period at the previous bar; the reverse order
+            // differs only in the last ulp, so no tolerance can tell the two apart.
             baseline = periodTotal / (optInTimePeriod as f64);
-            periodTotal -= inVolume[trailingIdx] as f64;
+            trailingVolume = inVolume[trailingIdx] as f64;
+            periodTotal -= trailingVolume;
+            zeroOut = (if (trailingVolume).abs() <= 0.0 { 1 } else { 0 });
             trailingIdx = trailingIdx + 1;
             todayVolume = inVolume[i] as f64;
             i = i + 1;
             periodTotal += todayVolume;
+            zeroIn = (if (todayVolume).abs() <= 0.0 { 1 } else { 0 });
+            zeroCount = zeroCount + zeroIn - zeroOut;
+            if zeroCount >= ((optInTimePeriod) as usize) {
+                periodTotal = 0.0;
+            }
             outReal[outIdx] = todayVolume / baseline;
             outIdx = outIdx + 1;
         }
@@ -184,15 +204,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -237,10 +257,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.rvol_lookback(optInTimePeriod)?;
@@ -291,6 +311,7 @@ pub struct RvolStream {
 struct RvolStreamState {
     optInTimePeriod: i32,
     periodTotal: f64,
+    zeroCount: usize,
     ringPos_trailingIdx: usize,
     ringCap_trailingIdx: usize,
     ring_trailingIdx_inVolume: Vec<f64>,
@@ -306,22 +327,31 @@ impl Core {
     fn rvol_step_impl(sp: &mut RvolStreamState, inVolume: f64, outReal: &mut f64) {
         let mut baseline: f64 = 0.0_f64;
         let mut todayVolume: f64 = 0.0_f64;
-        if sp.ringCap_trailingIdx == 0 {
-            sp.ring_trailingIdx_inVolume[0] = inVolume;
-        }
-        // Drop the trailing bar BEFORE adding today's. That order makes each
-        // baseline bit-identical to the moving average of the same period at the
-        // previous bar; the reverse order differs only in the last ulp, so no
-        // tolerance can tell the two apart.
+        let mut trailingVolume: f64 = 0.0_f64;
+        let mut zeroIn: usize = 0_usize;
+        let mut zeroOut: usize = 0_usize;
+        let mut ringCapL_trailingIdx: usize = 0_usize;
+        // Drop the trailing bar BEFORE adding today's. Up to the first dead
+        // window, that order makes each baseline bit-identical to the moving
+        // average of the same period at the previous bar; the reverse order
+        // differs only in the last ulp, so no tolerance can tell the two apart.
         baseline = sp.periodTotal / (sp.optInTimePeriod as f64);
-        sp.periodTotal -= sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] as f64;
+        trailingVolume = sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] as f64;
+        sp.periodTotal -= trailingVolume;
+        zeroOut = (if (trailingVolume).abs() <= 0.0 { 1 } else { 0 });
         todayVolume = inVolume as f64;
         sp.periodTotal += todayVolume;
+        zeroIn = (if (todayVolume).abs() <= 0.0 { 1 } else { 0 });
+        sp.zeroCount = sp.zeroCount + zeroIn - zeroOut;
+        if sp.zeroCount >= ((sp.optInTimePeriod) as usize) {
+            sp.periodTotal = 0.0;
+        }
         (*outReal) = todayVolume / baseline;
         sp.cur_outReal = (*outReal);
+        ringCapL_trailingIdx = sp.ringCap_trailingIdx;
         sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
         sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-        if sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx {
+        if sp.ringPos_trailingIdx >= ringCapL_trailingIdx {
             sp.ringPos_trailingIdx = 0;
         }
     }
@@ -334,7 +364,7 @@ impl Core {
         if inVolume.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inVolume.len() > Self::MAX_INDEX + 1 {
+        if inVolume.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -355,10 +385,14 @@ impl Core {
         let mut periodTotal: f64 = 0.0_f64;
         let mut baseline: f64 = 0.0_f64;
         let mut todayVolume: f64 = 0.0_f64;
+        let mut trailingVolume: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
+        let mut zeroCount: usize = 0_usize;
+        let mut zeroIn: usize = 0_usize;
+        let mut zeroOut: usize = 0_usize;
         // One bar more than a moving average of the same period: today is excluded
         // from its own baseline.
         lookbackTotal = optInTimePeriod as usize;
@@ -372,23 +406,36 @@ impl Core {
         }
         periodTotal = 0.0;
         trailingIdx = startIdx - lookbackTotal;
+        // Zero-volume bars in the window. Once they fill it the total is exactly
+        // zero, where add-then-subtract would leave the rounding residue of the
+        // volumes that departed, of either sign. The test is fabs(v) <= 0.0 rather
+        // than == 0.0: the same result, NaN included, from one flag instead of two.
+        zeroCount = 0;
         i = trailingIdx;
         while i < startIdx {
             periodTotal += inVolume[i] as f64;
+            zeroCount += (if (inVolume[i]).abs() <= 0.0 { 1 } else { 0 });
             i = i + 1;
         }
         outIdx = 0;
         while i <= endIdx {
-            // Drop the trailing bar BEFORE adding today's. That order makes each
-            // baseline bit-identical to the moving average of the same period at the
-            // previous bar; the reverse order differs only in the last ulp, so no
-            // tolerance can tell the two apart.
+            // Drop the trailing bar BEFORE adding today's. Up to the first dead
+            // window, that order makes each baseline bit-identical to the moving
+            // average of the same period at the previous bar; the reverse order
+            // differs only in the last ulp, so no tolerance can tell the two apart.
             baseline = periodTotal / (optInTimePeriod as f64);
-            periodTotal -= inVolume[trailingIdx] as f64;
+            trailingVolume = inVolume[trailingIdx] as f64;
+            periodTotal -= trailingVolume;
+            zeroOut = (if (trailingVolume).abs() <= 0.0 { 1 } else { 0 });
             trailingIdx = trailingIdx + 1;
             todayVolume = inVolume[i] as f64;
             i = i + 1;
             periodTotal += todayVolume;
+            zeroIn = (if (todayVolume).abs() <= 0.0 { 1 } else { 0 });
+            zeroCount = zeroCount + zeroIn - zeroOut;
+            if zeroCount >= ((optInTimePeriod) as usize) {
+                periodTotal = 0.0;
+            }
             outReal[(outIdx * outStride) as usize] = todayVolume / baseline;
             outIdx = outIdx + 1;
         }
@@ -397,7 +444,7 @@ impl Core {
 
         // Capture the live batch state into the handle.
         let cap_trailingIdx: i64 = (i as i64) - (trailingIdx as i64);
-        if cap_trailingIdx < 0 || cap_trailingIdx > historyLen as i64 {
+        if cap_trailingIdx < 1 || cap_trailingIdx > historyLen as i64 {
             return Err(RetCode::InternalError);
         }
         let allocN_trailingIdx: usize = if cap_trailingIdx > 0 { cap_trailingIdx as usize } else { 1 };
@@ -407,6 +454,7 @@ impl Core {
         let state = RvolStreamState {
             optInTimePeriod,
             periodTotal,
+            zeroCount,
             cur_outReal: outReal[(*outNBElement - 1) * outStride],
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
@@ -496,7 +544,7 @@ impl Core {
         if inVolume.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inVolume.len() > Self::MAX_INDEX + 1 {
+        if inVolume.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.rvol_lookback(optInTimePeriod)?;
@@ -526,7 +574,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl RvolStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -544,11 +592,11 @@ impl RvolStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_RVOL_Update")]
     pub fn update(&mut self, inVolume: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inVolume.is_finite() {
@@ -563,16 +611,15 @@ impl RvolStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_RVOL_Peek")]
     pub fn peek(&self, inVolume: f64) -> Result<f64, RetCode> {
         if !inVolume.is_finite() {
@@ -584,21 +631,26 @@ impl RvolStream {
             let outReal = &mut outReal;
             let mut baseline: f64 = 0.0_f64;
             let mut todayVolume: f64 = 0.0_f64;
+            let mut trailingVolume: f64 = 0.0_f64;
+            let mut zeroIn: usize = 0_usize;
+            let mut zeroOut: usize = 0_usize;
             let mut periodTotal = sp.periodTotal;
-            let mut pkSlot0: usize = usize::MAX;
-            let mut pkVal0: f64 = 0.0_f64;
-            if sp.ringCap_trailingIdx == 0 {
-                pkSlot0 = 0;
-                pkVal0 = inVolume;
-            }
-            // Drop the trailing bar BEFORE adding today's. That order makes each
-            // baseline bit-identical to the moving average of the same period at the
-            // previous bar; the reverse order differs only in the last ulp, so no
-            // tolerance can tell the two apart.
+            let mut zeroCount = sp.zeroCount;
+            // Drop the trailing bar BEFORE adding today's. Up to the first dead
+            // window, that order makes each baseline bit-identical to the moving
+            // average of the same period at the previous bar; the reverse order
+            // differs only in the last ulp, so no tolerance can tell the two apart.
             baseline = periodTotal / (sp.optInTimePeriod as f64);
-            periodTotal -= (if (sp.ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] } else { pkVal0 }) as f64;
+            trailingVolume = sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] as f64;
+            periodTotal -= trailingVolume;
+            zeroOut = (if (trailingVolume).abs() <= 0.0 { 1 } else { 0 });
             todayVolume = inVolume as f64;
             periodTotal += todayVolume;
+            zeroIn = (if (todayVolume).abs() <= 0.0 { 1 } else { 0 });
+            zeroCount = zeroCount + zeroIn - zeroOut;
+            if zeroCount >= ((sp.optInTimePeriod) as usize) {
+                periodTotal = 0.0;
+            }
             (*outReal) = todayVolume / baseline;
         }
         Ok(outReal)
@@ -627,7 +679,7 @@ impl RvolStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_RVOL_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -645,11 +697,11 @@ impl RvolStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_RVOL_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

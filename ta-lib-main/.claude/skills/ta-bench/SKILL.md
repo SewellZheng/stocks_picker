@@ -6,18 +6,22 @@ description: Benchmarking TA-Lib — ta_bench, ta_bench_direct, ta_bench_stream,
 # Benchmarking TA-Lib
 
 ```bash
-# Full pipeline (builds everything, regens, tests, benchmarks)
-scripts/regtest.py
+# Full pipeline: build + regen + correctness as a heavy job, then the benches in the quiet window
+scripts/quiet.py noisy <session> --defer=60 -- scripts/regtest.py --no-perftest --no-direct-bench
+scripts/quiet.py measure <session> 900 --queue=900 -- scripts/regtest.py --test-only --no-regtest
 
 # Benchmark specific indicators (trustworthy — isolated, high iterations)
-cd bin && ./ta_bench --language=cref,c --function=RSI,SMA --points=100000 --iters=500
+cd bin && ../scripts/quiet.py measure <session> 120 --queue=900 -- ./ta_bench --language=cref,c --function=RSI,SMA --points=100000 --iters=500
 
 # Full benchmark (noisy — use for overview, verify outliers in isolation)
-cd bin && ./ta_bench --language=cref,c --points=100000 --iters=200
+cd bin && ../scripts/quiet.py measure <session> 900 --queue=900 -- ./ta_bench --language=cref,c --points=100000 --iters=200
 ```
 
-**Gotcha:** `ta_ref_serve` is statically linked — rebuild when `libta-lib.a`
-changes or benchmarks are invalid. `regtest.py` handles this automatically.
+`quiet.py` caps a window at 900 s, but a deferring build waits at most 60 s and
+then starts inside it, so keep each window short: split a long run by
+`--function=`. The spread check below catches a box that is noisy, not one that
+is steadily busy: a parallel build in another session slows every pass alike and
+passes it.
 
 Both hand-written benches report the **spread** of their own repeated passes,
 because a bare median is silent about whether the box was quiet enough for it
@@ -37,8 +41,7 @@ the old ±10% colour band. It now colours only outside `--no-signal` (default
 the output arrays — it only ever reads `timing_ns`. Without it a 100k-point run
 spends ~97% of its wall clock formatting and parsing JSON nobody looks at.
 Anything that needs the values (`--codegen`, `--xlang-hash`, `server_verify`)
-simply omits the flag. `cref` is a frozen binary and predates it, so runs
-including `cref` stay slower than C-only ones.
+simply omits the flag.
 
 ## The same source, six binaries
 
@@ -55,7 +58,7 @@ same build. Measured `.text` on x86-64 gcc:
 | autotools `libta-lib` | libtool | separate TUs, no LTO | not built here |
 
 
-3.9x between the extremes, from identical source. The two build flags that
+3.9x between the extremes, from identical source. The build flags that
 all three build systems must keep in step are stated in the root `CLAUDE.md`.
 
 Which tool measures which:
@@ -63,8 +66,12 @@ Which tool measures which:
 - `ta_bench_direct` — C-ref column is `libta-lib.a`, C column is `ta_bench_cg`.
   Its ratio is therefore rows 1 vs 5 above.
 - `ta_bench --language=c` — `ta_codegen_serve_c` (row 3), *not* `ta_bench_cg`.
-- `ta_bench --language=cref` — `ta_ref_serve`, the frozen pre-cutover source.
-  Different code, not just a different build; the only cross-*version* number.
+- `ta_bench --language=cref` — the newest `ta_ref` member's serve, a frozen
+  release (`--cref=X_Y_Z` picks another; `scripts/build.py ref --build-only`
+  builds it). Different code, and on Linux the release's own compiler and flags
+  too (its shipped `libta-lib.a`); the only cross-*version* number. The baseline
+  moves when a newer member is added, so read the serve name ta_bench prints at
+  startup before comparing two runs.
 - `ta_bench_stream` — itself, both arms, which is why its speedup column is the
   one ratio here that isn't cross-configuration.
 - `ta_bench_icount` — `libta-lib.a` (row 1), the shipped build. The only
@@ -110,7 +117,9 @@ own workflow so its baseline commit is a product of the run that goes green,
 which is what keeps "green dev-nightly means mergeable dev" true. It runs every
 C entry point once under callgrind (batch, `_Open`, `_OpenAndFill`, `_Update`,
 `_Peek`) and compares the retired-instruction count against
-`.github/perf/icount-baseline-<arch>.tsv`.
+`.github/perf/icount-baseline-<arch>.tsv`, then again on `--shape=peg` against
+`icount-baseline-<arch>-peg.tsv`: held levels are where the rolling-variance
+family rebuilds, and the walk never reaches them.
 
 ```bash
 scripts/bench_icount.py                       # build, measure, compare (needs valgrind)
@@ -124,13 +133,13 @@ Why it exists next to five timing tools: a count is **exact**. Two runs of the
 same binary on a loaded runner and an idle one agree to the instruction, which
 is what lets a 10% threshold gate anything on a shared vCPU. The timing tools
 all concede that ground: `--max-spread=25`, `--no-signal=1.20`,
-`--min-ratio=0.35`.
+`--min-ratio=0.05`.
 
 What a count cannot see, and where it actively misleads:
 
 - Out-of-order execution, port pressure, dependency-chain latency: all free.
-- Valgrind over-charges branches, so a branchless rewrite can read here as a
-  regression while being a win on hardware.
+- A mispredicted branch counts as one instruction, so a branchless rewrite can
+  read here as a regression while being a win on hardware.
 - **A percentage from this tool is not a speed figure and never goes in a
   release note.** Use it for the algorithmic class (a lost fast path, an extra
   pass over the window, an un-inlined call) and the devbox for magnitudes.
@@ -163,8 +172,35 @@ unlike `ta_bench_direct`'s ratio it is not comparing two build configurations.
 
 ```bash
 cd bin && ./ta_bench_stream --points=20000 --iters=50
-./ta_bench_stream --points=20000 --iters=50 --min-ratio=0.35   # exits 1 if any func is below
+./ta_bench_stream --min-ratio=0.05                             # exits 1 if any func is below
+./ta_bench_stream --points=20000 --iters=50 --function=CG,VHF --period=100
 ```
+
+`--period=N` sets every integer `optInTimePeriod`, as `ta_bench --period` does:
+MACD's fast/slow pair and ULTOSC's three periods keep their defaults. As there,
+it also sets the trend/chop regime length unless `--regime-period` is given. A value outside a function's range counts the row as rejected.
+Open wants more bars than the lookback, so a lookback at or above `--points`
+cannot open: the row still times `batch_last_ns`, ends in `short` and counts
+apart from the rejected ones. Raise `--points` (at most 200000) to time its
+update.
+
+Every param reaches the batch call as a runtime value, as it does from a caller
+of the shipped library, so no row's `batch_last_ns` times a body specialised on
+a constant.
+
+`--context` (N=32) or `--context=N` runs N read-modify-write stores of
+stand-in caller work after every timed call. Every ns column includes it, and
+so does `speedup`, which it pulls toward 1, so the binary refuses it together
+with `--min-ratio`. Without it the calls run back to back on one handle, the
+only pattern where a cost carried from one call to the next shows in full; on
+amd-1 and intel-1 such a cost was gone once 16 to 32 stores separated two
+updates, while costs within one call survived. So when a change's claimed
+mechanism is memory traffic or latency across calls (state layout, store
+forwarding, dependency chains), time it without and with `--context` on amd-1
+and intel-1: it must not regress in either run, and the gain to claim is the
+with-context difference in ns, not a ratio of the totals. Confirm such a claim
+on the shipped build, as in the A/B section, with the same step after each
+call. A change that only removes work needs no context run.
 
 `ta_bench_stream` is **C only**. For the Rust, Java and C# streaming tiers,
 `scripts/stream_ab.py` A/Bs `update` (or `peek`) per bar — or `open`, which times
@@ -203,16 +239,18 @@ scripts/stream_ab.py --base=origin/dev --lang=csharp --call=peek
 scripts/stream_ab.py --base=origin/dev --call=open --mark=BBANDS,STDDEV   # the Open tier
 ```
 
-Current shape: median ~1.6x, but **~25 stream slower than
-batch** and another ~50 sit under 1.5x. Recursive/multi-stage state wins big
-(`HT_TRENDLINE` ~24x, `TRIX`/`TEMA` ~16x); window-recomputers and stateless
-patterns lose (`AVGDEV`, `MAVP`, `MIDPRICE`, `WILLR`, CDL*) because the handle
-buys nothing and costs indirection. Those losers overlap the rolling-extremum
-family — see the corpus note below.
+Current shape, from default runs on a Ryzen 7 PRO 8840U under WSL2, each row
+the median of 30: median ~2.0x, but **~40 stream slower than batch** and
+another ~45 sit under 1.5x. Recursive or multi-stage state wins big
+(`HT_TRENDLINE` ~20x, `TRIX`/`TEMA` ~14x). The worst rows are `PERCENTRANK`
+(~0.2x) and `MAVP` (~0.4x); most of the others under 1.0 are stateless or
+one-step (price and math transforms, the `ROC` family, the running sums,
+a few CDL*), where the handle buys nothing and costs indirection.
 
-`--min-ratio` is a cliff detector, not a quality bar: run to run the worst ratio
-moves 0.42–0.50 and the worst function's *name* changes, so a threshold near 1.0
-just flaps. 0.35 has headroom while still failing on a real regression.
+`--min-ratio` is a cliff detector, not a quality bar. The worst row is usually
+`PERCENTRANK` near 0.2x, but now and then a noise spike puts another row
+near 0.1x, so a threshold above that flaps; 0.05 passed every default run
+measured here.
 
 ## Benchmark input corpus
 
@@ -272,7 +310,9 @@ matters. The rescan rate depends only on the *rank order* of the bars, so
 the magnitudes — measured within 1% of `randwalk` at period 14/30/200. They are
 controls, useful for numerical-conditioning questions (deadbands, cancellation,
 ratio-based indicators), not stressors. Only `trend-chop-*` varies the rescan
-rate; `mono-*` and `constant` are the analytic tail.
+rate; `mono-*` and `constant` are the analytic tail. `peg` returns to 3.30 and
+holds for 360 bars at a time, a level whose window mean does not round back at
+the icount periods.
 
 One documented exemption in `--verify-corpus`: the walk family floors `low` at
 1.0 but leaves `close` unclamped, so `low <= min(open,close)` fails on 32 bars of
@@ -282,6 +322,6 @@ the byte-for-byte reproduction of the historical seed-42 series, which matters
 more on a timing-only corpus. Every other predicate holds for every shape.
 
 The corpus is timing-only — it is never hashed and is unrelated to
-`fuzz_data.h`, whose `FUZZ_*` shape list is iterated by `--fuzz-064` /
-`--xlang-hash`. Keep it that way: adding a shape there changes what those gates
-compare (see the note at `test_variants.c:148`).
+`fuzz_data.h`, whose `FUZZ_*` shape list is iterated by `ta_regtest --ref`
+(`build.py ref`) and `--xlang-hash`. Keep it that way: adding a shape there
+changes what those gates compare (see the note at `test_variants.c:148`).

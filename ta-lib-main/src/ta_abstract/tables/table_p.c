@@ -38,7 +38,92 @@
 #include "ta_abstract.h"
 #include "ta_def_ui.h"
 
+/* PERCENTB BEGIN */
+static const TA_RealRange TA_DEF_PERCENTB_NbDevUp =
+{
+   TA_REAL_MIN,
+   TA_REAL_MAX,
+   2,
+   -2.0,
+   2.0,
+   0.2
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_PERCENTB_NbDevUp =
+{
+   TA_OptInput_RealRange,
+   "optInNbDevUp",
+   0,
+
+   "Deviations up",
+   (const void *)&TA_DEF_PERCENTB_NbDevUp,
+   2.0,
+   "Deviation multiplier for upper band",
+
+   NULL
+};
+
+static const TA_RealRange TA_DEF_PERCENTB_NbDevDn =
+{
+   TA_REAL_MIN,
+   TA_REAL_MAX,
+   2,
+   -2.0,
+   2.0,
+   0.2
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_PERCENTB_NbDevDn =
+{
+   TA_OptInput_RealRange,
+   "optInNbDevDn",
+   0,
+
+   "Deviations down",
+   (const void *)&TA_DEF_PERCENTB_NbDevDn,
+   2.0,
+   "Deviation multiplier for lower band",
+
+   NULL
+};
+
+static const TA_InputParameterInfo    *TA_PERCENTB_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_PERCENTB_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_PERCENTB_OptInputs[] =
+{ &TA_DEF_UI_TimePeriod_20_MINIMUM2,
+  &TA_DEF_UI_D_PERCENTB_NbDevUp,
+  &TA_DEF_UI_D_PERCENTB_NbDevDn,
+  &TA_DEF_UI_MA_Method,
+  NULL
+};
+
+DEF_FUNCTION( PERCENTB,
+              TA_GroupId_VolatilityIndicators,
+              "Bollinger Bands %B",
+              TA_FUNC_FLG_STREAM
+             );
+/* PERCENTB END */
+
 /* PERCENTILE BEGIN */
+static const TA_IntegerRange TA_DEF_PERCENTILE_TimePeriod =
+{
+   2,
+   10000,
+   4,
+   200,
+   1
+};
+
 static const TA_OptInputParameterInfo TA_DEF_UI_D_PERCENTILE_TimePeriod =
 {
    TA_OptInput_IntegerRange,
@@ -46,8 +131,8 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_PERCENTILE_TimePeriod =
    0,
 
    "Time Period",
-   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
-   30,
+   (const void *)&TA_DEF_PERCENTILE_TimePeriod,
+   100,
    "Number of bars in the window",
 
    NULL
@@ -106,7 +191,7 @@ DEF_FUNCTION( PERCENTILE,
 static const TA_IntegerRange TA_DEF_PERCENTRANK_TimePeriod =
 {
    2,
-   100000,
+   10000,
    20,
    200,
    20
@@ -334,6 +419,7 @@ DEF_FUNCTION( PVT,
  ****************************************************************************/
 const TA_FuncDef *TA_DEF_TableP[] =
 {
+   ADD_TO_TABLE(PERCENTB),
    ADD_TO_TABLE(PERCENTILE),
    ADD_TO_TABLE(PERCENTRANK),
    ADD_TO_TABLE(PLUS_DI),

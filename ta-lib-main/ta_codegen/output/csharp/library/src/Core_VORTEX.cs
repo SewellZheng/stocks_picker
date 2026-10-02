@@ -111,10 +111,10 @@ public partial class Core
       double tempLT = 0;
       double tempHT = 0;
       double tempCY = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -171,13 +171,9 @@ public partial class Core
          tempCY = inClose[i - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR += trueRange;
          sVMP += Math.Abs(inHigh[i] - inLow[i - 1]);
          sVMM += Math.Abs(inLow[i] - inHigh[i - 1]);
@@ -197,13 +193,9 @@ public partial class Core
          tempCY = inClose[today - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR += trueRange;
          sVMP += Math.Abs(inHigh[today] - inLow[today - 1]);
          sVMM += Math.Abs(inLow[today] - inHigh[today - 1]);
@@ -239,13 +231,9 @@ public partial class Core
          tempCY = inClose[trailingIdx - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR -= trueRange;
          sVMP -= Math.Abs(inHigh[trailingIdx] - inLow[trailingIdx - 1]);
          sVMM -= Math.Abs(inLow[trailingIdx] - inHigh[trailingIdx - 1]);
@@ -314,10 +302,10 @@ public partial class Core
       double tempLT = 0;
       double tempHT = 0;
       double tempCY = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -350,13 +338,9 @@ public partial class Core
          tempCY = (double)inClose[i - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR += trueRange;
          sVMP += Math.Abs((double)inHigh[i] - (double)inLow[i - 1]);
          sVMM += Math.Abs((double)inLow[i] - (double)inHigh[i - 1]);
@@ -375,13 +359,9 @@ public partial class Core
          tempCY = (double)inClose[today - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR += trueRange;
          sVMP += Math.Abs((double)inHigh[today] - (double)inLow[today - 1]);
          sVMM += Math.Abs((double)inLow[today] - (double)inHigh[today - 1]);
@@ -402,13 +382,9 @@ public partial class Core
          tempCY = (double)inClose[trailingIdx - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR -= trueRange;
          sVMP -= Math.Abs((double)inHigh[trailingIdx] - (double)inLow[trailingIdx - 1]);
          sVMM -= Math.Abs((double)inLow[trailingIdx] - (double)inHigh[trailingIdx - 1]);
@@ -449,8 +425,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>VortexLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>VortexLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -460,28 +441,38 @@ public partial class Core
    /// <param name="inClose">Close price series.</param>
    /// <param name="optInTimePeriod">Number of bars in the rolling sums (default 14; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outPlusVI">Positive vortex line (+VI) Must hold at least <c>endIdx - startIdx + 1</c>
-   /// values.</param>
-   /// <param name="outMinusVI">Negative vortex line (−VI) Must hold at least <c>endIdx - startIdx + 1</c>
-   /// values.</param>
+   /// <param name="outPlusVI">Positive vortex line (+VI) Must hold at least <c>endIdx - max(startIdx,
+   /// VortexLookback(...)) + 1</c> values, the count the call produces (none
+   /// when that is not positive).</param>
+   /// <param name="outMinusVI">Negative vortex line (−VI) Must hold at least <c>endIdx - max(startIdx,
+   /// VortexLookback(...)) + 1</c> values, the count the call produces (none
+   /// when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Trange(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.PlusDi(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.MinusDi(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Adx(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Vortex( int startIdx,
                            int endIdx,
                            ReadOnlySpan<double> inHigh,
@@ -533,8 +524,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>VortexLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>VortexLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -544,30 +540,40 @@ public partial class Core
    /// <param name="inClose">Close price series.</param>
    /// <param name="optInTimePeriod">Number of bars in the rolling sums (default 14; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outPlusVI">Positive vortex line (+VI) Must hold at least <c>endIdx - startIdx + 1</c>
-   /// values.</param>
-   /// <param name="outMinusVI">Negative vortex line (−VI) Must hold at least <c>endIdx - startIdx + 1</c>
-   /// values.</param>
+   /// <param name="outPlusVI">Positive vortex line (+VI) Must hold at least <c>endIdx - max(startIdx,
+   /// VortexLookback(...)) + 1</c> values, the count the call produces (none
+   /// when that is not positive).</param>
+   /// <param name="outMinusVI">Negative vortex line (−VI) Must hold at least <c>endIdx - max(startIdx,
+   /// VortexLookback(...)) + 1</c> values, the count the call produces (none
+   /// when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Trange(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.PlusDi(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.MinusDi(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Adx(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Vortex( int startIdx,
                            int endIdx,
                            ReadOnlySpan<float> inHigh,
@@ -655,7 +661,7 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -668,13 +674,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("VORTEX", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -707,7 +713,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -718,7 +723,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -728,9 +733,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public VortexValue Update( double inHigh, double inLow, double inClose )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("VORTEX", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("VORTEX", "update", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.NonFiniteBar("VORTEX", "update", !double.IsFinite(inHigh) ? nameof(inHigh) : !double.IsFinite(inLow) ? nameof(inLow) : nameof(inClose));
          core.VortexStepImpl(this, inHigh, inLow, inClose);
          outRangeCount++;
          return new VortexValue(cur_outPlusVI, cur_outMinusVI);
@@ -742,9 +747,8 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -753,7 +757,7 @@ public partial class Core
       /// it.</returns>
       public VortexValue Peek( double inHigh, double inLow, double inClose )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("VORTEX", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.NonFiniteBar("VORTEX", "peek", !double.IsFinite(inHigh) ? nameof(inHigh) : !double.IsFinite(inLow) ? nameof(inLow) : nameof(inClose));
          VortexStream sp = this;
          double curTR = 0.0;
          double curVMP = 0.0;
@@ -787,13 +791,9 @@ public partial class Core
          tempCY = sp.lag1_inClose;
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR += trueRange;
          sVMP += Math.Abs(inHigh - sp.lag1_inLow);
          sVMM += Math.Abs(inLow - sp.lag1_inHigh);
@@ -829,13 +829,9 @@ public partial class Core
          tempCY = ((sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx != pkSlot2) ? sp.ring_trailingIdx_inClose[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx] : pkVal2;
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR -= trueRange;
          sVMP -= Math.Abs((((sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx) % sp.ringCap_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx) % sp.ringCap_trailingIdx] : pkVal0) - (((sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx] : pkVal1));
          sVMM -= Math.Abs((((sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx) % sp.ringCap_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx) % sp.ringCap_trailingIdx] : pkVal1) - (((sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx] : pkVal0));
@@ -886,7 +882,7 @@ public partial class Core
       }
    }
 
-   internal void VortexStepImpl( VortexStream sp, double inHigh, double inLow, double inClose )
+   private void VortexStepImpl( VortexStream sp, double inHigh, double inLow, double inClose )
    {
       double curTR = 0.0;
       double curVMP = 0.0;
@@ -905,13 +901,9 @@ public partial class Core
       tempCY = sp.lag1_inClose;
       trueRange = tempHT - tempLT;
       tempDouble = Math.Abs(tempCY - tempHT);
-      if( tempDouble > trueRange ) {
-         trueRange = tempDouble;
-      }
+      trueRange = MaxGt(tempDouble, trueRange);
       tempDouble = Math.Abs(tempCY - tempLT);
-      if( tempDouble > trueRange ) {
-         trueRange = tempDouble;
-      }
+      trueRange = MaxGt(tempDouble, trueRange);
       sp.sTR += trueRange;
       sp.sVMP += Math.Abs(inHigh - sp.lag1_inLow);
       sp.sVMM += Math.Abs(inLow - sp.lag1_inHigh);
@@ -947,13 +939,9 @@ public partial class Core
       tempCY = sp.ring_trailingIdx_inClose[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx];
       trueRange = tempHT - tempLT;
       tempDouble = Math.Abs(tempCY - tempHT);
-      if( tempDouble > trueRange ) {
-         trueRange = tempDouble;
-      }
+      trueRange = MaxGt(tempDouble, trueRange);
       tempDouble = Math.Abs(tempCY - tempLT);
-      if( tempDouble > trueRange ) {
-         trueRange = tempDouble;
-      }
+      trueRange = MaxGt(tempDouble, trueRange);
       sp.sTR -= trueRange;
       sp.sVMP -= Math.Abs(sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx) % sp.ringCap_trailingIdx] - sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx]);
       sp.sVMM -= Math.Abs(sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx) % sp.ringCap_trailingIdx] - sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - sp.ringLag_trailingIdx - 1) % sp.ringCap_trailingIdx]);
@@ -1019,7 +1007,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
@@ -1078,13 +1066,9 @@ public partial class Core
          tempCY = inClose[i - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR += trueRange;
          sVMP += Math.Abs(inHigh[i] - inLow[i - 1]);
          sVMM += Math.Abs(inLow[i] - inHigh[i - 1]);
@@ -1104,13 +1088,9 @@ public partial class Core
          tempCY = inClose[today - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR += trueRange;
          sVMP += Math.Abs(inHigh[today] - inLow[today - 1]);
          sVMM += Math.Abs(inLow[today] - inHigh[today - 1]);
@@ -1146,13 +1126,9 @@ public partial class Core
          tempCY = inClose[trailingIdx - 1];
          trueRange = tempHT - tempLT;
          tempDouble = Math.Abs(tempCY - tempHT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          tempDouble = Math.Abs(tempCY - tempLT);
-         if( tempDouble > trueRange ) {
-            trueRange = tempDouble;
-         }
+         trueRange = MaxGt(tempDouble, trueRange);
          sTR -= trueRange;
          sVMP -= Math.Abs(inHigh[trailingIdx] - inLow[trailingIdx - 1]);
          sVMM -= Math.Abs(inLow[trailingIdx] - inHigh[trailingIdx - 1]);
@@ -1237,6 +1213,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("VORTEX", "openAndFill", nameof(inHigh), inHigh.Length, startIdx, VortexLookback(optInTimePeriod));
+      }
       throw StreamFailure("VORTEX", "openAndFill", retCode);
    }
 
@@ -1251,6 +1230,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("VORTEX", "open", nameof(inHigh), inHigh.Length, startIdx, VortexLookback(optInTimePeriod));
       }
       throw StreamFailure("VORTEX", "open", retCode);
    }
@@ -1273,12 +1255,12 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public VortexStream VortexOpen( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod )
    {
       if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "VORTEX open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inHigh.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "VORTEX open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inHigh.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "VORTEX open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inLow.IsEmpty ) throw new TALibArgumentException("VORTEX open: inLow is empty", nameof(inLow), RetCode.BadParam);
       if( inClose.IsEmpty ) throw new TALibArgumentException("VORTEX open: inClose is empty", nameof(inClose), RetCode.BadParam);
       RequireHistoryLength("VORTEX", "open", "inLow", inLow.Length, inHigh.Length);
@@ -1315,12 +1297,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public VortexStream VortexOpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outPlusVI, Span<double> outMinusVI )
    {
       if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "VORTEX openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inHigh.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "VORTEX openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inHigh.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "VORTEX openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inLow.IsEmpty ) throw new TALibArgumentException("VORTEX openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
       if( inClose.IsEmpty ) throw new TALibArgumentException("VORTEX openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
       int guardOutLen = OpenFillCount("VORTEX", "openAndFill", inHigh.Length, VortexLookback(optInTimePeriod));

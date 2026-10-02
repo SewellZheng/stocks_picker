@@ -26,19 +26,19 @@
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInFastMAType MA type for the fast MA (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param optInSlowPeriod Period of the slow MA (default 26; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInSlowMAType MA type for the slow MA (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param optInSignalPeriod Period of the signal-line MA (default 9; range
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInSignalMAType MA type for the signal line (default 0 = SMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
@@ -108,10 +108,10 @@
       int lookbackLargest = 0;
       int i = 0;
       MAType tempMAType;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -271,10 +271,10 @@
       int lookbackLargest = 0;
       int i = 0;
       MAType tempMAType;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -381,8 +381,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#macdextLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#macdextLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -391,30 +391,33 @@
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInFastMAType MA type for the fast MA (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param optInSlowPeriod Period of the slow MA (default 26; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInSlowMAType MA type for the slow MA (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param optInSignalPeriod Period of the signal-line MA (default 9; range
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInSignalMAType MA type for the signal line (default 0 = SMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @param outMACD MACD line: fast MA minus slow MA. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, macdextLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outMACDSignal Signal line: MA of the MACD line. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, macdextLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outMACDHist Histogram: MACD minus signal. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, macdextLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -483,8 +486,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#macdextLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#macdextLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -493,30 +496,33 @@
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInFastMAType MA type for the fast MA (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param optInSlowPeriod Period of the slow MA (default 26; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInSlowMAType MA type for the slow MA (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param optInSignalPeriod Period of the signal-line MA (default 9; range
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInSignalMAType MA type for the signal line (default 0 = SMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @param outMACD MACD line: fast MA minus slow MA. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, macdextLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outMACDSignal Signal line: MA of the MACD line. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, macdextLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outMACDHist Histogram: MACD minus signal. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, macdextLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -611,7 +617,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -625,12 +631,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MACDEXT advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -667,16 +673,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public void update( double inReal, MacdextOut out ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MACDEXT update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("MACDEXT update", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("MACDEXT update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MACDEXT update", "inReal");
          core.macdextStepImpl(this, inReal);
          this.outRangeCount++;
          out.macd = this.cur_outMACD;
@@ -688,16 +694,14 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, MacdextOut out ) {
          requireArgument("MACDEXT peek", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("MACDEXT peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MACDEXT peek", "inReal");
          MacdextStream sp = this;
          double cur_slowMABuffer = 0.0;
          double cur_fastMABuffer = 0.0;
@@ -809,7 +813,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -958,12 +962,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MACDEXT openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("MACDEXT openAndFill", inReal.length, startIdx, macdextLookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MACDEXT openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("MACDEXT openAndFill: " + retCode, retCode);
+      throw streamFailure("MACDEXT openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind macdextOpen (composition seam). */
    MacdextStream macdextOpenInternal( double inReal[], int startIdx, int optInFastPeriod, MAType optInFastMAType, int optInSlowPeriod, MAType optInSlowMAType, int optInSignalPeriod, MAType optInSignalMAType )
@@ -981,12 +982,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MACDEXT open: history shorter than lookback + 1");
+         throw insufficientHistory("MACDEXT open", inReal.length, startIdx, macdextLookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MACDEXT open: internal error", retCode);
-      }
-      throw new TALibArgumentException("MACDEXT open: " + retCode, retCode);
+      throw streamFailure("MACDEXT open", retCode);
    }
    /**
     * Open a live MACDEXT stream over the warm-up history; the handle's
@@ -1033,7 +1031,7 @@
       requireLength("MACDEXT openAndFill", "outMACDSignal", outMACDSignal, guardOutLen);
       requireLength("MACDEXT openAndFill", "outMACDHist", outMACDHist, guardOutLen);
       if( (Object)outMACD == (Object)inReal || (Object)outMACDSignal == (Object)inReal || (Object)outMACDHist == (Object)inReal || (Object)outMACD == (Object)outMACDSignal || (Object)outMACD == (Object)outMACDHist || (Object)outMACDSignal == (Object)outMACDHist ) {
-         throw new TALibArgumentException("MACDEXT openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("MACDEXT openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

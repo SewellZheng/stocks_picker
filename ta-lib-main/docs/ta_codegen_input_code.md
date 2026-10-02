@@ -95,7 +95,7 @@ Array parameters may be written either `const double inReal[]` (the common style
 | `TA_RetCode` | main function return type |
 | `double`, `const double inReal[]`, `double outReal[]` | price inputs and outputs |
 | `int` | optional params, counters, `int *outBegIdx` / `int *outNBElement` |
-| `size_t` | array indices and counts |
+| `size_t` | array indices and counts. Only Rust renders it unsigned (`usize`); C, Java and C# render `int`, so a `size_t` cast or declaration never widens arithmetic or guards an overflow |
 
 Outputs are written through their pointer/array parameters: `*outBegIdx = ...`,
 `*outNBElement = ...`, `outReal[outIdx] = ...`.
@@ -160,6 +160,7 @@ generator recognizes and maps per language:
 | `TA_IS_ZERO(x)` / `TA_IS_ZERO_OR_NEG(x)` | epsilon comparison against zero |
 | `TA_GetUnstablePeriod(TA_FUNC_UNST_<NAME>)` | this function's configured unstable period |
 | candle-settings access (CDL* patterns) | resolved via the generated candle helpers |
+| `TA_OPAQUE(a, b, …);` | statement: the listed locals keep their values, but Rust's optimizer may not see through them there (`core::hint::black_box`; every other language emits nothing). Place it after each loop whose float accumulators LLVM would otherwise carry packed in one vector register through a later loop; see `cti.c` |
 | `CIRCBUF_PROLOG_CLASS` / `CIRCBUF_INIT_CLASS` / `CIRCBUF_NEXT` / `CIRCBUF_DESTROY` | circular scratch buffer over a local `typedef struct` element type (`src/ta_common/ta_memory.h`); see `cmf.c` or `ultosc.c` for usage |
 
 Standard math functions (`sqrt`, `floor`, `ceil`, `fabs`, `sin`, `cos`, `atan`,
@@ -193,7 +194,8 @@ in C#.
 ## Alternate implementations — `PRAGMA TA_ALT`
 
 Alongside `<name>`, a file may declare `<name>_ALT1`, `<name>_ALT2`, … — whole
-alternative bodies for the same function, each under a **single-line** decoration:
+alternative bodies for the same function, each under one or more **single-line**
+decorations:
 
 ```c
 /* PRAGMA TA_ALT={<api>,<lang>} free text after the brace is ignored */
@@ -203,13 +205,17 @@ TA_RetCode <name>_ALT<n>( /* the same parameters as <name> */ )
 <lang> ::= C | RUST | JAVA | CSHARP | ALL_LANGUAGES
 ```
 
-**Later declarations override earlier ones for every cell they claim**, with the
-base as the implicit first entry claiming `{ALL_API,ALL_LANGUAGES}` — so "everyone
-but C" is `ALL_LANGUAGES` followed by `C`, and there is no specificity table to
-learn. An alternate that ends up winning no cell is a hard error, as is a claim
-with no `=`, an unrecognized directive name, a `PRAGMA TA_ALT` on the base, an
-`_ALT<n>` with no decoration, numbering that is not ascending and contiguous from
-1 in file order, and a signature that differs from the base's.
+An alternate claims the union of its decorations, so `{ALL_API,JAVA}` plus
+`{ALL_API,CSHARP}` is one body for both managed languages; their order decides
+nothing. **Later declarations override earlier ones for every cell they claim**,
+with the base as the implicit first entry claiming `{ALL_API,ALL_LANGUAGES}` — so
+"everyone but C" is `ALL_LANGUAGES` followed by `C`, and there is no specificity
+table to learn. An alternate that ends up winning no cell is a hard error, as is a
+decoration that decides none (a duplicate, one its alternate's other decorations
+already cover, or one a later alternate overrides), a second claim on one line, a
+claim with no `=`, an unrecognized directive name, a `PRAGMA TA_ALT` on the base,
+an `_ALT<n>` with no decoration, numbering that is not ascending and contiguous
+from 1 in file order, and a signature that differs from the base's.
 
 An alternate must be **strictly functionally identical** to the base (some may
 differ within `TA_STABLE_EPSILON`; none may compute something else), and the
@@ -217,12 +223,12 @@ accepted reason to carry one is a significant performance gain — a second copy
 an algorithm is a maintenance cost. There is no alternate lookback: one
 `<name>_lookback` serves every cell.
 
-Nothing ships a language-scoped claim today. Note before writing the first one
-that `--xlang-hash` holds every language server bit-identical to the in-process C
-library with no tolerance, and C is the golden — so a `{...,C}` alternate that is
-not bit-identical to the others moves the reference and fails all three remaining
-languages at once. That is a loud failure, not a silent one, but it is the gate
-such a change has to answer for.
+A language-scoped claim answers to `--xlang-hash`, which holds every language
+server bit-identical to the in-process C library (Java and C# to a relative 1e-9
+on calls that reach a transcendental), with C as the golden. So a `{...,C}`
+alternate that is not bit-identical to the others moves the reference and fails
+Rust, and Java and C# beyond that tolerance. That is a loud failure, not a silent
+one, but it is the gate such a change has to answer for.
 
 `_ALT<n>` is **generator input only and never becomes a symbol**. There is still
 one `TA_MIN`, one `TA_MIN_Open`; the claim decides only which body the generator

@@ -60,17 +60,18 @@
  *  072726 MF,CC  #145. Index the bucket table relative to the smallest period
  *                used, and bound it so an off-contract period cannot overflow.
  *  080326 MF,CC  Split the size temp from the cast-fed period temp (#160).
+ *  092526 MF,CC  #442. Allocate the multi-period buffers on that path only.
  */
 
 TA_LIB_API int TA_MAVP_Lookback( int optInMinPeriod, int optInMaxPeriod, TA_MAType optInMAType )
 {
    if( (int)optInMinPeriod == TA_INTEGER_DEFAULT )
       optInMinPeriod = 2;
-   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 100000 )
+   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 10000 )
       return -1;
    if( (int)optInMaxPeriod == TA_INTEGER_DEFAULT )
       optInMaxPeriod = 30;
-   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 100000 )
+   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 10000 )
       return -1;
    if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
       optInMAType = 0;
@@ -82,7 +83,7 @@ TA_LIB_API int TA_MAVP_Lookback( int optInMinPeriod, int optInMaxPeriod, TA_MATy
     */
    if( optInMinPeriod > optInMaxPeriod )
    {
-      return 0 - 1;
+      return -1;
    }
    return TA_MA_Lookback(optInMaxPeriod,optInMAType);
 }
@@ -123,18 +124,18 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
    int localNbElement;
    TA_RetCode retCode;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInMinPeriod == TA_INTEGER_DEFAULT )
       optInMinPeriod = 2;
-   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 100000 )
+   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 10000 )
       return TA_BAD_PARAM;
    if( (int)optInMaxPeriod == TA_INTEGER_DEFAULT )
       optInMaxPeriod = 30;
-   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 100000 )
+   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 10000 )
       return TA_BAD_PARAM;
    if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
       optInMAType = 0;
@@ -197,16 +198,9 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
       return TA_SUCCESS;
    }
    outputSize = endIdx - firstOut + 1;
-   /* Allocate intermediate local buffer. */
-   localOutputArray = malloc(outputSize * sizeof(double));
    localPeriodArray = malloc(outputSize * sizeof(int));
-   /* Output indices grouped by clamped period (counting sort below). */
-   sortedIdx = malloc(outputSize * sizeof(int));
-   if( localOutputArray == NULL || localPeriodArray == NULL || sortedIdx == NULL )
+   if( localPeriodArray == NULL )
    {
-      free(localOutputArray);
-      free(localPeriodArray);
-      free(sortedIdx);
       *outBegIdx= 0;
       *outNBElement= 0;
       return TA_ALLOC_ERR;
@@ -223,9 +217,7 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
       localFinalArray = malloc(outputSize * sizeof(double));
       if( localFinalArray == NULL )
       {
-         free(localOutputArray);
          free(localPeriodArray);
-         free(sortedIdx);
          *outBegIdx= 0;
          *outNBElement= 0;
          return TA_ALLOC_ERR;
@@ -238,8 +230,8 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
     * range of periods actually used so all later work is sized by the data,
     * not by optInMaxPeriod. The floor at 1 (and on minUsed's start value)
     * keeps a period below 1 from indexing the occurrence tables out of range.
-    * mavp.yaml caps both periods at [1, 100000], so it is inert through the
-    * API; it is kept because this file is the source of truth for four
+    * mavp.yaml's period range starts at 1, so it is inert through the API;
+    * it is kept because this file is the source of truth for four
     * backends and it makes the shared source safe by construction rather than
     * by trusting each backend's prologue to be identical.
     */
@@ -292,8 +284,8 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
    }
    /* Bound the bucket table before sizing it.
     *
-    * Unreachable through the API: mavp.yaml caps both periods at 100000, so
-    * the widest spread expressible is 99999. It is kept because it protects a
+    * Unreachable through the API: mavp.yaml's period range keeps the spread
+    * below this bound. It is kept because it protects a
     * memory-safety property and this file is the source of truth for four
     * backends — without it the size expression below can overflow (signed
     * overflow in C, a wrapped negative in Java, a usize underflow panic in
@@ -311,9 +303,7 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
     */
    if( maxUsed < minUsed || maxUsed - minUsed > 100000 )
    {
-      free(localOutputArray);
       free(localPeriodArray);
-      free(sortedIdx);
       if( finalIsAllocated )
       {
          free(localFinalArray);
@@ -321,26 +311,6 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
       *outBegIdx= 0;
       *outNBElement= 0;
       return TA_BAD_PARAM;
-   }
-   /* Per-period bucket cursor for the counting sort. Indexed RELATIVE to
-    * minUsed: only [minUsed, maxUsed+1] is ever touched, so sizing from the
-    * largest period used allocated up to 400KB for a band of periods that
-    * may be a handful wide — and allocated it even on the single-period
-    * fast path below.
-    */
-   bucketOfs = malloc((maxUsed - minUsed + 2) * sizeof(int));
-   if( bucketOfs == NULL )
-   {
-      free(localOutputArray);
-      free(localPeriodArray);
-      free(sortedIdx);
-      if( finalIsAllocated )
-      {
-         free(localFinalArray);
-      }
-      *outBegIdx= 0;
-      *outNBElement= 0;
-      return TA_ALLOC_ERR;
    }
    if( minUsed == maxUsed )
    {
@@ -350,10 +320,7 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
       retCode = TA_MA(startIdx,endIdx,inReal,minUsed,optInMAType,&localBegIdx,&localNbElement,localFinalArray);
       if( retCode != TA_SUCCESS )
       {
-         free(localOutputArray);
          free(localPeriodArray);
-         free(sortedIdx);
-         free(bucketOfs);
          if( finalIsAllocated )
          {
             free(localFinalArray);
@@ -364,6 +331,23 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
       }
    } else 
    {
+      localOutputArray = malloc(outputSize * sizeof(double));
+      sortedIdx = malloc(outputSize * sizeof(int));
+      bucketOfs = malloc((maxUsed - minUsed + 2) * sizeof(int));
+      if( localOutputArray == NULL || sortedIdx == NULL || bucketOfs == NULL )
+      {
+         free(localOutputArray);
+         free(sortedIdx);
+         free(bucketOfs);
+         free(localPeriodArray);
+         if( finalIsAllocated )
+         {
+            free(localFinalArray);
+         }
+         *outBegIdx= 0;
+         *outNBElement= 0;
+         return TA_ALLOC_ERR;
+      }
       /* Counting sort: sortedIdx ends up holding the output indices ordered
        * by period, one contiguous ascending slice per distinct period, with
        * bucketOfs[p] the end of period p's slice.
@@ -443,19 +427,15 @@ TA_LIB_API TA_RetCode TA_MAVP( int    startIdx,
          }
          bucketStart = bucketEnd;
       }
+      free(localOutputArray);
+      free(sortedIdx);
+      free(bucketOfs);
    }
-   /* Pointer-inequality guard, not finalIsAllocated: in backends where the
-    * scratch election materializes as a copy (Rust), the copy-back must
-    * always run; in C/Java the non-aliased self-copy is skipped.
-    */
    if( localFinalArray != outReal )
    {
       memcpy(outReal,localFinalArray,outputSize * sizeof(double));
    }
-   free(localOutputArray);
    free(localPeriodArray);
-   free(sortedIdx);
-   free(bucketOfs);
    if( finalIsAllocated )
    {
       free(localFinalArray);
@@ -502,18 +482,18 @@ TA_RetCode TA_S_MAVP( int    startIdx,
    int localNbElement;
    TA_RetCode retCode;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInMinPeriod == TA_INTEGER_DEFAULT )
       optInMinPeriod = 2;
-   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 100000 )
+   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 10000 )
       return TA_BAD_PARAM;
    if( (int)optInMaxPeriod == TA_INTEGER_DEFAULT )
       optInMaxPeriod = 30;
-   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 100000 )
+   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 10000 )
       return TA_BAD_PARAM;
    if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
       optInMAType = 0;
@@ -559,14 +539,9 @@ TA_RetCode TA_S_MAVP( int    startIdx,
       return TA_SUCCESS;
    }
    outputSize = endIdx - firstOut + 1;
-   localOutputArray = malloc(outputSize * sizeof(double));
    localPeriodArray = malloc(outputSize * sizeof(int));
-   sortedIdx = malloc(outputSize * sizeof(int));
-   if( localOutputArray == NULL || localPeriodArray == NULL || sortedIdx == NULL )
+   if( localPeriodArray == NULL )
    {
-      free(localOutputArray);
-      free(localPeriodArray);
-      free(sortedIdx);
       *outBegIdx= 0;
       *outNBElement= 0;
       return TA_ALLOC_ERR;
@@ -578,9 +553,7 @@ TA_RetCode TA_S_MAVP( int    startIdx,
       localFinalArray = malloc(outputSize * sizeof(double));
       if( localFinalArray == NULL )
       {
-         free(localOutputArray);
          free(localPeriodArray);
-         free(sortedIdx);
          *outBegIdx= 0;
          *outNBElement= 0;
          return TA_ALLOC_ERR;
@@ -626,9 +599,7 @@ TA_RetCode TA_S_MAVP( int    startIdx,
    }
    if( maxUsed < minUsed || maxUsed - minUsed > 100000 )
    {
-      free(localOutputArray);
       free(localPeriodArray);
-      free(sortedIdx);
       if( finalIsAllocated )
       {
          free(localFinalArray);
@@ -637,29 +608,12 @@ TA_RetCode TA_S_MAVP( int    startIdx,
       *outNBElement= 0;
       return TA_BAD_PARAM;
    }
-   bucketOfs = malloc((maxUsed - minUsed + 2) * sizeof(int));
-   if( bucketOfs == NULL )
-   {
-      free(localOutputArray);
-      free(localPeriodArray);
-      free(sortedIdx);
-      if( finalIsAllocated )
-      {
-         free(localFinalArray);
-      }
-      *outBegIdx= 0;
-      *outNBElement= 0;
-      return TA_ALLOC_ERR;
-   }
    if( minUsed == maxUsed )
    {
       retCode = TA_S_MA(startIdx,endIdx,inReal,minUsed,optInMAType,&localBegIdx,&localNbElement,localFinalArray);
       if( retCode != TA_SUCCESS )
       {
-         free(localOutputArray);
          free(localPeriodArray);
-         free(sortedIdx);
-         free(bucketOfs);
          if( finalIsAllocated )
          {
             free(localFinalArray);
@@ -670,6 +624,23 @@ TA_RetCode TA_S_MAVP( int    startIdx,
       }
    } else 
    {
+      localOutputArray = malloc(outputSize * sizeof(double));
+      sortedIdx = malloc(outputSize * sizeof(int));
+      bucketOfs = malloc((maxUsed - minUsed + 2) * sizeof(int));
+      if( localOutputArray == NULL || sortedIdx == NULL || bucketOfs == NULL )
+      {
+         free(localOutputArray);
+         free(sortedIdx);
+         free(bucketOfs);
+         free(localPeriodArray);
+         if( finalIsAllocated )
+         {
+            free(localFinalArray);
+         }
+         *outBegIdx= 0;
+         *outNBElement= 0;
+         return TA_ALLOC_ERR;
+      }
       for( curPeriod = minUsed; curPeriod <= maxUsed + 1; curPeriod += 1 )
       {
          bucketOfs[curPeriod - minUsed] = 0;
@@ -726,15 +697,15 @@ TA_RetCode TA_S_MAVP( int    startIdx,
          }
          bucketStart = bucketEnd;
       }
+      free(localOutputArray);
+      free(sortedIdx);
+      free(bucketOfs);
    }
    if( localFinalArray != outReal )
    {
       memcpy(outReal,localFinalArray,outputSize * sizeof(double));
    }
-   free(localOutputArray);
    free(localPeriodArray);
-   free(sortedIdx);
-   free(bucketOfs);
    if( finalIsAllocated )
    {
       free(localFinalArray);
@@ -758,28 +729,105 @@ struct TA_MAVP_Stream {
    int nBank;
    struct TA_MA_Stream **bank;
    double *scratch;
+   int tapeMask;
+   int tapePos;
+   double *tape;
 };
+
+/* Private function, not in public API. */
+static TA_RetCode TA_MAVP_TapeOpen( struct TA_MAVP_Stream *sp, const double inReal[], int historyLen, int reach )
+{
+   int size, b;
+
+   size = 1;
+   while( size <= reach ) size <<= 1;
+   sp->tape = (double *)TA_Malloc( sizeof(double) * (size_t)size );
+   if( !sp->tape ) return TA_ALLOC_ERR;
+   memset( sp->tape, 0, sizeof(double) * (size_t)size );
+   sp->tapeMask = size - 1;
+   for( b = historyLen > size ? historyLen - size : 0; b < historyLen; b++ )
+      sp->tape[b & sp->tapeMask] = inReal[b];
+   sp->tapePos = (historyLen - 1) & sp->tapeMask;
+   return TA_SUCCESS;
+}
+
+/* Private function, not in public API. */
+static int TA_MAVP_WindowMode( int maType )
+{
+   switch( maType )
+   {
+   case TA_MAType_ALMA:
+   case TA_MAType_DISABLED:
+      return 1;
+   default:
+      return 0;
+   }
+}
+
+/* Private function, not in public API. */
+static TA_RetCode TA_MAVP_EvalWindow( const struct TA_MAVP_Stream *sp, double inReal, int cp, double *outReal )
+{
+   double localWin[32];
+   double *win = localWin;
+   int lb, i, wBeg, wNb;
+   TA_RetCode retCode;
+
+   lb = TA_MA_Lookback( cp, sp->optInMAType );
+   if( lb + 1 > 32 )
+   {
+      win = (double *)TA_Malloc( sizeof(double) * (size_t)(lb + 1) );
+      if( !win ) return TA_ALLOC_ERR;
+   }
+   for( i = 0; i < lb; i++ )
+      win[i] = sp->tape[(sp->tapePos + sp->tapeMask + 2 - lb + i) & sp->tapeMask];
+   win[lb] = inReal;
+   retCode = TA_MA( lb, lb, win, cp, sp->optInMAType, &wBeg, &wNb, outReal );
+   if( win != localWin ) TA_Free( win );
+   return retCode;
+}
+
+/* Private function, not in public API. */
+static TA_RetCode TA_MAVP_UpdateWindow( struct TA_MAVP_Stream *stream, double inReal, double inPeriods, double *outReal )
+{
+   int cp;
+   double cpReal, v;
+   TA_RetCode retCode;
+
+   cpReal = inPeriods;
+   if( !(cpReal >= stream->optInMinPeriod) ) cp = stream->optInMinPeriod;
+   else if( cpReal > stream->optInMaxPeriod ) cp = stream->optInMaxPeriod;
+   else cp = (int)cpReal;
+   retCode = TA_MAVP_EvalWindow( stream, inReal, cp, &v );
+   if( retCode != TA_SUCCESS ) return retCode;
+   stream->tapePos = (stream->tapePos + 1) & stream->tapeMask;
+   stream->tape[stream->tapePos] = inReal;
+   *outReal = v;
+   stream->cur_outReal = *outReal;
+   stream->outRangeCount++;
+   return TA_SUCCESS;
+}
 
 /* Private function, not in public API. */
 TA_RetCode TA_MAVP_OpenInternal( struct TA_MAVP_Stream **stream, const double inReal[], const double inPeriods[], int startIdx, int historyLen, int optInMinPeriod, int optInMaxPeriod, TA_MAType optInMAType, double *outReal )
 {
    struct TA_MAVP_Stream *sp;
-   int k, cp, lookbackTotal, subStart;
+   int k, cp, lookbackTotal, subStart, reach, slotReach;
+   int window, wBeg, wNb;
    double cpReal;
    TA_RetCode retCode;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !inPeriods || !outReal ) return TA_BAD_PARAM;
    if( (int)optInMinPeriod == TA_INTEGER_DEFAULT )
       optInMinPeriod = 2;
-   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 100000 )
+   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 10000 )
       return TA_BAD_PARAM;
    if( (int)optInMaxPeriod == TA_INTEGER_DEFAULT )
       optInMaxPeriod = 30;
-   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 100000 )
+   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 10000 )
       return TA_BAD_PARAM;
    if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
       optInMAType = 0;
@@ -797,29 +845,47 @@ TA_RetCode TA_MAVP_OpenInternal( struct TA_MAVP_Stream **stream, const double in
    sp->optInMaxPeriod = optInMaxPeriod;
    sp->optInMAType = optInMAType;
    sp->nBank = optInMaxPeriod - optInMinPeriod + 1;
+   window = TA_MAVP_WindowMode( optInMAType );
+   if( optInMaxPeriod - optInMinPeriod + 1 < 12 ) window = 0;
+   if( window )
+      for( k = 0; k < optInMaxPeriod - optInMinPeriod + 1; k++ )
+         if( TA_MA_Lookback( optInMinPeriod + k, optInMAType ) > lookbackTotal ) { window = 0; break; }
+   if( window )
+   {
+      retCode = TA_MAVP_TapeOpen( sp, inReal, historyLen, lookbackTotal );
+      if( retCode != TA_SUCCESS ) { TA_MAVP_Close( sp ); return retCode; }
+      cpReal = inPeriods[historyLen - 1];
+      if( !(cpReal >= optInMinPeriod) ) cp = optInMinPeriod;
+      else if( cpReal > optInMaxPeriod ) cp = optInMaxPeriod;
+      else cp = (int)cpReal;
+      retCode = TA_MA( historyLen - 1, historyLen - 1, inReal, cp, optInMAType, &wBeg, &wNb, outReal );
+      if( retCode != TA_SUCCESS ) { TA_MAVP_Close( sp ); return retCode; }
+   }
+   else
+   {
    sp->bank = (struct TA_MA_Stream **)TA_Malloc( sizeof(struct TA_MA_Stream *) * (size_t)sp->nBank );
    if( !sp->bank ) { TA_Free( sp ); return TA_ALLOC_ERR; }
    memset( sp->bank, 0, sizeof(struct TA_MA_Stream *) * (size_t)sp->nBank );
    sp->scratch = (double *)TA_Malloc( sizeof(double) * (size_t)sp->nBank );
-   if( !sp->scratch ) { TA_Free( sp->bank ); TA_Free( sp ); return TA_ALLOC_ERR; }
+   if( !sp->scratch ) { TA_MAVP_Close( sp ); return TA_ALLOC_ERR; }
 
+   reach = 0;
    for( k = 0; k < sp->nBank; k++ )
    {
       retCode = TA_MA_OpenInternal( &sp->bank[k], inReal, subStart, historyLen, optInMinPeriod + k, optInMAType, &sp->scratch[k] );
-      if( retCode != TA_SUCCESS )
-      {
-         int j;
-         for( j = 0; j < k; j++ ) TA_MA_Close( sp->bank[j] );
-         TA_Free( sp->scratch ); TA_Free( sp->bank ); TA_Free( sp );
-         return retCode;
-      }
+      if( retCode != TA_SUCCESS ) { TA_MAVP_Close( sp ); return retCode; }
+      slotReach = TA_MA_TapeDetach( sp->bank[k] );
+      if( slotReach > reach ) reach = slotReach;
    }
+   retCode = TA_MAVP_TapeOpen( sp, inReal, historyLen, reach );
+   if( retCode != TA_SUCCESS ) { TA_MAVP_Close( sp ); return retCode; }
 
    cpReal = inPeriods[historyLen - 1];
    if( !(cpReal >= optInMinPeriod) ) cp = optInMinPeriod;
    else if( cpReal > optInMaxPeriod ) cp = optInMaxPeriod;
    else cp = (int)cpReal;
    *outReal = sp->scratch[cp - optInMinPeriod];
+   }
 
    sp->outRangeBegIdx = subStart;
    sp->outRangeCount = historyLen - subStart;
@@ -834,7 +900,7 @@ TA_LIB_API TA_RetCode TA_MAVP_Open( TA_MAVP_Stream **stream, const double inReal
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !inPeriods || !outReal ) return TA_BAD_PARAM;
    return TA_MAVP_OpenInternal( stream, inReal, inPeriods, 0, historyLen, optInMinPeriod, optInMaxPeriod, optInMAType, outReal );
 }
@@ -842,23 +908,24 @@ TA_LIB_API TA_RetCode TA_MAVP_Open( TA_MAVP_Stream **stream, const double inReal
 TA_LIB_API TA_RetCode TA_MAVP_OpenAndFill( TA_MAVP_Stream **stream, const double inReal[], const double inPeriods[], int historyLen, int optInMinPeriod, int optInMaxPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[] )
 {
    struct TA_MAVP_Stream *sp;
-   int k, cp, lookbackTotal, t;
+   int k, cp, lookbackTotal, t, reach, slotReach, tapeBase;
+   int window, t1, cp2, wBeg, wNb;
    double cpReal;
    TA_RetCode retCode;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !inPeriods || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal || (const void *)outReal == (const void *)inPeriods ) return TA_BAD_PARAM;
    if( (int)optInMinPeriod == TA_INTEGER_DEFAULT )
       optInMinPeriod = 2;
-   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 100000 )
+   else if( (int)optInMinPeriod < 1 || (int)optInMinPeriod > 10000 )
       return TA_BAD_PARAM;
    if( (int)optInMaxPeriod == TA_INTEGER_DEFAULT )
       optInMaxPeriod = 30;
-   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 100000 )
+   else if( (int)optInMaxPeriod < 1 || (int)optInMaxPeriod > 10000 )
       return TA_BAD_PARAM;
    if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
       optInMAType = 0;
@@ -880,23 +947,52 @@ TA_LIB_API TA_RetCode TA_MAVP_OpenAndFill( TA_MAVP_Stream **stream, const double
    sp->optInMaxPeriod = optInMaxPeriod;
    sp->optInMAType = optInMAType;
    sp->nBank = optInMaxPeriod - optInMinPeriod + 1;
+   window = TA_MAVP_WindowMode( optInMAType );
+   if( optInMaxPeriod - optInMinPeriod + 1 < 12 ) window = 0;
+   if( window )
+      for( k = 0; k < optInMaxPeriod - optInMinPeriod + 1; k++ )
+         if( TA_MA_Lookback( optInMinPeriod + k, optInMAType ) > lookbackTotal ) { window = 0; break; }
+   if( window )
+   {
+      for( t = lookbackTotal; t < historyLen; t = t1 + 1 )
+      {
+         cpReal = inPeriods[t];
+         if( !(cpReal >= optInMinPeriod) ) cp = optInMinPeriod;
+         else if( cpReal > optInMaxPeriod ) cp = optInMaxPeriod;
+         else cp = (int)cpReal;
+         for( t1 = t; t1 + 1 < historyLen; t1++ )
+         {
+            cp2 = cp;
+            cpReal = inPeriods[t1 + 1];
+            if( !(cpReal >= optInMinPeriod) ) cp = optInMinPeriod;
+            else if( cpReal > optInMaxPeriod ) cp = optInMaxPeriod;
+            else cp = (int)cpReal;
+            if( cp != cp2 ) { cp = cp2; break; }
+         }
+         retCode = TA_MA( t, t1, inReal, cp, optInMAType, &wBeg, &wNb, &outReal[t - lookbackTotal] );
+         if( retCode != TA_SUCCESS ) { TA_MAVP_Close( sp ); return retCode; }
+      }
+      retCode = TA_MAVP_TapeOpen( sp, inReal, historyLen, lookbackTotal );
+      if( retCode != TA_SUCCESS ) { TA_MAVP_Close( sp ); return retCode; }
+   }
+   else
+   {
    sp->bank = (struct TA_MA_Stream **)TA_Malloc( sizeof(struct TA_MA_Stream *) * (size_t)sp->nBank );
    if( !sp->bank ) { TA_Free( sp ); return TA_ALLOC_ERR; }
    memset( sp->bank, 0, sizeof(struct TA_MA_Stream *) * (size_t)sp->nBank );
    sp->scratch = (double *)TA_Malloc( sizeof(double) * (size_t)sp->nBank );
-   if( !sp->scratch ) { TA_Free( sp->bank ); TA_Free( sp ); return TA_ALLOC_ERR; }
+   if( !sp->scratch ) { TA_MAVP_Close( sp ); return TA_ALLOC_ERR; }
 
+   reach = 0;
    for( k = 0; k < sp->nBank; k++ )
    {
       retCode = TA_MA_OpenInternal( &sp->bank[k], inReal, lookbackTotal, lookbackTotal + 1, optInMinPeriod + k, optInMAType, &sp->scratch[k] );
-      if( retCode != TA_SUCCESS )
-      {
-         int j;
-         for( j = 0; j < k; j++ ) TA_MA_Close( sp->bank[j] );
-         TA_Free( sp->scratch ); TA_Free( sp->bank ); TA_Free( sp );
-         return retCode;
-      }
+      if( retCode != TA_SUCCESS ) { TA_MAVP_Close( sp ); return retCode; }
+      slotReach = TA_MA_TapeDetach( sp->bank[k] );
+      if( slotReach > reach ) reach = slotReach;
    }
+   retCode = TA_MAVP_TapeOpen( sp, inReal, lookbackTotal + 1, reach );
+   if( retCode != TA_SUCCESS ) { TA_MAVP_Close( sp ); return retCode; }
 
    cpReal = inPeriods[lookbackTotal];
    if( !(cpReal >= optInMinPeriod) ) cp = optInMinPeriod;
@@ -906,13 +1002,17 @@ TA_LIB_API TA_RetCode TA_MAVP_OpenAndFill( TA_MAVP_Stream **stream, const double
 
    for( t = lookbackTotal + 1; t < historyLen; t++ )
    {
+      sp->tapePos = (sp->tapePos + 1) & sp->tapeMask;
+      sp->tape[sp->tapePos] = inReal[t];
+      tapeBase = sp->tapePos + sp->tapeMask + 1;
       for( k = 0; k < sp->nBank; k++ )
-         TA_MA_Update( sp->bank[k], inReal[t], &sp->scratch[k] );
+         TA_MA_StepTape( sp->bank[k], sp->tape, tapeBase, sp->tapeMask, inReal[t], &sp->scratch[k] );
       cpReal = inPeriods[t];
       if( !(cpReal >= optInMinPeriod) ) cp = optInMinPeriod;
       else if( cpReal > optInMaxPeriod ) cp = optInMaxPeriod;
       else cp = (int)cpReal;
       outReal[t - lookbackTotal] = sp->scratch[cp - optInMinPeriod];
+   }
    }
 
    *outBegIdx = lookbackTotal;
@@ -926,15 +1026,19 @@ TA_LIB_API TA_RetCode TA_MAVP_OpenAndFill( TA_MAVP_Stream **stream, const double
 
 TA_LIB_API TA_RetCode TA_MAVP_Update( TA_MAVP_Stream *stream, double inReal, double inPeriods, double *outReal )
 {
-   int k, cp;
+   int k, cp, tapeBase;
    double cpReal;
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inPeriods ) ) return TA_BAD_PARAM;
+   if( !stream->bank ) return TA_MAVP_UpdateWindow( stream, inReal, inPeriods, outReal );
+   stream->tapePos = (stream->tapePos + 1) & stream->tapeMask;
+   stream->tape[stream->tapePos] = inReal;
+   tapeBase = stream->tapePos + stream->tapeMask + 1;
    for( k = 0; k < stream->nBank; k++ )
-      TA_MA_Update( stream->bank[k], inReal, &stream->scratch[k] );
+      TA_MA_StepTape( stream->bank[k], stream->tape, tapeBase, stream->tapeMask, inReal, &stream->scratch[k] );
    cpReal = inPeriods;
    if( !(cpReal >= stream->optInMinPeriod) ) cp = stream->optInMinPeriod;
    else if( cpReal > stream->optInMaxPeriod ) cp = stream->optInMaxPeriod;
@@ -955,7 +1059,8 @@ TA_LIB_API TA_RetCode TA_MAVP_Peek( const TA_MAVP_Stream *stream, double inReal,
    if( !(cpReal >= stream->optInMinPeriod) ) cp = stream->optInMinPeriod;
    else if( cpReal > stream->optInMaxPeriod ) cp = stream->optInMaxPeriod;
    else cp = (int)cpReal;
-   TA_MA_Peek( stream->bank[cp - stream->optInMinPeriod], inReal, outReal );
+   if( !stream->bank ) return TA_MAVP_EvalWindow( stream, inReal, cp, outReal );
+   TA_MA_PeekTape( stream->bank[cp - stream->optInMinPeriod], stream->tape, ((stream->tapePos + 1) & stream->tapeMask) + stream->tapeMask + 1, stream->tapeMask, inReal, outReal );
    return TA_SUCCESS;
 }
 
@@ -971,6 +1076,7 @@ TA_LIB_API TA_RetCode TA_MAVP_Close( TA_MAVP_Stream *stream )
          TA_Free( stream->bank );
       }
       if( stream->scratch ) TA_Free( stream->scratch );
+      if( stream->tape ) TA_Free( stream->tape );
       TA_Free( stream );
    }
    return TA_SUCCESS;
@@ -994,7 +1100,7 @@ TA_LIB_API TA_RetCode TA_MAVP_OutRange( const TA_MAVP_Stream *stream, int *outBe
 TA_LIB_API TA_RetCode TA_MAVP_Advance( TA_MAVP_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1012,6 +1118,8 @@ TA_LIB_API TA_RetCode TA_MAVP_Clone( const TA_MAVP_Stream *stream, TA_MAVP_Strea
    *sp = *stream;
    sp->bank = NULL;
    sp->scratch = NULL;
+   sp->tape = NULL;
+   if( stream->bank )
    { int k;
      sp->bank = (struct TA_MA_Stream **)TA_Malloc( sizeof(struct TA_MA_Stream *) * (size_t)sp->nBank );
      if( !sp->bank ) { TA_MAVP_Close( sp ); return TA_ALLOC_ERR; }
@@ -1027,6 +1135,11 @@ TA_LIB_API TA_RetCode TA_MAVP_Clone( const TA_MAVP_Stream *stream, TA_MAVP_Strea
      sp->scratch = (double *)TA_Malloc( sizeof(double) * copyN );
      if( !sp->scratch ) { TA_MAVP_Close( sp ); return TA_ALLOC_ERR; }
      memcpy( sp->scratch, stream->scratch, sizeof(double) * copyN ); }
+   if( stream->tape )
+   { size_t copyN = (size_t)sp->tapeMask + 1;
+     sp->tape = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->tape ) { TA_MAVP_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->tape, stream->tape, sizeof(double) * copyN ); }
    *clone = sp;
    return TA_SUCCESS;
 }

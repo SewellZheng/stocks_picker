@@ -90,9 +90,9 @@ TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR( int    startIdx,
    int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( optInPenetration == TA_REAL_DEFAULT )
@@ -167,8 +167,8 @@ TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR( int    startIdx,
    outIdx = 0;
    do
    {
-      if( ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && /* black */
-          ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&             /* white real body */
+      if( ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 && /* black */
+          ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&          /* white real body */
           ((max(inOpen[i - 1],inClose[i - 1]) < min(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) && /* gapping down */
           inClose[i] > fma(fabs(inClose[i - 2] - inOpen[i - 2]), optInPenetration, inClose[i - 2]) && /* closing well within 1st rb */
           fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal,i - 2) && /* 1st: long */
@@ -219,9 +219,9 @@ TA_RetCode TA_S_CDLMORNINGSTAR( int    startIdx,
    int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( optInPenetration == TA_REAL_DEFAULT )
@@ -274,7 +274,7 @@ TA_RetCode TA_S_CDLMORNINGSTAR( int    startIdx,
    outIdx = 0;
    do
    {
-      if( (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) == 1 && ((max((double)inOpen[i - 1],(double)inClose[i - 1]) < min((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) && (double)inClose[i] > fma(fabs((double)inClose[i - 2] - (double)inOpen[i - 2]), optInPenetration, (double)inClose[i - 2]) && fabs((double)inClose[i - 2] - (double)inOpen[i - 2]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal,i - 2) && fabs((double)inClose[i - 1] - (double)inOpen[i - 1]) <= TA_CANDLEAVERAGE(BodyShort,BodyShortPeriodTotal,i - 1) && fabs((double)inClose[i] - (double)inOpen[i]) > TA_CANDLEAVERAGE(BodyShort,BodyShortPeriodTotal2,i) )
+      if( (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : -1) == -1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) == 1 && ((max((double)inOpen[i - 1],(double)inClose[i - 1]) < min((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) && (double)inClose[i] > fma(fabs((double)inClose[i - 2] - (double)inOpen[i - 2]), optInPenetration, (double)inClose[i - 2]) && fabs((double)inClose[i - 2] - (double)inOpen[i - 2]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal,i - 2) && fabs((double)inClose[i - 1] - (double)inOpen[i - 1]) <= TA_CANDLEAVERAGE(BodyShort,BodyShortPeriodTotal,i - 1) && fabs((double)inClose[i] - (double)inOpen[i]) > TA_CANDLEAVERAGE(BodyShort,BodyShortPeriodTotal2,i) )
       {
          outInteger[outIdx++] = 100;
       } else 
@@ -302,6 +302,7 @@ struct TA_CDLMORNINGSTAR_Stream {
    /* The value(s) at the last bar the stream counted (see TA_CDLMORNINGSTAR_Value). */
    int cur_outInteger;
    double optInPenetration;
+   double pad_0;
    double BodyShortPeriodTotal;
    double BodyLongPeriodTotal;
    double BodyShortPeriodTotal2;
@@ -332,15 +333,15 @@ static void TA_CDLMORNINGSTAR_ReleaseImpl( struct TA_CDLMORNINGSTAR_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_CDLMORNINGSTAR_StepImpl( struct TA_CDLMORNINGSTAR_Stream *sp, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
+static TA_FMA_STEP_INLINE void TA_CDLMORNINGSTAR_StepImpl( struct TA_CDLMORNINGSTAR_Stream *sp, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( sp->ringCap_BodyLongTrailingIdx == 0 )
    {
       sp->ring_BodyLongTrailingIdx_derived[0] = TA_STREAM_CANDLERANGE(BodyLong,inOpen,inHigh,inLow,inClose);
    }
    sp->ring_BodyShortTrailingIdx_derived[sp->ringPos_BodyShortTrailingIdx] = TA_STREAM_CANDLERANGE(BodyShort,inOpen,inHigh,inLow,inClose);
-   if( ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* black */
-       ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&                       /* white real body */
+   if( ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : -1) == -1 && /* black */
+       ((inClose >= inOpen) ? 1 : -1) == 1 &&                    /* white real body */
        ((max(sp->lag1_inOpen,sp->lag1_inClose) < min(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) && /* gapping down */
        inClose > fma(fabs(sp->lag2_inClose - sp->lag2_inOpen), sp->optInPenetration, sp->lag2_inClose) && /* closing well within 1st rb */
        fabs(sp->lag2_inClose - sp->lag2_inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal,sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* 1st: long */
@@ -388,7 +389,7 @@ static TA_RetCode TA_CDLMORNINGSTAR_OpenImpl( struct TA_CDLMORNINGSTAR_Stream **
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( optInPenetration == TA_REAL_DEFAULT )
       optInPenetration = 0.3;
@@ -469,8 +470,8 @@ static TA_RetCode TA_CDLMORNINGSTAR_OpenImpl( struct TA_CDLMORNINGSTAR_Stream **
       outIdx = 0;
       do
       {
-         if( ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && /* black */
-             ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&             /* white real body */
+         if( ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 && /* black */
+             ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&          /* white real body */
              ((max(inOpen[i - 1],inClose[i - 1]) < min(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) && /* gapping down */
              inClose[i] > fma(fabs(inClose[i - 2] - inOpen[i - 2]), optInPenetration, inClose[i - 2]) && /* closing well within 1st rb */
              fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal,i - 2) && /* 1st: long */
@@ -563,7 +564,7 @@ TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_Open( TA_CDLMORNINGSTAR_Stream **stream,
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLMORNINGSTAR_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outInteger );
 }
@@ -573,7 +574,7 @@ TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_OpenAndFill( TA_CDLMORNINGSTAR_Stream **
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLMORNINGSTAR_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger );
@@ -585,10 +586,11 @@ TA_RetCode TA_CDLMORNINGSTAR_OpenAndFillInternal( struct TA_CDLMORNINGSTAR_Strea
    return TA_CDLMORNINGSTAR_OpenImpl( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_Update( TA_CDLMORNINGSTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -604,8 +606,8 @@ TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_Peek( const TA_CDLMORNINGSTAR_Stream *st
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   if( ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* black */
-       ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&                       /* white real body */
+   if( ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : -1) == -1 && /* black */
+       ((inClose >= inOpen) ? 1 : -1) == 1 &&                    /* white real body */
        ((max(sp->lag1_inOpen,sp->lag1_inClose) < min(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) && /* gapping down */
        inClose > fma(fabs(sp->lag2_inClose - sp->lag2_inOpen), sp->optInPenetration, sp->lag2_inClose) && /* closing well within 1st rb */
        fabs(sp->lag2_inClose - sp->lag2_inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal,sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* 1st: long */
@@ -644,7 +646,7 @@ TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_OutRange( const TA_CDLMORNINGSTAR_Stream
 TA_LIB_API TA_RetCode TA_CDLMORNINGSTAR_Advance( TA_CDLMORNINGSTAR_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

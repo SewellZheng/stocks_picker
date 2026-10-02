@@ -28,6 +28,12 @@ $$
 
 where $X$ is the input series and $n$ the period.
 
+## Notes
+
+- While the input has not changed since the first bar the call reads, there is neither a gain nor a loss and RSI is 0/0: the output is the neutral 50. Up to 0.8.1 it was 0, which read as oversold. Input that has only risen gives 100 and input that has only fallen gives 0.
+- After a move, an unchanged input holds the last value until the two averages decay to rounding residue: about a thousand unchanged bars at period 2, about ten thousand at period 14. The output then drifts and settles on 50. Input that had only risen or only fallen stays at 100 or 0, except at period 2.
+
+
 ## Inputs
 
 - `inReal` — Price series (typically close)
@@ -67,6 +73,7 @@ TA-Lib Definition: [`rsi.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | C | [`ta_RSI.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_RSI.c) |
 | Rust | [`rsi.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/rsi.rs) |
 | Java | [`Core_RSI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_RSI.java) |
+| C# | [`Core_RSI.cs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/csharp/library/src/Core_RSI.cs) |
 
 TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 

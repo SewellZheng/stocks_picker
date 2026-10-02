@@ -113,10 +113,10 @@ public partial class Core
       double trailingValue = 0;
       double weightedTrailing = 0;
       double sumAbs = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -212,9 +212,8 @@ public partial class Core
           *     after it is gone (measured 31x at period 5), and this rebuilds on
           *     the bar it leaves instead.
           *
-          * The threshold compares two DEGREE-1 quantities, which is why it is 100
-          * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
-          * against a sum of squares. On ordinary prices the ratio is ~1 and this
+          * The threshold compares two DEGREE-1 quantities, so it is 100 rather
+          * than the 1e6 a degree-2 ratio would take. On ordinary prices it is ~1 and this
           * never fires; it is a compare, not work. The constant is 100 rather than
           * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
           * measured accuracy gain.
@@ -312,10 +311,10 @@ public partial class Core
       double trailingValue = 0;
       double weightedTrailing = 0;
       double sumAbs = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -403,8 +402,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>LinearregLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>LinearregLookback</c> is a
+   /// <b>success with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -413,25 +417,34 @@ public partial class Core
    /// <param name="optInTimePeriod">Number of bars in each regression window (default 14; range 2..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="outReal">Regression line value at the window endpoint. Must hold at least <c>endIdx
-   /// - startIdx + 1</c> values.</param>
+   /// - max(startIdx, LinearregLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.LinearregSlope(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.LinearregAngle(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.LinearregIntercept(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Tsf(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Linearreg( int startIdx,
                               int endIdx,
                               ReadOnlySpan<double> inReal,
@@ -469,8 +482,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>LinearregLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>LinearregLookback</c> is a
+   /// <b>success with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -479,27 +497,36 @@ public partial class Core
    /// <param name="optInTimePeriod">Number of bars in each regression window (default 14; range 2..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="outReal">Regression line value at the window endpoint. Must hold at least <c>endIdx
-   /// - startIdx + 1</c> values.</param>
+   /// - max(startIdx, LinearregLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.LinearregSlope(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.LinearregAngle(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.LinearregIntercept(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Tsf(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Linearreg( int startIdx,
                               int endIdx,
                               ReadOnlySpan<float> inReal,
@@ -567,7 +594,7 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -580,13 +607,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("LINEARREG", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -616,7 +643,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -627,7 +653,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -635,9 +661,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("LINEARREG", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("LINEARREG", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("LINEARREG", "update", nameof(inReal));
          core.LinearregStepImpl(this, inReal);
          outRangeCount++;
          return cur_outReal;
@@ -649,16 +675,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public double Peek( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("LINEARREG", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("LINEARREG", "peek", nameof(inReal));
          LinearregStream sp = this;
          double m = 0.0;
          double b = 0.0;
@@ -698,9 +723,8 @@ public partial class Core
           *     after it is gone (measured 31x at period 5), and this rebuilds on
           *     the bar it leaves instead.
           *
-          * The threshold compares two DEGREE-1 quantities, which is why it is 100
-          * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
-          * against a sum of squares. On ordinary prices the ratio is ~1 and this
+          * The threshold compares two DEGREE-1 quantities, so it is 100 rather
+          * than the 1e6 a degree-2 ratio would take. On ordinary prices it is ~1 and this
           * never fires; it is a compare, not work. The constant is 100 rather than
           * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
           * measured accuracy gain.
@@ -782,7 +806,7 @@ public partial class Core
       }
    }
 
-   internal void LinearregStepImpl( LinearregStream sp, double inReal )
+   private void LinearregStepImpl( LinearregStream sp, double inReal )
    {
       double m = 0.0;
       double b = 0.0;
@@ -811,9 +835,8 @@ public partial class Core
        *     after it is gone (measured 31x at period 5), and this rebuilds on
        *     the bar it leaves instead.
        *
-       * The threshold compares two DEGREE-1 quantities, which is why it is 100
-       * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
-       * against a sum of squares. On ordinary prices the ratio is ~1 and this
+       * The threshold compares two DEGREE-1 quantities, so it is 100 rather
+       * than the 1e6 a degree-2 ratio would take. On ordinary prices it is ~1 and this
        * never fires; it is a compare, not work. The constant is 100 rather than
        * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
        * measured accuracy gain.
@@ -907,7 +930,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1005,9 +1028,8 @@ public partial class Core
           *     after it is gone (measured 31x at period 5), and this rebuilds on
           *     the bar it leaves instead.
           *
-          * The threshold compares two DEGREE-1 quantities, which is why it is 100
-          * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
-          * against a sum of squares. On ordinary prices the ratio is ~1 and this
+          * The threshold compares two DEGREE-1 quantities, so it is 100 rather
+          * than the 1e6 a degree-2 ratio would take. On ordinary prices it is ~1 and this
           * never fires; it is a compare, not work. The constant is 100 rather than
           * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
           * measured accuracy gain.
@@ -1114,6 +1136,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("LINEARREG", "openAndFill", nameof(inReal), inReal.Length, startIdx, LinearregLookback(optInTimePeriod));
+      }
       throw StreamFailure("LINEARREG", "openAndFill", retCode);
    }
 
@@ -1127,6 +1152,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("LINEARREG", "open", nameof(inReal), inReal.Length, startIdx, LinearregLookback(optInTimePeriod));
       }
       throw StreamFailure("LINEARREG", "open", retCode);
    }
@@ -1147,12 +1175,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>LinearregLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public LinearregStream LinearregOpen( ReadOnlySpan<double> inReal, int optInTimePeriod )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "LINEARREG open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "LINEARREG open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "LINEARREG open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return LinearregOpenInternal(inReal, 0, optInTimePeriod);
    }
 
@@ -1182,12 +1210,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public LinearregStream LinearregOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "LINEARREG openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "LINEARREG openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "LINEARREG openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("LINEARREG", "openAndFill", inReal.Length, LinearregLookback(optInTimePeriod));
       RequireFillLength("LINEARREG", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inReal) ) {

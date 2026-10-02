@@ -347,6 +347,7 @@ typedef enum
   TA_CODEGEN_OUTPUT_ARITY_EXCEEDS_CAP = 1118,
   TA_CODEGEN_RIDE_MISMATCH           = 1119,
   TA_CODEGEN_RIDE_VACUOUS            = 1120,
+  TA_CODEGEN_TIER_SERIES_TOO_SHORT   = 1121,
 
   /* Abstract codegen test errors */
   TA_ABSTRACT_LOOKBACK_MISMATCH      = 1200,
@@ -390,9 +391,14 @@ typedef enum
   TA_UNSTABLE_BOUND_NOT_REJECTED   = 1534,
   TA_UNSTABLE_BOUND_WROTE_ANYWAY   = 1535,
 
-  /* Cross-language TA_MAX_INDEX bound (#180) */
+  /* Cross-language TA_INDEX_MAX bound (#180) */
   TA_INDEX_RANGE_XLANG_CALL_FAILED = 1540,
   TA_INDEX_RANGE_XLANG_MISMATCH    = 1541,
+
+  /* Cross-language absent MA-type field: the function's own default */
+  TA_ABSENT_MATYPE_CALL_FAILED     = 1545,
+  TA_ABSENT_MATYPE_MISMATCH        = 1546,
+  TA_ABSENT_MATYPE_VACUOUS         = 1547,
 
   /* Rolling extremum block scan vs a naive window scan (issue #147). */
   TA_REGTEST_ROLLING_EXTREMUM_CALL    = 1550,
@@ -507,11 +513,42 @@ typedef enum
   TA_KDJ_VACUOUS             = 1671,
   TA_FRACTAL_VACUOUS         = 1675,
   TA_RVI_VACUOUS             = 1676,
+  TA_RVIR_VACUOUS            = 1677,
   TA_HA_VACUOUS              = 1678,
+  TA_KURTOSIS_VACUOUS        = 1679,
 
   /* A rejected Open/OpenAndFill and the caller's output buffer (#389). */
   TA_OPEN_CONTRACT_WROTE             = 1680,
   TA_OPEN_CONTRACT_VACUOUS           = 1682,
+
+  /* (#432) MEDIAN legs that ran while comparing nothing. */
+  TA_MEDIAN_VACUOUS                  = 1683,
+
+  /* (#430) CTI legs that ran while comparing nothing. */
+  TA_CTI_VACUOUS                     = 1684,
+
+  /* (#445) MAVP's streaming period bank against its batch. */
+  TA_MAVP_STREAM_CALL_FAILED         = 1685,
+  TA_MAVP_STREAM_MISMATCH            = 1686,
+  TA_MAVP_STREAM_VACUOUS             = 1687,
+
+  /* (#464) FRAMA legs that ran while comparing nothing. */
+  TA_FRAMA_VACUOUS                   = 1688,
+
+  /* (#471) MCGD legs that ran while comparing nothing. */
+  TA_MCGD_VACUOUS                    = 1689,
+
+  /* (#469) CHOP/CHOPTR legs that ran while comparing nothing. */
+  TA_CHOP_VACUOUS                    = 1690,
+
+  /* (#474) VIDYA legs that ran while comparing nothing. */
+  TA_VIDYA_VACUOUS                   = 1691,
+
+  /* (#475) ALMA legs that ran while comparing nothing. */
+  TA_ALMA_VACUOUS                    = 1692,
+
+  /* (#478) STC legs that ran while comparing nothing. */
+  TA_STC_VACUOUS                     = 1693,
 
   /* One code for every suite that routes a fixed vector through server_verify
    * (#427), because it reports one failure and the message names the leg.

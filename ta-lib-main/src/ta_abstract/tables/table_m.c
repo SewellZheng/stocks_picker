@@ -440,6 +440,15 @@ DEF_FUNCTION( MASSI,
 /* MASSI END */
 
 /* MAVP BEGIN */
+static const TA_IntegerRange TA_DEF_MAVP_MinPeriod =
+{
+   1,
+   10000,
+   1,
+   200,
+   1
+};
+
 static const TA_OptInputParameterInfo TA_DEF_UI_D_MAVP_MinPeriod =
 {
    TA_OptInput_IntegerRange,
@@ -447,11 +456,20 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_MAVP_MinPeriod =
    0,
 
    "Minimum Period",
-   (const void *)&TA_DEF_TimePeriod_Positive,
+   (const void *)&TA_DEF_MAVP_MinPeriod,
    2,
    "Value less than minimum will be changed to Minimum period",
 
    NULL
+};
+
+static const TA_IntegerRange TA_DEF_MAVP_MaxPeriod =
+{
+   1,
+   10000,
+   1,
+   200,
+   1
 };
 
 static const TA_OptInputParameterInfo TA_DEF_UI_D_MAVP_MaxPeriod =
@@ -461,7 +479,7 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_MAVP_MaxPeriod =
    0,
 
    "Maximum Period",
-   (const void *)&TA_DEF_TimePeriod_Positive,
+   (const void *)&TA_DEF_MAVP_MaxPeriod,
    30,
    "Value higher than maximum will be changed to Maximum period",
 
@@ -544,6 +562,102 @@ DEF_FUNCTION( MAXINDEX,
               TA_FUNC_FLG_STREAM
              );
 /* MAXINDEX END */
+
+/* MCGD BEGIN */
+static const TA_IntegerRange TA_DEF_MCGD_TimePeriod =
+{
+   2,
+   100000,
+   2,
+   200,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MCGD_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_MCGD_TimePeriod,
+   14,
+   "Time period",
+
+   NULL
+};
+
+static const TA_InputParameterInfo    *TA_MCGD_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_MCGD_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_MCGD_OptInputs[] =
+{ &TA_DEF_UI_D_MCGD_TimePeriod,
+  NULL
+};
+
+DEF_FUNCTION( MCGD,
+              TA_GroupId_OverlapStudies,
+              "McGinley Dynamic",
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
+             );
+/* MCGD END */
+
+/* MEDIAN BEGIN */
+static const TA_IntegerRange TA_DEF_MEDIAN_TimePeriod =
+{
+   2,
+   10000,
+   4,
+   200,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_MEDIAN_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_MEDIAN_TimePeriod,
+   30,
+   "Number of bars in the window",
+
+   NULL
+};
+
+static const TA_InputParameterInfo    *TA_MEDIAN_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_MEDIAN_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_MEDIAN_OptInputs[] =
+{ &TA_DEF_UI_D_MEDIAN_TimePeriod,
+  NULL
+};
+
+DEF_FUNCTION( MEDIAN,
+              TA_GroupId_Statistic,
+              "Rolling Median",
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
+             );
+/* MEDIAN END */
 
 /* MEDPRICE BEGIN */
 static const TA_InputParameterInfo    *TA_MEDPRICE_Inputs[]    =
@@ -872,6 +986,8 @@ const TA_FuncDef *TA_DEF_TableM[] =
    ADD_TO_TABLE(MAVP),
    ADD_TO_TABLE(MAX),
    ADD_TO_TABLE(MAXINDEX),
+   ADD_TO_TABLE(MCGD),
+   ADD_TO_TABLE(MEDIAN),
    ADD_TO_TABLE(MEDPRICE),
    ADD_TO_TABLE(MFI),
    ADD_TO_TABLE(MIDPOINT),

@@ -97,10 +97,10 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.cdlrisefall3methods_lookback().unwrap_or(usize::MAX);
@@ -144,6 +144,10 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inOpen = &inOpen[..=endIdx];
+        let inHigh = &inHigh[..=endIdx];
+        let inLow = &inLow[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         // Do the calculation using tight loops.
         // Add-up the initial period, except for the last value.
         BodyPeriodTotal[4] = 0.0;
@@ -154,92 +158,198 @@ impl Core {
         BodyShortTrailingIdx = startIdx - ((BodyShort_avgPeriod) as usize);
         BodyLongTrailingIdx = startIdx - ((BodyLong_avgPeriod) as usize);
         i = BodyShortTrailingIdx;
-        while i < startIdx {
-            let mut _candlerange_0: f64;
-            match BodyShort_rangeType {
-                0 => {
-                    _candlerange_0 = (inClose[i - 3] - inOpen[i - 3]).abs();
+        if i < startIdx {
+            let _wn: usize = startIdx - i;
+            if let (Some(_w0), Some(_w1), Some(_w2), Some(_w3)) = (inClose.get(i.wrapping_sub(3)..).and_then(|w| w.get(.._wn + 2)), inHigh.get(i.wrapping_sub(3)..).and_then(|w| w.get(.._wn + 2)), inLow.get(i.wrapping_sub(3)..).and_then(|w| w.get(.._wn + 2)), inOpen.get(i.wrapping_sub(3)..).and_then(|w| w.get(.._wn + 2))) {
+                let _w0 = &_w0[.._wn + 2];
+                let _w1 = &_w1[.._wn + 2];
+                let _w2 = &_w2[.._wn + 2];
+                let _w3 = &_w3[.._wn + 2];
+                for _wk in 0.._wn {
+                    let mut _candlerange_0: f64;
+                    match BodyShort_rangeType {
+                        0 => {
+                            _candlerange_0 = (_w0[_wk] - _w3[_wk]).abs();
+                        }
+                        1 => {
+                            _candlerange_0 = _w1[_wk] - _w2[_wk];
+                        }
+                        2 => {
+                            _candlerange_0 = (_w1[_wk] - (if _w0[_wk] >= _w3[_wk] { _w0[_wk] } else { _w3[_wk] })) + ((if _w0[_wk] >= _w3[_wk] { _w3[_wk] } else { _w0[_wk] }) - _w2[_wk]);
+                        }
+                        _ => {
+                            _candlerange_0 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[3] = BodyPeriodTotal[3] + _candlerange_0;
+                    let mut _candlerange_1: f64;
+                    match BodyShort_rangeType {
+                        0 => {
+                            _candlerange_1 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
+                        }
+                        1 => {
+                            _candlerange_1 = _w1[_wk + 1] - _w2[_wk + 1];
+                        }
+                        2 => {
+                            _candlerange_1 = (_w1[_wk + 1] - (if _w0[_wk + 1] >= _w3[_wk + 1] { _w0[_wk + 1] } else { _w3[_wk + 1] })) + ((if _w0[_wk + 1] >= _w3[_wk + 1] { _w3[_wk + 1] } else { _w0[_wk + 1] }) - _w2[_wk + 1]);
+                        }
+                        _ => {
+                            _candlerange_1 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[2] = BodyPeriodTotal[2] + _candlerange_1;
+                    let mut _candlerange_2: f64;
+                    match BodyShort_rangeType {
+                        0 => {
+                            _candlerange_2 = (_w0[_wk + 2] - _w3[_wk + 2]).abs();
+                        }
+                        1 => {
+                            _candlerange_2 = _w1[_wk + 2] - _w2[_wk + 2];
+                        }
+                        2 => {
+                            _candlerange_2 = (_w1[_wk + 2] - (if _w0[_wk + 2] >= _w3[_wk + 2] { _w0[_wk + 2] } else { _w3[_wk + 2] })) + ((if _w0[_wk + 2] >= _w3[_wk + 2] { _w3[_wk + 2] } else { _w0[_wk + 2] }) - _w2[_wk + 2]);
+                        }
+                        _ => {
+                            _candlerange_2 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[1] = BodyPeriodTotal[1] + _candlerange_2;
+                    i += 1;
                 }
-                1 => {
-                    _candlerange_0 = inHigh[i - 3] - inLow[i - 3];
-                }
-                2 => {
-                    _candlerange_0 = (inHigh[i - 3] - (if inClose[i - 3] >= inOpen[i - 3] { inClose[i - 3] } else { inOpen[i - 3] })) + ((if inClose[i - 3] >= inOpen[i - 3] { inOpen[i - 3] } else { inClose[i - 3] }) - inLow[i - 3]);
-                }
-                _ => {
-                    _candlerange_0 = 0.0;
+            } else {
+                while i < startIdx {
+                    let mut _candlerange_3: f64;
+                    match BodyShort_rangeType {
+                        0 => {
+                            _candlerange_3 = (inClose[i - 3] - inOpen[i - 3]).abs();
+                        }
+                        1 => {
+                            _candlerange_3 = inHigh[i - 3] - inLow[i - 3];
+                        }
+                        2 => {
+                            _candlerange_3 = (inHigh[i - 3] - (if inClose[i - 3] >= inOpen[i - 3] { inClose[i - 3] } else { inOpen[i - 3] })) + ((if inClose[i - 3] >= inOpen[i - 3] { inOpen[i - 3] } else { inClose[i - 3] }) - inLow[i - 3]);
+                        }
+                        _ => {
+                            _candlerange_3 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[3] = BodyPeriodTotal[3] + _candlerange_3;
+                    let mut _candlerange_4: f64;
+                    match BodyShort_rangeType {
+                        0 => {
+                            _candlerange_4 = (inClose[i - 2] - inOpen[i - 2]).abs();
+                        }
+                        1 => {
+                            _candlerange_4 = inHigh[i - 2] - inLow[i - 2];
+                        }
+                        2 => {
+                            _candlerange_4 = (inHigh[i - 2] - (if inClose[i - 2] >= inOpen[i - 2] { inClose[i - 2] } else { inOpen[i - 2] })) + ((if inClose[i - 2] >= inOpen[i - 2] { inOpen[i - 2] } else { inClose[i - 2] }) - inLow[i - 2]);
+                        }
+                        _ => {
+                            _candlerange_4 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[2] = BodyPeriodTotal[2] + _candlerange_4;
+                    let mut _candlerange_5: f64;
+                    match BodyShort_rangeType {
+                        0 => {
+                            _candlerange_5 = (inClose[i - 1] - inOpen[i - 1]).abs();
+                        }
+                        1 => {
+                            _candlerange_5 = inHigh[i - 1] - inLow[i - 1];
+                        }
+                        2 => {
+                            _candlerange_5 = (inHigh[i - 1] - (if inClose[i - 1] >= inOpen[i - 1] { inClose[i - 1] } else { inOpen[i - 1] })) + ((if inClose[i - 1] >= inOpen[i - 1] { inOpen[i - 1] } else { inClose[i - 1] }) - inLow[i - 1]);
+                        }
+                        _ => {
+                            _candlerange_5 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[1] = BodyPeriodTotal[1] + _candlerange_5;
+                    i += 1;
                 }
             }
-            BodyPeriodTotal[3] = BodyPeriodTotal[3] + _candlerange_0;
-            let mut _candlerange_1: f64;
-            match BodyShort_rangeType {
-                0 => {
-                    _candlerange_1 = (inClose[i - 2] - inOpen[i - 2]).abs();
-                }
-                1 => {
-                    _candlerange_1 = inHigh[i - 2] - inLow[i - 2];
-                }
-                2 => {
-                    _candlerange_1 = (inHigh[i - 2] - (if inClose[i - 2] >= inOpen[i - 2] { inClose[i - 2] } else { inOpen[i - 2] })) + ((if inClose[i - 2] >= inOpen[i - 2] { inOpen[i - 2] } else { inClose[i - 2] }) - inLow[i - 2]);
-                }
-                _ => {
-                    _candlerange_1 = 0.0;
-                }
-            }
-            BodyPeriodTotal[2] = BodyPeriodTotal[2] + _candlerange_1;
-            let mut _candlerange_2: f64;
-            match BodyShort_rangeType {
-                0 => {
-                    _candlerange_2 = (inClose[i - 1] - inOpen[i - 1]).abs();
-                }
-                1 => {
-                    _candlerange_2 = inHigh[i - 1] - inLow[i - 1];
-                }
-                2 => {
-                    _candlerange_2 = (inHigh[i - 1] - (if inClose[i - 1] >= inOpen[i - 1] { inClose[i - 1] } else { inOpen[i - 1] })) + ((if inClose[i - 1] >= inOpen[i - 1] { inOpen[i - 1] } else { inClose[i - 1] }) - inLow[i - 1]);
-                }
-                _ => {
-                    _candlerange_2 = 0.0;
-                }
-            }
-            BodyPeriodTotal[1] = BodyPeriodTotal[1] + _candlerange_2;
-            i += 1;
         }
         i = BodyLongTrailingIdx;
-        while i < startIdx {
-            let mut _candlerange_3: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_3 = (inClose[i - 4] - inOpen[i - 4]).abs();
+        if i < startIdx {
+            let _wn: usize = startIdx - i;
+            if let (Some(_w0), Some(_w1), Some(_w2), Some(_w3)) = (inClose.get(i.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inHigh.get(i.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inLow.get(i.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inOpen.get(i.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4))) {
+                let _w0 = &_w0[.._wn + 4];
+                let _w1 = &_w1[.._wn + 4];
+                let _w2 = &_w2[.._wn + 4];
+                let _w3 = &_w3[.._wn + 4];
+                for _wk in 0.._wn {
+                    let mut _candlerange_6: f64;
+                    match BodyLong_rangeType {
+                        0 => {
+                            _candlerange_6 = (_w0[_wk] - _w3[_wk]).abs();
+                        }
+                        1 => {
+                            _candlerange_6 = _w1[_wk] - _w2[_wk];
+                        }
+                        2 => {
+                            _candlerange_6 = (_w1[_wk] - (if _w0[_wk] >= _w3[_wk] { _w0[_wk] } else { _w3[_wk] })) + ((if _w0[_wk] >= _w3[_wk] { _w3[_wk] } else { _w0[_wk] }) - _w2[_wk]);
+                        }
+                        _ => {
+                            _candlerange_6 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[4] = BodyPeriodTotal[4] + _candlerange_6;
+                    let mut _candlerange_7: f64;
+                    match BodyLong_rangeType {
+                        0 => {
+                            _candlerange_7 = (_w0[_wk + 4] - _w3[_wk + 4]).abs();
+                        }
+                        1 => {
+                            _candlerange_7 = _w1[_wk + 4] - _w2[_wk + 4];
+                        }
+                        2 => {
+                            _candlerange_7 = (_w1[_wk + 4] - (if _w0[_wk + 4] >= _w3[_wk + 4] { _w0[_wk + 4] } else { _w3[_wk + 4] })) + ((if _w0[_wk + 4] >= _w3[_wk + 4] { _w3[_wk + 4] } else { _w0[_wk + 4] }) - _w2[_wk + 4]);
+                        }
+                        _ => {
+                            _candlerange_7 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[0] = BodyPeriodTotal[0] + _candlerange_7;
+                    i += 1;
                 }
-                1 => {
-                    _candlerange_3 = inHigh[i - 4] - inLow[i - 4];
-                }
-                2 => {
-                    _candlerange_3 = (inHigh[i - 4] - (if inClose[i - 4] >= inOpen[i - 4] { inClose[i - 4] } else { inOpen[i - 4] })) + ((if inClose[i - 4] >= inOpen[i - 4] { inOpen[i - 4] } else { inClose[i - 4] }) - inLow[i - 4]);
-                }
-                _ => {
-                    _candlerange_3 = 0.0;
+            } else {
+                while i < startIdx {
+                    let mut _candlerange_8: f64;
+                    match BodyLong_rangeType {
+                        0 => {
+                            _candlerange_8 = (inClose[i - 4] - inOpen[i - 4]).abs();
+                        }
+                        1 => {
+                            _candlerange_8 = inHigh[i - 4] - inLow[i - 4];
+                        }
+                        2 => {
+                            _candlerange_8 = (inHigh[i - 4] - (if inClose[i - 4] >= inOpen[i - 4] { inClose[i - 4] } else { inOpen[i - 4] })) + ((if inClose[i - 4] >= inOpen[i - 4] { inOpen[i - 4] } else { inClose[i - 4] }) - inLow[i - 4]);
+                        }
+                        _ => {
+                            _candlerange_8 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[4] = BodyPeriodTotal[4] + _candlerange_8;
+                    let mut _candlerange_9: f64;
+                    match BodyLong_rangeType {
+                        0 => {
+                            _candlerange_9 = (inClose[i] - inOpen[i]).abs();
+                        }
+                        1 => {
+                            _candlerange_9 = inHigh[i] - inLow[i];
+                        }
+                        2 => {
+                            _candlerange_9 = (inHigh[i] - (if inClose[i] >= inOpen[i] { inClose[i] } else { inOpen[i] })) + ((if inClose[i] >= inOpen[i] { inOpen[i] } else { inClose[i] }) - inLow[i]);
+                        }
+                        _ => {
+                            _candlerange_9 = 0.0;
+                        }
+                    }
+                    BodyPeriodTotal[0] = BodyPeriodTotal[0] + _candlerange_9;
+                    i += 1;
                 }
             }
-            BodyPeriodTotal[4] = BodyPeriodTotal[4] + _candlerange_3;
-            let mut _candlerange_4: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_4 = (inClose[i] - inOpen[i]).abs();
-                }
-                1 => {
-                    _candlerange_4 = inHigh[i] - inLow[i];
-                }
-                2 => {
-                    _candlerange_4 = (inHigh[i] - (if inClose[i] >= inOpen[i] { inClose[i] } else { inOpen[i] })) + ((if inClose[i] >= inOpen[i] { inOpen[i] } else { inClose[i] }) - inLow[i]);
-                }
-                _ => {
-                    _candlerange_4 = 0.0;
-                }
-            }
-            BodyPeriodTotal[0] = BodyPeriodTotal[0] + _candlerange_4;
-            i += 1;
         }
         i = startIdx;
         // Proceed with the calculation for the requested range.
@@ -253,138 +363,149 @@ impl Core {
         // are considered;
         // outInteger is positive (1 to 100) or negative (-1 to -100)
         outIdx = 0;
-        loop {
-            if (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 }) == 0 - (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { 0 - 1 }) && // white, 3 black, white  ||  black, 3 white, black
-               (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { 0 - 1 }) == (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) &&
-               (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) &&
-               (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) == 0 - (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) &&
-               (inOpen[i - 3]).min(inClose[i - 3]) < inHigh[i - 4] && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
-               (inOpen[i - 3]).max(inClose[i - 3]) > inLow[i - 4] &&
-               (inOpen[i - 2]).min(inClose[i - 2]) < inHigh[i - 4] &&
-               (inOpen[i - 2]).max(inClose[i - 2]) > inLow[i - 4] &&
-               (inOpen[i - 1]).min(inClose[i - 1]) < inHigh[i - 4] &&
-               (inOpen[i - 1]).max(inClose[i - 1]) > inLow[i - 4] &&
-               inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) < inClose[i - 3] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) && // 2nd to 4th are falling (rising)
-               inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) < inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) &&
-               inOpen[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) > inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) && // 5th opens above (below) the prior close
-               inClose[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) > inClose[i - 4] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) && // 5th closes above (below) the 1st close
-               (inClose[i - 4] - inOpen[i - 4]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 4]) - (inOpen[i - 4])).abs(), 1 => (inHigh[i - 4]) - (inLow[i - 4]), 2 => ((inHigh[i - 4]) - (if (inClose[i - 4]) >= (inOpen[i - 4]) { (inClose[i - 4]) } else { (inOpen[i - 4]) })) + ((if (inClose[i - 4]) >= (inOpen[i - 4]) { (inOpen[i - 4]) } else { (inClose[i - 4]) }) - (inLow[i - 4])), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st long, then 3 small, 5th long
-               (inClose[i - 3] - inOpen[i - 3]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (inClose[i - 2] - inOpen[i - 2]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (inClose[i - 1] - inOpen[i - 1]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (inClose[i] - inOpen[i]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 }))
-            {
-                outInteger[outIdx] = (100 * (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as i32;
-                outIdx += 1;
+        if i <= endIdx {
+            let _wn: usize = endIdx - i + 1;
+            if let (Some(_w0), Some(_w1), Some(_w2), Some(_w3), Some(_w4), Some(_w5), Some(_w6), Some(_w7), Some(_w8), Some(_w9), Some(_w10), Some(_w11)) = (inClose.get(BodyLongTrailingIdx.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inClose.get(BodyShortTrailingIdx.wrapping_sub(3)..).and_then(|w| w.get(.._wn + 2)), inClose.get(i.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inHigh.get(BodyLongTrailingIdx.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inHigh.get(BodyShortTrailingIdx.wrapping_sub(3)..).and_then(|w| w.get(.._wn + 2)), inHigh.get(i.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inLow.get(BodyLongTrailingIdx.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inLow.get(BodyShortTrailingIdx.wrapping_sub(3)..).and_then(|w| w.get(.._wn + 2)), inLow.get(i.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inOpen.get(BodyLongTrailingIdx.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4)), inOpen.get(BodyShortTrailingIdx.wrapping_sub(3)..).and_then(|w| w.get(.._wn + 2)), inOpen.get(i.wrapping_sub(4)..).and_then(|w| w.get(.._wn + 4))) {
+                let _w0 = &_w0[.._wn + 4];
+                let _w1 = &_w1[.._wn + 2];
+                let _w2 = &_w2[.._wn + 4];
+                let _w3 = &_w3[.._wn + 4];
+                let _w4 = &_w4[.._wn + 2];
+                let _w5 = &_w5[.._wn + 4];
+                let _w6 = &_w6[.._wn + 4];
+                let _w7 = &_w7[.._wn + 2];
+                let _w8 = &_w8[.._wn + 4];
+                let _w9 = &_w9[.._wn + 4];
+                let _w10 = &_w10[.._wn + 2];
+                let _w11 = &_w11[.._wn + 4];
+                for _wk in 0.._wn {
+                    if (if _w2[_wk] >= _w11[_wk] { 1 } else { -1 }) == -(if _w2[_wk + 1] >= _w11[_wk + 1] { 1 } else { -1 }) && // white, 3 black, white  ||  black, 3 white, black
+                       (if _w2[_wk + 1] >= _w11[_wk + 1] { 1 } else { -1 }) == (if _w2[_wk + 2] >= _w11[_wk + 2] { 1 } else { -1 }) &&
+                       (if _w2[_wk + 2] >= _w11[_wk + 2] { 1 } else { -1 }) == (if _w2[_wk + 3] >= _w11[_wk + 3] { 1 } else { -1 }) &&
+                       (if _w2[_wk + 3] >= _w11[_wk + 3] { 1 } else { -1 }) == -(if _w2[_wk + 4] >= _w11[_wk + 4] { 1 } else { -1 }) &&
+                       c_min(_w11[_wk + 1], _w2[_wk + 1]) < _w5[_wk] && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
+                       c_max(_w11[_wk + 1], _w2[_wk + 1]) > _w8[_wk] &&
+                       c_min(_w11[_wk + 2], _w2[_wk + 2]) < _w5[_wk] &&
+                       c_max(_w11[_wk + 2], _w2[_wk + 2]) > _w8[_wk] &&
+                       c_min(_w11[_wk + 3], _w2[_wk + 3]) < _w5[_wk] &&
+                       c_max(_w11[_wk + 3], _w2[_wk + 3]) > _w8[_wk] &&
+                       _w2[_wk + 2] * (((if _w2[_wk] >= _w11[_wk] { 1 } else { -1 })) as f64) < _w2[_wk + 1] * (((if _w2[_wk] >= _w11[_wk] { 1 } else { -1 })) as f64) && // 2nd to 4th are falling (rising)
+                       _w2[_wk + 3] * (((if _w2[_wk] >= _w11[_wk] { 1 } else { -1 })) as f64) < _w2[_wk + 2] * (((if _w2[_wk] >= _w11[_wk] { 1 } else { -1 })) as f64) &&
+                       _w11[_wk + 4] * (((if _w2[_wk] >= _w11[_wk] { 1 } else { -1 })) as f64) > _w2[_wk + 3] * (((if _w2[_wk] >= _w11[_wk] { 1 } else { -1 })) as f64) && // 5th opens above (below) the prior close
+                       _w2[_wk + 4] * (((if _w2[_wk] >= _w11[_wk] { 1 } else { -1 })) as f64) > _w2[_wk] * (((if _w2[_wk] >= _w11[_wk] { 1 } else { -1 })) as f64) && // 5th closes above (below) the 1st close
+                       (_w2[_wk] - _w11[_wk]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((_w2[_wk]) - (_w11[_wk])).abs(), 1 => (_w5[_wk]) - (_w8[_wk]), 2 => ((_w5[_wk]) - (if (_w2[_wk]) >= (_w11[_wk]) { (_w2[_wk]) } else { (_w11[_wk]) })) + ((if (_w2[_wk]) >= (_w11[_wk]) { (_w11[_wk]) } else { (_w2[_wk]) }) - (_w8[_wk])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st long, then 3 small, 5th long
+                       (_w2[_wk + 1] - _w11[_wk + 1]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((_w2[_wk + 1]) - (_w11[_wk + 1])).abs(), 1 => (_w5[_wk + 1]) - (_w8[_wk + 1]), 2 => ((_w5[_wk + 1]) - (if (_w2[_wk + 1]) >= (_w11[_wk + 1]) { (_w2[_wk + 1]) } else { (_w11[_wk + 1]) })) + ((if (_w2[_wk + 1]) >= (_w11[_wk + 1]) { (_w11[_wk + 1]) } else { (_w2[_wk + 1]) }) - (_w8[_wk + 1])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                       (_w2[_wk + 2] - _w11[_wk + 2]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((_w2[_wk + 2]) - (_w11[_wk + 2])).abs(), 1 => (_w5[_wk + 2]) - (_w8[_wk + 2]), 2 => ((_w5[_wk + 2]) - (if (_w2[_wk + 2]) >= (_w11[_wk + 2]) { (_w2[_wk + 2]) } else { (_w11[_wk + 2]) })) + ((if (_w2[_wk + 2]) >= (_w11[_wk + 2]) { (_w11[_wk + 2]) } else { (_w2[_wk + 2]) }) - (_w8[_wk + 2])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                       (_w2[_wk + 3] - _w11[_wk + 3]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((_w2[_wk + 3]) - (_w11[_wk + 3])).abs(), 1 => (_w5[_wk + 3]) - (_w8[_wk + 3]), 2 => ((_w5[_wk + 3]) - (if (_w2[_wk + 3]) >= (_w11[_wk + 3]) { (_w2[_wk + 3]) } else { (_w11[_wk + 3]) })) + ((if (_w2[_wk + 3]) >= (_w11[_wk + 3]) { (_w11[_wk + 3]) } else { (_w2[_wk + 3]) }) - (_w8[_wk + 3])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                       (_w2[_wk + 4] - _w11[_wk + 4]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((_w2[_wk + 4]) - (_w11[_wk + 4])).abs(), 1 => (_w5[_wk + 4]) - (_w8[_wk + 4]), 2 => ((_w5[_wk + 4]) - (if (_w2[_wk + 4]) >= (_w11[_wk + 4]) { (_w2[_wk + 4]) } else { (_w11[_wk + 4]) })) + ((if (_w2[_wk + 4]) >= (_w11[_wk + 4]) { (_w11[_wk + 4]) } else { (_w2[_wk + 4]) }) - (_w8[_wk + 4])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))
+                    {
+                        outInteger[outIdx] = (100 * (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as i32;
+                        outIdx += 1;
+                    } else {
+                        outInteger[outIdx] = 0;
+                        outIdx += 1;
+                    }
+                    // add the current range and subtract the first range: this is done after the pattern recognition
+                    // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+                    BodyPeriodTotal[4] = BodyPeriodTotal[4] + (match BodyLong_rangeType { 0 => (((_w2[_wk]) - (_w11[_wk])).abs()) - (((_w0[_wk]) - (_w9[_wk])).abs()), 1 => ((_w5[_wk]) - (_w8[_wk])) - ((_w3[_wk]) - (_w6[_wk])), 2 => (((_w5[_wk]) - (if (_w2[_wk]) >= (_w11[_wk]) { (_w2[_wk]) } else { (_w11[_wk]) })) + ((if (_w2[_wk]) >= (_w11[_wk]) { (_w11[_wk]) } else { (_w2[_wk]) }) - (_w8[_wk]))) - (((_w3[_wk]) - (if (_w0[_wk]) >= (_w9[_wk]) { (_w0[_wk]) } else { (_w9[_wk]) })) + ((if (_w0[_wk]) >= (_w9[_wk]) { (_w9[_wk]) } else { (_w0[_wk]) }) - (_w6[_wk]))), _ => 0.0 });
+                    BodyPeriodTotal[3] = BodyPeriodTotal[3] + (match BodyShort_rangeType { 0 => (((_w2[_wk + 1]) - (_w11[_wk + 1])).abs()) - (((_w1[_wk]) - (_w10[_wk])).abs()), 1 => ((_w5[_wk + 1]) - (_w8[_wk + 1])) - ((_w4[_wk]) - (_w7[_wk])), 2 => (((_w5[_wk + 1]) - (if (_w2[_wk + 1]) >= (_w11[_wk + 1]) { (_w2[_wk + 1]) } else { (_w11[_wk + 1]) })) + ((if (_w2[_wk + 1]) >= (_w11[_wk + 1]) { (_w11[_wk + 1]) } else { (_w2[_wk + 1]) }) - (_w8[_wk + 1]))) - (((_w4[_wk]) - (if (_w1[_wk]) >= (_w10[_wk]) { (_w1[_wk]) } else { (_w10[_wk]) })) + ((if (_w1[_wk]) >= (_w10[_wk]) { (_w10[_wk]) } else { (_w1[_wk]) }) - (_w7[_wk]))), _ => 0.0 });
+                    BodyPeriodTotal[2] = BodyPeriodTotal[2] + (match BodyShort_rangeType { 0 => (((_w2[_wk + 2]) - (_w11[_wk + 2])).abs()) - (((_w1[_wk + 1]) - (_w10[_wk + 1])).abs()), 1 => ((_w5[_wk + 2]) - (_w8[_wk + 2])) - ((_w4[_wk + 1]) - (_w7[_wk + 1])), 2 => (((_w5[_wk + 2]) - (if (_w2[_wk + 2]) >= (_w11[_wk + 2]) { (_w2[_wk + 2]) } else { (_w11[_wk + 2]) })) + ((if (_w2[_wk + 2]) >= (_w11[_wk + 2]) { (_w11[_wk + 2]) } else { (_w2[_wk + 2]) }) - (_w8[_wk + 2]))) - (((_w4[_wk + 1]) - (if (_w1[_wk + 1]) >= (_w10[_wk + 1]) { (_w1[_wk + 1]) } else { (_w10[_wk + 1]) })) + ((if (_w1[_wk + 1]) >= (_w10[_wk + 1]) { (_w10[_wk + 1]) } else { (_w1[_wk + 1]) }) - (_w7[_wk + 1]))), _ => 0.0 });
+                    BodyPeriodTotal[1] = BodyPeriodTotal[1] + (match BodyShort_rangeType { 0 => (((_w2[_wk + 3]) - (_w11[_wk + 3])).abs()) - (((_w1[_wk + 2]) - (_w10[_wk + 2])).abs()), 1 => ((_w5[_wk + 3]) - (_w8[_wk + 3])) - ((_w4[_wk + 2]) - (_w7[_wk + 2])), 2 => (((_w5[_wk + 3]) - (if (_w2[_wk + 3]) >= (_w11[_wk + 3]) { (_w2[_wk + 3]) } else { (_w11[_wk + 3]) })) + ((if (_w2[_wk + 3]) >= (_w11[_wk + 3]) { (_w11[_wk + 3]) } else { (_w2[_wk + 3]) }) - (_w8[_wk + 3]))) - (((_w4[_wk + 2]) - (if (_w1[_wk + 2]) >= (_w10[_wk + 2]) { (_w1[_wk + 2]) } else { (_w10[_wk + 2]) })) + ((if (_w1[_wk + 2]) >= (_w10[_wk + 2]) { (_w10[_wk + 2]) } else { (_w1[_wk + 2]) }) - (_w7[_wk + 2]))), _ => 0.0 });
+                    totIdx = 1;
+                    BodyPeriodTotal[0] = BodyPeriodTotal[0] + (match BodyLong_rangeType { 0 => (((_w2[_wk + 4]) - (_w11[_wk + 4])).abs()) - (((_w0[_wk + 4]) - (_w9[_wk + 4])).abs()), 1 => ((_w5[_wk + 4]) - (_w8[_wk + 4])) - ((_w3[_wk + 4]) - (_w6[_wk + 4])), 2 => (((_w5[_wk + 4]) - (if (_w2[_wk + 4]) >= (_w11[_wk + 4]) { (_w2[_wk + 4]) } else { (_w11[_wk + 4]) })) + ((if (_w2[_wk + 4]) >= (_w11[_wk + 4]) { (_w11[_wk + 4]) } else { (_w2[_wk + 4]) }) - (_w8[_wk + 4]))) - (((_w3[_wk + 4]) - (if (_w0[_wk + 4]) >= (_w9[_wk + 4]) { (_w0[_wk + 4]) } else { (_w9[_wk + 4]) })) + ((if (_w0[_wk + 4]) >= (_w9[_wk + 4]) { (_w9[_wk + 4]) } else { (_w0[_wk + 4]) }) - (_w6[_wk + 4]))), _ => 0.0 });
+                    i += 1;
+                    BodyShortTrailingIdx += 1;
+                    BodyLongTrailingIdx += 1;
+                }
             } else {
-                outInteger[outIdx] = 0;
-                outIdx += 1;
+                loop {
+                    if (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 }) == -(if inClose[i - 3] >= inOpen[i - 3] { 1 } else { -1 }) && // white, 3 black, white  ||  black, 3 white, black
+                       (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { -1 }) == (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) &&
+                       (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) &&
+                       (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) == -(if inClose[i] >= inOpen[i] { 1 } else { -1 }) &&
+                       c_min(inOpen[i - 3], inClose[i - 3]) < inHigh[i - 4] && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
+                       c_max(inOpen[i - 3], inClose[i - 3]) > inLow[i - 4] &&
+                       c_min(inOpen[i - 2], inClose[i - 2]) < inHigh[i - 4] &&
+                       c_max(inOpen[i - 2], inClose[i - 2]) > inLow[i - 4] &&
+                       c_min(inOpen[i - 1], inClose[i - 1]) < inHigh[i - 4] &&
+                       c_max(inOpen[i - 1], inClose[i - 1]) > inLow[i - 4] &&
+                       inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) < inClose[i - 3] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 2nd to 4th are falling (rising)
+                       inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) < inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) &&
+                       inOpen[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) > inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 5th opens above (below) the prior close
+                       inClose[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) > inClose[i - 4] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 5th closes above (below) the 1st close
+                       (inClose[i - 4] - inOpen[i - 4]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 4]) - (inOpen[i - 4])).abs(), 1 => (inHigh[i - 4]) - (inLow[i - 4]), 2 => ((inHigh[i - 4]) - (if (inClose[i - 4]) >= (inOpen[i - 4]) { (inClose[i - 4]) } else { (inOpen[i - 4]) })) + ((if (inClose[i - 4]) >= (inOpen[i - 4]) { (inOpen[i - 4]) } else { (inClose[i - 4]) }) - (inLow[i - 4])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st long, then 3 small, 5th long
+                       (inClose[i - 3] - inOpen[i - 3]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                       (inClose[i - 2] - inOpen[i - 2]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                       (inClose[i - 1] - inOpen[i - 1]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                       (inClose[i] - inOpen[i]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))
+                    {
+                        outInteger[outIdx] = (100 * (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as i32;
+                        outIdx += 1;
+                    } else {
+                        outInteger[outIdx] = 0;
+                        outIdx += 1;
+                    }
+                    // add the current range and subtract the first range: this is done after the pattern recognition
+                    // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+                    BodyPeriodTotal[4] = BodyPeriodTotal[4] + (match BodyLong_rangeType { 0 => (((inClose[i - 4]) - (inOpen[i - 4])).abs()) - (((inClose[BodyLongTrailingIdx - 4]) - (inOpen[BodyLongTrailingIdx - 4])).abs()), 1 => ((inHigh[i - 4]) - (inLow[i - 4])) - ((inHigh[BodyLongTrailingIdx - 4]) - (inLow[BodyLongTrailingIdx - 4])), 2 => (((inHigh[i - 4]) - (if (inClose[i - 4]) >= (inOpen[i - 4]) { (inClose[i - 4]) } else { (inOpen[i - 4]) })) + ((if (inClose[i - 4]) >= (inOpen[i - 4]) { (inOpen[i - 4]) } else { (inClose[i - 4]) }) - (inLow[i - 4]))) - (((inHigh[BodyLongTrailingIdx - 4]) - (if (inClose[BodyLongTrailingIdx - 4]) >= (inOpen[BodyLongTrailingIdx - 4]) { (inClose[BodyLongTrailingIdx - 4]) } else { (inOpen[BodyLongTrailingIdx - 4]) })) + ((if (inClose[BodyLongTrailingIdx - 4]) >= (inOpen[BodyLongTrailingIdx - 4]) { (inOpen[BodyLongTrailingIdx - 4]) } else { (inClose[BodyLongTrailingIdx - 4]) }) - (inLow[BodyLongTrailingIdx - 4]))), _ => 0.0 });
+                    // for( totIdx = 3; totIdx >= 1; totIdx -= 1 )
+                    totIdx = 3;
+                    loop {
+                        BodyPeriodTotal[totIdx] = BodyPeriodTotal[totIdx] + (match BodyShort_rangeType { 0 => (((inClose[i - totIdx]) - (inOpen[i - totIdx])).abs()) - (((inClose[BodyShortTrailingIdx - totIdx]) - (inOpen[BodyShortTrailingIdx - totIdx])).abs()), 1 => ((inHigh[i - totIdx]) - (inLow[i - totIdx])) - ((inHigh[BodyShortTrailingIdx - totIdx]) - (inLow[BodyShortTrailingIdx - totIdx])), 2 => (((inHigh[i - totIdx]) - (if (inClose[i - totIdx]) >= (inOpen[i - totIdx]) { (inClose[i - totIdx]) } else { (inOpen[i - totIdx]) })) + ((if (inClose[i - totIdx]) >= (inOpen[i - totIdx]) { (inOpen[i - totIdx]) } else { (inClose[i - totIdx]) }) - (inLow[i - totIdx]))) - (((inHigh[BodyShortTrailingIdx - totIdx]) - (if (inClose[BodyShortTrailingIdx - totIdx]) >= (inOpen[BodyShortTrailingIdx - totIdx]) { (inClose[BodyShortTrailingIdx - totIdx]) } else { (inOpen[BodyShortTrailingIdx - totIdx]) })) + ((if (inClose[BodyShortTrailingIdx - totIdx]) >= (inOpen[BodyShortTrailingIdx - totIdx]) { (inOpen[BodyShortTrailingIdx - totIdx]) } else { (inClose[BodyShortTrailingIdx - totIdx]) }) - (inLow[BodyShortTrailingIdx - totIdx]))), _ => 0.0 });
+                        if totIdx == 1 { break; }
+                        totIdx -= 1;
+                    }
+                    BodyPeriodTotal[0] = BodyPeriodTotal[0] + (match BodyLong_rangeType { 0 => (((inClose[i]) - (inOpen[i])).abs()) - (((inClose[BodyLongTrailingIdx]) - (inOpen[BodyLongTrailingIdx])).abs()), 1 => ((inHigh[i]) - (inLow[i])) - ((inHigh[BodyLongTrailingIdx]) - (inLow[BodyLongTrailingIdx])), 2 => (((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i]))) - (((inHigh[BodyLongTrailingIdx]) - (if (inClose[BodyLongTrailingIdx]) >= (inOpen[BodyLongTrailingIdx]) { (inClose[BodyLongTrailingIdx]) } else { (inOpen[BodyLongTrailingIdx]) })) + ((if (inClose[BodyLongTrailingIdx]) >= (inOpen[BodyLongTrailingIdx]) { (inOpen[BodyLongTrailingIdx]) } else { (inClose[BodyLongTrailingIdx]) }) - (inLow[BodyLongTrailingIdx]))), _ => 0.0 });
+                    i += 1;
+                    BodyShortTrailingIdx += 1;
+                    BodyLongTrailingIdx += 1;
+                    if !(i <= endIdx) { break; }
+                }
             }
-            // add the current range and subtract the first range: this is done after the pattern recognition
-            // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-            let mut _candlerange_5: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_5 = (inClose[i - 4] - inOpen[i - 4]).abs();
-                }
-                1 => {
-                    _candlerange_5 = inHigh[i - 4] - inLow[i - 4];
-                }
-                2 => {
-                    _candlerange_5 = (inHigh[i - 4] - (if inClose[i - 4] >= inOpen[i - 4] { inClose[i - 4] } else { inOpen[i - 4] })) + ((if inClose[i - 4] >= inOpen[i - 4] { inOpen[i - 4] } else { inClose[i - 4] }) - inLow[i - 4]);
-                }
-                _ => {
-                    _candlerange_5 = 0.0;
-                }
-            }
-            let mut _candlerange_6: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_6 = (inClose[BodyLongTrailingIdx - 4] - inOpen[BodyLongTrailingIdx - 4]).abs();
-                }
-                1 => {
-                    _candlerange_6 = inHigh[BodyLongTrailingIdx - 4] - inLow[BodyLongTrailingIdx - 4];
-                }
-                2 => {
-                    _candlerange_6 = (inHigh[BodyLongTrailingIdx - 4] - (if inClose[BodyLongTrailingIdx - 4] >= inOpen[BodyLongTrailingIdx - 4] { inClose[BodyLongTrailingIdx - 4] } else { inOpen[BodyLongTrailingIdx - 4] })) + ((if inClose[BodyLongTrailingIdx - 4] >= inOpen[BodyLongTrailingIdx - 4] { inOpen[BodyLongTrailingIdx - 4] } else { inClose[BodyLongTrailingIdx - 4] }) - inLow[BodyLongTrailingIdx - 4]);
-                }
-                _ => {
-                    _candlerange_6 = 0.0;
-                }
-            }
-            BodyPeriodTotal[4] = BodyPeriodTotal[4] + (_candlerange_5 - _candlerange_6);
-            // for( totIdx = 3; totIdx >= 1; totIdx -= 1 )
-            totIdx = 3;
+        } else {
             loop {
-                let mut _candlerange_7: f64;
-                match BodyShort_rangeType {
-                    0 => {
-                        _candlerange_7 = (inClose[i - totIdx] - inOpen[i - totIdx]).abs();
-                    }
-                    1 => {
-                        _candlerange_7 = inHigh[i - totIdx] - inLow[i - totIdx];
-                    }
-                    2 => {
-                        _candlerange_7 = (inHigh[i - totIdx] - (if inClose[i - totIdx] >= inOpen[i - totIdx] { inClose[i - totIdx] } else { inOpen[i - totIdx] })) + ((if inClose[i - totIdx] >= inOpen[i - totIdx] { inOpen[i - totIdx] } else { inClose[i - totIdx] }) - inLow[i - totIdx]);
-                    }
-                    _ => {
-                        _candlerange_7 = 0.0;
-                    }
+                if (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 }) == -(if inClose[i - 3] >= inOpen[i - 3] { 1 } else { -1 }) && // white, 3 black, white  ||  black, 3 white, black
+                   (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { -1 }) == (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) &&
+                   (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) &&
+                   (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) == -(if inClose[i] >= inOpen[i] { 1 } else { -1 }) &&
+                   c_min(inOpen[i - 3], inClose[i - 3]) < inHigh[i - 4] && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
+                   c_max(inOpen[i - 3], inClose[i - 3]) > inLow[i - 4] &&
+                   c_min(inOpen[i - 2], inClose[i - 2]) < inHigh[i - 4] &&
+                   c_max(inOpen[i - 2], inClose[i - 2]) > inLow[i - 4] &&
+                   c_min(inOpen[i - 1], inClose[i - 1]) < inHigh[i - 4] &&
+                   c_max(inOpen[i - 1], inClose[i - 1]) > inLow[i - 4] &&
+                   inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) < inClose[i - 3] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 2nd to 4th are falling (rising)
+                   inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) < inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) &&
+                   inOpen[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) > inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 5th opens above (below) the prior close
+                   inClose[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) > inClose[i - 4] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 5th closes above (below) the 1st close
+                   (inClose[i - 4] - inOpen[i - 4]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 4]) - (inOpen[i - 4])).abs(), 1 => (inHigh[i - 4]) - (inLow[i - 4]), 2 => ((inHigh[i - 4]) - (if (inClose[i - 4]) >= (inOpen[i - 4]) { (inClose[i - 4]) } else { (inOpen[i - 4]) })) + ((if (inClose[i - 4]) >= (inOpen[i - 4]) { (inOpen[i - 4]) } else { (inClose[i - 4]) }) - (inLow[i - 4])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st long, then 3 small, 5th long
+                   (inClose[i - 3] - inOpen[i - 3]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                   (inClose[i - 2] - inOpen[i - 2]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                   (inClose[i - 1] - inOpen[i - 1]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                   (inClose[i] - inOpen[i]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))
+                {
+                    outInteger[outIdx] = (100 * (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as i32;
+                    outIdx += 1;
+                } else {
+                    outInteger[outIdx] = 0;
+                    outIdx += 1;
                 }
-                let mut _candlerange_8: f64;
-                match BodyShort_rangeType {
-                    0 => {
-                        _candlerange_8 = (inClose[BodyShortTrailingIdx - totIdx] - inOpen[BodyShortTrailingIdx - totIdx]).abs();
-                    }
-                    1 => {
-                        _candlerange_8 = inHigh[BodyShortTrailingIdx - totIdx] - inLow[BodyShortTrailingIdx - totIdx];
-                    }
-                    2 => {
-                        _candlerange_8 = (inHigh[BodyShortTrailingIdx - totIdx] - (if inClose[BodyShortTrailingIdx - totIdx] >= inOpen[BodyShortTrailingIdx - totIdx] { inClose[BodyShortTrailingIdx - totIdx] } else { inOpen[BodyShortTrailingIdx - totIdx] })) + ((if inClose[BodyShortTrailingIdx - totIdx] >= inOpen[BodyShortTrailingIdx - totIdx] { inOpen[BodyShortTrailingIdx - totIdx] } else { inClose[BodyShortTrailingIdx - totIdx] }) - inLow[BodyShortTrailingIdx - totIdx]);
-                    }
-                    _ => {
-                        _candlerange_8 = 0.0;
-                    }
+                // add the current range and subtract the first range: this is done after the pattern recognition
+                // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+                BodyPeriodTotal[4] = BodyPeriodTotal[4] + (match BodyLong_rangeType { 0 => (((inClose[i - 4]) - (inOpen[i - 4])).abs()) - (((inClose[BodyLongTrailingIdx - 4]) - (inOpen[BodyLongTrailingIdx - 4])).abs()), 1 => ((inHigh[i - 4]) - (inLow[i - 4])) - ((inHigh[BodyLongTrailingIdx - 4]) - (inLow[BodyLongTrailingIdx - 4])), 2 => (((inHigh[i - 4]) - (if (inClose[i - 4]) >= (inOpen[i - 4]) { (inClose[i - 4]) } else { (inOpen[i - 4]) })) + ((if (inClose[i - 4]) >= (inOpen[i - 4]) { (inOpen[i - 4]) } else { (inClose[i - 4]) }) - (inLow[i - 4]))) - (((inHigh[BodyLongTrailingIdx - 4]) - (if (inClose[BodyLongTrailingIdx - 4]) >= (inOpen[BodyLongTrailingIdx - 4]) { (inClose[BodyLongTrailingIdx - 4]) } else { (inOpen[BodyLongTrailingIdx - 4]) })) + ((if (inClose[BodyLongTrailingIdx - 4]) >= (inOpen[BodyLongTrailingIdx - 4]) { (inOpen[BodyLongTrailingIdx - 4]) } else { (inClose[BodyLongTrailingIdx - 4]) }) - (inLow[BodyLongTrailingIdx - 4]))), _ => 0.0 });
+                // for( totIdx = 3; totIdx >= 1; totIdx -= 1 )
+                totIdx = 3;
+                loop {
+                    BodyPeriodTotal[totIdx] = BodyPeriodTotal[totIdx] + (match BodyShort_rangeType { 0 => (((inClose[i - totIdx]) - (inOpen[i - totIdx])).abs()) - (((inClose[BodyShortTrailingIdx - totIdx]) - (inOpen[BodyShortTrailingIdx - totIdx])).abs()), 1 => ((inHigh[i - totIdx]) - (inLow[i - totIdx])) - ((inHigh[BodyShortTrailingIdx - totIdx]) - (inLow[BodyShortTrailingIdx - totIdx])), 2 => (((inHigh[i - totIdx]) - (if (inClose[i - totIdx]) >= (inOpen[i - totIdx]) { (inClose[i - totIdx]) } else { (inOpen[i - totIdx]) })) + ((if (inClose[i - totIdx]) >= (inOpen[i - totIdx]) { (inOpen[i - totIdx]) } else { (inClose[i - totIdx]) }) - (inLow[i - totIdx]))) - (((inHigh[BodyShortTrailingIdx - totIdx]) - (if (inClose[BodyShortTrailingIdx - totIdx]) >= (inOpen[BodyShortTrailingIdx - totIdx]) { (inClose[BodyShortTrailingIdx - totIdx]) } else { (inOpen[BodyShortTrailingIdx - totIdx]) })) + ((if (inClose[BodyShortTrailingIdx - totIdx]) >= (inOpen[BodyShortTrailingIdx - totIdx]) { (inOpen[BodyShortTrailingIdx - totIdx]) } else { (inClose[BodyShortTrailingIdx - totIdx]) }) - (inLow[BodyShortTrailingIdx - totIdx]))), _ => 0.0 });
+                    if totIdx == 1 { break; }
+                    totIdx -= 1;
                 }
-                BodyPeriodTotal[totIdx] = BodyPeriodTotal[totIdx] + (_candlerange_7 - _candlerange_8);
-                if totIdx == 1 { break; }
-                totIdx -= 1;
+                BodyPeriodTotal[0] = BodyPeriodTotal[0] + (match BodyLong_rangeType { 0 => (((inClose[i]) - (inOpen[i])).abs()) - (((inClose[BodyLongTrailingIdx]) - (inOpen[BodyLongTrailingIdx])).abs()), 1 => ((inHigh[i]) - (inLow[i])) - ((inHigh[BodyLongTrailingIdx]) - (inLow[BodyLongTrailingIdx])), 2 => (((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i]))) - (((inHigh[BodyLongTrailingIdx]) - (if (inClose[BodyLongTrailingIdx]) >= (inOpen[BodyLongTrailingIdx]) { (inClose[BodyLongTrailingIdx]) } else { (inOpen[BodyLongTrailingIdx]) })) + ((if (inClose[BodyLongTrailingIdx]) >= (inOpen[BodyLongTrailingIdx]) { (inOpen[BodyLongTrailingIdx]) } else { (inClose[BodyLongTrailingIdx]) }) - (inLow[BodyLongTrailingIdx]))), _ => 0.0 });
+                i += 1;
+                BodyShortTrailingIdx += 1;
+                BodyLongTrailingIdx += 1;
+                if !(i <= endIdx) { break; }
             }
-            let mut _candlerange_9: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_9 = (inClose[i] - inOpen[i]).abs();
-                }
-                1 => {
-                    _candlerange_9 = inHigh[i] - inLow[i];
-                }
-                2 => {
-                    _candlerange_9 = (inHigh[i] - (if inClose[i] >= inOpen[i] { inClose[i] } else { inOpen[i] })) + ((if inClose[i] >= inOpen[i] { inOpen[i] } else { inClose[i] }) - inLow[i]);
-                }
-                _ => {
-                    _candlerange_9 = 0.0;
-                }
-            }
-            let mut _candlerange_10: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_10 = (inClose[BodyLongTrailingIdx] - inOpen[BodyLongTrailingIdx]).abs();
-                }
-                1 => {
-                    _candlerange_10 = inHigh[BodyLongTrailingIdx] - inLow[BodyLongTrailingIdx];
-                }
-                2 => {
-                    _candlerange_10 = (inHigh[BodyLongTrailingIdx] - (if inClose[BodyLongTrailingIdx] >= inOpen[BodyLongTrailingIdx] { inClose[BodyLongTrailingIdx] } else { inOpen[BodyLongTrailingIdx] })) + ((if inClose[BodyLongTrailingIdx] >= inOpen[BodyLongTrailingIdx] { inOpen[BodyLongTrailingIdx] } else { inClose[BodyLongTrailingIdx] }) - inLow[BodyLongTrailingIdx]);
-                }
-                _ => {
-                    _candlerange_10 = 0.0;
-                }
-            }
-            BodyPeriodTotal[0] = BodyPeriodTotal[0] + (_candlerange_9 - _candlerange_10);
-            i += 1;
-            BodyShortTrailingIdx += 1;
-            BodyLongTrailingIdx += 1;
-            if !(i <= endIdx) { break; }
         }
         // All done. Indicate the output limits and return.
         (*outNBElement) = outIdx;
@@ -413,14 +534,14 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
-    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// [`Core::INDEX_MAX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range that ends before the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -474,10 +595,10 @@ impl Core {
         inClose: &[f64],
         outInteger: &mut [i32],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.cdlrisefall3methods_lookback()?;
@@ -621,27 +742,27 @@ impl Core {
             }
         }
         sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = _candlerange_1;
-        if (if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 }) == 0 - (if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { 0 - 1 }) && // white, 3 black, white  ||  black, 3 white, black
-           (if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { 0 - 1 }) == (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) &&
-           (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) &&
-           (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) == 0 - (if inClose >= inOpen { 1 } else { 0 - 1 }) &&
-           (sp.lag3_inOpen).min(sp.lag3_inClose) < sp.lag4_inHigh && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
-           (sp.lag3_inOpen).max(sp.lag3_inClose) > sp.lag4_inLow &&
-           (sp.lag2_inOpen).min(sp.lag2_inClose) < sp.lag4_inHigh &&
-           (sp.lag2_inOpen).max(sp.lag2_inClose) > sp.lag4_inLow &&
-           (sp.lag1_inOpen).min(sp.lag1_inClose) < sp.lag4_inHigh &&
-           (sp.lag1_inOpen).max(sp.lag1_inClose) > sp.lag4_inLow &&
-           sp.lag2_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) < sp.lag3_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) && // 2nd to 4th are falling (rising)
-           sp.lag1_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) < sp.lag2_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) &&
-           inOpen * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) > sp.lag1_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) && // 5th opens above (below) the prior close
-           inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) > sp.lag4_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) && // 5th closes above (below) the 1st close
-           (sp.lag4_inClose - sp.lag4_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((sp.lag4_inClose) - (sp.lag4_inOpen)).abs(), 1 => (sp.lag4_inHigh) - (sp.lag4_inLow), 2 => ((sp.lag4_inHigh) - (if (sp.lag4_inClose) >= (sp.lag4_inOpen) { (sp.lag4_inClose) } else { (sp.lag4_inOpen) })) + ((if (sp.lag4_inClose) >= (sp.lag4_inOpen) { (sp.lag4_inOpen) } else { (sp.lag4_inClose) }) - (sp.lag4_inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st long, then 3 small, 5th long
-           (sp.lag3_inClose - sp.lag3_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag3_inClose) - (sp.lag3_inOpen)).abs(), 1 => (sp.lag3_inHigh) - (sp.lag3_inLow), 2 => ((sp.lag3_inHigh) - (if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inClose) } else { (sp.lag3_inOpen) })) + ((if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inOpen) } else { (sp.lag3_inClose) }) - (sp.lag3_inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-           (sp.lag2_inClose - sp.lag2_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-           (sp.lag1_inClose - sp.lag1_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-           (inClose - inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 }))
+        if (if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 }) == -(if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { -1 }) && // white, 3 black, white  ||  black, 3 white, black
+           (if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { -1 }) == (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) &&
+           (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) &&
+           (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) == -(if inClose >= inOpen { 1 } else { -1 }) &&
+           c_min(sp.lag3_inOpen, sp.lag3_inClose) < sp.lag4_inHigh && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
+           c_max(sp.lag3_inOpen, sp.lag3_inClose) > sp.lag4_inLow &&
+           c_min(sp.lag2_inOpen, sp.lag2_inClose) < sp.lag4_inHigh &&
+           c_max(sp.lag2_inOpen, sp.lag2_inClose) > sp.lag4_inLow &&
+           c_min(sp.lag1_inOpen, sp.lag1_inClose) < sp.lag4_inHigh &&
+           c_max(sp.lag1_inOpen, sp.lag1_inClose) > sp.lag4_inLow &&
+           sp.lag2_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) < sp.lag3_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) && // 2nd to 4th are falling (rising)
+           sp.lag1_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) < sp.lag2_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) &&
+           inOpen * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) > sp.lag1_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) && // 5th opens above (below) the prior close
+           inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) > sp.lag4_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) && // 5th closes above (below) the 1st close
+           (sp.lag4_inClose - sp.lag4_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((sp.lag4_inClose) - (sp.lag4_inOpen)).abs(), 1 => (sp.lag4_inHigh) - (sp.lag4_inLow), 2 => ((sp.lag4_inHigh) - (if (sp.lag4_inClose) >= (sp.lag4_inOpen) { (sp.lag4_inClose) } else { (sp.lag4_inOpen) })) + ((if (sp.lag4_inClose) >= (sp.lag4_inOpen) { (sp.lag4_inOpen) } else { (sp.lag4_inClose) }) - (sp.lag4_inLow)), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st long, then 3 small, 5th long
+           (sp.lag3_inClose - sp.lag3_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag3_inClose) - (sp.lag3_inOpen)).abs(), 1 => (sp.lag3_inHigh) - (sp.lag3_inLow), 2 => ((sp.lag3_inHigh) - (if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inClose) } else { (sp.lag3_inOpen) })) + ((if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inOpen) } else { (sp.lag3_inClose) }) - (sp.lag3_inLow)), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+           (sp.lag2_inClose - sp.lag2_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+           (sp.lag1_inClose - sp.lag1_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+           (inClose - inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))
         {
-            (*outInteger) = (100 * (if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as i32;
+            (*outInteger) = (100 * (if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as i32;
         } else {
             (*outInteger) = 0;
         }
@@ -721,7 +842,7 @@ impl Core {
         if inOpen.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inOpen.len() > Self::MAX_INDEX + 1 {
+        if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
@@ -880,131 +1001,41 @@ impl Core {
         // outInteger is positive (1 to 100) or negative (-1 to -100)
         outIdx = 0;
         loop {
-            if (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 }) == 0 - (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { 0 - 1 }) && // white, 3 black, white  ||  black, 3 white, black
-               (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { 0 - 1 }) == (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) &&
-               (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) &&
-               (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) == 0 - (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) &&
-               (inOpen[i - 3]).min(inClose[i - 3]) < inHigh[i - 4] && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
-               (inOpen[i - 3]).max(inClose[i - 3]) > inLow[i - 4] &&
-               (inOpen[i - 2]).min(inClose[i - 2]) < inHigh[i - 4] &&
-               (inOpen[i - 2]).max(inClose[i - 2]) > inLow[i - 4] &&
-               (inOpen[i - 1]).min(inClose[i - 1]) < inHigh[i - 4] &&
-               (inOpen[i - 1]).max(inClose[i - 1]) > inLow[i - 4] &&
-               inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) < inClose[i - 3] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) && // 2nd to 4th are falling (rising)
-               inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) < inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) &&
-               inOpen[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) > inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) && // 5th opens above (below) the prior close
-               inClose[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) > inClose[i - 4] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as f64) && // 5th closes above (below) the 1st close
-               (inClose[i - 4] - inOpen[i - 4]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 4]) - (inOpen[i - 4])).abs(), 1 => (inHigh[i - 4]) - (inLow[i - 4]), 2 => ((inHigh[i - 4]) - (if (inClose[i - 4]) >= (inOpen[i - 4]) { (inClose[i - 4]) } else { (inOpen[i - 4]) })) + ((if (inClose[i - 4]) >= (inOpen[i - 4]) { (inOpen[i - 4]) } else { (inClose[i - 4]) }) - (inLow[i - 4])), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st long, then 3 small, 5th long
-               (inClose[i - 3] - inOpen[i - 3]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (inClose[i - 2] - inOpen[i - 2]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (inClose[i - 1] - inOpen[i - 1]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (inClose[i] - inOpen[i]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 }))
+            if (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 }) == -(if inClose[i - 3] >= inOpen[i - 3] { 1 } else { -1 }) && // white, 3 black, white  ||  black, 3 white, black
+               (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { -1 }) == (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) &&
+               (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) &&
+               (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) == -(if inClose[i] >= inOpen[i] { 1 } else { -1 }) &&
+               c_min(inOpen[i - 3], inClose[i - 3]) < inHigh[i - 4] && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
+               c_max(inOpen[i - 3], inClose[i - 3]) > inLow[i - 4] &&
+               c_min(inOpen[i - 2], inClose[i - 2]) < inHigh[i - 4] &&
+               c_max(inOpen[i - 2], inClose[i - 2]) > inLow[i - 4] &&
+               c_min(inOpen[i - 1], inClose[i - 1]) < inHigh[i - 4] &&
+               c_max(inOpen[i - 1], inClose[i - 1]) > inLow[i - 4] &&
+               inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) < inClose[i - 3] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 2nd to 4th are falling (rising)
+               inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) < inClose[i - 2] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) &&
+               inOpen[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) > inClose[i - 1] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 5th opens above (below) the prior close
+               inClose[i] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) > inClose[i - 4] * (((if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as f64) && // 5th closes above (below) the 1st close
+               (inClose[i - 4] - inOpen[i - 4]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 4]) - (inOpen[i - 4])).abs(), 1 => (inHigh[i - 4]) - (inLow[i - 4]), 2 => ((inHigh[i - 4]) - (if (inClose[i - 4]) >= (inOpen[i - 4]) { (inClose[i - 4]) } else { (inOpen[i - 4]) })) + ((if (inClose[i - 4]) >= (inOpen[i - 4]) { (inOpen[i - 4]) } else { (inClose[i - 4]) }) - (inLow[i - 4])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st long, then 3 small, 5th long
+               (inClose[i - 3] - inOpen[i - 3]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+               (inClose[i - 2] - inOpen[i - 2]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+               (inClose[i - 1] - inOpen[i - 1]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+               (inClose[i] - inOpen[i]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))
             {
-                outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (100 * (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { 0 - 1 })) as i32;
+                outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (100 * (if inClose[i - 4] >= inOpen[i - 4] { 1 } else { -1 })) as i32;
             } else {
                 outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0;
             }
             // add the current range and subtract the first range: this is done after the pattern recognition
             // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-            let mut _candlerange_9: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_9 = (inClose[i - 4] - inOpen[i - 4]).abs();
-                }
-                1 => {
-                    _candlerange_9 = inHigh[i - 4] - inLow[i - 4];
-                }
-                2 => {
-                    _candlerange_9 = (inHigh[i - 4] - (if inClose[i - 4] >= inOpen[i - 4] { inClose[i - 4] } else { inOpen[i - 4] })) + ((if inClose[i - 4] >= inOpen[i - 4] { inOpen[i - 4] } else { inClose[i - 4] }) - inLow[i - 4]);
-                }
-                _ => {
-                    _candlerange_9 = 0.0;
-                }
-            }
-            let mut _candlerange_10: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_10 = (inClose[BodyLongTrailingIdx - 4] - inOpen[BodyLongTrailingIdx - 4]).abs();
-                }
-                1 => {
-                    _candlerange_10 = inHigh[BodyLongTrailingIdx - 4] - inLow[BodyLongTrailingIdx - 4];
-                }
-                2 => {
-                    _candlerange_10 = (inHigh[BodyLongTrailingIdx - 4] - (if inClose[BodyLongTrailingIdx - 4] >= inOpen[BodyLongTrailingIdx - 4] { inClose[BodyLongTrailingIdx - 4] } else { inOpen[BodyLongTrailingIdx - 4] })) + ((if inClose[BodyLongTrailingIdx - 4] >= inOpen[BodyLongTrailingIdx - 4] { inOpen[BodyLongTrailingIdx - 4] } else { inClose[BodyLongTrailingIdx - 4] }) - inLow[BodyLongTrailingIdx - 4]);
-                }
-                _ => {
-                    _candlerange_10 = 0.0;
-                }
-            }
-            BodyPeriodTotal[4] = BodyPeriodTotal[4] + (_candlerange_9 - _candlerange_10);
+            BodyPeriodTotal[4] = BodyPeriodTotal[4] + (match BodyLong_rangeType { 0 => (((inClose[i - 4]) - (inOpen[i - 4])).abs()) - (((inClose[BodyLongTrailingIdx - 4]) - (inOpen[BodyLongTrailingIdx - 4])).abs()), 1 => ((inHigh[i - 4]) - (inLow[i - 4])) - ((inHigh[BodyLongTrailingIdx - 4]) - (inLow[BodyLongTrailingIdx - 4])), 2 => (((inHigh[i - 4]) - (if (inClose[i - 4]) >= (inOpen[i - 4]) { (inClose[i - 4]) } else { (inOpen[i - 4]) })) + ((if (inClose[i - 4]) >= (inOpen[i - 4]) { (inOpen[i - 4]) } else { (inClose[i - 4]) }) - (inLow[i - 4]))) - (((inHigh[BodyLongTrailingIdx - 4]) - (if (inClose[BodyLongTrailingIdx - 4]) >= (inOpen[BodyLongTrailingIdx - 4]) { (inClose[BodyLongTrailingIdx - 4]) } else { (inOpen[BodyLongTrailingIdx - 4]) })) + ((if (inClose[BodyLongTrailingIdx - 4]) >= (inOpen[BodyLongTrailingIdx - 4]) { (inOpen[BodyLongTrailingIdx - 4]) } else { (inClose[BodyLongTrailingIdx - 4]) }) - (inLow[BodyLongTrailingIdx - 4]))), _ => 0.0 });
             // for( totIdx = 3; totIdx >= 1; totIdx -= 1 )
             totIdx = 3;
             loop {
-                let mut _candlerange_11: f64;
-                match BodyShort_rangeType {
-                    0 => {
-                        _candlerange_11 = (inClose[i - totIdx] - inOpen[i - totIdx]).abs();
-                    }
-                    1 => {
-                        _candlerange_11 = inHigh[i - totIdx] - inLow[i - totIdx];
-                    }
-                    2 => {
-                        _candlerange_11 = (inHigh[i - totIdx] - (if inClose[i - totIdx] >= inOpen[i - totIdx] { inClose[i - totIdx] } else { inOpen[i - totIdx] })) + ((if inClose[i - totIdx] >= inOpen[i - totIdx] { inOpen[i - totIdx] } else { inClose[i - totIdx] }) - inLow[i - totIdx]);
-                    }
-                    _ => {
-                        _candlerange_11 = 0.0;
-                    }
-                }
-                let mut _candlerange_12: f64;
-                match BodyShort_rangeType {
-                    0 => {
-                        _candlerange_12 = (inClose[BodyShortTrailingIdx - totIdx] - inOpen[BodyShortTrailingIdx - totIdx]).abs();
-                    }
-                    1 => {
-                        _candlerange_12 = inHigh[BodyShortTrailingIdx - totIdx] - inLow[BodyShortTrailingIdx - totIdx];
-                    }
-                    2 => {
-                        _candlerange_12 = (inHigh[BodyShortTrailingIdx - totIdx] - (if inClose[BodyShortTrailingIdx - totIdx] >= inOpen[BodyShortTrailingIdx - totIdx] { inClose[BodyShortTrailingIdx - totIdx] } else { inOpen[BodyShortTrailingIdx - totIdx] })) + ((if inClose[BodyShortTrailingIdx - totIdx] >= inOpen[BodyShortTrailingIdx - totIdx] { inOpen[BodyShortTrailingIdx - totIdx] } else { inClose[BodyShortTrailingIdx - totIdx] }) - inLow[BodyShortTrailingIdx - totIdx]);
-                    }
-                    _ => {
-                        _candlerange_12 = 0.0;
-                    }
-                }
-                BodyPeriodTotal[totIdx] = BodyPeriodTotal[totIdx] + (_candlerange_11 - _candlerange_12);
+                BodyPeriodTotal[totIdx] = BodyPeriodTotal[totIdx] + (match BodyShort_rangeType { 0 => (((inClose[i - totIdx]) - (inOpen[i - totIdx])).abs()) - (((inClose[BodyShortTrailingIdx - totIdx]) - (inOpen[BodyShortTrailingIdx - totIdx])).abs()), 1 => ((inHigh[i - totIdx]) - (inLow[i - totIdx])) - ((inHigh[BodyShortTrailingIdx - totIdx]) - (inLow[BodyShortTrailingIdx - totIdx])), 2 => (((inHigh[i - totIdx]) - (if (inClose[i - totIdx]) >= (inOpen[i - totIdx]) { (inClose[i - totIdx]) } else { (inOpen[i - totIdx]) })) + ((if (inClose[i - totIdx]) >= (inOpen[i - totIdx]) { (inOpen[i - totIdx]) } else { (inClose[i - totIdx]) }) - (inLow[i - totIdx]))) - (((inHigh[BodyShortTrailingIdx - totIdx]) - (if (inClose[BodyShortTrailingIdx - totIdx]) >= (inOpen[BodyShortTrailingIdx - totIdx]) { (inClose[BodyShortTrailingIdx - totIdx]) } else { (inOpen[BodyShortTrailingIdx - totIdx]) })) + ((if (inClose[BodyShortTrailingIdx - totIdx]) >= (inOpen[BodyShortTrailingIdx - totIdx]) { (inOpen[BodyShortTrailingIdx - totIdx]) } else { (inClose[BodyShortTrailingIdx - totIdx]) }) - (inLow[BodyShortTrailingIdx - totIdx]))), _ => 0.0 });
                 if totIdx == 1 { break; }
                 totIdx -= 1;
             }
-            let mut _candlerange_13: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_13 = (inClose[i] - inOpen[i]).abs();
-                }
-                1 => {
-                    _candlerange_13 = inHigh[i] - inLow[i];
-                }
-                2 => {
-                    _candlerange_13 = (inHigh[i] - (if inClose[i] >= inOpen[i] { inClose[i] } else { inOpen[i] })) + ((if inClose[i] >= inOpen[i] { inOpen[i] } else { inClose[i] }) - inLow[i]);
-                }
-                _ => {
-                    _candlerange_13 = 0.0;
-                }
-            }
-            let mut _candlerange_14: f64;
-            match BodyLong_rangeType {
-                0 => {
-                    _candlerange_14 = (inClose[BodyLongTrailingIdx] - inOpen[BodyLongTrailingIdx]).abs();
-                }
-                1 => {
-                    _candlerange_14 = inHigh[BodyLongTrailingIdx] - inLow[BodyLongTrailingIdx];
-                }
-                2 => {
-                    _candlerange_14 = (inHigh[BodyLongTrailingIdx] - (if inClose[BodyLongTrailingIdx] >= inOpen[BodyLongTrailingIdx] { inClose[BodyLongTrailingIdx] } else { inOpen[BodyLongTrailingIdx] })) + ((if inClose[BodyLongTrailingIdx] >= inOpen[BodyLongTrailingIdx] { inOpen[BodyLongTrailingIdx] } else { inClose[BodyLongTrailingIdx] }) - inLow[BodyLongTrailingIdx]);
-                }
-                _ => {
-                    _candlerange_14 = 0.0;
-                }
-            }
-            BodyPeriodTotal[0] = BodyPeriodTotal[0] + (_candlerange_13 - _candlerange_14);
+            BodyPeriodTotal[0] = BodyPeriodTotal[0] + (match BodyLong_rangeType { 0 => (((inClose[i]) - (inOpen[i])).abs()) - (((inClose[BodyLongTrailingIdx]) - (inOpen[BodyLongTrailingIdx])).abs()), 1 => ((inHigh[i]) - (inLow[i])) - ((inHigh[BodyLongTrailingIdx]) - (inLow[BodyLongTrailingIdx])), 2 => (((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i]))) - (((inHigh[BodyLongTrailingIdx]) - (if (inClose[BodyLongTrailingIdx]) >= (inOpen[BodyLongTrailingIdx]) { (inClose[BodyLongTrailingIdx]) } else { (inOpen[BodyLongTrailingIdx]) })) + ((if (inClose[BodyLongTrailingIdx]) >= (inOpen[BodyLongTrailingIdx]) { (inOpen[BodyLongTrailingIdx]) } else { (inClose[BodyLongTrailingIdx]) }) - (inLow[BodyLongTrailingIdx]))), _ => 0.0 });
             i += 1;
             BodyShortTrailingIdx += 1;
             BodyLongTrailingIdx += 1;
@@ -1164,7 +1195,7 @@ impl Core {
         if inOpen.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inOpen.len() > Self::MAX_INDEX + 1 {
+        if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.cdlrisefall3methods_lookback()?;
@@ -1197,7 +1228,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Cdlrisefall3methodsStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -1215,11 +1246,11 @@ impl Cdlrisefall3methodsStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_CDLRISEFALL3METHODS_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -1234,16 +1265,15 @@ impl Cdlrisefall3methodsStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_CDLRISEFALL3METHODS_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -1265,27 +1295,27 @@ impl Cdlrisefall3methodsStream {
             let BodyShort_avgPeriod: i32 = self.cs_body_short.avg_period;
             #[allow(non_snake_case)]
             let BodyShort_factor: f64 = self.cs_body_short.factor;
-            if (if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 }) == 0 - (if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { 0 - 1 }) && // white, 3 black, white  ||  black, 3 white, black
-               (if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { 0 - 1 }) == (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) &&
-               (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) &&
-               (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) == 0 - (if inClose >= inOpen { 1 } else { 0 - 1 }) &&
-               (sp.lag3_inOpen).min(sp.lag3_inClose) < sp.lag4_inHigh && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
-               (sp.lag3_inOpen).max(sp.lag3_inClose) > sp.lag4_inLow &&
-               (sp.lag2_inOpen).min(sp.lag2_inClose) < sp.lag4_inHigh &&
-               (sp.lag2_inOpen).max(sp.lag2_inClose) > sp.lag4_inLow &&
-               (sp.lag1_inOpen).min(sp.lag1_inClose) < sp.lag4_inHigh &&
-               (sp.lag1_inOpen).max(sp.lag1_inClose) > sp.lag4_inLow &&
-               sp.lag2_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) < sp.lag3_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) && // 2nd to 4th are falling (rising)
-               sp.lag1_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) < sp.lag2_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) &&
-               inOpen * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) > sp.lag1_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) && // 5th opens above (below) the prior close
-               inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) > sp.lag4_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as f64) && // 5th closes above (below) the 1st close
-               (sp.lag4_inClose - sp.lag4_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((sp.lag4_inClose) - (sp.lag4_inOpen)).abs(), 1 => (sp.lag4_inHigh) - (sp.lag4_inLow), 2 => ((sp.lag4_inHigh) - (if (sp.lag4_inClose) >= (sp.lag4_inOpen) { (sp.lag4_inClose) } else { (sp.lag4_inOpen) })) + ((if (sp.lag4_inClose) >= (sp.lag4_inOpen) { (sp.lag4_inOpen) } else { (sp.lag4_inClose) }) - (sp.lag4_inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st long, then 3 small, 5th long
-               (sp.lag3_inClose - sp.lag3_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag3_inClose) - (sp.lag3_inOpen)).abs(), 1 => (sp.lag3_inHigh) - (sp.lag3_inLow), 2 => ((sp.lag3_inHigh) - (if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inClose) } else { (sp.lag3_inOpen) })) + ((if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inOpen) } else { (sp.lag3_inClose) }) - (sp.lag3_inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (sp.lag2_inClose - sp.lag2_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (sp.lag1_inClose - sp.lag1_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               (inClose - inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 }))
+            if (if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 }) == -(if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { -1 }) && // white, 3 black, white  ||  black, 3 white, black
+               (if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { -1 }) == (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) &&
+               (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) &&
+               (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) == -(if inClose >= inOpen { 1 } else { -1 }) &&
+               c_min(sp.lag3_inOpen, sp.lag3_inClose) < sp.lag4_inHigh && // 2nd to 4th hold within 1st: a part of the real body must be within 1st range
+               c_max(sp.lag3_inOpen, sp.lag3_inClose) > sp.lag4_inLow &&
+               c_min(sp.lag2_inOpen, sp.lag2_inClose) < sp.lag4_inHigh &&
+               c_max(sp.lag2_inOpen, sp.lag2_inClose) > sp.lag4_inLow &&
+               c_min(sp.lag1_inOpen, sp.lag1_inClose) < sp.lag4_inHigh &&
+               c_max(sp.lag1_inOpen, sp.lag1_inClose) > sp.lag4_inLow &&
+               sp.lag2_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) < sp.lag3_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) && // 2nd to 4th are falling (rising)
+               sp.lag1_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) < sp.lag2_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) &&
+               inOpen * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) > sp.lag1_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) && // 5th opens above (below) the prior close
+               inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) > sp.lag4_inClose * (((if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as f64) && // 5th closes above (below) the 1st close
+               (sp.lag4_inClose - sp.lag4_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyPeriodTotal[4]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((sp.lag4_inClose) - (sp.lag4_inOpen)).abs(), 1 => (sp.lag4_inHigh) - (sp.lag4_inLow), 2 => ((sp.lag4_inHigh) - (if (sp.lag4_inClose) >= (sp.lag4_inOpen) { (sp.lag4_inClose) } else { (sp.lag4_inOpen) })) + ((if (sp.lag4_inClose) >= (sp.lag4_inOpen) { (sp.lag4_inOpen) } else { (sp.lag4_inClose) }) - (sp.lag4_inLow)), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st long, then 3 small, 5th long
+               (sp.lag3_inClose - sp.lag3_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[3]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag3_inClose) - (sp.lag3_inOpen)).abs(), 1 => (sp.lag3_inHigh) - (sp.lag3_inLow), 2 => ((sp.lag3_inHigh) - (if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inClose) } else { (sp.lag3_inOpen) })) + ((if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inOpen) } else { (sp.lag3_inClose) }) - (sp.lag3_inLow)), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+               (sp.lag2_inClose - sp.lag2_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[2]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+               (sp.lag1_inClose - sp.lag1_inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (sp.BodyPeriodTotal[1]) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+               (inClose - inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))
             {
-                (*outInteger) = (100 * (if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { 0 - 1 })) as i32;
+                (*outInteger) = (100 * (if sp.lag4_inClose >= sp.lag4_inOpen { 1 } else { -1 })) as i32;
             } else {
                 (*outInteger) = 0;
             }
@@ -1316,7 +1346,7 @@ impl Cdlrisefall3methodsStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_CDLRISEFALL3METHODS_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1334,11 +1364,11 @@ impl Cdlrisefall3methodsStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_CDLRISEFALL3METHODS_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

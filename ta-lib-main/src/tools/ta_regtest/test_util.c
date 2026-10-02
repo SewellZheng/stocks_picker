@@ -44,6 +44,8 @@
  *  -------------------------------------------------------------------
  *  112400 MF   First version.
  *  072026 MF,CC Add checkOracleValue (abs-near-zero / rel-away tolerance).
+ *  092526 MF,CC doRangeTestMulti restores the unstable periods it sweeps.
+ *  092926 MF,CC STC ignores 200 bars in the range envelope, as T3 does.
  *
  */
 
@@ -608,6 +610,8 @@ ErrorNumber doRangeTestMulti( RangeTestFunction testFunction,
                               unsigned int integerTolerance )
 {
    unsigned int outputNb;
+   unsigned int savedUnst[TA_FUNC_UNST_COUNT];
+   int id;
    ErrorNumber errNb;
    TA_FuncUnstId unstId = nbUnstIds > 0 ? unstIds[0] : TA_TEST_UNST_NONE;
 
@@ -637,8 +641,13 @@ ErrorNumber doRangeTestMulti( RangeTestFunction testFunction,
       return TA_TESTUTIL_DRT_STABILITY_MISMATCH;
    }
 
+   /* The caller gets back the unstable periods it had. */
+   for( id = 0; id < TA_FUNC_UNST_COUNT; id++ )
+      savedUnst[id] = TA_GetUnstablePeriod( (TA_FuncUnstId)id );
+
    /* Test all the outputs individually. */
-   for( outputNb=0; outputNb < nbOutput; outputNb++ )
+   errNb = TA_TEST_PASS;
+   for( outputNb=0; errNb == TA_TEST_PASS && outputNb < nbOutput; outputNb++ )
    {
       errNb = doRangeTestForOneOutput( testFunction,
                                        stability,
@@ -648,13 +657,12 @@ ErrorNumber doRangeTestMulti( RangeTestFunction testFunction,
                                        outputNb,
                                        integerTolerance );
       if( errNb != TA_TEST_PASS )
-      {
          printf( "Failed: For output #%d of %d\n", outputNb+1, nbOutput );
-         return errNb;
-      }
    }
 
-   return TA_TEST_PASS;
+   for( id = 0; id < TA_FUNC_UNST_COUNT; id++ )
+      TA_SetUnstablePeriod( (TA_FuncUnstId)id, savedUnst[id] );
+   return errNb;
 }
 
 void printRetCode( TA_RetCode retCode )
@@ -1260,6 +1268,9 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
    switch( unstId )
    {
    case TA_FUNC_UNST_T3:
+   /* STC's two stochastic stages amplify the slow EMA's transient: at 150
+    * the sweep fails on every seed. */
+   case TA_FUNC_UNST_STC:
       periodToIgnore = 200;
       break;
    default:

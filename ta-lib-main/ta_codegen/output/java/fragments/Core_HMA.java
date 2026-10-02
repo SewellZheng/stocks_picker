@@ -90,10 +90,10 @@
       double[] dRing;
       int dRing_Idx = 0;
       int maxIdx_dRing = (50)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -440,10 +440,10 @@
       double[] dRing;
       int dRing_Idx = 0;
       int maxIdx_dRing = (50)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -699,8 +699,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#hmaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#hmaLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -709,11 +709,12 @@
     *        square-root periods derive from it (default 20; range 1..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Hull moving average of the input. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, hmaLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -779,8 +780,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#hmaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#hmaLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -789,11 +790,12 @@
     *        square-root periods derive from it (default 20; range 1..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Hull moving average of the input. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, hmaLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -900,7 +902,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -914,12 +916,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("HMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -982,15 +984,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("HMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("HMA update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("HMA update", "inReal");
          core.hmaStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -1000,15 +1002,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("HMA peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("HMA peek", "inReal");
          HmaStream sp = this;
          double cur_outReal = 0.0;
          if( sp.optInTimePeriod == 1 ) {
@@ -1027,14 +1027,8 @@
             double trailingFull = sp.trailingFull;
             int pkSlot0 = -1;
             double pkVal0 = 0.0;
-            int pkSlot1 = -1;
-            double pkVal1 = 0.0;
-            if( sp.ringCap_trailingIdxFull == 0 ) {
-               pkSlot0 = 0;
-               pkVal0 = inReal;
-            }
-            pkSlot1 = sp.winPos_jFull;
-            pkVal1 = inReal;
+            pkSlot0 = sp.winPos_jFull;
+            pkVal0 = inReal;
             tempReal = inReal;
             periodSubFull += tempReal;
             periodSubFull -= trailingFull;
@@ -1046,13 +1040,13 @@
                periodSumFull = 0.0;
                rw = 1;
                for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
-                  tempReal2 = (((sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull) != pkSlot1) ? sp.win_jFull_inReal[(sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull] : pkVal1;
+                  tempReal2 = (((sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull) != pkSlot0) ? sp.win_jFull_inReal[(sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull] : pkVal0;
                   periodSubFull += tempReal2;
                   periodSumFull += tempReal2 * rw;
                   rw += 1;
                }
             }
-            trailingFull = (sp.ringPos_trailingIdxFull != pkSlot0) ? sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] : pkVal0;
+            trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
             fullOut = periodSumFull / sp.dividerFull;
             periodSumFull -= periodSubFull;
             cur_outReal = 2.0 * tempReal - fullOut;
@@ -1084,22 +1078,10 @@
             double pkVal0 = 0.0;
             int pkSlot1 = -1;
             double pkVal1 = 0.0;
-            int pkSlot2 = -1;
-            double pkVal2 = 0.0;
-            int pkSlot3 = -1;
-            double pkVal3 = 0.0;
-            if( sp.ringCap_trailingIdxFull == 0 ) {
-               pkSlot0 = 0;
-               pkVal0 = inReal;
-            }
-            if( sp.ringCap_trailingIdxHalf == 0 ) {
-               pkSlot1 = 0;
-               pkVal1 = inReal;
-            }
-            pkSlot2 = sp.winPos_jFull;
-            pkVal2 = inReal;
-            pkSlot3 = sp.winPos_jHalf;
-            pkVal3 = inReal;
+            pkSlot0 = sp.winPos_jFull;
+            pkVal0 = inReal;
+            pkSlot1 = sp.winPos_jHalf;
+            pkVal1 = inReal;
             tempReal = inReal;
             periodSubFull += tempReal;
             periodSubFull -= trailingFull;
@@ -1111,13 +1093,13 @@
                periodSumFull = 0.0;
                rw = 1;
                for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
-                  tempReal2 = (((sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull) != pkSlot2) ? sp.win_jFull_inReal[(sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull] : pkVal2;
+                  tempReal2 = (((sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull) != pkSlot0) ? sp.win_jFull_inReal[(sp.winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : sp.winPos_jFull + sp.winCap_jFull - jFull] : pkVal0;
                   periodSubFull += tempReal2;
                   periodSumFull += tempReal2 * rw;
                   rw += 1;
                }
             }
-            trailingFull = (sp.ringPos_trailingIdxFull != pkSlot0) ? sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] : pkVal0;
+            trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
             fullOut = periodSumFull / sp.dividerFull;
             periodSumFull -= periodSubFull;
             periodSubHalf += tempReal;
@@ -1130,13 +1112,13 @@
                periodSumHalf = 0.0;
                rw = 1;
                for( jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 ) {
-                  tempReal2 = (((sp.winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : sp.winPos_jHalf + sp.winCap_jHalf - jHalf) != pkSlot3) ? sp.win_jHalf_inReal[(sp.winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : sp.winPos_jHalf + sp.winCap_jHalf - jHalf] : pkVal3;
+                  tempReal2 = (((sp.winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : sp.winPos_jHalf + sp.winCap_jHalf - jHalf) != pkSlot1) ? sp.win_jHalf_inReal[(sp.winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : sp.winPos_jHalf + sp.winCap_jHalf - jHalf] : pkVal1;
                   periodSubHalf += tempReal2;
                   periodSumHalf += tempReal2 * rw;
                   rw += 1;
                }
             }
-            trailingHalf = (sp.ringPos_trailingIdxHalf != pkSlot1) ? sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf] : pkVal1;
+            trailingHalf = sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf];
             halfOut = periodSumHalf / sp.dividerHalf;
             periodSumHalf -= periodSubHalf;
             diffReal = 2.0 * halfOut - fullOut;
@@ -1217,9 +1199,7 @@
          int jFull = 0;
          int rw = 0;
          double tempReal2 = 0.0;
-         if( sp.ringCap_trailingIdxFull == 0 ) {
-            sp.ring_trailingIdxFull_inReal[0] = inReal;
-         }
+         int ringCapL_trailingIdxFull = 0;
          sp.win_jFull_inReal[sp.winPos_jFull] = inReal;
          tempReal = inReal;
          sp.periodSubFull += tempReal;
@@ -1242,9 +1222,10 @@
          fullOut = sp.periodSumFull / sp.dividerFull;
          sp.periodSumFull -= sp.periodSubFull;
          sp.cur_outReal = 2.0 * tempReal - fullOut;
+         ringCapL_trailingIdxFull = sp.ringCap_trailingIdxFull;
          sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
          sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
-         if( sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
+         if( sp.ringPos_trailingIdxFull >= ringCapL_trailingIdxFull ) {
             sp.ringPos_trailingIdxFull = 0;
          }
          sp.winPos_jFull = sp.winPos_jFull + 1;
@@ -1262,12 +1243,8 @@
          int rw = 0;
          int ringWalk = 0;
          double tempReal2 = 0.0;
-         if( sp.ringCap_trailingIdxFull == 0 ) {
-            sp.ring_trailingIdxFull_inReal[0] = inReal;
-         }
-         if( sp.ringCap_trailingIdxHalf == 0 ) {
-            sp.ring_trailingIdxHalf_inReal[0] = inReal;
-         }
+         int ringCapL_trailingIdxFull = 0;
+         int ringCapL_trailingIdxHalf = 0;
          sp.win_jFull_inReal[sp.winPos_jFull] = inReal;
          sp.win_jHalf_inReal[sp.winPos_jHalf] = inReal;
          tempReal = inReal;
@@ -1347,14 +1324,16 @@
          }
          sp.cur_outReal = sp.periodSumSqrt / sp.dividerSqrt;
          sp.periodSumSqrt -= sp.periodSubSqrt;
+         ringCapL_trailingIdxFull = sp.ringCap_trailingIdxFull;
          sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
          sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
-         if( sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
+         if( sp.ringPos_trailingIdxFull >= ringCapL_trailingIdxFull ) {
             sp.ringPos_trailingIdxFull = 0;
          }
+         ringCapL_trailingIdxHalf = sp.ringCap_trailingIdxHalf;
          sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf] = inReal;
          sp.ringPos_trailingIdxHalf = sp.ringPos_trailingIdxHalf + 1;
-         if( sp.ringPos_trailingIdxHalf >= sp.ringCap_trailingIdxHalf ) {
+         if( sp.ringPos_trailingIdxHalf >= ringCapL_trailingIdxHalf ) {
             sp.ringPos_trailingIdxHalf = 0;
          }
          sp.winPos_jFull = sp.winPos_jFull + 1;
@@ -1374,7 +1353,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -1579,7 +1558,7 @@
          outNBElement.value = outIdx;
          /* Capture the live batch state into the handle. */
          int cap_trailingIdxFull = today - trailingIdxFull;
-         if( cap_trailingIdxFull < 0 || cap_trailingIdxFull > historyLen ) {
+         if( cap_trailingIdxFull < 1 || cap_trailingIdxFull > historyLen ) {
             return RetCode.INTERNAL_ERROR;
          }
          int allocN_trailingIdxFull = (cap_trailingIdxFull > 0)? cap_trailingIdxFull : 1;
@@ -1907,14 +1886,14 @@
          outNBElement.value = outIdx;
          /* Capture the live batch state into the handle. */
          int cap_trailingIdxFull = today - trailingIdxFull;
-         if( cap_trailingIdxFull < 0 || cap_trailingIdxFull > historyLen ) {
+         if( cap_trailingIdxFull < 1 || cap_trailingIdxFull > historyLen ) {
             return RetCode.INTERNAL_ERROR;
          }
          int allocN_trailingIdxFull = (cap_trailingIdxFull > 0)? cap_trailingIdxFull : 1;
          double[] capRing_trailingIdxFull_inReal = new double[allocN_trailingIdxFull];
          System.arraycopy(inReal, historyLen - cap_trailingIdxFull, capRing_trailingIdxFull_inReal, 0, cap_trailingIdxFull);
          int cap_trailingIdxHalf = today - trailingIdxHalf;
-         if( cap_trailingIdxHalf < 0 || cap_trailingIdxHalf > historyLen ) {
+         if( cap_trailingIdxHalf < 1 || cap_trailingIdxHalf > historyLen ) {
             return RetCode.INTERNAL_ERROR;
          }
          int allocN_trailingIdxHalf = (cap_trailingIdxHalf > 0)? cap_trailingIdxHalf : 1;
@@ -1988,12 +1967,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("HMA openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("HMA openAndFill", inReal.length, startIdx, hmaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("HMA openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("HMA openAndFill: " + retCode, retCode);
+      throw streamFailure("HMA openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind hmaOpen (composition seam). */
    HmaStream hmaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -2009,12 +1985,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("HMA open: history shorter than lookback + 1");
+         throw insufficientHistory("HMA open", inReal.length, startIdx, hmaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("HMA open: internal error", retCode);
-      }
-      throw new TALibArgumentException("HMA open: " + retCode, retCode);
+      throw streamFailure("HMA open", retCode);
    }
    /**
     * Open a live HMA stream over the warm-up history; the handle's
@@ -2053,9 +2026,295 @@
       int guardOutLen = openFillCount("HMA openAndFill", inReal.length, hmaLookback(optInTimePeriod));
       requireLength("HMA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("HMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("HMA openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       return hmaOpenAndFillInternal(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal);
+   }
+   private double hmaStepTape( HmaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      if( sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 ) {
+         double tempReal = 0.0;
+         double fullOut = 0.0;
+         int jFull = 0;
+         int rw = 0;
+         double tempReal2 = 0.0;
+         tempReal = inReal;
+         sp.periodSubFull += tempReal;
+         sp.periodSubFull -= sp.trailingFull;
+         sp.periodSumFull += tempReal * sp.optInTimePeriod;
+         sp.barsSinceReseedFull -= 1;
+         if( sp.barsSinceReseedFull <= 0 ) {
+            sp.barsSinceReseedFull = 8 * sp.optInTimePeriod;
+            sp.periodSubFull = 0.0;
+            sp.periodSumFull = 0.0;
+            rw = 1;
+            for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+               tempReal2 = tape[(tapeBase - jFull) & tapeMask];
+               sp.periodSubFull += tempReal2;
+               sp.periodSumFull += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         sp.trailingFull = tape[(tapeBase - sp.ringCap_trailingIdxFull) & tapeMask];
+         fullOut = sp.periodSumFull / sp.dividerFull;
+         sp.periodSumFull -= sp.periodSubFull;
+         sp.cur_outReal = 2.0 * tempReal - fullOut;
+      } else {
+         double tempReal = 0.0;
+         double fullOut = 0.0;
+         double halfOut = 0.0;
+         double diffReal = 0.0;
+         int jFull = 0;
+         int jHalf = 0;
+         int q = 0;
+         int rw = 0;
+         int ringWalk = 0;
+         double tempReal2 = 0.0;
+         tempReal = inReal;
+         sp.periodSubFull += tempReal;
+         sp.periodSubFull -= sp.trailingFull;
+         sp.periodSumFull += tempReal * sp.optInTimePeriod;
+         sp.barsSinceReseedFull -= 1;
+         if( sp.barsSinceReseedFull <= 0 ) {
+            sp.barsSinceReseedFull = 8 * sp.optInTimePeriod;
+            sp.periodSubFull = 0.0;
+            sp.periodSumFull = 0.0;
+            rw = 1;
+            for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+               tempReal2 = tape[(tapeBase - jFull) & tapeMask];
+               sp.periodSubFull += tempReal2;
+               sp.periodSumFull += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         sp.trailingFull = tape[(tapeBase - sp.ringCap_trailingIdxFull) & tapeMask];
+         fullOut = sp.periodSumFull / sp.dividerFull;
+         sp.periodSumFull -= sp.periodSubFull;
+         sp.periodSubHalf += tempReal;
+         sp.periodSubHalf -= sp.trailingHalf;
+         sp.periodSumHalf += tempReal * sp.halfPeriod;
+         sp.barsSinceReseedHalf -= 1;
+         if( sp.barsSinceReseedHalf <= 0 ) {
+            sp.barsSinceReseedHalf = 8 * sp.halfPeriod;
+            sp.periodSubHalf = 0.0;
+            sp.periodSumHalf = 0.0;
+            rw = 1;
+            for( jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 ) {
+               tempReal2 = tape[(tapeBase - jHalf) & tapeMask];
+               sp.periodSubHalf += tempReal2;
+               sp.periodSumHalf += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         sp.trailingHalf = tape[(tapeBase - sp.ringCap_trailingIdxHalf) & tapeMask];
+         halfOut = sp.periodSumHalf / sp.dividerHalf;
+         sp.periodSumHalf -= sp.periodSubHalf;
+         diffReal = 2.0 * halfOut - fullOut;
+         sp.periodSubSqrt += diffReal;
+         sp.periodSubSqrt -= sp.trailingSqrt;
+         sp.periodSumSqrt += diffReal * sp.sqrtPeriod;
+         /* The outer WMA consumes a DERIVED series that is never
+          * materialised, so its rescan walks the de-lag ring: dRing_Idx is
+          * the oldest slot (the one about to expire) and diffReal is the
+          * newest value, which together are the whole window. Oldest first,
+          * weight counting up from 1 -- the priming order above.
+          */
+         sp.barsSinceReseedSqrt -= 1;
+         if( sp.barsSinceReseedSqrt <= 0 ) {
+            sp.barsSinceReseedSqrt = 8 * sp.sqrtPeriod;
+            sp.periodSubSqrt = 0.0;
+            sp.periodSumSqrt = 0.0;
+            rw = 1;
+            ringWalk = sp.dRing_Idx;
+            for( q = 0; q < sp.ringSize; q += 1 ) {
+               tempReal2 = sp.cb_dRing[ringWalk];
+               sp.periodSubSqrt += tempReal2;
+               sp.periodSumSqrt += tempReal2 * rw;
+               rw += 1;
+               ringWalk += 1;
+               if( ringWalk >= sp.ringSize ) {
+                  ringWalk = 0;
+               }
+            }
+            sp.periodSubSqrt += diffReal;
+            sp.periodSumSqrt += diffReal * sp.sqrtPeriod;
+         }
+         sp.trailingSqrt = sp.cb_dRing[sp.dRing_Idx];
+         sp.cb_dRing[sp.dRing_Idx] = diffReal;
+         sp.dRing_Idx = sp.dRing_Idx + 1;
+         if( sp.dRing_Idx > sp.maxIdx_dRing ) {
+            sp.dRing_Idx = 0;
+         }
+         sp.cur_outReal = sp.periodSumSqrt / sp.dividerSqrt;
+         sp.periodSumSqrt -= sp.periodSubSqrt;
+      }
+      sp.outRangeCount++;
+      return sp.cur_outReal;
+   }
+   private double hmaPeekTape( HmaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
+   {
+      double cur_outReal = 0.0;
+      if( sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 ) {
+         double tempReal = 0.0;
+         double fullOut = 0.0;
+         int jFull = 0;
+         int rw = 0;
+         double tempReal2 = 0.0;
+         int barsSinceReseedFull = sp.barsSinceReseedFull;
+         double periodSubFull = sp.periodSubFull;
+         double periodSumFull = sp.periodSumFull;
+         double trailingFull = sp.trailingFull;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         pkSlot0 = tapeBase & tapeMask;
+         pkVal0 = inReal;
+         tempReal = inReal;
+         periodSubFull += tempReal;
+         periodSubFull -= trailingFull;
+         periodSumFull += tempReal * sp.optInTimePeriod;
+         barsSinceReseedFull -= 1;
+         if( barsSinceReseedFull <= 0 ) {
+            barsSinceReseedFull = 8 * sp.optInTimePeriod;
+            periodSubFull = 0.0;
+            periodSumFull = 0.0;
+            rw = 1;
+            for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+               tempReal2 = (((tapeBase - jFull) & tapeMask) != pkSlot0) ? tape[(tapeBase - jFull) & tapeMask] : pkVal0;
+               periodSubFull += tempReal2;
+               periodSumFull += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         trailingFull = tape[(tapeBase - sp.ringCap_trailingIdxFull) & tapeMask];
+         fullOut = periodSumFull / sp.dividerFull;
+         periodSumFull -= periodSubFull;
+         cur_outReal = 2.0 * tempReal - fullOut;
+      } else {
+         double tempReal = 0.0;
+         double fullOut = 0.0;
+         double halfOut = 0.0;
+         double diffReal = 0.0;
+         int jFull = 0;
+         int jHalf = 0;
+         int q = 0;
+         int rw = 0;
+         int ringWalk = 0;
+         double tempReal2 = 0.0;
+         int barsSinceReseedFull = sp.barsSinceReseedFull;
+         int barsSinceReseedHalf = sp.barsSinceReseedHalf;
+         int barsSinceReseedSqrt = sp.barsSinceReseedSqrt;
+         int dRing_Idx = sp.dRing_Idx;
+         double periodSubFull = sp.periodSubFull;
+         double periodSubHalf = sp.periodSubHalf;
+         double periodSubSqrt = sp.periodSubSqrt;
+         double periodSumFull = sp.periodSumFull;
+         double periodSumHalf = sp.periodSumHalf;
+         double periodSumSqrt = sp.periodSumSqrt;
+         double trailingFull = sp.trailingFull;
+         double trailingHalf = sp.trailingHalf;
+         double trailingSqrt = sp.trailingSqrt;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         pkSlot0 = tapeBase & tapeMask;
+         pkVal0 = inReal;
+         tempReal = inReal;
+         periodSubFull += tempReal;
+         periodSubFull -= trailingFull;
+         periodSumFull += tempReal * sp.optInTimePeriod;
+         barsSinceReseedFull -= 1;
+         if( barsSinceReseedFull <= 0 ) {
+            barsSinceReseedFull = 8 * sp.optInTimePeriod;
+            periodSubFull = 0.0;
+            periodSumFull = 0.0;
+            rw = 1;
+            for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+               tempReal2 = (((tapeBase - jFull) & tapeMask) != pkSlot0) ? tape[(tapeBase - jFull) & tapeMask] : pkVal0;
+               periodSubFull += tempReal2;
+               periodSumFull += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         trailingFull = tape[(tapeBase - sp.ringCap_trailingIdxFull) & tapeMask];
+         fullOut = periodSumFull / sp.dividerFull;
+         periodSumFull -= periodSubFull;
+         periodSubHalf += tempReal;
+         periodSubHalf -= trailingHalf;
+         periodSumHalf += tempReal * sp.halfPeriod;
+         barsSinceReseedHalf -= 1;
+         if( barsSinceReseedHalf <= 0 ) {
+            barsSinceReseedHalf = 8 * sp.halfPeriod;
+            periodSubHalf = 0.0;
+            periodSumHalf = 0.0;
+            rw = 1;
+            for( jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 ) {
+               tempReal2 = (((tapeBase - jHalf) & tapeMask) != pkSlot0) ? tape[(tapeBase - jHalf) & tapeMask] : pkVal0;
+               periodSubHalf += tempReal2;
+               periodSumHalf += tempReal2 * rw;
+               rw += 1;
+            }
+         }
+         trailingHalf = tape[(tapeBase - sp.ringCap_trailingIdxHalf) & tapeMask];
+         halfOut = periodSumHalf / sp.dividerHalf;
+         periodSumHalf -= periodSubHalf;
+         diffReal = 2.0 * halfOut - fullOut;
+         periodSubSqrt += diffReal;
+         periodSubSqrt -= trailingSqrt;
+         periodSumSqrt += diffReal * sp.sqrtPeriod;
+         /* The outer WMA consumes a DERIVED series that is never
+          * materialised, so its rescan walks the de-lag ring: dRing_Idx is
+          * the oldest slot (the one about to expire) and diffReal is the
+          * newest value, which together are the whole window. Oldest first,
+          * weight counting up from 1 -- the priming order above.
+          */
+         barsSinceReseedSqrt -= 1;
+         if( barsSinceReseedSqrt <= 0 ) {
+            barsSinceReseedSqrt = 8 * sp.sqrtPeriod;
+            periodSubSqrt = 0.0;
+            periodSumSqrt = 0.0;
+            rw = 1;
+            ringWalk = dRing_Idx;
+            for( q = 0; q < sp.ringSize; q += 1 ) {
+               tempReal2 = sp.cb_dRing[ringWalk];
+               periodSubSqrt += tempReal2;
+               periodSumSqrt += tempReal2 * rw;
+               rw += 1;
+               ringWalk += 1;
+               if( ringWalk >= sp.ringSize ) {
+                  ringWalk = 0;
+               }
+            }
+            periodSubSqrt += diffReal;
+            periodSumSqrt += diffReal * sp.sqrtPeriod;
+         }
+         trailingSqrt = sp.cb_dRing[dRing_Idx];
+         dRing_Idx = dRing_Idx + 1;
+         if( dRing_Idx > sp.maxIdx_dRing ) {
+            dRing_Idx = 0;
+         }
+         cur_outReal = periodSumSqrt / sp.dividerSqrt;
+      }
+      return cur_outReal;
+   }
+   private int hmaTapeDetach( HmaStream sp )
+   {
+      int reach = 0;
+      sp.ring_trailingIdxFull_inReal = new double[0];
+      if( sp.ringCap_trailingIdxFull > reach ) {
+         reach = sp.ringCap_trailingIdxFull;
+      }
+      sp.win_jFull_inReal = new double[0];
+      if( sp.winCap_jFull - 1 > reach ) {
+         reach = sp.winCap_jFull - 1;
+      }
+      sp.ring_trailingIdxHalf_inReal = new double[0];
+      if( sp.ringCap_trailingIdxHalf > reach ) {
+         reach = sp.ringCap_trailingIdxHalf;
+      }
+      sp.win_jHalf_inReal = new double[0];
+      if( sp.winCap_jHalf - 1 > reach ) {
+         reach = sp.winCap_jHalf - 1;
+      }
+      return reach;
    }

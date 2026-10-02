@@ -31,6 +31,7 @@
  *  082326 MF,CC  #243 the SMA path's TA_EPSILON test on the variance is replaced
  *                by var.c's scale-relative reseed floor; the square root is
  *                unconditional. Bands no longer collapse on a fine tick.
+ *  092226 MF,CC  #434 the SMA path's variance step follows var.c.
  */
 
    /**
@@ -48,7 +49,7 @@
     *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInMAType Moving-average type for the middle band (default 0 =
     *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
@@ -112,10 +113,10 @@
       double tempReal2 = 0;
       double[] tempBuffer1;
       double[] tempBuffer2;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -181,6 +182,7 @@
          double variance;
          double _invPeriod;
          double _tempReal;
+         double _peakTotal2;
          int _i;
          int _j;
          int _outIdx;
@@ -213,12 +215,14 @@
          _i = startIdx;
          _outIdx = 0;
          _barsSinceReseed = 32 * optInTimePeriod;
+         _peakTotal2 = varTotal2;
          do {
             maTotal += inReal[_i];
             _tempReal = inReal[_i] - shift;
             varTotal1 += _tempReal;
             _tempReal *= _tempReal;
             varTotal2 += _tempReal;
+            _peakTotal2 = (varTotal2 > _peakTotal2) ? varTotal2 : _peakTotal2;
             meanValue1 = varTotal1 * _invPeriod;
             variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
             tempBuffer1[_outIdx] = maTotal / optInTimePeriod;
@@ -229,7 +233,7 @@
             varTotal2 -= _tempReal;
             _trailingIdx += 1;
             _barsSinceReseed -= 1;
-            if( variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 ) {
+            if( variance < 0.000001 * (_peakTotal2 * _invPeriod) || _barsSinceReseed <= 0 ) {
                _barsSinceReseed = 32 * optInTimePeriod;
                _windowStart = _i - _lookbackTotal;
                _tempReal = 0.0;
@@ -247,8 +251,22 @@
                }
                meanValue1 = varTotal1 * _invPeriod;
                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
-               /* The floor from var.c, verbatim: it owns both the sign and the
-                * dead-zone, so the square root below can be unconditional.
+               if( variance < 0.000001 * (varTotal2 * _invPeriod) ) {
+                  shift = inReal[_i];
+                  varTotal1 = 0.0;
+                  varTotal2 = 0.0;
+                  for( _j = _windowStart; _j <= _i; _j += 1 ) {
+                     _tempReal = inReal[_j] - shift;
+                     varTotal1 += _tempReal;
+                     _tempReal *= _tempReal;
+                     varTotal2 += _tempReal;
+                  }
+                  meanValue1 = varTotal1 * _invPeriod;
+                  variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+               }
+               _peakTotal2 = varTotal2;
+               /* The floor from var.c, verbatim: it owns the sign, so the
+                * square root below can be unconditional.
                 */
                if( variance < 0.000000000001 * (varTotal2 * _invPeriod) ) {
                   variance = 0.0;
@@ -262,7 +280,7 @@
              * quantity to a fixed 1e-14 and flattened all three bands onto each
              * other for any finely quoted series (#243). What replaces it skips
              * the root ONLY where the answer is already known, because the
-             * reseed floor above has made it exactly 0 -- worth doing because
+             * rebuild above has made it exactly 0 -- worth doing because
              * this root, unlike stddev.c's, sits in the fused loop with a
              * carried dependency and cannot vectorize, so running it on flat
              * input cost 1.59x.
@@ -310,7 +328,7 @@
        * at the same bar. Two intermediate buffers are allocated so the input may
        * safely alias an output (it is only read here).
        */
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the moving average below runs first, and for the MA types whose
@@ -318,7 +336,7 @@
        * TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
        * computes a middle band the empty standard deviation then discards.
        * Observably identical (the empty deviation already yields 0,0 here), but it
-       * is the difference between "a range shorter than the lookback reads nothing"
+       * is the difference between "a range that ends before the lookback reads nothing"
        * being true of this function and being false: with a caller-supplied inReal
        * that stops short of endIdx, that discarded work is an out-of-bounds read.
        * The SMA fast path above needs no such guard - its own lookback IS the
@@ -401,10 +419,10 @@
       double tempReal2 = 0;
       double[] tempBuffer1;
       double[] tempBuffer2;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -453,6 +471,7 @@
          double variance;
          double _invPeriod;
          double _tempReal;
+         double _peakTotal2;
          int _i;
          int _j;
          int _outIdx;
@@ -485,12 +504,14 @@
          _i = startIdx;
          _outIdx = 0;
          _barsSinceReseed = 32 * optInTimePeriod;
+         _peakTotal2 = varTotal2;
          do {
             maTotal += (double)inReal[_i];
             _tempReal = (double)inReal[_i] - shift;
             varTotal1 += _tempReal;
             _tempReal *= _tempReal;
             varTotal2 += _tempReal;
+            _peakTotal2 = (varTotal2 > _peakTotal2) ? varTotal2 : _peakTotal2;
             meanValue1 = varTotal1 * _invPeriod;
             variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
             tempBuffer1[_outIdx] = maTotal / optInTimePeriod;
@@ -501,7 +522,7 @@
             varTotal2 -= _tempReal;
             _trailingIdx += 1;
             _barsSinceReseed -= 1;
-            if( variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 ) {
+            if( variance < 0.000001 * (_peakTotal2 * _invPeriod) || _barsSinceReseed <= 0 ) {
                _barsSinceReseed = 32 * optInTimePeriod;
                _windowStart = _i - _lookbackTotal;
                _tempReal = 0.0;
@@ -519,6 +540,20 @@
                }
                meanValue1 = varTotal1 * _invPeriod;
                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+               if( variance < 0.000001 * (varTotal2 * _invPeriod) ) {
+                  shift = (double)inReal[_i];
+                  varTotal1 = 0.0;
+                  varTotal2 = 0.0;
+                  for( _j = _windowStart; _j <= _i; _j += 1 ) {
+                     _tempReal = (double)inReal[_j] - shift;
+                     varTotal1 += _tempReal;
+                     _tempReal *= _tempReal;
+                     varTotal2 += _tempReal;
+                  }
+                  meanValue1 = varTotal1 * _invPeriod;
+                  variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+               }
+               _peakTotal2 = varTotal2;
                if( variance < 0.000000000001 * (varTotal2 * _invPeriod) ) {
                   variance = 0.0;
                }
@@ -604,8 +639,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#bbandsLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#bbandsLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -618,18 +653,21 @@
     *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInMAType Moving-average type for the middle band (default 0 =
     *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @param outRealUpperBand Middle band plus nbDevUp standard deviations. Must
-    *        hold at least {@code endIdx - startIdx + 1} values.
+    *        hold at least {@code endIdx - max(startIdx, bbandsLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @param outRealMiddleBand The moving average. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, bbandsLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outRealLowerBand Middle band minus nbDevDn standard deviations.
-    *        Must hold at least {@code endIdx - startIdx + 1} values.
+    *        Must hold at least {@code endIdx - max(startIdx, bbandsLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -684,8 +722,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#bbandsLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#bbandsLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -698,18 +736,21 @@
     *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInMAType Moving-average type for the middle band (default 0 =
     *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @param outRealUpperBand Middle band plus nbDevUp standard deviations. Must
-    *        hold at least {@code endIdx - startIdx + 1} values.
+    *        hold at least {@code endIdx - max(startIdx, bbandsLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @param outRealMiddleBand The moving average. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, bbandsLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outRealLowerBand Middle band minus nbDevDn standard deviations.
-    *        Must hold at least {@code endIdx - startIdx + 1} values.
+    *        Must hold at least {@code endIdx - max(startIdx, bbandsLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -794,7 +835,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -808,12 +849,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("BBANDS advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -847,16 +888,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public void update( double inReal, BbandsOut out ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("BBANDS update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("BBANDS update", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("BBANDS update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("BBANDS update", "inReal");
          core.bbandsStepImpl(this, inReal);
          this.outRangeCount++;
          out.realUpperBand = this.cur_outRealUpperBand;
@@ -868,16 +909,14 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, BbandsOut out ) {
          requireArgument("BBANDS peek", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("BBANDS peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("BBANDS peek", "inReal");
          BbandsStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -1000,7 +1039,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -1037,7 +1076,7 @@
        * at the same bar. Two intermediate buffers are allocated so the input may
        * safely alias an output (it is only read here).
        */
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the moving average below runs first, and for the MA types whose
@@ -1045,7 +1084,7 @@
        * TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
        * computes a middle band the empty standard deviation then discards.
        * Observably identical (the empty deviation already yields 0,0 here), but it
-       * is the difference between "a range shorter than the lookback reads nothing"
+       * is the difference between "a range that ends before the lookback reads nothing"
        * being true of this function and being false: with a caller-supplied inReal
        * that stops short of endIdx, that discarded work is an out-of-bounds read.
        * The SMA fast path above needs no such guard - its own lookback IS the
@@ -1131,12 +1170,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("BBANDS openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("BBANDS openAndFill", inReal.length, startIdx, bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("BBANDS openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("BBANDS openAndFill: " + retCode, retCode);
+      throw streamFailure("BBANDS openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind bbandsOpen (composition seam). */
    BbandsStream bbandsOpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
@@ -1154,12 +1190,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("BBANDS open: history shorter than lookback + 1");
+         throw insufficientHistory("BBANDS open", inReal.length, startIdx, bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("BBANDS open: internal error", retCode);
-      }
-      throw new TALibArgumentException("BBANDS open: " + retCode, retCode);
+      throw streamFailure("BBANDS open", retCode);
    }
    /**
     * Open a live BBANDS stream over the warm-up history; the handle's
@@ -1203,7 +1236,7 @@
       requireLength("BBANDS openAndFill", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
       requireLength("BBANDS openAndFill", "outRealLowerBand", outRealLowerBand, guardOutLen);
       if( (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
-         throw new TALibArgumentException("BBANDS openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("BBANDS openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

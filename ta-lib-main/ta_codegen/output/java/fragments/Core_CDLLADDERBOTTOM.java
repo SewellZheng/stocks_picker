@@ -48,10 +48,10 @@
       int ShadowVeryShort_rangeType = this.candleSettings[CandleSettingType.SHADOW_VERY_SHORT.ordinal()].rangeType.ordinal();
       int ShadowVeryShort_avgPeriod = this.candleSettings[CandleSettingType.SHADOW_VERY_SHORT.ordinal()].avgPeriod;
       double ShadowVeryShort_factor = this.candleSettings[CandleSettingType.SHADOW_VERY_SHORT.ordinal()].factor;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Identify the minimum number of price bar needed
@@ -92,18 +92,18 @@
        */
       outIdx = 0;
       do {
-         if( ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : 0 - 1) == 0 - 1 &&
-             ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : 0 - 1) == 0 - 1 &&
-             ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && /* 3 black candlesticks */
+         if( ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) == -1 &&
+             ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : -1) == -1 &&
+             ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 && /* 3 black candlesticks */
              inOpen[i - 4] > inOpen[i - 3] &&
-             inOpen[i - 3] > inOpen[i - 2] &&                            /* with consecutively lower opens */
+             inOpen[i - 3] > inOpen[i - 2] &&                      /* with consecutively lower opens */
              inClose[i - 4] > inClose[i - 3] &&
-             inClose[i - 3] > inClose[i - 2] &&                          /* and closes */
-             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && /* 4th: black with an upper shadow */
+             inClose[i - 3] > inClose[i - 2] &&                    /* and closes */
+             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == -1 && /* 4th: black with an upper shadow */
              (inHigh[i - 1] - ((inClose[i - 1] >= inOpen[i - 1]) ? inClose[i - 1] : inOpen[i - 1])) > ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (ShadowVeryShortPeriodTotal / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose[i - 1] - inOpen[i - 1])) : ((ShadowVeryShort_rangeType == 1) ? (inHigh[i - 1] - inLow[i - 1]) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh[i - 1] - (((inClose[i - 1]) >= (inOpen[i - 1])) ? (inClose[i - 1]) : (inOpen[i - 1]))) + ((((inClose[i - 1]) >= (inOpen[i - 1])) ? (inOpen[i - 1]) : (inClose[i - 1])) - inLow[i - 1])) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) &&
-             ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&             /* 5th: white */
-             inOpen[i] > inOpen[i - 1] &&                                /* that opens above prior candle's body */
-             inClose[i] > inHigh[i - 1] )                                /* and closes above prior candle's high */
+             ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&          /* 5th: white */
+             inOpen[i] > inOpen[i - 1] &&                          /* that opens above prior candle's body */
+             inClose[i] > inHigh[i - 1] )                          /* and closes above prior candle's high */
          {
             outInteger[outIdx++] = 100;
          } else {
@@ -139,10 +139,10 @@
       int ShadowVeryShort_rangeType = this.candleSettings[CandleSettingType.SHADOW_VERY_SHORT.ordinal()].rangeType.ordinal();
       int ShadowVeryShort_avgPeriod = this.candleSettings[CandleSettingType.SHADOW_VERY_SHORT.ordinal()].avgPeriod;
       double ShadowVeryShort_factor = this.candleSettings[CandleSettingType.SHADOW_VERY_SHORT.ordinal()].factor;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       lookbackTotal = cdlladderbottomLookback();
@@ -164,7 +164,7 @@
       i = startIdx;
       outIdx = 0;
       do {
-         if( (((double)inClose[i - 4] >= (double)inOpen[i - 4]) ? 1 : 0 - 1) == 0 - 1 && (((double)inClose[i - 3] >= (double)inOpen[i - 3]) ? 1 : 0 - 1) == 0 - 1 && (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && (double)inOpen[i - 4] > (double)inOpen[i - 3] && (double)inOpen[i - 3] > (double)inOpen[i - 2] && (double)inClose[i - 4] > (double)inClose[i - 3] && (double)inClose[i - 3] > (double)inClose[i - 2] && (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && ((double)inHigh[i - 1] - (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? (double)inClose[i - 1] : (double)inOpen[i - 1])) > ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (ShadowVeryShortPeriodTotal / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs((double)inClose[i - 1] - (double)inOpen[i - 1])) : ((ShadowVeryShort_rangeType == 1) ? ((double)inHigh[i - 1] - (double)inLow[i - 1]) : ((ShadowVeryShort_rangeType == 2) ? (((double)inHigh[i - 1] - ((((double)inClose[i - 1]) >= ((double)inOpen[i - 1])) ? ((double)inClose[i - 1]) : ((double)inOpen[i - 1]))) + (((((double)inClose[i - 1]) >= ((double)inOpen[i - 1])) ? ((double)inOpen[i - 1]) : ((double)inClose[i - 1])) - (double)inLow[i - 1])) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) == 1 && (double)inOpen[i] > (double)inOpen[i - 1] && (double)inClose[i] > (double)inHigh[i - 1] ) {
+         if( (((double)inClose[i - 4] >= (double)inOpen[i - 4]) ? 1 : -1) == -1 && (((double)inClose[i - 3] >= (double)inOpen[i - 3]) ? 1 : -1) == -1 && (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : -1) == -1 && (double)inOpen[i - 4] > (double)inOpen[i - 3] && (double)inOpen[i - 3] > (double)inOpen[i - 2] && (double)inClose[i - 4] > (double)inClose[i - 3] && (double)inClose[i - 3] > (double)inClose[i - 2] && (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : -1) == -1 && ((double)inHigh[i - 1] - (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? (double)inClose[i - 1] : (double)inOpen[i - 1])) > ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (ShadowVeryShortPeriodTotal / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs((double)inClose[i - 1] - (double)inOpen[i - 1])) : ((ShadowVeryShort_rangeType == 1) ? ((double)inHigh[i - 1] - (double)inLow[i - 1]) : ((ShadowVeryShort_rangeType == 2) ? (((double)inHigh[i - 1] - ((((double)inClose[i - 1]) >= ((double)inOpen[i - 1])) ? ((double)inClose[i - 1]) : ((double)inOpen[i - 1]))) + (((((double)inClose[i - 1]) >= ((double)inOpen[i - 1])) ? ((double)inOpen[i - 1]) : ((double)inClose[i - 1])) - (double)inLow[i - 1])) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) == 1 && (double)inOpen[i] > (double)inOpen[i - 1] && (double)inClose[i] > (double)inHigh[i - 1] ) {
             outInteger[outIdx++] = 100;
          } else {
             outInteger[outIdx++] = 0;
@@ -193,7 +193,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlladderbottomLookback} is a
+    * valid range that ends before {@link Core#cdlladderbottomLookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -204,11 +204,12 @@
     * @param inClose Close price of each bar.
     * @param outInteger +100 on a detected ladder bottom, 0 otherwise. Only ever
     *        emits +100 (never -100); inherently bullish. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, cdlladderbottomLookback(...)) + 1} values,
+    *        the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -267,7 +268,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdlladderbottomLookback} is a
+    * valid range that ends before {@link Core#cdlladderbottomLookback} is a
     * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -278,11 +279,12 @@
     * @param inClose Close price of each bar.
     * @param outInteger +100 on a detected ladder bottom, 0 otherwise. Only ever
     *        emits +100 (never -100); inherently bullish. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, cdlladderbottomLookback(...)) + 1} values,
+    *        the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -374,7 +376,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -388,12 +390,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("CDLLADDERBOTTOM advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -437,15 +439,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("CDLLADDERBOTTOM update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("CDLLADDERBOTTOM update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("CDLLADDERBOTTOM update", !Double.isFinite(inOpen) ? "inOpen" : !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          core.cdlladderbottomStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -455,32 +457,30 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("CDLLADDERBOTTOM peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("CDLLADDERBOTTOM peek", !Double.isFinite(inOpen) ? "inOpen" : !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          CdlladderbottomStream sp = this;
          int cur_outInteger = 0;
          int ShadowVeryShort_rangeType = sp.cs_ShadowVeryShort_rangeType;
          int ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
          double ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
-         if( ((sp.lag4_inClose >= sp.lag4_inOpen) ? 1 : 0 - 1) == 0 - 1 &&
-             ((sp.lag3_inClose >= sp.lag3_inOpen) ? 1 : 0 - 1) == 0 - 1 &&
-             ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 3 black candlesticks */
+         if( ((sp.lag4_inClose >= sp.lag4_inOpen) ? 1 : -1) == -1 &&
+             ((sp.lag3_inClose >= sp.lag3_inOpen) ? 1 : -1) == -1 &&
+             ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : -1) == -1 && /* 3 black candlesticks */
              sp.lag4_inOpen > sp.lag3_inOpen &&
-             sp.lag3_inOpen > sp.lag2_inOpen &&                            /* with consecutively lower opens */
+             sp.lag3_inOpen > sp.lag2_inOpen &&                      /* with consecutively lower opens */
              sp.lag4_inClose > sp.lag3_inClose &&
-             sp.lag3_inClose > sp.lag2_inClose &&                          /* and closes */
-             ((sp.lag1_inClose >= sp.lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 4th: black with an upper shadow */
+             sp.lag3_inClose > sp.lag2_inClose &&                    /* and closes */
+             ((sp.lag1_inClose >= sp.lag1_inOpen) ? 1 : -1) == -1 && /* 4th: black with an upper shadow */
              (sp.lag1_inHigh - ((sp.lag1_inClose >= sp.lag1_inOpen) ? sp.lag1_inClose : sp.lag1_inOpen)) > ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (sp.ShadowVeryShortPeriodTotal / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs(sp.lag1_inClose - sp.lag1_inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (sp.lag1_inHigh - sp.lag1_inLow) : ((ShadowVeryShort_rangeType == 2) ? ((sp.lag1_inHigh - (((sp.lag1_inClose) >= (sp.lag1_inOpen)) ? (sp.lag1_inClose) : (sp.lag1_inOpen))) + ((((sp.lag1_inClose) >= (sp.lag1_inOpen)) ? (sp.lag1_inOpen) : (sp.lag1_inClose)) - sp.lag1_inLow)) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) &&
-             ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&                     /* 5th: white */
-             inOpen > sp.lag1_inOpen &&                                    /* that opens above prior candle's body */
-             inClose > sp.lag1_inHigh )                                    /* and closes above prior candle's high */
+             ((inClose >= inOpen) ? 1 : -1) == 1 &&                  /* 5th: white */
+             inOpen > sp.lag1_inOpen &&                              /* that opens above prior candle's body */
+             inClose > sp.lag1_inHigh )                              /* and closes above prior candle's high */
          {
             cur_outInteger = 100;
          } else {
@@ -521,18 +521,18 @@
       int ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
       double ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
       sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      if( ((sp.lag4_inClose >= sp.lag4_inOpen) ? 1 : 0 - 1) == 0 - 1 &&
-          ((sp.lag3_inClose >= sp.lag3_inOpen) ? 1 : 0 - 1) == 0 - 1 &&
-          ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 3 black candlesticks */
+      if( ((sp.lag4_inClose >= sp.lag4_inOpen) ? 1 : -1) == -1 &&
+          ((sp.lag3_inClose >= sp.lag3_inOpen) ? 1 : -1) == -1 &&
+          ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : -1) == -1 && /* 3 black candlesticks */
           sp.lag4_inOpen > sp.lag3_inOpen &&
-          sp.lag3_inOpen > sp.lag2_inOpen &&                            /* with consecutively lower opens */
+          sp.lag3_inOpen > sp.lag2_inOpen &&                      /* with consecutively lower opens */
           sp.lag4_inClose > sp.lag3_inClose &&
-          sp.lag3_inClose > sp.lag2_inClose &&                          /* and closes */
-          ((sp.lag1_inClose >= sp.lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 4th: black with an upper shadow */
+          sp.lag3_inClose > sp.lag2_inClose &&                    /* and closes */
+          ((sp.lag1_inClose >= sp.lag1_inOpen) ? 1 : -1) == -1 && /* 4th: black with an upper shadow */
           (sp.lag1_inHigh - ((sp.lag1_inClose >= sp.lag1_inOpen) ? sp.lag1_inClose : sp.lag1_inOpen)) > ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (sp.ShadowVeryShortPeriodTotal / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs(sp.lag1_inClose - sp.lag1_inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (sp.lag1_inHigh - sp.lag1_inLow) : ((ShadowVeryShort_rangeType == 2) ? ((sp.lag1_inHigh - (((sp.lag1_inClose) >= (sp.lag1_inOpen)) ? (sp.lag1_inClose) : (sp.lag1_inOpen))) + ((((sp.lag1_inClose) >= (sp.lag1_inOpen)) ? (sp.lag1_inOpen) : (sp.lag1_inClose)) - sp.lag1_inLow)) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) &&
-          ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&                     /* 5th: white */
-          inOpen > sp.lag1_inOpen &&                                    /* that opens above prior candle's body */
-          inClose > sp.lag1_inHigh )                                    /* and closes above prior candle's high */
+          ((inClose >= inOpen) ? 1 : -1) == 1 &&                  /* 5th: white */
+          inOpen > sp.lag1_inOpen &&                              /* that opens above prior candle's body */
+          inClose > sp.lag1_inHigh )                              /* and closes above prior candle's high */
       {
          sp.cur_outInteger = 100;
       } else {
@@ -569,7 +569,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
@@ -621,18 +621,18 @@
        */
       outIdx = 0;
       do {
-         if( ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : 0 - 1) == 0 - 1 &&
-             ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : 0 - 1) == 0 - 1 &&
-             ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && /* 3 black candlesticks */
+         if( ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) == -1 &&
+             ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : -1) == -1 &&
+             ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 && /* 3 black candlesticks */
              inOpen[i - 4] > inOpen[i - 3] &&
-             inOpen[i - 3] > inOpen[i - 2] &&                            /* with consecutively lower opens */
+             inOpen[i - 3] > inOpen[i - 2] &&                      /* with consecutively lower opens */
              inClose[i - 4] > inClose[i - 3] &&
-             inClose[i - 3] > inClose[i - 2] &&                          /* and closes */
-             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && /* 4th: black with an upper shadow */
+             inClose[i - 3] > inClose[i - 2] &&                    /* and closes */
+             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == -1 && /* 4th: black with an upper shadow */
              (inHigh[i - 1] - ((inClose[i - 1] >= inOpen[i - 1]) ? inClose[i - 1] : inOpen[i - 1])) > ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (ShadowVeryShortPeriodTotal / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose[i - 1] - inOpen[i - 1])) : ((ShadowVeryShort_rangeType == 1) ? (inHigh[i - 1] - inLow[i - 1]) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh[i - 1] - (((inClose[i - 1]) >= (inOpen[i - 1])) ? (inClose[i - 1]) : (inOpen[i - 1]))) + ((((inClose[i - 1]) >= (inOpen[i - 1])) ? (inOpen[i - 1]) : (inClose[i - 1])) - inLow[i - 1])) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) &&
-             ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&             /* 5th: white */
-             inOpen[i] > inOpen[i - 1] &&                                /* that opens above prior candle's body */
-             inClose[i] > inHigh[i - 1] )                                /* and closes above prior candle's high */
+             ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&          /* 5th: white */
+             inOpen[i] > inOpen[i - 1] &&                          /* that opens above prior candle's body */
+             inClose[i] > inHigh[i - 1] )                          /* and closes above prior candle's high */
          {
             outInteger[outIdx++ * outStride] = 100;
          } else {
@@ -691,12 +691,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("CDLLADDERBOTTOM openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("CDLLADDERBOTTOM openAndFill", inOpen.length, startIdx, cdlladderbottomLookback());
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("CDLLADDERBOTTOM openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("CDLLADDERBOTTOM openAndFill: " + retCode, retCode);
+      throw streamFailure("CDLLADDERBOTTOM openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind cdlladderbottomOpen (composition seam). */
    CdlladderbottomStream cdlladderbottomOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -712,12 +709,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("CDLLADDERBOTTOM open: history shorter than lookback + 1");
+         throw insufficientHistory("CDLLADDERBOTTOM open", inOpen.length, startIdx, cdlladderbottomLookback());
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("CDLLADDERBOTTOM open: internal error", retCode);
-      }
-      throw new TALibArgumentException("CDLLADDERBOTTOM open: " + retCode, retCode);
+      throw streamFailure("CDLLADDERBOTTOM open", retCode);
    }
    /**
     * Open a live CDLLADDERBOTTOM stream over the warm-up history; the handle's
@@ -766,7 +760,7 @@
       requireHistoryLength("CDLLADDERBOTTOM openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("CDLLADDERBOTTOM openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
-         throw new TALibArgumentException("CDLLADDERBOTTOM openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("CDLLADDERBOTTOM openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

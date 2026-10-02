@@ -41,19 +41,20 @@ namespace TALib;
 
 /// <summary>All TA-Lib indicators, as instance methods on this class.</summary>
 /// <remarks>
-/// Every indicator follows the same pattern: inputs are <c>double[]</c> (or
-/// <c>float[]</c> overloads), computed over the bar range
-/// <c>startIdx..endIdx</c> inclusive; outputs are written into caller-provided
-/// arrays; the returned <see cref="OutRange"/> reports the input index of the
-/// first output value and how many were written. An indicator consumes a
+/// Every indicator follows the same pattern: inputs are
+/// <c>ReadOnlySpan&lt;double&gt;</c> (or <c>ReadOnlySpan&lt;float&gt;</c>
+/// overloads), computed over the bar range <c>startIdx..endIdx</c> inclusive;
+/// outputs are written into caller-provided spans; the returned
+/// <see cref="OutRange"/> reports the input index of the first output value and
+/// how many were written. Arrays convert to spans implicitly. An indicator consumes a
 /// number of leading bars (its <em>lookback</em>) before producing output —
 /// query it with the matching <c>*Lookback</c> method. Integer parameters
 /// accept <see cref="IntegerDefault"/>, and real parameters
 /// <see cref="RealDefault"/>, to select their documented default.
 /// <para>Per-instance settings — unstable periods and candlestick thresholds —
 /// take their documented defaults unless chosen up front with
-/// <see cref="Builder"/>. A <c>Core</c> whose settings are never mutated is safe
-/// to share read-only across threads.</para>
+/// <see cref="Builder"/>. A <c>Core</c> is immutable, so one instance can be
+/// shared across threads; <see cref="Default"/> is the all-defaults one.</para>
 /// </remarks>
 public sealed partial class Core
 {
@@ -91,10 +92,9 @@ public sealed partial class Core
     /// already imprecise well below this cap.</para>
     /// <para>Identical in C, Rust and Java, so the same call is accepted or
     /// rejected the same way in all four.</para></remarks>
-    public const int MaxIndex = 100000000;
+    public const int IndexMax = 100000000;
 
-    /* Sized by the id count, so the ALL wildcard gets no slot (#144). */
-    internal readonly int[] unstablePeriod = new int[FuncUnstIds.Count];
+    internal readonly int[] _unstablePeriod;
 
     /* The 11 defaults, in CandleSettingType order, from
      * TA_RestoreCandleDefaultSettings in ta_global.c. ONE source of truth: both a
@@ -116,21 +116,31 @@ public sealed partial class Core
         new CandleSetting(RangeType.HighLow,  5,  0.05),  // Equal
     };
 
-    /* candleSettings[] in CandleSettingType order. */
-    internal readonly CandleSetting[] candleSettings = (CandleSetting[])DefaultCandleSettings.Clone();
+    /* In CandleSettingType order. */
+    internal readonly CandleSetting[] _candleSettings;
+
+    /// <summary>A shared <c>Core</c> with every setting at its documented
+    /// default.</summary>
+    /// <remarks>Prefer it to <c>new Core()</c> whenever a shared instance will
+    /// do.</remarks>
+    public static Core Default { get; } = new Core();
 
     /// <summary>Create a Core with every setting at its documented
     /// default.</summary>
+    /// <remarks><see cref="Default"/> is one already built.</remarks>
     public Core()
     {
+        /* Sized by the id count, so the ALL wildcard gets no slot (#144). */
+        _unstablePeriod = new int[FuncUnstIds.Count];
+        _candleSettings = (CandleSetting[])DefaultCandleSettings.Clone();
     }
 
     /* Built through CoreBuilder.Build(). Takes a snapshot rather than the
      * builder's own array, so later builder calls cannot reach in here. */
     internal Core(CoreBuilder builder)
     {
-        unstablePeriod = builder.SnapshotUnstablePeriod();
-        candleSettings = builder.SnapshotCandleSettings();
+        _unstablePeriod = builder.SnapshotUnstablePeriod();
+        _candleSettings = builder.SnapshotCandleSettings();
     }
 
     /// <summary>Start building a <c>Core</c> with non-default settings.</summary>
@@ -145,7 +155,7 @@ public sealed partial class Core
     /// <returns>A builder carrying this instance's current settings.</returns>
     public CoreBuilder ToBuilder()
     {
-        return new CoreBuilder(unstablePeriod, candleSettings);
+        return new CoreBuilder(_unstablePeriod, _candleSettings);
     }
 
     /// <summary>Reads one candlestick threshold.</summary>
@@ -157,12 +167,13 @@ public sealed partial class Core
     public CandleSetting CandleSettings(CandleSettingType settingType)
     {
         int slot = (int)settingType;
-        if (slot < 0 || slot >= DefaultCandleSettings.Length)
+        if (settingType == CandleSettingType.AllCandleSettings
+            || slot < 0 || slot >= DefaultCandleSettings.Length)
         {
             throw new ArgumentOutOfRangeException(nameof(settingType), settingType,
                 "not a single candlestick setting");
         }
-        return candleSettings[slot];
+        return _candleSettings[slot];
     }
 
     /// <summary>Reads the unstable period configured for one function.</summary>
@@ -183,7 +194,7 @@ public sealed partial class Core
             throw new ArgumentOutOfRangeException(nameof(id), id,
                 "not a function with a single unstable period");
         }
-        return unstablePeriod[slot];
+        return _unstablePeriod[slot];
     }
 
     /* The requested start after the lookback clamp -- max(startIdx, lookback) --
@@ -195,7 +206,7 @@ public sealed partial class Core
      * it, so pre-empting it would replace a documented exception with a length
      * complaint.
      *
-     * A result ABOVE endIdx is not an error: the range is shorter than the
+     * A result ABOVE endIdx is not an error: the range ends before the
      * lookback, so the call produces no values. That switches the OUTPUT bound
      * off -- any length will do, including none -- but not the input bound. An
      * endIdx past the end of the series the caller supplied is a caller bug in
@@ -216,7 +227,7 @@ public sealed partial class Core
      * pins the rows named here. */
     internal static int ClampedStart(int startIdx, int endIdx, int lookback)
     {
-        if (lookback < 0 || startIdx < 0 || endIdx < startIdx || endIdx > MaxIndex)
+        if (lookback < 0 || startIdx < 0 || endIdx < startIdx || endIdx > IndexMax)
         {
             return -1;
         }
@@ -239,7 +250,7 @@ public sealed partial class Core
         if (actual < required)
         {
             throw new TALibArgumentException(
-                "TA_" + funcName + ": " + argName + " has length " + actual
+                funcName + ": " + argName + " has length " + actual
                     + ", needs " + required,
                 argName, RetCode.BadParam);
         }
@@ -288,10 +299,7 @@ public sealed partial class Core
         }
     }
 
-    /* RequireLength for the STREAMING tier, which spells the prefix
-     * "<NAME> <verb>: " where the batch tier spells it "TA_<NAME>: ". Same
-     * reason StreamFailure is not a reuse of Failure(): the prefix is a
-     * cross-language contract the stream gate greps for. */
+    /* RequireLength for the STREAMING tier, whose prefix is "<NAME> <verb>: ". */
     internal static void RequireFillLength(string funcName, string verb, string argName,
                                            int actual, int required)
     {
@@ -304,23 +312,36 @@ public sealed partial class Core
         }
     }
 
-    /* The RetCode -> exception mapping for the STREAMING tier. Deliberately not
-     * a reuse of Failure(): the two tiers spell the same code differently. A
-     * stream CAN still report OutOfRangeEndIndex (a history longer than
-     * MaxIndex + 1), and Failure() would render that as
-     * ArgumentOutOfRangeException("endIdx") — meaningless to a caller whose
-     * method has no endIdx parameter.
-     *
-     * The "<NAME> open: " prefix is a cross-language contract (see
-     * docs/streaming-api-design.md) and deliberately differs from Failure()'s
-     * "TA_<NAME>: ". Do not unify them. Centralising the mapping here also
-     * means the ~520 generated reject sites are one line each instead of four,
-     * and the message prefix the stream gate greps has a single source. */
+    /* Rule S7, naming the history and carrying the counts the batch tier's
+     * length faults carry: max(startIdx, lookback) + 1 is the bound the core
+     * tested. */
+    internal static InsufficientHistoryException InsufficientHistory(string funcName, string verb,
+                                                                     string argName, int historyLen,
+                                                                     int startIdx, int lookback)
+    {
+        return new InsufficientHistoryException(
+            funcName + " " + verb + ": history has length " + historyLen + ", needs "
+                + (Math.Max(startIdx, lookback) + 1),
+            argName);
+    }
+
+    /* Rule U3, naming the bar input the check rejected. */
+    internal static TALibArgumentException NonFiniteBar(string funcName, string verb, string argName)
+    {
+        return new TALibArgumentException(
+            funcName + " " + verb + ": " + argName + " is not finite", argName, RetCode.BadParam);
+    }
+
+    /* The RetCode -> exception mapping for the STREAMING tier. Not Failure():
+     * that maps OutOfRangeEndIndex to ArgumentOutOfRangeException("endIdx"),
+     * and no streaming method has an endIdx parameter. */
     internal static Exception StreamFailure(string funcName, string what, RetCode retCode)
     {
         string where = funcName + " " + what + ": ";
         return retCode switch
         {
+            RetCode.BadParam => new TALibArgumentException(where + "bad parameter", retCode),
+            RetCode.OutOfRangeEndIndex => new TALibArgumentException(where + "past Core.IndexMax", retCode),
             RetCode.InsufficientHistory => new InsufficientHistoryException(
                 where + "history shorter than lookback + 1"),
             RetCode.InternalError => new TALibInvalidOperationException(where + "internal error", retCode),
@@ -340,7 +361,7 @@ public sealed partial class Core
      * to either. */
     internal static Exception Failure(string funcName, RetCode retCode)
     {
-        string where = "TA_" + funcName + ": ";
+        string where = funcName + ": ";
         switch (retCode)
         {
             case RetCode.OutOfRangeStartIndex:
@@ -354,10 +375,10 @@ public sealed partial class Core
             case RetCode.InternalError:
                 return new TALibInvalidOperationException(where + "internal error", retCode);
             case RetCode.InsufficientHistory:
-                /* Streaming-only in practice: a batch range shorter than the
-                 * lookback is Success with a zero count, never this. Mapped
+                /* Streaming-only in practice: a batch range that ends before
+                 * the lookback is Success with a zero count, never this. Mapped
                  * anyway so the code -> exception function stays total. */
-                return new InsufficientHistoryException(where + "history shorter than the lookback");
+                return new InsufficientHistoryException(where + "history shorter than lookback + 1");
             default:
                 return new TALibInvalidOperationException(where + retCode, retCode);
         }

@@ -1,10 +1,10 @@
 ---
 title: C/C++ Streaming API
-description: "The TA-Lib C/C++ streaming API for live feeds: open a stream once, feed one bar at a time at O(1) per bar, with values bit-identical to the batch functions."
+description: "The TA-Lib C/C++ streaming API for live feeds: open a stream once, feed one bar at a time without recomputing the history, with values bit-identical to the batch functions."
 toc: false
 ---
 
-The **streaming API** is built for live feeds: open a stream once, then feed it one bar at a time. The stream carries its state from bar to bar, so each new bar costs O(1) — and every value is **bit-identical** to what the [batch function](/api/) (`TA_SMA`, `TA_RSI`, …) would return by recomputing over the whole array.
+The **streaming API** is built for live feeds: open a stream once, then feed it one bar at a time. The stream carries its state from bar to bar, so a new bar never costs a pass over the history: most indicators do constant work per bar, and the ones that work over their window, such as AVGDEV, CCI, MEDIAN and the rolling extremes, take time at most proportional to the window's length. Every value is **bit-identical** to what the [batch function](/api/) (`TA_SMA`, `TA_RSI`, …) would return by recomputing over the whole array.
 
 Every TA function gets these calls:
 
@@ -107,13 +107,13 @@ See [Rules](#rules) for when concurrent reads of these are safe.
 
 | Call | Returns |
 |------|---------|
-| `TA_<NAME>_Open` / `TA_<NAME>_OpenAndFill` | <ul><li>`TA_INSUFFICIENT_HISTORY` when `historyLen` is below `lookback + 1` — the one failure worth retrying, since another bar might fix it</li><li>`TA_OUT_OF_RANGE_START_INDEX` when `historyLen` is 0</li><li>`TA_OUT_OF_RANGE_END_INDEX` when `historyLen` exceeds `TA_MAX_INDEX + 1`</li><li>`TA_BAD_PARAM` — a NULL pointer, or a parameter out of range</li><li>`TA_ALLOC_ERR` — a memory allocation failure</li></ul>On any of these, `*stream` is NULL. |
-| `TA_<NAME>_Update` / `TA_<NAME>_Peek` | <ul><li>`TA_BAD_PARAM` on NULL arguments, or invalid input such as NaN or ±Inf</li><li>`TA_OUT_OF_RANGE_END_INDEX` once the range has reached bar `TA_MAX_INDEX`, the last index the batch API addresses</li></ul>A rejection changes nothing at all — no state, no output, and no range — so the next call sees exactly what the last accepted bar left. |
+| `TA_<NAME>_Open` / `TA_<NAME>_OpenAndFill` | <ul><li>`TA_INSUFFICIENT_HISTORY` when `historyLen` is below `lookback + 1` — the one failure worth retrying, since another bar might fix it</li><li>`TA_OUT_OF_RANGE_START_INDEX` when `historyLen` is 0</li><li>`TA_OUT_OF_RANGE_END_INDEX` when `historyLen` exceeds `TA_INDEX_MAX + 1`</li><li>`TA_BAD_PARAM` — a NULL pointer, or a parameter out of range</li><li>`TA_ALLOC_ERR` — a memory allocation failure</li></ul>On any of these, `*stream` is NULL. |
+| `TA_<NAME>_Update` / `TA_<NAME>_Peek` | <ul><li>`TA_BAD_PARAM` on NULL arguments, or invalid input such as NaN or ±Inf</li><li>`TA_OUT_OF_RANGE_END_INDEX` once the range has reached bar `TA_INDEX_MAX`, the last index the batch API addresses</li><li>`TA_ALLOC_ERR`: a memory allocation failure</li></ul>Apart from `TA_ALLOC_ERR`, after which nothing is defined, a rejection changes nothing at all: no state, no output and no range. The next call sees exactly what the last accepted bar left. |
 | `TA_<NAME>_Close`  | `TA_SUCCESS`; `TA_<NAME>_Close(NULL)` is a no-op |
 | `TA_<NAME>_Value` | `TA_BAD_PARAM` on a NULL stream or a NULL out-pointer for a required output. A declinable output may be NULL, and is then simply not written. |
 | `TA_<NAME>_Clone` | `TA_BAD_PARAM` on a NULL stream or a NULL `clone`; `TA_ALLOC_ERR` if any allocation fails. On either, `*clone` is NULL and the original is untouched. |
 | `TA_<NAME>_OutRange` | `TA_BAD_PARAM` on a NULL argument |
-| `TA_<NAME>_Advance` | `TA_BAD_PARAM` on a NULL argument; `TA_OUT_OF_RANGE_END_INDEX` once the range has reached bar `TA_MAX_INDEX` |
+| `TA_<NAME>_Advance` | `TA_BAD_PARAM` on a NULL argument; `TA_OUT_OF_RANGE_END_INDEX` once the range has reached bar `TA_INDEX_MAX` |
 
 ## Discovering streamable functions
 

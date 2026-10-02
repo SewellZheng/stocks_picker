@@ -45,21 +45,26 @@
  *  112400 MF   First version.
  *  020605 MF   Add regression test with inverted slow/fast period.
  *  020805 AA   Fix one of the TA_PPO call (wrong buffer was pass).
+ *  092726 MF,CC  PPO/PVO leg: a slow window that goes dead after fractional
+ *                values (#454).
  */
 
 /* Description:
  *     Regression test of APO(Absolute Price Oscillator).
  *     Regression test of PPO (Percentage Price Oscillator).
+ *     PVO shares PPO's loop, so the dead-window leg covers both.
  */
 
 /**** Headers ****/
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include "ta_test_priv.h"
 #include "ta_test_func.h"
 #include "ta_utility.h"
 #include "server_verify.h"
+#include "ta_test_reference.h"
 
 /**** External functions declarations. ****/
 /* None */
@@ -107,6 +112,15 @@ static ErrorNumber do_test( const TA_History *history,
 static ErrorNumber test_default_is_ema( const TA_History *history,
                                         const char *funcName,
                                         int doPercentage );
+
+static ErrorNumber test_dead_after_fractional( int pvo );
+static ErrorNumber test_ma_fusion( TA_MAType maType, int unstable, int expectCmp );
+
+/* Comparisons test_ma_fusion makes per case; a leg that compared nothing prints nothing. */
+#define PO_FUSE_SMA_CMP  96240
+#define PO_FUSE_EMA_CMP0 96240
+#define PO_FUSE_EMA_CMP7 95664
+static ErrorNumber test_ma_fusion_body( TA_MAType maType, int expectCmp );
 
 /**** Local variables definitions.     ****/
 static TA_Test tableTest[] =
@@ -223,6 +237,27 @@ ErrorNumber test_func_po( TA_History *history )
       return retValue;
 
    retValue = test_default_is_ema( history, "APO", 0 );
+   if( retValue != 0 )
+      return retValue;
+
+   retValue = test_dead_after_fractional( 0 );
+   if( retValue != 0 )
+      return retValue;
+
+   retValue = test_dead_after_fractional( 1 );
+   if( retValue != 0 )
+      return retValue;
+
+   /* #459: APO, PPO and PVO compute their two SMAs, or their two EMAs, in one
+    * pass. This proves each path bit-identical to the two-TA_MA path.
+    */
+   retValue = test_ma_fusion( TA_MAType_SMA, 0, PO_FUSE_SMA_CMP );
+   if( retValue != 0 )
+      return retValue;
+   retValue = test_ma_fusion( TA_MAType_EMA, 0, PO_FUSE_EMA_CMP0 );
+   if( retValue != 0 )
+      return retValue;
+   retValue = test_ma_fusion( TA_MAType_EMA, 7, PO_FUSE_EMA_CMP7 );
    if( retValue != 0 )
       return retValue;
 
@@ -593,3 +628,402 @@ static ErrorNumber test_default_is_ema( const TA_History *history,
    return TA_TEST_PASS;
 }
 
+
+/* A slow window that goes dead after fractional values reads 0, as ppo.md and
+ * pvo.md document, where SMA, WMA, TRIMA and HMA leave rounding residue in the
+ * slow MA. Every other bar, and every bar of EMA (a recursive type, really
+ * nonzero there), is the plain ratio of the two TA_MA outputs, bit for bit.
+ *
+ * Anchor DW_EDGE seeds one bar into the zero run, so the first dead bar is
+ * known dead only by counting the zero bars before the first output: the warm-up
+ * in batch and Open, and the count the handle carries into Update. The witness
+ * check proves the slow MA holds residue past TA_IS_ZERO there, at both anchors.
+ *
+ * The dead run starts early enough to fall inside the first 2*lookback+10 bars
+ * that server_verify's ride-along replays through Open+Update in every
+ * language; moving it later leaves that replay short of it, silently. */
+#define DW_N     60
+#define DW_ZS    8
+#define DW_ZE    28
+#define DW_EDGE  (DW_ZS + 1)
+#define DW_FAST  3
+#define DW_SLOW  5
+
+typedef struct { TA_PPO_Stream *ppo; TA_PVO_Stream *pvo; } DwStream;
+
+static TA_RetCode dw_batch( int pvo, int s, int e, const TA_Real *in, TA_MAType t,
+                            TA_Integer *beg, TA_Integer *nb, TA_Real *out )
+{
+   return pvo ? TA_PVO( s, e, in, DW_FAST, DW_SLOW, t, beg, nb, out )
+              : TA_PPO( s, e, in, DW_FAST, DW_SLOW, t, beg, nb, out );
+}
+
+static TA_RetCode dw_open( int pvo, DwStream *h, const TA_Real *in, int len, TA_MAType t,
+                           TA_Real *out )
+{
+   return pvo ? TA_PVO_Open( &h->pvo, in, len, DW_FAST, DW_SLOW, t, out )
+              : TA_PPO_Open( &h->ppo, in, len, DW_FAST, DW_SLOW, t, out );
+}
+
+static TA_RetCode dw_fill( int pvo, DwStream *h, const TA_Real *in, int len, TA_MAType t,
+                           TA_Integer *beg, TA_Integer *nb, TA_Real *out )
+{
+   return pvo ? TA_PVO_OpenAndFill( &h->pvo, in, len, DW_FAST, DW_SLOW, t, beg, nb, out )
+              : TA_PPO_OpenAndFill( &h->ppo, in, len, DW_FAST, DW_SLOW, t, beg, nb, out );
+}
+
+static TA_RetCode dw_step( int pvo, DwStream *h, TA_Real v, TA_Real *peek, TA_Real *got )
+{
+   TA_RetCode rc;
+   rc = pvo ? TA_PVO_Peek( h->pvo, v, peek ) : TA_PPO_Peek( h->ppo, v, peek );
+   if( rc != TA_SUCCESS )
+      return rc;
+   return pvo ? TA_PVO_Update( h->pvo, v, got ) : TA_PPO_Update( h->ppo, v, got );
+}
+
+static void dw_close( DwStream *h )
+{
+   if( h->pvo ) TA_PVO_Close( h->pvo );
+   if( h->ppo ) TA_PPO_Close( h->ppo );
+   h->pvo = NULL;
+   h->ppo = NULL;
+}
+
+static ErrorNumber test_dead_after_fractional( int pvo )
+{
+   static const TA_MAType types[5] = { TA_MAType_SMA, TA_MAType_WMA, TA_MAType_TRIMA,
+                                       TA_MAType_HMA, TA_MAType_EMA };
+   static TA_Real x[DW_N], fast[DW_N], slow[DW_N], want[DW_N], out[DW_N];
+   static TA_Real res[3][DW_N];
+   const char *name = pvo ? "PVO" : "PPO";
+   TA_Integer beg, nb, fBeg, fNb, sBeg, sNb;
+   TA_Real got, peek;
+   TA_RetCode rc;
+   DwStream h = { NULL, NULL };
+   const TA_Real *in;
+   int k, c, i, lb, s, n, windowed, base[3], anchor[3], len;
+
+   for( i = 0; i < DW_N; i++ )
+      x[i] = ( i >= DW_ZS && i < DW_ZE ) ? 0.0 : 1002.69 + 1.3 * (double)( i % 3 );
+
+   /* EMA, the control, seeds the same way on every call only without an
+    * unstable period. */
+   TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 0 );
+
+   for( k = 0; k < 5; k++ )
+   {
+      windowed = types[k] != TA_MAType_EMA;
+      lb = TA_MA_Lookback( DW_SLOW, types[k] );
+
+      /* Case 0 runs from bar 0; cases 1 and 2 both have DW_EDGE as their
+       * first output bar, anchored there and sliced there. */
+      base[0] = 0;  anchor[0] = 0;
+      base[1] = 0;  anchor[1] = DW_EDGE;
+      base[2] = DW_EDGE - lb;  anchor[2] = 0;
+
+      for( c = 0; c < 3; c++ )
+      {
+         in = x + base[c];
+         n  = DW_N - base[c];
+         s  = anchor[c] < lb ? lb : anchor[c];
+         /* The MAs from the anchor PPO/PVO hand them: their running sums, and so
+          * the bits, depend on where each one seeds. */
+         rc = TA_MA( anchor[c], n - 1, in, DW_FAST, types[k], &fBeg, &fNb, fast );
+         if( rc == TA_SUCCESS )
+            rc = TA_MA( anchor[c], n - 1, in, DW_SLOW, types[k], &sBeg, &sNb, slow );
+         if( rc != TA_SUCCESS || sBeg != s || fBeg > sBeg )
+         {
+            printf( "%s dead-after-fractional [type %d case %d]: TA_MA retCode %d\n",
+                    name, (int)types[k], c, (int)rc );
+            return TA_TESTUTIL_TFRR_BAD_RETCODE;
+         }
+         if( windowed && TA_IS_ZERO( slow[DW_ZS + lb - base[c] - s] ) )
+         {
+            printf( "%s dead-after-fractional [type %d case %d]: the slow MA holds no "
+                    "residue at the first dead bar, so this corpus no longer tells the "
+                    "dead window apart\n", name, (int)types[k], c );
+            return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+         }
+         for( i = s; i < n; i++ )
+         {
+            if( windowed && i + base[c] - lb >= DW_ZS && i + base[c] < DW_ZE )
+               want[i] = 0.0;
+            else if( TA_IS_ZERO( slow[i - s] ) )
+               want[i] = 0.0;
+            else
+               want[i] = ( ( fast[i - fBeg] - slow[i - s] ) / slow[i - s] ) * 100.0;
+         }
+
+         rc = dw_batch( pvo, anchor[c], n - 1, in, types[k], &beg, &nb, res[c] );
+         if( rc != TA_SUCCESS || beg != s || nb != n - s )
+         {
+            printf( "%s dead-after-fractional Fail [type %d case %d]: retCode %d (%d,%d)\n",
+                    name, (int)types[k], c, (int)rc, (int)beg, (int)nb );
+            return TA_TESTUTIL_TFRR_BAD_BEGIDX;
+         }
+         for( i = s; i < n; i++ )
+         {
+            got = res[c][i - s];
+            if( memcmp( &got, &want[i], sizeof(double) ) != 0 )
+            {
+               printf( "%s dead-after-fractional Fail [type %d case %d] at bar %d: %.17g, "
+                       "expected %.17g (bars %d..%d have an all-zero slow window)\n",
+                       name, (int)types[k], c, i + base[c], got, want[i],
+                       DW_ZS + lb, DW_ZE - 1 );
+               return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+            }
+         }
+      }
+
+      /* Peek and Update on every bar after an Open ending one bar into the zero
+       * run, one ending past the first dead bar, and case 2's minimal Open. */
+      for( c = 0; c < 3; c++ )
+      {
+         const TA_Real *r = res[c == 2 ? 2 : 0];
+         in  = x + ( c == 2 ? base[2] : 0 );
+         n   = DW_N - ( c == 2 ? base[2] : 0 );
+         len = c == 0 ? DW_ZS + 1 : c == 1 ? DW_ZS + lb + 3 : lb + 1;
+         rc = dw_open( pvo, &h, in, len, types[k], &got );
+         if( rc != TA_SUCCESS || memcmp( &got, &r[len - 1 - lb], sizeof(double) ) != 0 )
+         {
+            printf( "%s dead-after-fractional stream Fail [type %d open %d]: retCode %d "
+                    "%.17g, batch %.17g\n", name, (int)types[k], c, (int)rc, got,
+                    r[len - 1 - lb] );
+            dw_close( &h );
+            return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+         }
+         for( i = len; i < n; i++ )
+         {
+            rc = dw_step( pvo, &h, in[i], &peek, &got );
+            if( rc != TA_SUCCESS || memcmp( &peek, &r[i - lb], sizeof(double) ) != 0
+                || memcmp( &got, &r[i - lb], sizeof(double) ) != 0 )
+            {
+               printf( "%s dead-after-fractional stream Fail [type %d open %d] at bar %d: "
+                       "retCode %d peek %.17g update %.17g batch %.17g\n", name,
+                       (int)types[k], c, i + ( c == 2 ? base[2] : 0 ), (int)rc, peek, got,
+                       r[i - lb] );
+               dw_close( &h );
+               return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+            }
+         }
+         dw_close( &h );
+      }
+
+      rc = dw_fill( pvo, &h, x, DW_N, types[k], &beg, &nb, out );
+      dw_close( &h );
+      if( rc != TA_SUCCESS || beg != lb || nb != DW_N - lb
+          || memcmp( out, res[0], (size_t)nb * sizeof(double) ) != 0 )
+      {
+         printf( "%s dead-after-fractional OpenAndFill Fail [type %d]: retCode %d (%d,%d)\n",
+                 name, (int)types[k], (int)rc, (int)beg, (int)nb );
+         return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+      }
+
+      if( server_verify_active() )
+      {
+         double optIn[3];
+         ErrorNumber e;
+         int cmpBefore, rideBefore;
+
+         optIn[0] = (double)DW_FAST;
+         optIn[1] = (double)DW_SLOW;
+         optIn[2] = (double)types[k];
+         for( c = 0; c < 3; c += 2 )
+         {
+            n = DW_N - base[c];
+            cmpBefore = server_verify_comparisons();
+            rideBefore = server_verify_ride_cases();
+            e = server_verify( name, 0, n - 1, n, TA_SUCCESS, lb, n - lb,
+                               (const TA_Real*[]){ x + base[c], NULL }, optIn, 3,
+                               (const TA_Real*[]){ res[c], NULL }, NULL );
+            if( e != TA_TEST_PASS )
+               return e;
+            /* Every server that compared the batch must also have replayed it
+             * through its stream: case 2's Open is the one that must count the
+             * zero bars before its first output. */
+            if( server_verify_comparisons() == cmpBefore
+                || server_verify_ride_cases() - rideBefore
+                   != server_verify_comparisons() - cmpBefore )
+            {
+               printf( "%s dead-after-fractional [type %d case %d]: %d server(s) compared "
+                       "the batch, %d replayed it through the stream\n", name,
+                       (int)types[k], c, server_verify_comparisons() - cmpBefore,
+                       server_verify_ride_cases() - rideBefore );
+               return TA_SV_ROUTED_VACUOUS;
+            }
+         }
+      }
+   }
+
+   return TA_TEST_PASS;
+}
+#undef DW_N
+#undef DW_ZS
+#undef DW_ZE
+#undef DW_EDGE
+#undef DW_FAST
+#undef DW_SLOW
+
+/* #459: the SMA and EMA fast paths of APO, PPO and PVO compute the fast and
+ * the slow moving average in ONE pass over the input, where the general MA path
+ * calls TA_MA twice and allocates the fast MA in full. This leg is their
+ * oracle: the same output assembled from two TA_MA calls and the same
+ * dead-window rule the general path applies to SMA (#454), compared BIT FOR BIT.
+ * EMA runs at a zero and a nonzero unstable period, which move its seed bars.
+ *
+ * Exact equality is the point. Each running sum and each EMA seed is
+ * path-dependent, so a fused MA that reached its first output bar by a shorter
+ * route still agrees to about fifteen digits; the tableTest entries above, which
+ * match to five, would not notice. The cases sweep the swap (fast > slow), the
+ * equal-period degenerate, startIdx below / at / above each lookback, and a run
+ * of zeros so PPO and PVO reach their dead window for SMA, and a startIdx inside
+ * that run so EMA is seeded on zeros and reaches their TA_IS_ZERO arm. SMA never
+ * reaches TA_IS_ZERO here: an all-zero window is dead first.
+ */
+#define PO_FUSE_N   600
+
+static ErrorNumber test_ma_fusion( TA_MAType maType, int unstable, int expectCmp )
+{
+   ErrorNumber retValue;
+
+   TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, unstable );
+   retValue = test_ma_fusion_body( maType, expectCmp );
+   TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 0 );
+   return retValue;
+}
+
+static ErrorNumber test_ma_fusion_body( TA_MAType maType, int expectCmp )
+{
+   static const struct { int fast, slow; } pairs[] = {
+      { 2, 3 }, { 3, 2 }, { 12, 26 }, { 26, 12 }, { 5, 5 }, { 2, 100 }, { 99, 100 }, { 2, 2 }
+   };
+   static const int starts[] = { 0, 1, 25, 26, 99, 100, 140, 300, PO_FUSE_N-1 };
+   static double in[PO_FUSE_N], fastBuf[PO_FUSE_N], slowBuf[PO_FUSE_N], got[PO_FUSE_N];
+   TA_RetCode rc;
+   TA_Integer beg, nb, fastBeg, fastNb, slowBeg, slowNb;
+   const char *name;
+   double want, slowMA;
+   int p, st, which, i, k, fast, slow, offset, swap, nbCmp, nbZeroArm, slowLookback, zeroRun, windowed;
+
+   /* The corpus has to make a running sum ROUND, or this leg proves nothing:
+    * 100.0 + 50.0*lcg_sym() is an integer over 2^23, every partial sum of it is
+    * exact, and then every accumulation order agrees and a fused sum that
+    * reached its first output bar by the wrong route still matches bit for bit.
+    * So: a level far above the increments, a stretch whose exponents are
+    * decades apart, a run of exact zeros long enough to kill a slow window, and
+    * a flat stretch.
+    */
+   ta_test_ref_lcg_seed( 0x5090u );
+   for( i = 0; i < PO_FUSE_N; i++ )
+      in[i] = 1.0e8 + 1.0e-4 * ta_test_ref_lcg_sym();
+   for( i = 200; i < 260; i++ )
+      in[i] = ldexp( 1.0 + 0.5 * ta_test_ref_lcg_half(), (i % 41) - 20 );
+   for( i = 120; i < 160; i++ )
+      in[i] = 0.0;
+   for( i = 300; i < 340; i++ )
+      in[i] = 12.5;
+
+   nbCmp = 0;
+   nbZeroArm = 0;
+   for( p = 0; p < (int)(sizeof(pairs)/sizeof(pairs[0])); p++ )
+   for( st = 0; st < (int)(sizeof(starts)/sizeof(starts[0])); st++ )
+   for( which = 0; which < 3; which++ )
+   {
+      fast = pairs[p].fast;
+      slow = pairs[p].slow;
+
+      switch( which )
+      {
+      case 0:
+         name = "APO";
+         rc = TA_APO( starts[st], PO_FUSE_N-1, in, fast, slow, maType, &beg, &nb, got );
+         break;
+      case 1:
+         name = "PPO";
+         rc = TA_PPO( starts[st], PO_FUSE_N-1, in, fast, slow, maType, &beg, &nb, got );
+         break;
+      default:
+         name = "PVO";
+         rc = TA_PVO( starts[st], PO_FUSE_N-1, in, fast, slow, maType, &beg, &nb, got );
+         break;
+      }
+      if( rc != TA_SUCCESS )
+      {
+         printf( "%s fusion Fail [f=%d s=%d start=%d]: rc=%d\n",
+                 name, fast, slow, starts[st], (int)rc );
+         return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+      }
+
+      /* The oracle: exactly what the general MA path computes. */
+      if( slow < fast )
+      {
+         swap = slow; slow = fast; fast = swap;
+      }
+      rc = TA_MA( starts[st], PO_FUSE_N-1, in, fast, maType, &fastBeg, &fastNb, fastBuf );
+      if( rc == TA_SUCCESS )
+         rc = TA_MA( starts[st], PO_FUSE_N-1, in, slow, maType, &slowBeg, &slowNb, slowBuf );
+      if( rc != TA_SUCCESS )
+      {
+         printf( "%s fusion Fail [f=%d s=%d start=%d]: oracle rc=%d\n",
+                 name, fast, slow, starts[st], (int)rc );
+         return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+      }
+      if( beg != slowBeg || nb != slowNb )
+      {
+         printf( "%s fusion Fail [f=%d s=%d start=%d]: range (%d,%d), expected (%d,%d)\n",
+                 name, fast, slow, starts[st], (int)beg, (int)nb, (int)slowBeg, (int)slowNb );
+         return TA_TESTUTIL_TFRR_BAD_BEGIDX;
+      }
+
+      offset = fastNb - slowNb;
+      slowLookback = TA_MA_Lookback( slow, maType );
+      windowed = maType == TA_MAType_SMA;
+      zeroRun = 0;
+      for( k = slowBeg - slowLookback; k < slowBeg; k++ )
+         zeroRun = fabs(in[k]) <= 0.0 ? zeroRun + 1 : 0;
+
+      for( i = 0; i < (int)slowNb; i++ )
+      {
+         zeroRun = fabs(in[slowBeg + i]) <= 0.0 ? zeroRun + 1 : 0;
+         slowMA = slowBuf[i];
+         if( which == 0 )
+            want = fastBuf[i+offset] - slowMA;
+         else if( windowed && zeroRun > slowLookback )
+         {
+            zeroRun = slowLookback;
+            want = 0.0;
+            nbZeroArm++;
+         }
+         else if( !TA_IS_ZERO(slowMA) )
+            want = ((fastBuf[i+offset]-slowMA)/slowMA)*100.0;
+         else
+         {
+            want = 0.0;
+            nbZeroArm++;
+         }
+
+         nbCmp++;
+         if( got[i] != want )
+         {
+            printf( "%s fusion Fail [type %d f=%d s=%d start=%d i=%d]: %.17g, expected %.17g\n",
+                    name, (int)maType, fast, slow, starts[st], i, got[i], want );
+            return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+         }
+      }
+   }
+
+   /* Literal: a leg that compared nothing prints nothing either. */
+   if( nbCmp != expectCmp )
+   {
+      printf( "MA type %d fusion Fail: compared %d times, not the %d this file was written with\n",
+              (int)maType, nbCmp, expectCmp );
+      return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+   }
+   if( nbZeroArm == 0 )
+   {
+      printf( "MA type %d fusion Fail: no case reached the zero arm (dead window for SMA, TA_IS_ZERO for EMA)\n", (int)maType );
+      return TA_TESTUTIL_TFRR_BAD_CALCULATION;
+   }
+
+   return TA_TEST_PASS;
+}

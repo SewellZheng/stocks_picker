@@ -19,6 +19,7 @@
  *  071326 MF,CC  Fix #112: an all-flat window (every close==open) leaves
  *                upsum==downsum==0, so 100*(0/0) emitted NaN from a *successful*
  *                call. Guard the divide, returning IMI's neutral center 50.0.
+ *  092426 MF,CC  #440 ratio once per bar, not per element; branch-free split.
  */
 
    /**
@@ -54,10 +55,10 @@
    {
       int lookback = 0;
       int outIdx = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -82,19 +83,20 @@
          double downsum = 0.0;
          int i;
          for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
-            double close = inClose[i];
-            double open = inOpen[i];
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-             * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-             * oscillator, so no up/down bias returns its neutral center, 50.0.
+            double diff = inClose[i] - inOpen[i];
+            /* max(diff, 0) spelled with fabs is branch-free in every backend. Java
+             * compiles a ternary to a branch and gcc an if/else; either mispredicts
+             * on random data, though the if/else retires fewer instructions.
              */
-            outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            double up = (diff + Math.abs(diff)) * 0.5;
+            upsum += up;
+            downsum += up - diff;
          }
+         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+          * oscillator, so no up/down bias returns its neutral center, 50.0.
+          */
+         outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          startIdx += 1;
          outIdx += 1;
       }
@@ -112,10 +114,10 @@
    {
       int lookback = 0;
       int outIdx = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -139,15 +141,12 @@
          double downsum = 0.0;
          int i;
          for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
-            double close = (double)inClose[i];
-            double open = (double)inOpen[i];
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            double diff = (double)inClose[i] - (double)inOpen[i];
+            double up = (diff + Math.abs(diff)) * 0.5;
+            upsum += up;
+            downsum += up - diff;
          }
+         outReal[outIdx] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          startIdx += 1;
          outIdx += 1;
       }
@@ -163,8 +162,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#imiLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#imiLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -174,11 +173,12 @@
     *        (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects the
     *        default).
     * @param outReal IMI oscillator value, 0-100. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, imiLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -225,8 +225,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#imiLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#imiLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -236,11 +236,12 @@
     *        (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects the
     *        default).
     * @param outReal IMI oscillator value, 0-100. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, imiLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -314,7 +315,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -328,12 +329,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("IMI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -364,15 +365,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inOpen, double inClose ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("IMI update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("IMI update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("IMI update", !Double.isFinite(inOpen) ? "inOpen" : "inClose");
          core.imiStepImpl(this, inOpen, inClose);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -382,22 +383,20 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inOpen, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("IMI peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("IMI peek", !Double.isFinite(inOpen) ? "inOpen" : "inClose");
          ImiStream sp = this;
          double upsum = 0.0;
          double downsum = 0.0;
          int i = 0;
-         double close = 0.0;
-         double open = 0.0;
-         double cur_outReal = sp.cur_outReal;
+         double diff = 0.0;
+         double up = 0.0;
+         double cur_outReal = 0.0;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
@@ -409,19 +408,20 @@
          upsum = 0.0;
          downsum = 0.0;
          for( i = sp.optInTimePeriod - 1; i >= 0; i -= 1 ) {
-            close = (((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot1) ? sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal1;
-            open = (((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot0) ? sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal0;
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-             * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-             * oscillator, so no up/down bias returns its neutral center, 50.0.
+            diff = ((((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot1) ? sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal1) - ((((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot0) ? sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal0);
+            /* max(diff, 0) spelled with fabs is branch-free in every backend. Java
+             * compiles a ternary to a branch and gcc an if/else; either mispredicts
+             * on random data, though the if/else retires fewer instructions.
              */
-            cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            up = (diff + Math.abs(diff)) * 0.5;
+            upsum += up;
+            downsum += up - diff;
          }
+         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+          * oscillator, so no up/down bias returns its neutral center, 50.0.
+          */
+         cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          return cur_outReal;
       }
 
@@ -456,26 +456,27 @@
       double upsum = 0.0;
       double downsum = 0.0;
       int i = 0;
-      double close = 0.0;
-      double open = 0.0;
+      double diff = 0.0;
+      double up = 0.0;
       sp.win_i_inOpen[sp.winPos_i] = inOpen;
       sp.win_i_inClose[sp.winPos_i] = inClose;
       upsum = 0.0;
       downsum = 0.0;
       for( i = sp.optInTimePeriod - 1; i >= 0; i -= 1 ) {
-         close = sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
-         open = sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
-         if( close > open ) {
-            upsum += close - open;
-         } else {
-            downsum += open - close;
-         }
-         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-          * oscillator, so no up/down bias returns its neutral center, 50.0.
+         diff = sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] - sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
+         /* max(diff, 0) spelled with fabs is branch-free in every backend. Java
+          * compiles a ternary to a branch and gcc an if/else; either mispredicts
+          * on random data, though the if/else retires fewer instructions.
           */
-         sp.cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+         up = (diff + Math.abs(diff)) * 0.5;
+         upsum += up;
+         downsum += up - diff;
       }
+      /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+       * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+       * oscillator, so no up/down bias returns its neutral center, 50.0.
+       */
+      sp.cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
       sp.winPos_i = sp.winPos_i + 1;
       if( sp.winPos_i >= sp.winCap_i ) {
          sp.winPos_i = 0;
@@ -490,7 +491,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inClose.length != inOpen.length ) {
@@ -523,19 +524,20 @@
          double downsum = 0.0;
          int i;
          for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
-            double close = inClose[i];
-            double open = inOpen[i];
-            if( close > open ) {
-               upsum += close - open;
-            } else {
-               downsum += open - close;
-            }
-            /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
-             * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
-             * oscillator, so no up/down bias returns its neutral center, 50.0.
+            double diff = inClose[i] - inOpen[i];
+            /* max(diff, 0) spelled with fabs is branch-free in every backend. Java
+             * compiles a ternary to a branch and gcc an if/else; either mispredicts
+             * on random data, though the if/else retires fewer instructions.
              */
-            outReal[outIdx * outStride] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+            double up = (diff + Math.abs(diff)) * 0.5;
+            upsum += up;
+            downsum += up - diff;
          }
+         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+          * oscillator, so no up/down bias returns its neutral center, 50.0.
+          */
+         outReal[outIdx * outStride] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
          startIdx += 1;
          outIdx += 1;
       }
@@ -568,12 +570,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("IMI openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("IMI openAndFill", inOpen.length, startIdx, imiLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("IMI openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("IMI openAndFill: " + retCode, retCode);
+      throw streamFailure("IMI openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind imiOpen (composition seam). */
    ImiStream imiOpenInternal( double inOpen[], double inClose[], int startIdx, int optInTimePeriod )
@@ -589,12 +588,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("IMI open: history shorter than lookback + 1");
+         throw insufficientHistory("IMI open", inOpen.length, startIdx, imiLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("IMI open: internal error", retCode);
-      }
-      throw new TALibArgumentException("IMI open: " + retCode, retCode);
+      throw streamFailure("IMI open", retCode);
    }
    /**
     * Open a live IMI stream over the warm-up history; the handle's
@@ -637,7 +633,7 @@
       requireHistoryLength("IMI openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("IMI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inOpen || (Object)outReal == (Object)inClose ) {
-         throw new TALibArgumentException("IMI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("IMI openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

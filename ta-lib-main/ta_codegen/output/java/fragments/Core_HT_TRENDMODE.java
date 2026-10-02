@@ -134,10 +134,10 @@
       double prevLeadSine = 0;
       double sine = 0;
       double leadSine = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       a = 0.0962;
@@ -309,7 +309,7 @@
          if( today % 2 == 0 ) {
             /* Do the Hilbert Transforms for even price bar */
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Even[hilbertIdx];
+            detrender = -detrender_Even[hilbertIdx];
             detrender_Even[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Even;
@@ -318,7 +318,7 @@
             prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Even[hilbertIdx];
+            Q1 = -Q1_Even[hilbertIdx];
             Q1_Even[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Even;
@@ -327,7 +327,7 @@
             prev_Q1_input_Even = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForEvenPrev3;
-            jI = 0 - jI_Even[hilbertIdx];
+            jI = -jI_Even[hilbertIdx];
             jI_Even[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Even;
@@ -336,7 +336,7 @@
             prev_jI_input_Even = I1ForEvenPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Even[hilbertIdx];
+            jQ = -jQ_Even[hilbertIdx];
             jQ_Even[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Even;
@@ -360,7 +360,7 @@
          } else {
             /* Do the Hilbert Transforms for odd price bar */
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Odd[hilbertIdx];
+            detrender = -detrender_Odd[hilbertIdx];
             detrender_Odd[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Odd;
@@ -369,7 +369,7 @@
             prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Odd[hilbertIdx];
+            Q1 = -Q1_Odd[hilbertIdx];
             Q1_Odd[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Odd;
@@ -378,7 +378,7 @@
             prev_Q1_input_Odd = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForOddPrev3;
-            jI = 0 - jI_Odd[hilbertIdx];
+            jI = -jI_Odd[hilbertIdx];
             jI_Odd[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Odd;
@@ -387,7 +387,7 @@
             prev_jI_input_Odd = I1ForOddPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Odd[hilbertIdx];
+            jQ = -jQ_Odd[hilbertIdx];
             jQ_Odd[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Odd;
@@ -621,10 +621,10 @@
       double prevLeadSine = 0;
       double sine = 0;
       double leadSine = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       a = 0.0962;
@@ -748,7 +748,7 @@
          smoothPrice[smoothPrice_Idx] = smoothedValue;
          if( today % 2 == 0 ) {
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Even[hilbertIdx];
+            detrender = -detrender_Even[hilbertIdx];
             detrender_Even[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Even;
@@ -757,7 +757,7 @@
             prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Even[hilbertIdx];
+            Q1 = -Q1_Even[hilbertIdx];
             Q1_Even[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Even;
@@ -766,7 +766,7 @@
             prev_Q1_input_Even = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForEvenPrev3;
-            jI = 0 - jI_Even[hilbertIdx];
+            jI = -jI_Even[hilbertIdx];
             jI_Even[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Even;
@@ -775,7 +775,7 @@
             prev_jI_input_Even = I1ForEvenPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Even[hilbertIdx];
+            jQ = -jQ_Even[hilbertIdx];
             jQ_Even[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Even;
@@ -792,7 +792,7 @@
             I1ForOddPrev2 = detrender;
          } else {
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Odd[hilbertIdx];
+            detrender = -detrender_Odd[hilbertIdx];
             detrender_Odd[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Odd;
@@ -801,7 +801,7 @@
             prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Odd[hilbertIdx];
+            Q1 = -Q1_Odd[hilbertIdx];
             Q1_Odd[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Odd;
@@ -810,7 +810,7 @@
             prev_Q1_input_Odd = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForOddPrev3;
-            jI = 0 - jI_Odd[hilbertIdx];
+            jI = -jI_Odd[hilbertIdx];
             jI_Odd[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Odd;
@@ -819,7 +819,7 @@
             prev_jI_input_Odd = I1ForOddPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Odd[hilbertIdx];
+            jQ = -jQ_Odd[hilbertIdx];
             jQ_Odd[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Odd;
@@ -946,18 +946,19 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#htTrendmodeLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#htTrendmodeLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal Source price series.
     * @param outInteger 1 = trend mode, 0 = cycle mode. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, htTrendmodeLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -1006,18 +1007,19 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#htTrendmodeLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#htTrendmodeLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal Source price series.
     * @param outInteger 1 = trend mode, 0 = cycle mode. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, htTrendmodeLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -1148,7 +1150,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -1162,12 +1164,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("HT_TRENDMODE advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -1254,15 +1256,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public int update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("HT_TRENDMODE update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("HT_TRENDMODE update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("HT_TRENDMODE update", "inReal");
          core.htTrendmodeStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -1272,15 +1274,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public int peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("HT_TRENDMODE peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("HT_TRENDMODE peek", "inReal");
          HtTrendmodeStream sp = this;
          int i = 0;
          int j = 0;
@@ -1348,31 +1348,25 @@
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
          double pkVal1 = 0.0;
-         int pkSlot2 = -1;
-         double pkVal2 = 0.0;
-         if( sp.ringCap_trailingWMAIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inReal;
-         }
-         pkSlot1 = sp.winPos_j;
-         pkVal1 = inReal;
+         pkSlot0 = sp.winPos_j;
+         pkVal0 = inReal;
          adjustedPrevPeriod = Math.fma(0.075, period, 0.54);
          todayValue = inReal;
          periodWMASub += todayValue;
          periodWMASub -= trailingWMAValue;
          periodWMASum += todayValue * 4.0;
-         trailingWMAValue = (sp.ringPos_trailingWMAIdx != pkSlot0) ? sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] : pkVal0;
+         trailingWMAValue = sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx];
          smoothedValue = periodWMASum * 0.1;
          periodWMASum -= periodWMASub;
          /* Remember the smoothedValue into the smoothPrice
           * circular buffer.
           */
-         pkSlot2 = sp.smoothPrice_Idx;
-         pkVal2 = smoothedValue;
+         pkSlot1 = sp.smoothPrice_Idx;
+         pkVal1 = smoothedValue;
          if( sp.streamParity == 0 ) {
             /* Do the Hilbert Transforms for even price bar */
             hilbertTempReal = sp.a * smoothedValue;
-            detrender = 0 - sp.detrender_Even[hilbertIdx];
+            detrender = -sp.detrender_Even[hilbertIdx];
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Even;
             prev_detrender_Even = sp.b * prev_detrender_input_Even;
@@ -1380,7 +1374,7 @@
             prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * detrender;
-            Q1 = 0 - sp.Q1_Even[hilbertIdx];
+            Q1 = -sp.Q1_Even[hilbertIdx];
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Even;
             prev_Q1_Even = sp.b * prev_Q1_input_Even;
@@ -1388,7 +1382,7 @@
             prev_Q1_input_Even = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * I1ForEvenPrev3;
-            jI = 0 - sp.jI_Even[hilbertIdx];
+            jI = -sp.jI_Even[hilbertIdx];
             jI += hilbertTempReal;
             jI -= prev_jI_Even;
             prev_jI_Even = sp.b * prev_jI_input_Even;
@@ -1396,7 +1390,7 @@
             prev_jI_input_Even = I1ForEvenPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * Q1;
-            jQ = 0 - sp.jQ_Even[hilbertIdx];
+            jQ = -sp.jQ_Even[hilbertIdx];
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Even;
             prev_jQ_Even = sp.b * prev_jQ_input_Even;
@@ -1419,7 +1413,7 @@
          } else {
             /* Do the Hilbert Transforms for odd price bar */
             hilbertTempReal = sp.a * smoothedValue;
-            detrender = 0 - sp.detrender_Odd[hilbertIdx];
+            detrender = -sp.detrender_Odd[hilbertIdx];
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Odd;
             prev_detrender_Odd = sp.b * prev_detrender_input_Odd;
@@ -1427,7 +1421,7 @@
             prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * detrender;
-            Q1 = 0 - sp.Q1_Odd[hilbertIdx];
+            Q1 = -sp.Q1_Odd[hilbertIdx];
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Odd;
             prev_Q1_Odd = sp.b * prev_Q1_input_Odd;
@@ -1435,7 +1429,7 @@
             prev_Q1_input_Odd = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * I1ForOddPrev3;
-            jI = 0 - sp.jI_Odd[hilbertIdx];
+            jI = -sp.jI_Odd[hilbertIdx];
             jI += hilbertTempReal;
             jI -= prev_jI_Odd;
             prev_jI_Odd = sp.b * prev_jI_input_Odd;
@@ -1443,7 +1437,7 @@
             prev_jI_input_Odd = I1ForOddPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * Q1;
-            jQ = 0 - sp.jQ_Odd[hilbertIdx];
+            jQ = -sp.jQ_Odd[hilbertIdx];
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Odd;
             prev_jQ_Odd = sp.b * prev_jQ_input_Odd;
@@ -1497,7 +1491,7 @@
          idx = sp.smoothPrice_Idx;
          for( i = 0; i < DCPeriodInt; i += 1 ) {
             tempReal = (double)i * sp.constDeg2RadBy360 / (double)DCPeriodInt;
-            tempReal2 = (idx != pkSlot2) ? sp.cb_smoothPrice[idx] : pkVal2;
+            tempReal2 = (idx != pkSlot1) ? sp.cb_smoothPrice[idx] : pkVal1;
             realPart += Math.sin(tempReal) * tempReal2;
             imagPart += Math.cos(tempReal) * tempReal2;
             if( idx == 0 ) {
@@ -1548,7 +1542,7 @@
          tempReal = 0.0;
          for( j = 0; j < 50; j += 1 ) {
             if( j < DCPeriodInt ) {
-               tempReal += (((sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j) != pkSlot1) ? sp.win_j_inReal[(sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j] : pkVal1;
+               tempReal += (((sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j) != pkSlot0) ? sp.win_j_inReal[(sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j] : pkVal0;
             }
          }
          if( DCPeriodInt > 0 ) {
@@ -1573,7 +1567,7 @@
          if( smoothPeriod != 0.0 && (tempReal > 0.67 * 360.0 / smoothPeriod && tempReal < 1.5 * 360.0 / smoothPeriod) ) {
             trend = 0;
          }
-         tempReal = (sp.smoothPrice_Idx != pkSlot2) ? sp.cb_smoothPrice[sp.smoothPrice_Idx] : pkVal2;
+         tempReal = (sp.smoothPrice_Idx != pkSlot1) ? sp.cb_smoothPrice[sp.smoothPrice_Idx] : pkVal1;
          if( trendline != 0.0 && Math.abs((tempReal - trendline) / trendline) >= 0.015 ) {
             trend = 1;
          }
@@ -1633,9 +1627,7 @@
       double trendline = 0.0;
       double prevSine = 0.0;
       double prevLeadSine = 0.0;
-      if( sp.ringCap_trailingWMAIdx == 0 ) {
-         sp.ring_trailingWMAIdx_inReal[0] = inReal;
-      }
+      int ringCapL_trailingWMAIdx = 0;
       sp.win_j_inReal[sp.winPos_j] = inReal;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
       todayValue = inReal;
@@ -1652,7 +1644,7 @@
       if( sp.streamParity == 0 ) {
          /* Do the Hilbert Transforms for even price bar */
          hilbertTempReal = sp.a * smoothedValue;
-         detrender = 0 - sp.detrender_Even[sp.hilbertIdx];
+         detrender = -sp.detrender_Even[sp.hilbertIdx];
          sp.detrender_Even[sp.hilbertIdx] = hilbertTempReal;
          detrender += hilbertTempReal;
          detrender -= sp.prev_detrender_Even;
@@ -1661,7 +1653,7 @@
          sp.prev_detrender_input_Even = smoothedValue;
          detrender *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * detrender;
-         Q1 = 0 - sp.Q1_Even[sp.hilbertIdx];
+         Q1 = -sp.Q1_Even[sp.hilbertIdx];
          sp.Q1_Even[sp.hilbertIdx] = hilbertTempReal;
          Q1 += hilbertTempReal;
          Q1 -= sp.prev_Q1_Even;
@@ -1670,7 +1662,7 @@
          sp.prev_Q1_input_Even = detrender;
          Q1 *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
-         jI = 0 - sp.jI_Even[sp.hilbertIdx];
+         jI = -sp.jI_Even[sp.hilbertIdx];
          sp.jI_Even[sp.hilbertIdx] = hilbertTempReal;
          jI += hilbertTempReal;
          jI -= sp.prev_jI_Even;
@@ -1679,7 +1671,7 @@
          sp.prev_jI_input_Even = sp.I1ForEvenPrev3;
          jI *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * Q1;
-         jQ = 0 - sp.jQ_Even[sp.hilbertIdx];
+         jQ = -sp.jQ_Even[sp.hilbertIdx];
          sp.jQ_Even[sp.hilbertIdx] = hilbertTempReal;
          jQ += hilbertTempReal;
          jQ -= sp.prev_jQ_Even;
@@ -1703,7 +1695,7 @@
       } else {
          /* Do the Hilbert Transforms for odd price bar */
          hilbertTempReal = sp.a * smoothedValue;
-         detrender = 0 - sp.detrender_Odd[sp.hilbertIdx];
+         detrender = -sp.detrender_Odd[sp.hilbertIdx];
          sp.detrender_Odd[sp.hilbertIdx] = hilbertTempReal;
          detrender += hilbertTempReal;
          detrender -= sp.prev_detrender_Odd;
@@ -1712,7 +1704,7 @@
          sp.prev_detrender_input_Odd = smoothedValue;
          detrender *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * detrender;
-         Q1 = 0 - sp.Q1_Odd[sp.hilbertIdx];
+         Q1 = -sp.Q1_Odd[sp.hilbertIdx];
          sp.Q1_Odd[sp.hilbertIdx] = hilbertTempReal;
          Q1 += hilbertTempReal;
          Q1 -= sp.prev_Q1_Odd;
@@ -1721,7 +1713,7 @@
          sp.prev_Q1_input_Odd = detrender;
          Q1 *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * sp.I1ForOddPrev3;
-         jI = 0 - sp.jI_Odd[sp.hilbertIdx];
+         jI = -sp.jI_Odd[sp.hilbertIdx];
          sp.jI_Odd[sp.hilbertIdx] = hilbertTempReal;
          jI += hilbertTempReal;
          jI -= sp.prev_jI_Odd;
@@ -1730,7 +1722,7 @@
          sp.prev_jI_input_Odd = sp.I1ForOddPrev3;
          jI *= adjustedPrevPeriod;
          hilbertTempReal = sp.a * Q1;
-         jQ = 0 - sp.jQ_Odd[sp.hilbertIdx];
+         jQ = -sp.jQ_Odd[sp.hilbertIdx];
          sp.jQ_Odd[sp.hilbertIdx] = hilbertTempReal;
          jQ += hilbertTempReal;
          jQ -= sp.prev_jQ_Odd;
@@ -1871,9 +1863,10 @@
       if( sp.smoothPrice_Idx > sp.maxIdx_smoothPrice ) {
          sp.smoothPrice_Idx = 0;
       }
+      ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
       sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
       sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= sp.ringCap_trailingWMAIdx ) {
+      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
          sp.ringPos_trailingWMAIdx = 0;
       }
       sp.winPos_j = sp.winPos_j + 1;
@@ -1970,7 +1963,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( startIdx > endIdx ) {
@@ -2147,7 +2140,7 @@
          if( today % 2 == 0 ) {
             /* Do the Hilbert Transforms for even price bar */
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Even[hilbertIdx];
+            detrender = -detrender_Even[hilbertIdx];
             detrender_Even[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Even;
@@ -2156,7 +2149,7 @@
             prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Even[hilbertIdx];
+            Q1 = -Q1_Even[hilbertIdx];
             Q1_Even[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Even;
@@ -2165,7 +2158,7 @@
             prev_Q1_input_Even = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForEvenPrev3;
-            jI = 0 - jI_Even[hilbertIdx];
+            jI = -jI_Even[hilbertIdx];
             jI_Even[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Even;
@@ -2174,7 +2167,7 @@
             prev_jI_input_Even = I1ForEvenPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Even[hilbertIdx];
+            jQ = -jQ_Even[hilbertIdx];
             jQ_Even[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Even;
@@ -2198,7 +2191,7 @@
          } else {
             /* Do the Hilbert Transforms for odd price bar */
             hilbertTempReal = a * smoothedValue;
-            detrender = 0 - detrender_Odd[hilbertIdx];
+            detrender = -detrender_Odd[hilbertIdx];
             detrender_Odd[hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= prev_detrender_Odd;
@@ -2207,7 +2200,7 @@
             prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = a * detrender;
-            Q1 = 0 - Q1_Odd[hilbertIdx];
+            Q1 = -Q1_Odd[hilbertIdx];
             Q1_Odd[hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= prev_Q1_Odd;
@@ -2216,7 +2209,7 @@
             prev_Q1_input_Odd = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = a * I1ForOddPrev3;
-            jI = 0 - jI_Odd[hilbertIdx];
+            jI = -jI_Odd[hilbertIdx];
             jI_Odd[hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= prev_jI_Odd;
@@ -2225,7 +2218,7 @@
             prev_jI_input_Odd = I1ForOddPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = a * Q1;
-            jQ = 0 - jQ_Odd[hilbertIdx];
+            jQ = -jQ_Odd[hilbertIdx];
             jQ_Odd[hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= prev_jQ_Odd;
@@ -2371,7 +2364,7 @@
       outNBElement.value = outIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingWMAIdx = today - trailingWMAIdx;
-      if( cap_trailingWMAIdx < 0 || cap_trailingWMAIdx > historyLen ) {
+      if( cap_trailingWMAIdx < 1 || cap_trailingWMAIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingWMAIdx = (cap_trailingWMAIdx > 0)? cap_trailingWMAIdx : 1;
@@ -2462,12 +2455,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("HT_TRENDMODE openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("HT_TRENDMODE openAndFill", inReal.length, startIdx, htTrendmodeLookback());
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("HT_TRENDMODE openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("HT_TRENDMODE openAndFill: " + retCode, retCode);
+      throw streamFailure("HT_TRENDMODE openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind htTrendmodeOpen (composition seam). */
    HtTrendmodeStream htTrendmodeOpenInternal( double inReal[], int startIdx )
@@ -2483,12 +2473,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("HT_TRENDMODE open: history shorter than lookback + 1");
+         throw insufficientHistory("HT_TRENDMODE open", inReal.length, startIdx, htTrendmodeLookback());
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("HT_TRENDMODE open: internal error", retCode);
-      }
-      throw new TALibArgumentException("HT_TRENDMODE open: " + retCode, retCode);
+      throw streamFailure("HT_TRENDMODE open", retCode);
    }
    /**
     * Open a live HT_TRENDMODE stream over the warm-up history; the handle's
@@ -2525,7 +2512,7 @@
       int guardOutLen = openFillCount("HT_TRENDMODE openAndFill", inReal.length, htTrendmodeLookback());
       requireLength("HT_TRENDMODE openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inReal ) {
-         throw new TALibArgumentException("HT_TRENDMODE openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("HT_TRENDMODE openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

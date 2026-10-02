@@ -497,6 +497,77 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- ALMA -->
+	<FinancialFunction>
+		<Abbreviation>ALMA</Abbreviation>
+		<ShortDescription>Arnaud Legoux Moving Average</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>9</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Sigma</Name>
+				<ShortDescription>Gaussian width divisor</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>1.000000e-2</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>1.000000e+0</SuggestedStart>
+					<SuggestedEnd>2.000000e+1</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>6.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Offset</Name>
+				<ShortDescription>Position of the peak weight</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>1.000000e+0</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>0.000000e+0</SuggestedStart>
+					<SuggestedEnd>1.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-2</SuggestedIncrement>
+				</Range>
+				<DefaultValue>8.500000e-1</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- AO -->
 	<FinancialFunction>
 		<Abbreviation>AO</Abbreviation>
@@ -698,6 +769,61 @@ public static class FunctionDescription
 					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
 				<DefaultValue>14</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- ASI -->
+	<FinancialFunction>
+		<Abbreviation>ASI</Abbreviation>
+		<ShortDescription>Wilder Accumulative Swing Index</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+			<Flag>Path Dependent</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Open</Type>
+				<Name>Open</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Limit Move</Name>
+				<ShortDescription>Largest one-bar price move the index is scaled against, in price units</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>1.000000e-8</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>4</Precision>
+					<SuggestedStart>5.000000e-1</SuggestedStart>
+					<SuggestedEnd>3.000000e+1</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>3.000000e+0</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
 		<OutputArguments>
@@ -980,6 +1106,81 @@ public static class FunctionDescription
 				<Name>outRealLowerBand</Name>
 				<Flags>
 					<Flag>Lower Limit</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- BBW -->
+	<FinancialFunction>
+		<Abbreviation>BBW</Abbreviation>
+		<ShortDescription>Bollinger BandWidth</ShortDescription>
+		<GroupId>Volatility Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Deviations up</Name>
+				<ShortDescription>Deviation multiplier for upper band</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>-3.000000e+37</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>-2.000000e+0</SuggestedStart>
+					<SuggestedEnd>2.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>2.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Deviations down</Name>
+				<ShortDescription>Deviation multiplier for lower band</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>-3.000000e+37</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>-2.000000e+0</SuggestedStart>
+					<SuggestedEnd>2.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>2.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>MA Type</Name>
+				<ShortDescription>Type of Moving Average</ShortDescription>
+				<Type>MA Type</Type>
+				<DefaultValue>0</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3635,6 +3836,229 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- CG -->
+	<FinancialFunction>
+		<Abbreviation>CG</Abbreviation>
+		<ShortDescription>Center of Gravity Oscillator</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Number of bars in the window</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- CHOP -->
+	<FinancialFunction>
+		<Abbreviation>CHOP</Abbreviation>
+		<ShortDescription>Choppiness Index</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>14</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- CHOPTR -->
+	<FinancialFunction>
+		<Abbreviation>CHOPTR</Abbreviation>
+		<ShortDescription>Choppiness Index (True Range Box)</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>14</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- CKSP -->
+	<FinancialFunction>
+		<Abbreviation>CKSP</Abbreviation>
+		<ShortDescription>Chande Kroll Stop</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>ATR and extreme window</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Multiplier</Name>
+				<ShortDescription>ATR multiplier</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>5.000000e-1</SuggestedStart>
+					<SuggestedEnd>5.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>1.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Stop Period</Name>
+				<ShortDescription>Stop window</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>9</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outHighStop</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outLowStop</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- CMF -->
 	<FinancialFunction>
 		<Abbreviation>CMF</Abbreviation>
@@ -3923,6 +4347,114 @@ public static class FunctionDescription
 				<Name>inReal</Name>
 			</RequiredInputArgument>
 		</RequiredInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- CRSI -->
+	<FinancialFunction>
+		<Abbreviation>CRSI</Abbreviation>
+		<ShortDescription>Connors Relative Strength Index</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>2</SuggestedStart>
+					<SuggestedEnd>20</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>3</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Streak Period</Name>
+				<ShortDescription>Time period of the RSI of the up/down streak</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>2</SuggestedStart>
+					<SuggestedEnd>20</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Rank Period</Name>
+				<ShortDescription>Number of previous one-bar returns the current one is ranked against</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>10000</Maximum>
+					<SuggestedStart>20</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>20</SuggestedIncrement>
+				</Range>
+				<DefaultValue>100</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- CTI -->
+	<FinancialFunction>
+		<Abbreviation>CTI</Abbreviation>
+		<ShortDescription>Correlation Trend Indicator</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Number of bars correlated against the ramp</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>5</SuggestedStart>
+					<SuggestedEnd>50</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
 		<OutputArguments>
 			<OutputArgument>
 				<Type>Double Array</Type>
@@ -4334,6 +4866,69 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- EMV -->
+	<FinancialFunction>
+		<Abbreviation>EMV</Abbreviation>
+		<ShortDescription>Arms Ease of Movement</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Bars in the SMA of the one-bar values (1 = unsmoothed)</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>14</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Volume Divisor</Name>
+				<ShortDescription>Volume is divided by this before forming the box ratio</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>1.000000e+0</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>0</Precision>
+					<SuggestedStart>0.000000e+0</SuggestedStart>
+					<SuggestedEnd>0.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>0.000000e+0</SuggestedIncrement>
+				</Range>
+				<DefaultValue>1.000000e+4</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- ER -->
 	<FinancialFunction>
 		<Abbreviation>ER</Abbreviation>
@@ -4581,6 +5176,53 @@ public static class FunctionDescription
 			<OutputArgument>
 				<Type>Integer Array</Type>
 				<Name>outSwingLow</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- FRAMA -->
+	<FinancialFunction>
+		<Abbreviation>FRAMA</Abbreviation>
+		<ShortDescription>Fractal Adaptive Moving Average</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Number of bars, even; the window is split into two halves of optInTimePeriod/2 bars</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>2</SuggestedIncrement>
+				</Range>
+				<DefaultValue>16</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
 				</Flags>
@@ -4872,6 +5514,40 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- IBS -->
+	<FinancialFunction>
+		<Abbreviation>IBS</Abbreviation>
+		<ShortDescription>Internal Bar Strength</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- IMI -->
 	<FinancialFunction>
 		<Abbreviation>IMI</Abbreviation>
@@ -5145,6 +5821,364 @@ public static class FunctionDescription
 			<OutputArgument>
 				<Type>Double Array</Type>
 				<Name>outJ</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- KST -->
+	<FinancialFunction>
+		<Abbreviation>KST</Abbreviation>
+		<ShortDescription>Know Sure Thing (Pring)</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>ROC-1 Period</Name>
+				<ShortDescription>Rate-of-change period of leg 1</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>ROC-2 Period</Name>
+				<ShortDescription>Rate-of-change period of leg 2</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>15</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>ROC-3 Period</Name>
+				<ShortDescription>Rate-of-change period of leg 3</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>ROC-4 Period</Name>
+				<ShortDescription>Rate-of-change period of leg 4</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>30</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>SMA-1 Period</Name>
+				<ShortDescription>Smoothing period of leg 1</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>SMA-2 Period</Name>
+				<ShortDescription>Smoothing period of leg 2</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>SMA-3 Period</Name>
+				<ShortDescription>Smoothing period of leg 3</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>SMA-4 Period</Name>
+				<ShortDescription>Smoothing period of leg 4</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>15</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Signal Period</Name>
+				<ShortDescription>Smoothing period of the signal line</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>9</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outKST</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outKSTSignal</Name>
+				<Flags>
+					<Flag>Dashed Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- KSTEXT -->
+	<FinancialFunction>
+		<Abbreviation>KSTEXT</Abbreviation>
+		<ShortDescription>Know Sure Thing with controllable MA type</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>ROC-1 Period</Name>
+				<ShortDescription>Rate-of-change period of leg 1</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>ROC-2 Period</Name>
+				<ShortDescription>Rate-of-change period of leg 2</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>15</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>ROC-3 Period</Name>
+				<ShortDescription>Rate-of-change period of leg 3</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>ROC-4 Period</Name>
+				<ShortDescription>Rate-of-change period of leg 4</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>30</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>MA-1 Period</Name>
+				<ShortDescription>Smoothing period of leg 1</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>MA-2 Period</Name>
+				<ShortDescription>Smoothing period of leg 2</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>MA-3 Period</Name>
+				<ShortDescription>Smoothing period of leg 3</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>MA-4 Period</Name>
+				<ShortDescription>Smoothing period of leg 4</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>15</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Signal Period</Name>
+				<ShortDescription>Smoothing period of the signal line</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>9</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>ROC MA</Name>
+				<ShortDescription>Type of Moving Average smoothing the four legs</ShortDescription>
+				<Type>MA Type</Type>
+				<DefaultValue>0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Signal MA</Name>
+				<ShortDescription>Type of Moving Average for signal line</ShortDescription>
+				<Type>MA Type</Type>
+				<DefaultValue>0</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outKST</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outKSTSignal</Name>
+				<Flags>
+					<Flag>Dashed Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- KURTOSIS -->
+	<FinancialFunction>
+		<Abbreviation>KURTOSIS</Abbreviation>
+		<ShortDescription>Rolling Excess Kurtosis</ShortDescription>
+		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>4</Minimum>
+					<Maximum>10000</Maximum>
+					<SuggestedStart>10</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>5</SuggestedIncrement>
+				</Range>
+				<DefaultValue>30</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
 				</Flags>
@@ -5841,7 +6875,7 @@ public static class FunctionDescription
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
-					<Maximum>100000</Maximum>
+					<Maximum>10000</Maximum>
 					<SuggestedStart>1</SuggestedStart>
 					<SuggestedEnd>200</SuggestedEnd>
 					<SuggestedIncrement>1</SuggestedIncrement>
@@ -5854,7 +6888,7 @@ public static class FunctionDescription
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>1</Minimum>
-					<Maximum>100000</Maximum>
+					<Maximum>10000</Maximum>
 					<SuggestedStart>1</SuggestedStart>
 					<SuggestedEnd>200</SuggestedEnd>
 					<SuggestedIncrement>1</SuggestedIncrement>
@@ -5955,6 +6989,91 @@ public static class FunctionDescription
 			<OutputArgument>
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- MCGD -->
+	<FinancialFunction>
+		<Abbreviation>MCGD</Abbreviation>
+		<ShortDescription>McGinley Dynamic</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>2</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>14</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- MEDIAN -->
+	<FinancialFunction>
+		<Abbreviation>MEDIAN</Abbreviation>
+		<ShortDescription>Rolling Median</ShortDescription>
+		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Number of bars in the window</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>10000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>30</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
 				</Flags>
@@ -6594,6 +7713,81 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- PERCENTB -->
+	<FinancialFunction>
+		<Abbreviation>PERCENTB</Abbreviation>
+		<ShortDescription>Bollinger Bands %B</ShortDescription>
+		<GroupId>Volatility Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Deviations up</Name>
+				<ShortDescription>Deviation multiplier for upper band</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>-3.000000e+37</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>-2.000000e+0</SuggestedStart>
+					<SuggestedEnd>2.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>2.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Deviations down</Name>
+				<ShortDescription>Deviation multiplier for lower band</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>-3.000000e+37</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>-2.000000e+0</SuggestedStart>
+					<SuggestedEnd>2.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>2.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>MA Type</Name>
+				<ShortDescription>Type of Moving Average</ShortDescription>
+				<Type>MA Type</Type>
+				<DefaultValue>0</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- PERCENTILE -->
 	<FinancialFunction>
 		<Abbreviation>PERCENTILE</Abbreviation>
@@ -6616,12 +7810,12 @@ public static class FunctionDescription
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
-					<Maximum>100000</Maximum>
+					<Maximum>10000</Maximum>
 					<SuggestedStart>4</SuggestedStart>
 					<SuggestedEnd>200</SuggestedEnd>
 					<SuggestedIncrement>1</SuggestedIncrement>
 				</Range>
-				<DefaultValue>30</DefaultValue>
+				<DefaultValue>100</DefaultValue>
 			</OptionalInputArgument>
 			<OptionalInputArgument>
 				<Name>Percentile</Name>
@@ -6674,7 +7868,7 @@ public static class FunctionDescription
 				<Type>Integer</Type>
 				<Range>
 					<Minimum>2</Minimum>
-					<Maximum>100000</Maximum>
+					<Maximum>10000</Maximum>
 					<SuggestedStart>20</SuggestedStart>
 					<SuggestedEnd>200</SuggestedEnd>
 					<SuggestedIncrement>20</SuggestedIncrement>
@@ -7322,6 +8516,64 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- RVIR -->
+	<FinancialFunction>
+		<Abbreviation>RVIR</Abbreviation>
+		<ShortDescription>Relative Volatility Index, refined high/low form</ShortDescription>
+		<GroupId>Volatility Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Time period of the Wilder smoothing applied to both indices</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>14</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>StdDev Period</Name>
+				<ShortDescription>Time period of the standard deviation</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- RVOL -->
 	<FinancialFunction>
 		<Abbreviation>RVOL</Abbreviation>
@@ -7572,6 +8824,60 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- SI -->
+	<FinancialFunction>
+		<Abbreviation>SI</Abbreviation>
+		<ShortDescription>Wilder Swing Index</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Open</Type>
+				<Name>Open</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Limit Move</Name>
+				<ShortDescription>Largest one-bar price move the index is scaled against, in price units</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>1.000000e-8</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>4</Precision>
+					<SuggestedStart>5.000000e-1</SuggestedStart>
+					<SuggestedEnd>3.000000e+1</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>3.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- SIN -->
 	<FinancialFunction>
 		<Abbreviation>SIN</Abbreviation>
@@ -7777,6 +9083,74 @@ public static class FunctionDescription
 				<Name>inReal</Name>
 			</RequiredInputArgument>
 		</RequiredInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- STC -->
+	<FinancialFunction>
+		<Abbreviation>STC</Abbreviation>
+		<ShortDescription>Schaff Trend Cycle</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Fast Period</Name>
+				<ShortDescription>Period of the fast EMA</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>23</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Slow Period</Name>
+				<ShortDescription>Period of the slow EMA</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>50</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Cycle Period</Name>
+				<ShortDescription>Window of both stochastic stages</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>2</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>10</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
 		<OutputArguments>
 			<OutputArgument>
 				<Type>Double Array</Type>
@@ -8795,6 +10169,63 @@ public static class FunctionDescription
 					<SuggestedIncrement>7</SuggestedIncrement>
 				</Range>
 				<DefaultValue>28</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- VIDYA -->
+	<FinancialFunction>
+		<Abbreviation>VIDYA</Abbreviation>
+		<ShortDescription>Variable Index Dynamic Average</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+			<Flag>Period 1 Identity</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>EMA-equivalent smoothing period, alpha = 2/(n+1)</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>12</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>CMO Period</Name>
+				<ShortDescription>Period of the unsmoothed CMO that scales alpha</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>9</DefaultValue>
 			</OptionalInputArgument>
 		</OptionalInputArguments>
 		<OutputArguments>

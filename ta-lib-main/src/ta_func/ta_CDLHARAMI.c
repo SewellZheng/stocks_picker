@@ -85,9 +85,9 @@ TA_LIB_API TA_RetCode TA_CDLHARAMI( int    startIdx,
    int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -162,14 +162,14 @@ TA_LIB_API TA_RetCode TA_CDLHARAMI( int    startIdx,
             /* 2nd is engulfed by 1st */
             if( max(inClose[i],inOpen[i]) < max(inClose[i - 1],inOpen[i - 1]) && min(inClose[i],inOpen[i]) > min(inClose[i - 1],inOpen[i - 1]) )
             {
-               outInteger[outIdx++] = (0 - ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1)) * 100;
+               outInteger[outIdx++] = -((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) * 100;
                /* 2nd is engulfed by 1st
                 * (one end of real body can match;
                 * engulfing guaranteed by "long" and "short")
                 */
             } else if( max(inClose[i],inOpen[i]) <= max(inClose[i - 1],inOpen[i - 1]) && min(inClose[i],inOpen[i]) >= min(inClose[i - 1],inOpen[i - 1]) )
             {
-               outInteger[outIdx++] = (0 - ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1)) * 80;
+               outInteger[outIdx++] = -((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) * 80;
             } else 
             {
                outInteger[outIdx++] = 0;
@@ -217,9 +217,9 @@ TA_RetCode TA_S_CDLHARAMI( int    startIdx,
    int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -272,10 +272,10 @@ TA_RetCode TA_S_CDLHARAMI( int    startIdx,
          {
             if( max((double)inClose[i],(double)inOpen[i]) < max((double)inClose[i - 1],(double)inOpen[i - 1]) && min((double)inClose[i],(double)inOpen[i]) > min((double)inClose[i - 1],(double)inOpen[i - 1]) )
             {
-               outInteger[outIdx++] = (0 - (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : 0 - 1)) * 100;
+               outInteger[outIdx++] = -(((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : -1) * 100;
             } else if( max((double)inClose[i],(double)inOpen[i]) <= max((double)inClose[i - 1],(double)inOpen[i - 1]) && min((double)inClose[i],(double)inOpen[i]) >= min((double)inClose[i - 1],(double)inOpen[i - 1]) )
             {
-               outInteger[outIdx++] = (0 - (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : 0 - 1)) * 80;
+               outInteger[outIdx++] = -(((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : -1) * 80;
             } else 
             {
                outInteger[outIdx++] = 0;
@@ -348,14 +348,14 @@ static void TA_CDLHARAMI_StepImpl( struct TA_CDLHARAMI_Stream *sp, double inOpen
          /* 2nd is engulfed by 1st */
          if( max(inClose,inOpen) < max(sp->lag1_inClose,sp->lag1_inOpen) && min(inClose,inOpen) > min(sp->lag1_inClose,sp->lag1_inOpen) )
          {
-            *outInteger= (0 - ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1)) * 100;
+            *outInteger= -((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) * 100;
             /* 2nd is engulfed by 1st
              * (one end of real body can match;
              * engulfing guaranteed by "long" and "short")
              */
          } else if( max(inClose,inOpen) <= max(sp->lag1_inClose,sp->lag1_inOpen) && min(inClose,inOpen) >= min(sp->lag1_inClose,sp->lag1_inOpen) )
          {
-            *outInteger= (0 - ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1)) * 80;
+            *outInteger= -((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) * 80;
          } else 
          {
             *outInteger= 0;
@@ -400,7 +400,7 @@ static TA_RetCode TA_CDLHARAMI_OpenImpl( struct TA_CDLHARAMI_Stream **stream, co
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
@@ -480,14 +480,14 @@ static TA_RetCode TA_CDLHARAMI_OpenImpl( struct TA_CDLHARAMI_Stream **stream, co
                /* 2nd is engulfed by 1st */
                if( max(inClose[i],inOpen[i]) < max(inClose[i - 1],inOpen[i - 1]) && min(inClose[i],inOpen[i]) > min(inClose[i - 1],inOpen[i - 1]) )
                {
-                  outInteger[outIdx++ * outStride] = (0 - ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1)) * 100;
+                  outInteger[outIdx++ * outStride] = -((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) * 100;
                   /* 2nd is engulfed by 1st
                    * (one end of real body can match;
                    * engulfing guaranteed by "long" and "short")
                    */
                } else if( max(inClose[i],inOpen[i]) <= max(inClose[i - 1],inOpen[i - 1]) && min(inClose[i],inOpen[i]) >= min(inClose[i - 1],inOpen[i - 1]) )
                {
-                  outInteger[outIdx++ * outStride] = (0 - ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1)) * 80;
+                  outInteger[outIdx++ * outStride] = -((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) * 80;
                } else 
                {
                   outInteger[outIdx++ * outStride] = 0;
@@ -573,7 +573,7 @@ TA_LIB_API TA_RetCode TA_CDLHARAMI_Open( TA_CDLHARAMI_Stream **stream, const dou
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLHARAMI_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
@@ -583,7 +583,7 @@ TA_LIB_API TA_RetCode TA_CDLHARAMI_OpenAndFill( TA_CDLHARAMI_Stream **stream, co
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLHARAMI_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
@@ -598,7 +598,7 @@ TA_RetCode TA_CDLHARAMI_OpenAndFillInternal( struct TA_CDLHARAMI_Stream **stream
 TA_LIB_API TA_RetCode TA_CDLHARAMI_Update( TA_CDLHARAMI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -620,14 +620,14 @@ TA_LIB_API TA_RetCode TA_CDLHARAMI_Peek( const TA_CDLHARAMI_Stream *stream, doub
          /* 2nd is engulfed by 1st */
          if( max(inClose,inOpen) < max(sp->lag1_inClose,sp->lag1_inOpen) && min(inClose,inOpen) > min(sp->lag1_inClose,sp->lag1_inOpen) )
          {
-            *outInteger= (0 - ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1)) * 100;
+            *outInteger= -((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) * 100;
             /* 2nd is engulfed by 1st
              * (one end of real body can match;
              * engulfing guaranteed by "long" and "short")
              */
          } else if( max(inClose,inOpen) <= max(sp->lag1_inClose,sp->lag1_inOpen) && min(inClose,inOpen) >= min(sp->lag1_inClose,sp->lag1_inOpen) )
          {
-            *outInteger= (0 - ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1)) * 80;
+            *outInteger= -((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) * 80;
          } else 
          {
             *outInteger= 0;
@@ -667,7 +667,7 @@ TA_LIB_API TA_RetCode TA_CDLHARAMI_OutRange( const TA_CDLHARAMI_Stream *stream, 
 TA_LIB_API TA_RetCode TA_CDLHARAMI_Advance( TA_CDLHARAMI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

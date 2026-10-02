@@ -95,9 +95,9 @@ public partial class Core
          return -1;
       }
       if( optInTimePeriod == 1 ) {
-         return this.unstablePeriod[(int)FuncUnstId.KAMA] ;
+         return this._unstablePeriod[(int)FuncUnstId.KAMA] ;
       }
-      return optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.KAMA] ;
+      return optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.KAMA] ;
 
    }
    internal RetCode KamaImpl( int startIdx,
@@ -124,10 +124,10 @@ public partial class Core
       int trailingIdx = 0;
       int nullRun = 0;
       double trailingValue = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -148,7 +148,7 @@ public partial class Core
        * still delays the first output for API consistency.
        */
       if( optInTimePeriod == 1 ) {
-         lookbackTotal = this.unstablePeriod[(int)FuncUnstId.KAMA];
+         lookbackTotal = this._unstablePeriod[(int)FuncUnstId.KAMA];
          if( startIdx < lookbackTotal ) {
             startIdx = lookbackTotal;
          }
@@ -167,7 +167,7 @@ public partial class Core
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.KAMA];
+      lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.KAMA];
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -234,9 +234,7 @@ public partial class Core
          tempReal = 1.0;
       } else {
          tempReal = Math.Abs(periodROC / sumROC1);
-         if( tempReal > 1.0 ) {
-            tempReal = 1.0;
-         }
+         tempReal = MinLt(1.0, tempReal);
       }
       /* Calculate the smoothing constant */
       tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
@@ -285,9 +283,7 @@ public partial class Core
             tempReal = 1.0;
          } else {
             tempReal = Math.Abs(periodROC / sumROC1);
-            if( tempReal > 1.0 ) {
-               tempReal = 1.0;
-            }
+            tempReal = MinLt(1.0, tempReal);
          }
          /* Calculate the smoothing constant */
          tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
@@ -336,9 +332,7 @@ public partial class Core
             tempReal = 1.0;
          } else {
             tempReal = Math.Abs(periodROC / sumROC1);
-            if( tempReal > 1.0 ) {
-               tempReal = 1.0;
-            }
+            tempReal = MinLt(1.0, tempReal);
          }
          /* Calculate the smoothing constant */
          tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
@@ -376,10 +370,10 @@ public partial class Core
       int trailingIdx = 0;
       int nullRun = 0;
       double trailingValue = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -395,7 +389,7 @@ public partial class Core
       outBegIdx = 0;
       outNBElement = 0;
       if( optInTimePeriod == 1 ) {
-         lookbackTotal = this.unstablePeriod[(int)FuncUnstId.KAMA];
+         lookbackTotal = this._unstablePeriod[(int)FuncUnstId.KAMA];
          if( startIdx < lookbackTotal ) {
             startIdx = lookbackTotal;
          }
@@ -411,7 +405,7 @@ public partial class Core
          outNBElement = outIdx;
          return RetCode.Success ;
       }
-      lookbackTotal = optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.KAMA];
+      lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.KAMA];
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -444,9 +438,7 @@ public partial class Core
          tempReal = 1.0;
       } else {
          tempReal = Math.Abs(periodROC / sumROC1);
-         if( tempReal > 1.0 ) {
-            tempReal = 1.0;
-         }
+         tempReal = MinLt(1.0, tempReal);
       }
       tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
       tempReal *= tempReal;
@@ -471,9 +463,7 @@ public partial class Core
             tempReal = 1.0;
          } else {
             tempReal = Math.Abs(periodROC / sumROC1);
-            if( tempReal > 1.0 ) {
-               tempReal = 1.0;
-            }
+            tempReal = MinLt(1.0, tempReal);
          }
          tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
          tempReal *= tempReal;
@@ -502,9 +492,7 @@ public partial class Core
             tempReal = 1.0;
          } else {
             tempReal = Math.Abs(periodROC / sumROC1);
-            if( tempReal > 1.0 ) {
-               tempReal = 1.0;
-            }
+            tempReal = MinLt(1.0, tempReal);
          }
          tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
          tempReal *= tempReal;
@@ -534,8 +522,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>KamaLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>KamaLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -543,26 +536,34 @@ public partial class Core
    /// <param name="inReal">Source price series.</param>
    /// <param name="optInTimePeriod">Lookback window for the efficiency ratio (default 30; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">Adaptive moving average line. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">Adaptive moving average line. Must hold at least <c>endIdx - max(startIdx,
+   /// KamaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Mama(int, int, ReadOnlySpan{double}, double, double, Span{double}, Span{double})"/>
+   /// <seealso cref="Core.Ema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
    public OutRange Kama( int startIdx,
                          int endIdx,
                          ReadOnlySpan<double> inReal,
@@ -606,8 +607,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>KamaLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>KamaLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -615,28 +621,36 @@ public partial class Core
    /// <param name="inReal">Source price series.</param>
    /// <param name="optInTimePeriod">Lookback window for the efficiency ratio (default 30; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">Adaptive moving average line. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">Adaptive moving average line. Must hold at least <c>endIdx - max(startIdx,
+   /// KamaLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Mama(int, int, ReadOnlySpan{double}, double, double, Span{double}, Span{double})"/>
+   /// <seealso cref="Core.Ema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
    public OutRange Kama( int startIdx,
                          int endIdx,
                          ReadOnlySpan<float> inReal,
@@ -701,7 +715,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -714,13 +728,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("KAMA", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -747,7 +761,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -758,7 +771,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -766,9 +779,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("KAMA", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("KAMA", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("KAMA", "update", nameof(inReal));
          core.KamaStepImpl(this, inReal);
          outRangeCount++;
          return cur_outReal;
@@ -780,16 +793,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public double Peek( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("KAMA", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("KAMA", "peek", nameof(inReal));
          KamaStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -799,18 +811,12 @@ public partial class Core
          double prevKAMA = sp.prevKAMA;
          double sumROC1 = sp.sumROC1;
          double trailingValue = sp.trailingValue;
-         int pkSlot0 = -1;
-         double pkVal0 = 0.0;
          if( sp.optInTimePeriod == 1 ) {
             cur_outReal = inReal;
             return cur_outReal ;
          }
-         if( sp.ringCap_trailingIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inReal;
-         }
          tempReal = inReal;
-         tempReal2 = (sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] : pkVal0;
+         tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
          periodROC = tempReal - tempReal2;
          /* Adjust sumROC1:
           *  - Remove trailing ROC1
@@ -842,9 +848,7 @@ public partial class Core
             tempReal = 1.0;
          } else {
             tempReal = Math.Abs(periodROC / sumROC1);
-            if( tempReal > 1.0 ) {
-               tempReal = 1.0;
-            }
+            tempReal = MinLt(1.0, tempReal);
          }
          /* Calculate the smoothing constant */
          tempReal = Math.FusedMultiplyAdd(tempReal, sp.constDiff, sp.constMax);
@@ -874,17 +878,15 @@ public partial class Core
       }
    }
 
-   internal void KamaStepImpl( KamaStream sp, double inReal )
+   private void KamaStepImpl( KamaStream sp, double inReal )
    {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
       double periodROC = 0.0;
+      int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
          return ;
-      }
-      if( sp.ringCap_trailingIdx == 0 ) {
-         sp.ring_trailingIdx_inReal[0] = inReal;
       }
       tempReal = inReal;
       tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
@@ -919,9 +921,7 @@ public partial class Core
          tempReal = 1.0;
       } else {
          tempReal = Math.Abs(periodROC / sp.sumROC1);
-         if( tempReal > 1.0 ) {
-            tempReal = 1.0;
-         }
+         tempReal = MinLt(1.0, tempReal);
       }
       /* Calculate the smoothing constant */
       tempReal = Math.FusedMultiplyAdd(tempReal, sp.constDiff, sp.constMax);
@@ -932,9 +932,10 @@ public partial class Core
       sp.prevKAMA = Math.FusedMultiplyAdd(inReal - sp.prevKAMA, tempReal, sp.prevKAMA);
       sp.cur_outReal = sp.prevKAMA;
       sp.lag1_inReal = inReal;
+      ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
          sp.ringPos_trailingIdx = 0;
       }
    }
@@ -962,7 +963,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1012,7 +1013,7 @@ public partial class Core
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.KAMA];
+      lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.KAMA];
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -1079,9 +1080,7 @@ public partial class Core
          tempReal = 1.0;
       } else {
          tempReal = Math.Abs(periodROC / sumROC1);
-         if( tempReal > 1.0 ) {
-            tempReal = 1.0;
-         }
+         tempReal = MinLt(1.0, tempReal);
       }
       /* Calculate the smoothing constant */
       tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
@@ -1130,9 +1129,7 @@ public partial class Core
             tempReal = 1.0;
          } else {
             tempReal = Math.Abs(periodROC / sumROC1);
-            if( tempReal > 1.0 ) {
-               tempReal = 1.0;
-            }
+            tempReal = MinLt(1.0, tempReal);
          }
          /* Calculate the smoothing constant */
          tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
@@ -1181,9 +1178,7 @@ public partial class Core
             tempReal = 1.0;
          } else {
             tempReal = Math.Abs(periodROC / sumROC1);
-            if( tempReal > 1.0 ) {
-               tempReal = 1.0;
-            }
+            tempReal = MinLt(1.0, tempReal);
          }
          /* Calculate the smoothing constant */
          tempReal = Math.FusedMultiplyAdd(tempReal, constDiff, constMax);
@@ -1197,7 +1192,7 @@ public partial class Core
       outNBElement = outIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = today - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+      if( cap_trailingIdx < 1 || cap_trailingIdx > historyLen ) {
          return RetCode.InternalError;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -1228,6 +1223,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("KAMA", "openAndFill", nameof(inReal), inReal.Length, startIdx, KamaLookback(optInTimePeriod));
+      }
       throw StreamFailure("KAMA", "openAndFill", retCode);
    }
 
@@ -1241,6 +1239,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("KAMA", "open", nameof(inReal), inReal.Length, startIdx, KamaLookback(optInTimePeriod));
       }
       throw StreamFailure("KAMA", "open", retCode);
    }
@@ -1260,12 +1261,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>KamaLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public KamaStream KamaOpen( ReadOnlySpan<double> inReal, int optInTimePeriod )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "KAMA open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "KAMA open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "KAMA open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return KamaOpenInternal(inReal, 0, optInTimePeriod);
    }
 
@@ -1294,17 +1295,136 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public KamaStream KamaOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "KAMA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "KAMA openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "KAMA openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("KAMA", "openAndFill", inReal.Length, KamaLookback(optInTimePeriod));
       RequireFillLength("KAMA", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inReal) ) {
          throw StreamFailure("KAMA", "openAndFill", RetCode.BadParam);
       }
       return KamaOpenAndFillInternal(inReal, 0, optInTimePeriod, out _, out _, outReal);
+   }
+
+   private double KamaStepTape( KamaStream sp, ReadOnlySpan<double> tape, int tapeBase, int tapeMask, double inReal )
+   {
+      double tempReal = 0.0;
+      double tempReal2 = 0.0;
+      double periodROC = 0.0;
+      tempReal = inReal;
+      tempReal2 = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+      periodROC = tempReal - tempReal2;
+      /* Adjust sumROC1:
+       *  - Remove trailing ROC1
+       *  - Add new ROC1
+       */
+      sp.sumROC1 -= Math.Abs(sp.trailingValue - tempReal2);
+      sp.sumROC1 += Math.Abs(tempReal - sp.lag1_inReal);
+      /* Once a whole window of flat bars has gone by, every 1-day change it
+       * spans is exactly zero, so the sum is known to be exactly zero and the
+       * residue can be dropped. That is what lets the efficiency ratio be
+       * decided by `sumROC1 <= periodROC` alone: a window that flat has
+       * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+       */
+      if( tempReal - sp.lag1_inReal == 0.0 ) {
+         sp.nullRun += 1;
+      } else {
+         sp.nullRun = 0;
+      }
+      if( sp.nullRun >= sp.optInTimePeriod ) {
+         sp.nullRun = sp.optInTimePeriod;
+         sp.sumROC1 = 0.0;
+      }
+      /* Save the trailing value. Do this because inReal
+       * and outReal can be pointers to the same buffer.
+       */
+      sp.trailingValue = tempReal2;
+      /* Calculate the efficiency ratio */
+      if( sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC ) {
+         tempReal = 1.0;
+      } else {
+         tempReal = Math.Abs(periodROC / sp.sumROC1);
+         tempReal = MinLt(1.0, tempReal);
+      }
+      /* Calculate the smoothing constant */
+      tempReal = Math.FusedMultiplyAdd(tempReal, sp.constDiff, sp.constMax);
+      tempReal *= tempReal;
+      /* Calculate the KAMA like an EMA, using the
+       * smoothing constant as the adaptive factor.
+       */
+      sp.prevKAMA = Math.FusedMultiplyAdd(inReal - sp.prevKAMA, tempReal, sp.prevKAMA);
+      sp.cur_outReal = sp.prevKAMA;
+      sp.lag1_inReal = inReal;
+      sp.outRangeCount++;
+      return sp.cur_outReal;
+   }
+
+   private double KamaPeekTape( KamaStream sp, ReadOnlySpan<double> tape, int tapeBase, int tapeMask, double inReal )
+   {
+      double tempReal = 0.0;
+      double tempReal2 = 0.0;
+      double periodROC = 0.0;
+      double cur_outReal = 0.0;
+      int nullRun = sp.nullRun;
+      double prevKAMA = sp.prevKAMA;
+      double sumROC1 = sp.sumROC1;
+      double trailingValue = sp.trailingValue;
+      tempReal = inReal;
+      tempReal2 = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+      periodROC = tempReal - tempReal2;
+      /* Adjust sumROC1:
+       *  - Remove trailing ROC1
+       *  - Add new ROC1
+       */
+      sumROC1 -= Math.Abs(trailingValue - tempReal2);
+      sumROC1 += Math.Abs(tempReal - sp.lag1_inReal);
+      /* Once a whole window of flat bars has gone by, every 1-day change it
+       * spans is exactly zero, so the sum is known to be exactly zero and the
+       * residue can be dropped. That is what lets the efficiency ratio be
+       * decided by `sumROC1 <= periodROC` alone: a window that flat has
+       * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+       */
+      if( tempReal - sp.lag1_inReal == 0.0 ) {
+         nullRun += 1;
+      } else {
+         nullRun = 0;
+      }
+      if( nullRun >= sp.optInTimePeriod ) {
+         nullRun = sp.optInTimePeriod;
+         sumROC1 = 0.0;
+      }
+      /* Save the trailing value. Do this because inReal
+       * and outReal can be pointers to the same buffer.
+       */
+      trailingValue = tempReal2;
+      /* Calculate the efficiency ratio */
+      if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+         tempReal = 1.0;
+      } else {
+         tempReal = Math.Abs(periodROC / sumROC1);
+         tempReal = MinLt(1.0, tempReal);
+      }
+      /* Calculate the smoothing constant */
+      tempReal = Math.FusedMultiplyAdd(tempReal, sp.constDiff, sp.constMax);
+      tempReal *= tempReal;
+      /* Calculate the KAMA like an EMA, using the
+       * smoothing constant as the adaptive factor.
+       */
+      prevKAMA = Math.FusedMultiplyAdd(inReal - prevKAMA, tempReal, prevKAMA);
+      cur_outReal = prevKAMA;
+      return cur_outReal;
+   }
+
+   private int KamaTapeDetach( KamaStream sp )
+   {
+      int reach = 0;
+      sp.ring_trailingIdx_inReal = [];
+      if( sp.ringCap_trailingIdx > reach ) {
+         reach = sp.ringCap_trailingIdx;
+      }
+      return reach;
    }
 }

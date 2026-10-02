@@ -8,11 +8,10 @@ worktree, regenerates all backends there, and runs the usual gates scoped to
 the SYNTH family:
 
   1. scripts/regtest.py --codegen --function=SYNTH
-       builds the C library + ta_regtest + all four language servers +
-       ta_ref_serve in the worktree, then runs the codegen sweep. SYNTH
-       functions are absent from the frozen oracle (subset gate), but the
-       stream_verify / OpenAndFill legs are current-vs-current and run for
-       them in all four servers, bit-exact batch-vs-stream.
+       builds the C library + ta_regtest + all four language servers in the
+       worktree, then runs the codegen sweep: every server against the
+       in-process library, and stream_verify / OpenAndFill batch-vs-stream,
+       bit-exact, in all four servers.
   2. ta_regtest --xlang-hash --function=SYNTH
        batch output parity: Rust/Java/C# against the in-process C golden,
        bitwise, across the fuzz shapes/seeds/sizes/params.
@@ -61,7 +60,7 @@ LANGS = 4  # C, Rust, Java, C# — servers exercised by the stream leg
 _GATE_LOCK_FD = None
 
 
-def acquire_gate_lock(wt):
+def acquire_gate_lock(root, wt):
     """Refuse to start when another run already owns this gate worktree.
 
     The cleanup below force-removes whatever sits at `wt`. That is safe against
@@ -73,7 +72,8 @@ def acquire_gate_lock(wt):
 
     This lock CANNOT go stale. It lives on an open file descriptor, so the
     kernel releases it when this process exits -- crash and SIGKILL included.
-    There is no PID file to leave behind and nothing to clean up by hand. And
+    The file lives in the caller's own git directory, one per checkout, so it
+    never piles up beside the worktrees and goes when the checkout does. And
     Python opens descriptors non-inheritable (PEP 446), so the build's own
     children cannot keep it open after we are gone -- which matters, because
     `dotnet` leaves a VBCSCompiler daemon running long after the build returns.
@@ -82,7 +82,10 @@ def acquire_gate_lock(wt):
     silently waiting on a gate that takes tens of minutes.
     """
     global _GATE_LOCK_FD
-    path = wt + ".lock"
+    path = os.path.join(
+        subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=root,
+                       capture_output=True, text=True, check=True).stdout.strip(),
+        "synth-gate.lock")
     fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -175,7 +178,7 @@ def main():
     # The lock is what makes the removal below safe: the path is derived from
     # `root`, so it identifies our own leftovers only while one run at a time
     # owns that `root`.
-    acquire_gate_lock(wt)
+    acquire_gate_lock(root, wt)
     # Clear the leftovers of a PREVIOUS RUN OF THIS SAME CALLER.
     if os.path.exists(wt):
         subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=root)
@@ -281,16 +284,11 @@ def main():
         # Anti-vacuity: prove the SYNTH functions were actually exercised.
         #
         # Read off the per-language tally, one line per server:
-        #   `  Java: 0 passed, 0 failed, 14 skipped`
+        #   `  Java: 14 passed, 0 failed, 0 skipped`
         # Their sum is what the --function filter admitted, so a filter that
         # matched nothing reads 0 and fails here. That matters more than it
         # sounds: a `--function=` naming nothing exits 0 (the filter matches a
         # GROUP TAG as well as a name), so the exit code alone is no evidence.
-        #
-        # `skipped` is expected, not a problem: the SYNTH functions are absent
-        # from the frozen pre-cutover oracle, so their VALUE comparison has no
-        # reference and is skipped by design (the subset gate). The stream and
-        # OpenAndFill legs are current-vs-current and run regardless.
         #
         # This replaces a parse of "Stream verify: N functions, M legs", which
         # `d8af8b5d9` removed when ta_regtest stopped printing its coverage and

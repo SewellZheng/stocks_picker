@@ -55,10 +55,10 @@
       int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
       int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
       double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       /* Identify the minimum number of price bar needed
@@ -108,16 +108,16 @@
       do {
          if( Math.max(inClose[i - 1], inOpen[i - 1]) < Math.max(inClose[i - 2], inOpen[i - 2]) && /* engulfed by 1st */
              Math.min(inClose[i - 1], inOpen[i - 1]) > Math.min(inClose[i - 2], inOpen[i - 2]) &&
-             (((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 1 &&
-               ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 0 - 1 &&
-               inClose[i] < inOpen[i - 2] ||                              /* 3rd: opposite to 1st and closing out */
-              ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 &&
-               ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&
+             (((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == 1 &&
+               ((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 &&
+               inClose[i] < inOpen[i - 2] ||                        /* 3rd: opposite to 1st and closing out */
+              ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 &&
+               ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&
                inClose[i] > inOpen[i - 2]) &&
              Math.abs(inClose[i - 2] - inOpen[i - 2]) > ((BodyLong_factor * (((BodyLong_avgPeriod != 0) ? (BodyLongPeriodTotal / BodyLong_avgPeriod) : ((BodyLong_rangeType == 0) ? (Math.abs(inClose[i - 2] - inOpen[i - 2])) : ((BodyLong_rangeType == 1) ? (inHigh[i - 2] - inLow[i - 2]) : ((BodyLong_rangeType == 2) ? ((inHigh[i - 2] - (((inClose[i - 2]) >= (inOpen[i - 2])) ? (inClose[i - 2]) : (inOpen[i - 2]))) + ((((inClose[i - 2]) >= (inOpen[i - 2])) ? (inOpen[i - 2]) : (inClose[i - 2])) - inLow[i - 2])) : 0.0)))) / ((BodyLong_rangeType == 2) ? 2.0 : 1.0)))) && /* 1st: long */
              Math.abs(inClose[i - 1] - inOpen[i - 1]) <= ((BodyShort_factor * (((BodyShort_avgPeriod != 0) ? (BodyShortPeriodTotal / BodyShort_avgPeriod) : ((BodyShort_rangeType == 0) ? (Math.abs(inClose[i - 1] - inOpen[i - 1])) : ((BodyShort_rangeType == 1) ? (inHigh[i - 1] - inLow[i - 1]) : ((BodyShort_rangeType == 2) ? ((inHigh[i - 1] - (((inClose[i - 1]) >= (inOpen[i - 1])) ? (inClose[i - 1]) : (inOpen[i - 1]))) + ((((inClose[i - 1]) >= (inOpen[i - 1])) ? (inOpen[i - 1]) : (inClose[i - 1])) - inLow[i - 1])) : 0.0)))) / ((BodyShort_rangeType == 2) ? 2.0 : 1.0)))) ) /* 2nd: short */
          {
-            outInteger[outIdx++] = (0 - ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1)) * 100;
+            outInteger[outIdx++] = -((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) * 100;
          } else {
             outInteger[outIdx++] = 0;
          }
@@ -158,10 +158,10 @@
       int BodyShort_rangeType = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].rangeType.ordinal();
       int BodyShort_avgPeriod = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].avgPeriod;
       double BodyShort_factor = this.candleSettings[CandleSettingType.BODY_SHORT.ordinal()].factor;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       lookbackTotal = cdl3insideLookback();
@@ -190,8 +190,8 @@
       i = startIdx;
       outIdx = 0;
       do {
-         if( Math.max((double)inClose[i - 1], (double)inOpen[i - 1]) < Math.max((double)inClose[i - 2], (double)inOpen[i - 2]) && Math.min((double)inClose[i - 1], (double)inOpen[i - 1]) > Math.min((double)inClose[i - 2], (double)inOpen[i - 2]) && ((((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : 0 - 1) == 1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) == 0 - 1 && (double)inClose[i] < (double)inOpen[i - 2] || (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) == 1 && (double)inClose[i] > (double)inOpen[i - 2]) && Math.abs((double)inClose[i - 2] - (double)inOpen[i - 2]) > ((BodyLong_factor * (((BodyLong_avgPeriod != 0) ? (BodyLongPeriodTotal / BodyLong_avgPeriod) : ((BodyLong_rangeType == 0) ? (Math.abs((double)inClose[i - 2] - (double)inOpen[i - 2])) : ((BodyLong_rangeType == 1) ? ((double)inHigh[i - 2] - (double)inLow[i - 2]) : ((BodyLong_rangeType == 2) ? (((double)inHigh[i - 2] - ((((double)inClose[i - 2]) >= ((double)inOpen[i - 2])) ? ((double)inClose[i - 2]) : ((double)inOpen[i - 2]))) + (((((double)inClose[i - 2]) >= ((double)inOpen[i - 2])) ? ((double)inOpen[i - 2]) : ((double)inClose[i - 2])) - (double)inLow[i - 2])) : 0.0)))) / ((BodyLong_rangeType == 2) ? 2.0 : 1.0)))) && Math.abs((double)inClose[i - 1] - (double)inOpen[i - 1]) <= ((BodyShort_factor * (((BodyShort_avgPeriod != 0) ? (BodyShortPeriodTotal / BodyShort_avgPeriod) : ((BodyShort_rangeType == 0) ? (Math.abs((double)inClose[i - 1] - (double)inOpen[i - 1])) : ((BodyShort_rangeType == 1) ? ((double)inHigh[i - 1] - (double)inLow[i - 1]) : ((BodyShort_rangeType == 2) ? (((double)inHigh[i - 1] - ((((double)inClose[i - 1]) >= ((double)inOpen[i - 1])) ? ((double)inClose[i - 1]) : ((double)inOpen[i - 1]))) + (((((double)inClose[i - 1]) >= ((double)inOpen[i - 1])) ? ((double)inOpen[i - 1]) : ((double)inClose[i - 1])) - (double)inLow[i - 1])) : 0.0)))) / ((BodyShort_rangeType == 2) ? 2.0 : 1.0)))) ) {
-            outInteger[outIdx++] = (0 - (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : 0 - 1)) * 100;
+         if( Math.max((double)inClose[i - 1], (double)inOpen[i - 1]) < Math.max((double)inClose[i - 2], (double)inOpen[i - 2]) && Math.min((double)inClose[i - 1], (double)inOpen[i - 1]) > Math.min((double)inClose[i - 2], (double)inOpen[i - 2]) && ((((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : -1) == 1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) == -1 && (double)inClose[i] < (double)inOpen[i - 2] || (((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : -1) == -1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) == 1 && (double)inClose[i] > (double)inOpen[i - 2]) && Math.abs((double)inClose[i - 2] - (double)inOpen[i - 2]) > ((BodyLong_factor * (((BodyLong_avgPeriod != 0) ? (BodyLongPeriodTotal / BodyLong_avgPeriod) : ((BodyLong_rangeType == 0) ? (Math.abs((double)inClose[i - 2] - (double)inOpen[i - 2])) : ((BodyLong_rangeType == 1) ? ((double)inHigh[i - 2] - (double)inLow[i - 2]) : ((BodyLong_rangeType == 2) ? (((double)inHigh[i - 2] - ((((double)inClose[i - 2]) >= ((double)inOpen[i - 2])) ? ((double)inClose[i - 2]) : ((double)inOpen[i - 2]))) + (((((double)inClose[i - 2]) >= ((double)inOpen[i - 2])) ? ((double)inOpen[i - 2]) : ((double)inClose[i - 2])) - (double)inLow[i - 2])) : 0.0)))) / ((BodyLong_rangeType == 2) ? 2.0 : 1.0)))) && Math.abs((double)inClose[i - 1] - (double)inOpen[i - 1]) <= ((BodyShort_factor * (((BodyShort_avgPeriod != 0) ? (BodyShortPeriodTotal / BodyShort_avgPeriod) : ((BodyShort_rangeType == 0) ? (Math.abs((double)inClose[i - 1] - (double)inOpen[i - 1])) : ((BodyShort_rangeType == 1) ? ((double)inHigh[i - 1] - (double)inLow[i - 1]) : ((BodyShort_rangeType == 2) ? (((double)inHigh[i - 1] - ((((double)inClose[i - 1]) >= ((double)inOpen[i - 1])) ? ((double)inClose[i - 1]) : ((double)inOpen[i - 1]))) + (((((double)inClose[i - 1]) >= ((double)inOpen[i - 1])) ? ((double)inOpen[i - 1]) : ((double)inClose[i - 1])) - (double)inLow[i - 1])) : 0.0)))) / ((BodyShort_rangeType == 2) ? 2.0 : 1.0)))) ) {
+            outInteger[outIdx++] = -(((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? 1 : -1) * 100;
          } else {
             outInteger[outIdx++] = 0;
          }
@@ -221,8 +221,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdl3insideLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#cdl3insideLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -233,11 +233,12 @@
     * @param outInteger +100 for three inside up (bullish reversal, first candle
     *        black), -100 for three inside down (bearish reversal, first candle white),
     *        0 when no pattern. Computed as -candlecolor(1st)*100. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, cdl3insideLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -296,8 +297,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cdl3insideLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#cdl3insideLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -308,11 +309,12 @@
     * @param outInteger +100 for three inside up (bullish reversal, first candle
     *        black), -100 for three inside down (bearish reversal, first candle white),
     *        0 when no pattern. Computed as -candlecolor(1st)*100. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, cdl3insideLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -408,7 +410,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -422,12 +424,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("CDL3INSIDE advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -475,15 +477,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("CDL3INSIDE update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("CDL3INSIDE update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("CDL3INSIDE update", !Double.isFinite(inOpen) ? "inOpen" : !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          core.cdl3insideStepImpl(this, inOpen, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outInteger;
@@ -493,15 +495,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("CDL3INSIDE peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("CDL3INSIDE peek", !Double.isFinite(inOpen) ? "inOpen" : !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          Cdl3insideStream sp = this;
          int cur_outInteger = 0;
          int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
@@ -512,16 +512,16 @@
          double BodyShort_factor = sp.cs_BodyShort_factor;
          if( Math.max(sp.lag1_inClose, sp.lag1_inOpen) < Math.max(sp.lag2_inClose, sp.lag2_inOpen) && /* engulfed by 1st */
              Math.min(sp.lag1_inClose, sp.lag1_inOpen) > Math.min(sp.lag2_inClose, sp.lag2_inOpen) &&
-             (((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1) == 1 &&
-               ((inClose >= inOpen) ? 1 : 0 - 1) == 0 - 1 &&
-               inClose < sp.lag2_inOpen ||                                  /* 3rd: opposite to 1st and closing out */
-              ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1) == 0 - 1 &&
-               ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&
+             (((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : -1) == 1 &&
+               ((inClose >= inOpen) ? 1 : -1) == -1 &&
+               inClose < sp.lag2_inOpen ||                            /* 3rd: opposite to 1st and closing out */
+              ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : -1) == -1 &&
+               ((inClose >= inOpen) ? 1 : -1) == 1 &&
                inClose > sp.lag2_inOpen) &&
              Math.abs(sp.lag2_inClose - sp.lag2_inOpen) > ((BodyLong_factor * (((BodyLong_avgPeriod != 0) ? (sp.BodyLongPeriodTotal / BodyLong_avgPeriod) : ((BodyLong_rangeType == 0) ? (Math.abs(sp.lag2_inClose - sp.lag2_inOpen)) : ((BodyLong_rangeType == 1) ? (sp.lag2_inHigh - sp.lag2_inLow) : ((BodyLong_rangeType == 2) ? ((sp.lag2_inHigh - (((sp.lag2_inClose) >= (sp.lag2_inOpen)) ? (sp.lag2_inClose) : (sp.lag2_inOpen))) + ((((sp.lag2_inClose) >= (sp.lag2_inOpen)) ? (sp.lag2_inOpen) : (sp.lag2_inClose)) - sp.lag2_inLow)) : 0.0)))) / ((BodyLong_rangeType == 2) ? 2.0 : 1.0)))) && /* 1st: long */
              Math.abs(sp.lag1_inClose - sp.lag1_inOpen) <= ((BodyShort_factor * (((BodyShort_avgPeriod != 0) ? (sp.BodyShortPeriodTotal / BodyShort_avgPeriod) : ((BodyShort_rangeType == 0) ? (Math.abs(sp.lag1_inClose - sp.lag1_inOpen)) : ((BodyShort_rangeType == 1) ? (sp.lag1_inHigh - sp.lag1_inLow) : ((BodyShort_rangeType == 2) ? ((sp.lag1_inHigh - (((sp.lag1_inClose) >= (sp.lag1_inOpen)) ? (sp.lag1_inClose) : (sp.lag1_inOpen))) + ((((sp.lag1_inClose) >= (sp.lag1_inOpen)) ? (sp.lag1_inOpen) : (sp.lag1_inClose)) - sp.lag1_inLow)) : 0.0)))) / ((BodyShort_rangeType == 2) ? 2.0 : 1.0)))) ) /* 2nd: short */
          {
-            cur_outInteger = (0 - ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1)) * 100;
+            cur_outInteger = -((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : -1) * 100;
          } else {
             cur_outInteger = 0;
          }
@@ -570,16 +570,16 @@
       }
       if( Math.max(sp.lag1_inClose, sp.lag1_inOpen) < Math.max(sp.lag2_inClose, sp.lag2_inOpen) && /* engulfed by 1st */
           Math.min(sp.lag1_inClose, sp.lag1_inOpen) > Math.min(sp.lag2_inClose, sp.lag2_inOpen) &&
-          (((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1) == 1 &&
-            ((inClose >= inOpen) ? 1 : 0 - 1) == 0 - 1 &&
-            inClose < sp.lag2_inOpen ||                                  /* 3rd: opposite to 1st and closing out */
-           ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1) == 0 - 1 &&
-            ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&
+          (((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : -1) == 1 &&
+            ((inClose >= inOpen) ? 1 : -1) == -1 &&
+            inClose < sp.lag2_inOpen ||                            /* 3rd: opposite to 1st and closing out */
+           ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : -1) == -1 &&
+            ((inClose >= inOpen) ? 1 : -1) == 1 &&
             inClose > sp.lag2_inOpen) &&
           Math.abs(sp.lag2_inClose - sp.lag2_inOpen) > ((BodyLong_factor * (((BodyLong_avgPeriod != 0) ? (sp.BodyLongPeriodTotal / BodyLong_avgPeriod) : ((BodyLong_rangeType == 0) ? (Math.abs(sp.lag2_inClose - sp.lag2_inOpen)) : ((BodyLong_rangeType == 1) ? (sp.lag2_inHigh - sp.lag2_inLow) : ((BodyLong_rangeType == 2) ? ((sp.lag2_inHigh - (((sp.lag2_inClose) >= (sp.lag2_inOpen)) ? (sp.lag2_inClose) : (sp.lag2_inOpen))) + ((((sp.lag2_inClose) >= (sp.lag2_inOpen)) ? (sp.lag2_inOpen) : (sp.lag2_inClose)) - sp.lag2_inLow)) : 0.0)))) / ((BodyLong_rangeType == 2) ? 2.0 : 1.0)))) && /* 1st: long */
           Math.abs(sp.lag1_inClose - sp.lag1_inOpen) <= ((BodyShort_factor * (((BodyShort_avgPeriod != 0) ? (sp.BodyShortPeriodTotal / BodyShort_avgPeriod) : ((BodyShort_rangeType == 0) ? (Math.abs(sp.lag1_inClose - sp.lag1_inOpen)) : ((BodyShort_rangeType == 1) ? (sp.lag1_inHigh - sp.lag1_inLow) : ((BodyShort_rangeType == 2) ? ((sp.lag1_inHigh - (((sp.lag1_inClose) >= (sp.lag1_inOpen)) ? (sp.lag1_inClose) : (sp.lag1_inOpen))) + ((((sp.lag1_inClose) >= (sp.lag1_inOpen)) ? (sp.lag1_inOpen) : (sp.lag1_inClose)) - sp.lag1_inLow)) : 0.0)))) / ((BodyShort_rangeType == 2) ? 2.0 : 1.0)))) ) /* 2nd: short */
       {
-         sp.cur_outInteger = (0 - ((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : 0 - 1)) * 100;
+         sp.cur_outInteger = -((sp.lag2_inClose >= sp.lag2_inOpen) ? 1 : -1) * 100;
       } else {
          sp.cur_outInteger = 0;
       }
@@ -621,7 +621,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
@@ -685,16 +685,16 @@
       do {
          if( Math.max(inClose[i - 1], inOpen[i - 1]) < Math.max(inClose[i - 2], inOpen[i - 2]) && /* engulfed by 1st */
              Math.min(inClose[i - 1], inOpen[i - 1]) > Math.min(inClose[i - 2], inOpen[i - 2]) &&
-             (((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 1 &&
-               ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 0 - 1 &&
-               inClose[i] < inOpen[i - 2] ||                              /* 3rd: opposite to 1st and closing out */
-              ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1) == 0 - 1 &&
-               ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&
+             (((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == 1 &&
+               ((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 &&
+               inClose[i] < inOpen[i - 2] ||                        /* 3rd: opposite to 1st and closing out */
+              ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 &&
+               ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&
                inClose[i] > inOpen[i - 2]) &&
              Math.abs(inClose[i - 2] - inOpen[i - 2]) > ((BodyLong_factor * (((BodyLong_avgPeriod != 0) ? (BodyLongPeriodTotal / BodyLong_avgPeriod) : ((BodyLong_rangeType == 0) ? (Math.abs(inClose[i - 2] - inOpen[i - 2])) : ((BodyLong_rangeType == 1) ? (inHigh[i - 2] - inLow[i - 2]) : ((BodyLong_rangeType == 2) ? ((inHigh[i - 2] - (((inClose[i - 2]) >= (inOpen[i - 2])) ? (inClose[i - 2]) : (inOpen[i - 2]))) + ((((inClose[i - 2]) >= (inOpen[i - 2])) ? (inOpen[i - 2]) : (inClose[i - 2])) - inLow[i - 2])) : 0.0)))) / ((BodyLong_rangeType == 2) ? 2.0 : 1.0)))) && /* 1st: long */
              Math.abs(inClose[i - 1] - inOpen[i - 1]) <= ((BodyShort_factor * (((BodyShort_avgPeriod != 0) ? (BodyShortPeriodTotal / BodyShort_avgPeriod) : ((BodyShort_rangeType == 0) ? (Math.abs(inClose[i - 1] - inOpen[i - 1])) : ((BodyShort_rangeType == 1) ? (inHigh[i - 1] - inLow[i - 1]) : ((BodyShort_rangeType == 2) ? ((inHigh[i - 1] - (((inClose[i - 1]) >= (inOpen[i - 1])) ? (inClose[i - 1]) : (inOpen[i - 1]))) + ((((inClose[i - 1]) >= (inOpen[i - 1])) ? (inOpen[i - 1]) : (inClose[i - 1])) - inLow[i - 1])) : 0.0)))) / ((BodyShort_rangeType == 2) ? 2.0 : 1.0)))) ) /* 2nd: short */
          {
-            outInteger[outIdx++ * outStride] = (0 - ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : 0 - 1)) * 100;
+            outInteger[outIdx++ * outStride] = -((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) * 100;
          } else {
             outInteger[outIdx++ * outStride] = 0;
          }
@@ -765,12 +765,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("CDL3INSIDE openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("CDL3INSIDE openAndFill", inOpen.length, startIdx, cdl3insideLookback());
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("CDL3INSIDE openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("CDL3INSIDE openAndFill: " + retCode, retCode);
+      throw streamFailure("CDL3INSIDE openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind cdl3insideOpen (composition seam). */
    Cdl3insideStream cdl3insideOpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
@@ -786,12 +783,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("CDL3INSIDE open: history shorter than lookback + 1");
+         throw insufficientHistory("CDL3INSIDE open", inOpen.length, startIdx, cdl3insideLookback());
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("CDL3INSIDE open: internal error", retCode);
-      }
-      throw new TALibArgumentException("CDL3INSIDE open: " + retCode, retCode);
+      throw streamFailure("CDL3INSIDE open", retCode);
    }
    /**
     * Open a live CDL3INSIDE stream over the warm-up history; the handle's
@@ -840,7 +834,7 @@
       requireHistoryLength("CDL3INSIDE openAndFill", "inClose", inClose.length, inOpen.length);
       requireLength("CDL3INSIDE openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
-         throw new TALibArgumentException("CDL3INSIDE openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("CDL3INSIDE openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

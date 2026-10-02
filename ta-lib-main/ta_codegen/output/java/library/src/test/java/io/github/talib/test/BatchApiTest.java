@@ -287,7 +287,7 @@ public class BatchApiTest {
         checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.sma(0, 500, in, 10, out),
             "endIdx past the input end -> IllegalArgument",
-            "SMA", "inReal", "200", "501");
+            "SMA: inReal has length 200, needs 501");
     }
 
     /** Two input series of different lengths: the short one is named. */
@@ -314,7 +314,7 @@ public class BatchApiTest {
         checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.sma(0, 199, in, 10, out),
             "undersized output -> IllegalArgument",
-            "SMA", "outReal", "3", "191");
+            "SMA: outReal has length 3, needs 191");
     }
 
     /**
@@ -414,11 +414,11 @@ public class BatchApiTest {
             () -> Core.DEFAULT.sma(0, 199, in, 0, tiny),
             "out-of-range period still -> the parameter message", "bad parameter");
         checkThrows(IndexOutOfBoundsException.class,
-            () -> Core.DEFAULT.sma(0, Core.MAX_INDEX + 1, in, 10, tiny),
-            "endIdx above MAX_INDEX still -> IndexOutOfBounds", "endIdx");
+            () -> Core.DEFAULT.sma(0, Core.INDEX_MAX + 1, in, 10, tiny),
+            "endIdx above INDEX_MAX still -> IndexOutOfBounds", "endIdx");
         checkThrows(IndexOutOfBoundsException.class,
-            () -> Core.DEFAULT.sma(Core.MAX_INDEX + 5, Core.MAX_INDEX + 9, in, 10, tiny),
-            "startIdx above MAX_INDEX still -> IndexOutOfBounds", "startIdx");
+            () -> Core.DEFAULT.sma(Core.INDEX_MAX + 5, Core.INDEX_MAX + 9, in, 10, tiny),
+            "startIdx above INDEX_MAX still -> IndexOutOfBounds", "startIdx");
     }
 
     /**
@@ -717,10 +717,16 @@ public class BatchApiTest {
             "aliased OpenAndFill outputs carry BadParam");
 
         // ...and it is still an InsufficientHistoryException, so an existing
-        // catch keeps working.
+        // catch keeps working. Its message carries the counts, like a short array's.
         checkThrows(InsufficientHistoryException.class,
             () -> Core.DEFAULT.smaOpen(Arrays.copyOf(in, Core.DEFAULT.smaLookback(30)), 30),
-            "a short history is still typed");
+            "a short history is still typed", "SMA open: history has length 29, needs 30");
+        // The dispatch tier converts the code on its own frame.
+        final int maLb = Core.DEFAULT.maLookback(10, MAType.EMA);
+        checkThrows(InsufficientHistoryException.class,
+            () -> Core.DEFAULT.maOpenAndFill(Arrays.copyOf(in, maLb), 10, MAType.EMA, new double[200]),
+            "a short MA fill history names its counts",
+            "MA openAndFill: history has length " + maLb + ", needs " + (maLb + 1));
 
         // The numbers the cross-language harness compares. Hardcoded, because
         // asking the enum for its own value would prove nothing.
@@ -787,8 +793,8 @@ public class BatchApiTest {
             () -> Core.DEFAULT.sma(50, 10, in, 10, (double[]) null),
             "endIdx < startIdx outranks a null output", "endIdx");
         checkThrows(IndexOutOfBoundsException.class,
-            () -> Core.DEFAULT.sma(0, Core.MAX_INDEX + 1, (double[]) null, 10, out),
-            "an endIdx above MAX_INDEX outranks a null input", "endIdx");
+            () -> Core.DEFAULT.sma(0, Core.INDEX_MAX + 1, (double[]) null, 10, out),
+            "an endIdx above INDEX_MAX outranks a null input", "endIdx");
 
         // The control, and what makes the three above about ORDER rather than
         // about the null check having been deleted: with the indices valid, the
@@ -1017,10 +1023,9 @@ public class BatchApiTest {
     }
 
     /**
-     * Rule S1, and its order. An opener is a batch call over
-     * {@code [0, historyLen - 1]}, so an empty history is B1's condition read on
-     * that range — the implied {@code startIdx} of 0 names no bar — and answers
-     * B1's code.
+     * Rule S1, and its order. S1 and S2 run ahead of every presence check,
+     * answering {@code OUT_OF_RANGE_START_INDEX} and
+     * {@code OUT_OF_RANGE_END_INDEX} (https://ta-lib.org/spec/streaming/#s1).
      *
      * <p>The order is the part worth a case of its own: the third call below is
      * BOTH an empty history and an absent output, and the empty history is what

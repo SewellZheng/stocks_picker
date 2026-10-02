@@ -83,9 +83,9 @@ TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE( int    startIdx,
    int Equal_avgPeriod = TA_Globals->candleSettings[TA_Equal].avgPeriod;
    int Near_avgPeriod = TA_Globals->candleSettings[TA_Near].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -157,14 +157,14 @@ TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE( int    startIdx,
             ((min(inOpen[i],inClose[i]) > max(inOpen[i - 2],inClose[i - 2])) ? 1 : 0)) ||
            (((max(inOpen[i - 1],inClose[i - 1]) < min(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) &&
             ((max(inOpen[i],inClose[i]) < min(inOpen[i - 2],inClose[i - 2])) ? 1 : 0))) &&
-          ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 1 && /* 2nd: white */
-          ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&         /* 3rd: white */
+          ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == 1 && /* 2nd: white */
+          ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&         /* 3rd: white */
           fabs(inClose[i] - inOpen[i]) >= fabs(inClose[i - 1] - inOpen[i - 1]) - TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) && /* same size 2 and 3 */
           fabs(inClose[i] - inOpen[i]) <= fabs(inClose[i - 1] - inOpen[i - 1]) + TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) &&
           inOpen[i] >= inOpen[i - 1] - TA_CANDLEAVERAGE(Equal,EqualPeriodTotal,i - 1) && /* same open 2 and 3 */
           inOpen[i] <= inOpen[i - 1] + TA_CANDLEAVERAGE(Equal,EqualPeriodTotal,i - 1) )
       {
-         outInteger[outIdx++] = ((min(inOpen[i - 1],inClose[i - 1]) > max(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) ? 100 : 0 - 100;
+         outInteger[outIdx++] = ((min(inOpen[i - 1],inClose[i - 1]) > max(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) ? 100 : -100;
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -204,9 +204,9 @@ TA_RetCode TA_S_CDLGAPSIDESIDEWHITE( int    startIdx,
    int Equal_avgPeriod = TA_Globals->candleSettings[TA_Equal].avgPeriod;
    int Near_avgPeriod = TA_Globals->candleSettings[TA_Near].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -253,9 +253,9 @@ TA_RetCode TA_S_CDLGAPSIDESIDEWHITE( int    startIdx,
    outIdx = 0;
    do
    {
-      if( ((((min((double)inOpen[i - 1],(double)inClose[i - 1]) > max((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) && ((min((double)inOpen[i],(double)inClose[i]) > max((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0)) || (((max((double)inOpen[i - 1],(double)inClose[i - 1]) < min((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) && ((max((double)inOpen[i],(double)inClose[i]) < min((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0))) && (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : 0 - 1) == 1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) == 1 && fabs((double)inClose[i] - (double)inOpen[i]) >= fabs((double)inClose[i - 1] - (double)inOpen[i - 1]) - TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) && fabs((double)inClose[i] - (double)inOpen[i]) <= fabs((double)inClose[i - 1] - (double)inOpen[i - 1]) + TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) && (double)inOpen[i] >= (double)inOpen[i - 1] - TA_CANDLEAVERAGE(Equal,EqualPeriodTotal,i - 1) && (double)inOpen[i] <= (double)inOpen[i - 1] + TA_CANDLEAVERAGE(Equal,EqualPeriodTotal,i - 1) )
+      if( ((((min((double)inOpen[i - 1],(double)inClose[i - 1]) > max((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) && ((min((double)inOpen[i],(double)inClose[i]) > max((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0)) || (((max((double)inOpen[i - 1],(double)inClose[i - 1]) < min((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) && ((max((double)inOpen[i],(double)inClose[i]) < min((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0))) && (((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? 1 : -1) == 1 && (((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) == 1 && fabs((double)inClose[i] - (double)inOpen[i]) >= fabs((double)inClose[i - 1] - (double)inOpen[i - 1]) - TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) && fabs((double)inClose[i] - (double)inOpen[i]) <= fabs((double)inClose[i - 1] - (double)inOpen[i - 1]) + TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) && (double)inOpen[i] >= (double)inOpen[i - 1] - TA_CANDLEAVERAGE(Equal,EqualPeriodTotal,i - 1) && (double)inOpen[i] <= (double)inOpen[i - 1] + TA_CANDLEAVERAGE(Equal,EqualPeriodTotal,i - 1) )
       {
-         outInteger[outIdx++] = ((min((double)inOpen[i - 1],(double)inClose[i - 1]) > max((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) ? 100 : 0 - 100;
+         outInteger[outIdx++] = ((min((double)inOpen[i - 1],(double)inClose[i - 1]) > max((double)inOpen[i - 2],(double)inClose[i - 2])) ? 1 : 0) ? 100 : -100;
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -315,14 +315,14 @@ static void TA_CDLGAPSIDESIDEWHITE_StepImpl( struct TA_CDLGAPSIDESIDEWHITE_Strea
          ((min(inOpen,inClose) > max(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0)) ||
         (((max(sp->lag1_inOpen,sp->lag1_inClose) < min(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) &&
          ((max(inOpen,inClose) < min(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0))) &&
-       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 && /* 2nd: white */
-       ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&                   /* 3rd: white */
+       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) == 1 && /* 2nd: white */
+       ((inClose >= inOpen) ? 1 : -1) == 1 &&                   /* 3rd: white */
        fabs(inClose - inOpen) >= fabs(sp->lag1_inClose - sp->lag1_inOpen) - TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* same size 2 and 3 */
        fabs(inClose - inOpen) <= fabs(sp->lag1_inClose - sp->lag1_inOpen) + TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) &&
        inOpen >= sp->lag1_inOpen - TA_STREAM_CANDLEAVERAGE(Equal,sp->EqualPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* same open 2 and 3 */
        inOpen <= sp->lag1_inOpen + TA_STREAM_CANDLEAVERAGE(Equal,sp->EqualPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) )
    {
-      *outInteger= ((min(sp->lag1_inOpen,sp->lag1_inClose) > max(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) ? 100 : 0 - 100;
+      *outInteger= ((min(sp->lag1_inOpen,sp->lag1_inClose) > max(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) ? 100 : -100;
    } else 
    {
       *outInteger= 0;
@@ -359,7 +359,7 @@ static TA_RetCode TA_CDLGAPSIDESIDEWHITE_OpenImpl( struct TA_CDLGAPSIDESIDEWHITE
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
@@ -436,14 +436,14 @@ static TA_RetCode TA_CDLGAPSIDESIDEWHITE_OpenImpl( struct TA_CDLGAPSIDESIDEWHITE
                ((min(inOpen[i],inClose[i]) > max(inOpen[i - 2],inClose[i - 2])) ? 1 : 0)) ||
               (((max(inOpen[i - 1],inClose[i - 1]) < min(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) &&
                ((max(inOpen[i],inClose[i]) < min(inOpen[i - 2],inClose[i - 2])) ? 1 : 0))) &&
-             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 1 && /* 2nd: white */
-             ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&         /* 3rd: white */
+             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == 1 && /* 2nd: white */
+             ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&         /* 3rd: white */
              fabs(inClose[i] - inOpen[i]) >= fabs(inClose[i - 1] - inOpen[i - 1]) - TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) && /* same size 2 and 3 */
              fabs(inClose[i] - inOpen[i]) <= fabs(inClose[i - 1] - inOpen[i - 1]) + TA_CANDLEAVERAGE(Near,NearPeriodTotal,i - 1) &&
              inOpen[i] >= inOpen[i - 1] - TA_CANDLEAVERAGE(Equal,EqualPeriodTotal,i - 1) && /* same open 2 and 3 */
              inOpen[i] <= inOpen[i - 1] + TA_CANDLEAVERAGE(Equal,EqualPeriodTotal,i - 1) )
          {
-            outInteger[outIdx++ * outStride] = ((min(inOpen[i - 1],inClose[i - 1]) > max(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) ? 100 : 0 - 100;
+            outInteger[outIdx++ * outStride] = ((min(inOpen[i - 1],inClose[i - 1]) > max(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) ? 100 : -100;
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -525,7 +525,7 @@ TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_Open( TA_CDLGAPSIDESIDEWHITE_Stream
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLGAPSIDESIDEWHITE_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
@@ -535,7 +535,7 @@ TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_OpenAndFill( TA_CDLGAPSIDESIDEWHITE
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLGAPSIDESIDEWHITE_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
@@ -550,7 +550,7 @@ TA_RetCode TA_CDLGAPSIDESIDEWHITE_OpenAndFillInternal( struct TA_CDLGAPSIDESIDEW
 TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_Update( TA_CDLGAPSIDESIDEWHITE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -569,14 +569,14 @@ TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_Peek( const TA_CDLGAPSIDESIDEWHITE_
          ((min(inOpen,inClose) > max(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0)) ||
         (((max(sp->lag1_inOpen,sp->lag1_inClose) < min(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) &&
          ((max(inOpen,inClose) < min(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0))) &&
-       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 && /* 2nd: white */
-       ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&                   /* 3rd: white */
+       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) == 1 && /* 2nd: white */
+       ((inClose >= inOpen) ? 1 : -1) == 1 &&                   /* 3rd: white */
        fabs(inClose - inOpen) >= fabs(sp->lag1_inClose - sp->lag1_inOpen) - TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* same size 2 and 3 */
        fabs(inClose - inOpen) <= fabs(sp->lag1_inClose - sp->lag1_inOpen) + TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) &&
        inOpen >= sp->lag1_inOpen - TA_STREAM_CANDLEAVERAGE(Equal,sp->EqualPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* same open 2 and 3 */
        inOpen <= sp->lag1_inOpen + TA_STREAM_CANDLEAVERAGE(Equal,sp->EqualPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) )
    {
-      *outInteger= ((min(sp->lag1_inOpen,sp->lag1_inClose) > max(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) ? 100 : 0 - 100;
+      *outInteger= ((min(sp->lag1_inOpen,sp->lag1_inClose) > max(sp->lag2_inOpen,sp->lag2_inClose)) ? 1 : 0) ? 100 : -100;
    } else 
    {
       *outInteger= 0;
@@ -608,7 +608,7 @@ TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_OutRange( const TA_CDLGAPSIDESIDEWH
 TA_LIB_API TA_RetCode TA_CDLGAPSIDESIDEWHITE_Advance( TA_CDLGAPSIDESIDEWHITE_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

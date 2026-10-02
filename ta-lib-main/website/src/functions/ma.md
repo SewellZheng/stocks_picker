@@ -32,7 +32,7 @@ outReal = MA_of_type(optInMAType)(inReal, optInTimePeriod); default type = SMA
 | `optInTimePeriod` | integer | 30 | 1–100000 | Averaging window length |
 | `optInMAType` | MAType | SMA (0) | any MAType | Which moving-average algorithm to dispatch to |
 
-*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED · 11 DEFAULT · 12 ZLEMA · 13 RMA*
+*`MAType` values: 0 SMA · 1 EMA · 2 WMA · 3 DEMA · 4 TEMA · 5 TRIMA · 6 KAMA · 7 MAMA · 8 T3 · 9 HMA · 10 DISABLED · 11 DEFAULT · 12 ZLEMA · 13 RMA · 14 VIDYA · 15 ALMA*
 
 ## Properties
 
@@ -59,6 +59,7 @@ TA-Lib Definition: [`ma.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codege
 | C | [`ta_MA.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_MA.c) |
 | Rust | [`ma.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/ma.rs) |
 | Java | [`Core_MA.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_MA.java) |
+| C# | [`Core_MA.cs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/csharp/library/src/Core_MA.cs) |
 
 TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 
@@ -68,4 +69,4 @@ Moving Average, MovingAverage
 
 ## See Also
 
-[SMA](/functions/sma.md) · [EMA](/functions/ema.md) · [WMA](/functions/wma.md) · [DEMA](/functions/dema.md) · [TEMA](/functions/tema.md) · [TRIMA](/functions/trima.md) · [KAMA](/functions/kama.md) · [MAMA](/functions/mama.md) · [T3](/functions/t3.md) · [HMA](/functions/hma.md) · [ZLEMA](/functions/zlema.md) · [RMA](/functions/rma.md)
+[SMA](/functions/sma.md) · [EMA](/functions/ema.md) · [WMA](/functions/wma.md) · [DEMA](/functions/dema.md) · [TEMA](/functions/tema.md) · [TRIMA](/functions/trima.md) · [KAMA](/functions/kama.md) · [MAMA](/functions/mama.md) · [T3](/functions/t3.md) · [HMA](/functions/hma.md) · [ZLEMA](/functions/zlema.md) · [RMA](/functions/rma.md) · [VIDYA](/functions/vidya.md) · [ALMA](/functions/alma.md)

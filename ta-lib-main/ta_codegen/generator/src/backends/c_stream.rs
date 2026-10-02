@@ -81,6 +81,54 @@ impl streaming::NameMap for CNames {
     }
 }
 
+/// [`CNames`] for a tape frame (#445).
+struct CTapeNames(streaming::TapeNames);
+
+impl streaming::NameMap for CTapeNames {
+    fn state(&self, name: &str) -> String {
+        streaming::NameMap::state(&CNames, name)
+    }
+    fn bar(&self, array: &str) -> String {
+        streaming::NameMap::bar(&CNames, array)
+    }
+    fn output(&self, name: &str) -> Expr {
+        streaming::NameMap::output(&CNames, name)
+    }
+    fn ring_buf(&self, var: &str, array: &str) -> String {
+        streaming::NameMap::ring_buf(&CNames, var, array)
+    }
+    fn ring_pos(&self, var: &str) -> String {
+        streaming::NameMap::ring_pos(&CNames, var)
+    }
+    fn ring_lag(&self, var: &str) -> String {
+        streaming::NameMap::ring_lag(&CNames, var)
+    }
+    fn ring_cap(&self, var: &str) -> String {
+        streaming::NameMap::ring_cap(&CNames, var)
+    }
+    fn win_buf(&self, var: &str, array: &str) -> String {
+        streaming::NameMap::win_buf(&CNames, var, array)
+    }
+    fn win_pos(&self, var: &str) -> String {
+        streaming::NameMap::win_pos(&CNames, var)
+    }
+    fn win_cap(&self, var: &str) -> String {
+        streaming::NameMap::win_cap(&CNames, var)
+    }
+    fn circ_buf(&self, storage: &str) -> String {
+        streaming::NameMap::circ_buf(&CNames, storage)
+    }
+    fn extrema_buf(&self, array: &str) -> String {
+        streaming::NameMap::extrema_buf(&CNames, array)
+    }
+    fn extrema_mask(&self) -> String {
+        streaming::NameMap::extrema_mask(&CNames)
+    }
+    fn tape(&self) -> Option<streaming::TapeNames> {
+        Some(self.0.clone())
+    }
+}
+
 /// C type of an optional parameter.
 fn opt_param_c_type(p: &ParamType) -> &'static str {
     match p {
@@ -349,35 +397,34 @@ fn finite_bar_check(func: &FuncDef, indent: &str, fail: &str) -> String {
     format!("{indent}if( {} ) return {fail};\n", conds.join(" || "))
 }
 
-/// Rules S1 and S2 — the opener's implied index pair — ahead of every presence
-/// check, because an opener is a batch call over `[0, historyLen - 1]` and the
-/// pair is B1 and B2 read on that range, answering the same two codes
-/// (`docs/error-handling-spec.md` §2.3). Only `!stream` may precede it: the
+/// Rules S1 and S2 run first, ahead of every presence check, answering
+/// `TA_OUT_OF_RANGE_START_INDEX` and `TA_OUT_OF_RANGE_END_INDEX`
+/// (`https://ta-lib.org/spec/streaming/#s1`). Only `!stream` may precede them: the
 /// "`*stream` is NULL on any failure" contract is published through that
 /// pointer, so it is a precondition for reporting anything at all rather than an
 /// argument competing with the pair.
 ///
-/// The ceiling is `TA_MAX_INDEX + 1` because the implied `endIdx` is
+/// The ceiling is `TA_INDEX_MAX + 1` because the implied `endIdx` is
 /// `historyLen - 1`. Without it the streaming entry points would compute over
 /// exactly the ranges the batch call refuses, and the two are required to agree
 /// bit for bit (#180).
 fn index_pair_guards() -> &'static str {
     concat!(
         "   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;\n",
-        "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;\n"
+        "   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;\n"
     )
 }
 
-/// Rule U4 — [`index_pair_guards`] read on a live handle, one bar at a time
-/// (`docs/error-handling-spec.md` §2.4, which carries why a sub-handle cannot
-/// answer it before its parent).
+/// Rule U4 — [`index_pair_guards`] read on a live handle, one bar at a time.
+/// Why a sub-handle cannot answer it before its parent: rationale U4 in
+/// `docs/error-handling-spec.md`.
 ///
-/// `>` and not `>=`: an opener may legally take `TA_MAX_INDEX + 1` bars (rule
+/// `>` and not `>=`: an opener may legally take `TA_INDEX_MAX + 1` bars (rule
 /// S2), so a handle can be born holding the last bar in the domain and it is the
 /// NEXT one that has nowhere to go.
 fn step_index_guard() -> &'static str {
     concat!(
-        "   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )\n",
+        "   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )\n",
         "      return TA_OUT_OF_RANGE_END_INDEX;\n"
     )
 }
@@ -387,7 +434,7 @@ fn step_index_guard() -> &'static str {
 /// itself can reorder it silently — every clause answers a different code.
 ///
 /// `ceiling` is false for `Peek`, which counts no bar and so has no index to
-/// leave the domain (`docs/error-handling-spec.md` §2.4).
+/// leave the domain (rule U4).
 fn step_prologue(func: &FuncDef, frame: Frame, ceiling: bool) -> String {
     let mut s = String::new();
     if ceiling {
@@ -437,7 +484,7 @@ enum Frame {
 /// below. Nothing could see any of it: they all answer `TA_BAD_PARAM`.
 ///
 /// **A `nullable` output is in the list only where nothing guards its write.**
-/// Declining one is legal (Appendix F), and the transcribed bodies honour that
+/// Declining one is legal (rule O5), and the transcribed bodies honour that
 /// with an `if( out != NULL )` — so the opener and the transcribed step leave it
 /// out, and only [`Frame::StepEveryOutput`] keeps it. Hand-rolling had both
 /// halves wrong in the same tier: the dispatch OPENER dropped the clause it
@@ -861,26 +908,7 @@ fn clone_owned_lines(
             let _ = write!(sw, "   }}");
             dup.push(sw);
         }
-        StreamPlan::PeriodBank(pbp) => {
-            let pre = callee_prefix(&pbp.callee);
-            disown.push("   sp->bank = NULL;".to_string());
-            disown.push("   sp->scratch = NULL;".to_string());
-            dup.push(format!(
-                "   {{ int k;\n     \
-                 sp->bank = (struct {pre}_Stream **)TA_Malloc( sizeof(struct {pre}_Stream *) * (size_t)sp->nBank );\n     \
-                 if( !sp->bank ) {{ TA_{n}_Close( sp ); return TA_ALLOC_ERR; }}\n     \
-                 for( k = 0; k < sp->nBank; k++ ) sp->bank[k] = NULL;\n     \
-                 for( k = 0; k < sp->nBank; k++ )\n     \
-                 {{\n        if( !stream->bank[k] ) continue;\n        TA_RetCode subRc = {pre}_Clone( stream->bank[k], &sp->bank[k] );\n        \
-                 if( subRc != TA_SUCCESS ) {{ TA_{n}_Close( sp ); return subRc; }}\n     }} }}"
-            ));
-            dup.push(format!(
-                "   if( stream->scratch )\n   {{ size_t copyN = (size_t)sp->nBank;\n     \
-                 sp->scratch = (double *)TA_Malloc( sizeof(double) * copyN );\n     \
-                 if( !sp->scratch ) {{ TA_{n}_Close( sp ); return TA_ALLOC_ERR; }}\n     \
-                 memcpy( sp->scratch, stream->scratch, sizeof(double) * copyN ); }}"
-            ));
-        }
+        StreamPlan::PeriodBank(pbp) => period_bank_clone_lines(pbp, n, &mut disown, &mut dup),
     }
 
     (disown, dup)
@@ -894,6 +922,40 @@ pub fn value_signature(func: &FuncDef) -> String {
         "TA_LIB_API TA_RetCode TA_{n}_Value( const TA_{n}_Stream *stream, {} )",
         out_params_sig(func)
     )
+}
+
+/// A period bank owns its slots, their scratch and the tape.
+fn period_bank_clone_lines(
+    pbp: &streaming::PeriodBankPlan,
+    n: &str,
+    disown: &mut Vec<String>,
+    dup: &mut Vec<String>,
+) {
+    let pre = callee_prefix(&pbp.callee);
+    disown.push("   sp->bank = NULL;".to_string());
+    disown.push("   sp->scratch = NULL;".to_string());
+    dup.push(format!(
+        "   if( stream->bank )\n   {{ int k;\n     \
+         sp->bank = (struct {pre}_Stream **)TA_Malloc( sizeof(struct {pre}_Stream *) * (size_t)sp->nBank );\n     \
+         if( !sp->bank ) {{ TA_{n}_Close( sp ); return TA_ALLOC_ERR; }}\n     \
+         for( k = 0; k < sp->nBank; k++ ) sp->bank[k] = NULL;\n     \
+         for( k = 0; k < sp->nBank; k++ )\n     \
+         {{\n        if( !stream->bank[k] ) continue;\n        TA_RetCode subRc = {pre}_Clone( stream->bank[k], &sp->bank[k] );\n        \
+         if( subRc != TA_SUCCESS ) {{ TA_{n}_Close( sp ); return subRc; }}\n     }} }}"
+    ));
+    dup.push(format!(
+        "   if( stream->scratch )\n   {{ size_t copyN = (size_t)sp->nBank;\n     \
+         sp->scratch = (double *)TA_Malloc( sizeof(double) * copyN );\n     \
+         if( !sp->scratch ) {{ TA_{n}_Close( sp ); return TA_ALLOC_ERR; }}\n     \
+         memcpy( sp->scratch, stream->scratch, sizeof(double) * copyN ); }}"
+    ));
+    disown.push("   sp->tape = NULL;".to_string());
+    dup.push(format!(
+        "   if( stream->tape )\n   {{ size_t copyN = (size_t)sp->tapeMask + 1;\n     \
+         sp->tape = (double *)TA_Malloc( sizeof(double) * copyN );\n     \
+         if( !sp->tape ) {{ TA_{n}_Close( sp ); return TA_ALLOC_ERR; }}\n     \
+         memcpy( sp->tape, stream->tape, sizeof(double) * copyN ); }}"
+    ));
 }
 
 /// `TA_<N>_Value`: the value(s) at the last bar the stream counted, read back
@@ -1033,11 +1095,11 @@ pub fn header_decls(func: &FuncDef, lookup: &dyn streaming::CalleeLookup) -> Str
     // OutRange / Advance: declared unconditionally too — every tier's struct
     // leads with the range head these two read.
     let out_range = format!(
-        "\n/*\n * OutRange: the bars this stream has an output for, in the input series'\n * coordinates. That is [*outBegIdx, *outBegIdx + *outNBElement), the range\n * TA_{n} reports over the same bars. Open seeds it; every accepted Update and every\n * TA_{n}_Advance adds one; a rejected Update and a Peek change nothing. The\n * last bar it can reach is TA_MAX_INDEX: past that Update and Advance answer\n * TA_OUT_OF_RANGE_END_INDEX, and the handle is done.\n */\n{};\n",
+        "\n/*\n * OutRange: the bars this stream has an output for, in the input series'\n * coordinates. That is [*outBegIdx, *outBegIdx + *outNBElement), the range\n * TA_{n} reports over the same bars. Open seeds it; every accepted Update and every\n * TA_{n}_Advance adds one; a rejected Update and a Peek change nothing. The\n * last bar it can reach is TA_INDEX_MAX: past that Update and Advance answer\n * TA_OUT_OF_RANGE_END_INDEX, and the handle is done.\n */\n{};\n",
         out_range_signature(func)
     );
     let advance = format!(
-        "\n/*\n * Advance: count one bar this stream was not fed (one an Update rejected and\n * that will not be re-fed, or a session with no print). The range moves by one\n * and nothing else does, so TA_{n}_Value keeps answering the previous output,\n * which is this bar's output too. TA_OUT_OF_RANGE_END_INDEX once the range has\n * reached TA_MAX_INDEX.\n */\n{};\n",
+        "\n/*\n * Advance: count one bar this stream was not fed (one an Update rejected and\n * that will not be re-fed, or a session with no print). The range moves by one\n * and nothing else does, so TA_{n}_Value keeps answering the previous output,\n * which is this bar's output too. TA_OUT_OF_RANGE_END_INDEX once the range has\n * reached TA_INDEX_MAX.\n */\n{};\n",
         advance_signature(func)
     );
     format!(
@@ -1142,6 +1204,9 @@ pub fn generate(
             emit_update(&mut o, func, false);
             emit_peek_loop(&mut o, func, model, enums, registry, helpers, &counter);
             emit_close(&mut o, func, model);
+            if registry.in_tape_set(&func.name.to_lowercase()) {
+                emit_tape_entries(&mut o, func, &[model], None, enums, registry, helpers, &counter);
+            }
         }
         StreamPlan::Dispatch(dp) => {
             emit_dispatch(&mut o, func, dp, enums, registry, helpers, &counter);
@@ -1151,6 +1216,9 @@ pub fn generate(
         }
         StreamPlan::DualMode(dmp) => {
             emit_dual_mode(&mut o, func, dmp, enums, registry, helpers, &counter);
+            if registry.in_tape_set(&func.name.to_lowercase()) {
+                emit_tape_entries(&mut o, func, &[&dmp.mode_a, &dmp.mode_b], Some(dmp), enums, registry, helpers, &counter);
+            }
         }
         StreamPlan::PeriodBank(pbp) => {
             emit_period_bank(&mut o, func, pbp, registry, helpers, &counter, enums);
@@ -1173,33 +1241,50 @@ pub fn generate(
     o
 }
 
-/// FMA runtime CPU dispatch for `Peek` (#337) — the same rule the batch tiers
-/// carry, applied to the one streaming tier where it pays.
+/// FMA runtime CPU dispatch for the two per-bar tiers, `Peek` and `Update`.
 ///
-/// `Peek` inlines its own copy of the step, so the fused arithmetic is already
-/// inside the function being attributed and `target_clones` gives it a hardware
-/// clone. The other four streaming tiers delegate to `static`
-/// `_StepImpl`/`_OpenImpl` bodies that usually exceed
-/// `--param max-inline-insns-auto` (30 at `-O3`), so the clone is emitted empty
-/// and costs bytes for nothing; attributing the static instead would only make
-/// it un-inlinable. Peek is 25% of the byte cost of attributing all five, for
-/// every measured win and no measured regression.
+/// `target_clones` only pays when the fused arithmetic is inside the attributed
+/// function. `Peek` inlines its own copy of the step. `Update` delegates to the
+/// `static` `_StepImpl`, which the clones would not inline on size, so a fused
+/// step is marked `TA_FMA_STEP_INLINE` (force-inline wherever the attribute is
+/// real) and every caller, the tape step included, carries its own copy.
+/// Attributing the static itself would put an IFUNC hop on every bar.
+/// `_OpenImpl` stays single-path: it runs once per handle.
 fn mark_fma_multiversion(o: &mut String, func: &FuncDef) {
     if !fma::EMIT_FMA {
         return;
     }
-    let sig = peek_signature(func);
-    let Some(start) = o.find(&sig) else {
-        return;
-    };
-    let line = o[..start].rfind('\n').map_or(0, |i| i + 1);
-    // Every generated body indents, so `"\n}\n"` closes this definition.
-    let Some(end) = o[start..].find("\n}\n").map(|e| start + e + 3) else {
-        return;
-    };
-    if o[line..end].contains("fma(") {
+    let n = uname(func);
+    // Public entries only: a `target_clones` symbol is exported from the shared
+    // library whatever its visibility, so a private one (a tape step) would leak.
+    let mut step_fuses = false;
+    for ret in ["void", "TA_RetCode"] {
+        if let Some(line) = fuses_at(o, &format!("static {ret} TA_{n}_StepImpl(")) {
+            o.replace_range(line..line + "static ".len(), "static TA_FMA_STEP_INLINE ");
+            step_fuses = true;
+        }
+    }
+    if step_fuses {
+        if let Some(line) = def_line(o, &update_signature(func)) {
+            o.insert_str(line, "TA_FMA_MULTIVERSION\n");
+        }
+    }
+    if let Some(line) = fuses_at(o, &peek_signature(func)) {
         o.insert_str(line, "TA_FMA_MULTIVERSION\n");
     }
+}
+
+/// Start of the line holding the definition that begins with `sig`.
+fn def_line(o: &str, sig: &str) -> Option<usize> {
+    o.find(&format!("\n{sig}")).map(|i| i + 1)
+}
+
+/// [`def_line`] of `sig`, when that definition's body calls `fma(`.
+fn fuses_at(o: &str, sig: &str) -> Option<usize> {
+    let line = def_line(o, sig)?;
+    // Every generated body indents, so `"\n}\n"` closes this definition.
+    let end = o[line..].find("\n}\n").map(|e| line + e + 3)?;
+    o[line..end].contains("fma(").then_some(line)
 }
 
 /// The `struct TA_<N>_Stream { ... };` text for one streaming function —
@@ -1225,8 +1310,8 @@ pub fn state_struct_text(func: &FuncDef, lookup: &dyn streaming::CalleeLookup) -
         StreamPlan::Composed(cp) => {
             let extra = composed_extra_fields(cp);
             match &cp.producer {
-                Some(model) => emit_state_struct_ex(&mut o, func, model, &extra),
-                None => emit_composed_struct_noproducer(&mut o, func, &extra),
+                Some(model) => emit_state_struct_ex(&mut o, func, model, extra),
+                None => emit_composed_struct_noproducer(&mut o, func, extra),
             }
         }
         StreamPlan::DualMode(dmp) => emit_dual_state_struct(&mut o, func, &dmp.mode_a, &dmp.mode_b),
@@ -1459,6 +1544,9 @@ fn emit_composed_frame_body(
     for (name, ty) in &cp.map_temps {
         let _ = writeln!(decls, "   {};", c_decl(ty, name));
     }
+    for st in &cp.map_state {
+        let _ = writeln!(decls, "   {};", c_decl(&st.ty, &st.name));
+    }
     let cur_scalars = composed_cur_scalars(cp, inputs, outputs);
     for name in &cur_scalars {
         // Typed by what the scalar STANDS FOR: an output's own element type when
@@ -1532,6 +1620,8 @@ fn emit_composed_frame_body(
     let _ = writeln!(o, "\n   /* Pipeline the new bar through the sub-streams (batch tail order). */");
     let params: std::collections::BTreeSet<String> =
         func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+    // Loaded after the sub-calls, so nothing holds it across them.
+    let mut state_loaded = false;
     for step in &cp.steps {
         match step {
             streaming::UpdateStep::Sub { sub_idx } => {
@@ -1577,6 +1667,11 @@ fn emit_composed_frame_body(
                 cur.insert(dst.clone(), alias);
             }
             streaming::UpdateStep::Map { tail_idx } => {
+                if !std::mem::replace(&mut state_loaded, true) {
+                    for st in &cp.map_state {
+                        let _ = writeln!(o, "   {0} = sp->{0};", st.name);
+                    }
+                }
                 // A map may DEFINE outputs (ADXR's outReal from the lag ring):
                 // register them so the write becomes `cur_<out> = ...`.
                 for o in streaming::map_output_writes(&cp.tail[*tail_idx], outputs) {
@@ -1600,6 +1695,9 @@ fn emit_composed_frame_body(
                 o,
                 "   sp->lagRingPos_{s} = (sp->lagRingPos_{s} + 1) % sp->lagRingCap_{s};"
             );
+        }
+        for st in cp.map_state.iter().filter(|st| st.carried) {
+            let _ = writeln!(o, "   sp->{0} = {0};", st.name);
         }
     }
     for out in outputs {
@@ -1648,10 +1746,10 @@ fn emit_composed(
     let extra = composed_extra_fields(cp);
     match &cp.producer {
         Some(model) => {
-            emit_state_struct_ex(o, func, model, &extra);
+            emit_state_struct_ex(o, func, model, extra);
             emit_release(o, func, model);
         }
-        None => emit_composed_struct_noproducer(o, func, &extra),
+        None => emit_composed_struct_noproducer(o, func, extra),
     }
 
     // --- StepImpl -----------------------------------------------------------
@@ -1699,18 +1797,21 @@ fn emit_composed(
 
 /// The trailing struct fields every composed tier carries after the producer's
 /// own: one typed handle per sub-stream, and the sub-output lag rings.
-fn composed_extra_fields(cp: &streaming::ComposedPlan) -> String {
-    let mut extra = String::new();
+fn composed_extra_fields(cp: &streaming::ComposedPlan) -> Vec<StructLine> {
+    let mut extra = Vec::new();
     for (i, sub) in cp.subs.iter().enumerate() {
-        let _ = writeln!(extra, "   {}_Stream *sub{i};", callee_prefix(&sub.callee));
+        extra.push(StructLine::other(&format!("{}_Stream *", callee_prefix(&sub.callee)), &format!("sub{i}")));
     }
     // Sub-output lag rings (ADXR): a fixed-capacity ring of the last `lag`
     // sub-output values.
     for ring in &cp.sub_lag_rings {
         let s = &ring.series;
-        let _ = writeln!(extra, "   int lagRingPos_{s};");
-        let _ = writeln!(extra, "   int lagRingCap_{s};");
-        let _ = writeln!(extra, "   double *lagRing_{s};");
+        extra.push(StructLine::typed(&VarType::Integer, &format!("lagRingPos_{s}"), true));
+        extra.push(StructLine::typed(&VarType::Integer, &format!("lagRingCap_{s}"), false));
+        extra.push(StructLine::typed(&VarType::RealPointer, &format!("lagRing_{s}"), false));
+    }
+    for st in &cp.map_state {
+        extra.push(StructLine::typed(&st.ty, &st.name, st.carried));
     }
     extra
 }
@@ -1719,19 +1820,11 @@ fn composed_extra_fields(cp: &streaming::ComposedPlan) -> String {
 /// optional params (referenced by combine maps as `sp-><param>`), plus the
 /// peek flag and typed sub handles. Dispatch-style — no ring/window/circ/
 /// extrema fields, so no `ReleaseImpl`.
-fn emit_composed_struct_noproducer(o: &mut String, func: &FuncDef, extra: &str) {
-    let n = uname(func);
-    let _ = writeln!(o, "struct TA_{n}_Stream {{");
-    emit_range_head_fields(o, func);
-    emit_cur_fields(o, func);
-    for p in &func.optional_inputs {
-        let _ = writeln!(o, "   {} {};", opt_param_c_type(&p.param_type), p.name);
-    }
-    for (name, c_type) in &func.private_extra_params {
-        let _ = writeln!(o, "   {c_type} {name};");
-    }
-    o.push_str(extra);
-    let _ = writeln!(o, "}};\n");
+fn emit_composed_struct_noproducer(o: &mut String, func: &FuncDef, extra: Vec<StructLine>) {
+    let mut lines = handle_head_lines(func);
+    lines.extend(private_extra_lines(func));
+    lines.extend(extra);
+    render_state_struct(o, func, lines);
 }
 
 /// Open one sub-stream on its source series at the anchor
@@ -2097,6 +2190,9 @@ fn emit_composed_open_body(
             let _ = writeln!(o, "      sp->{name} = {name};");
         }
     }
+    for st in &cp.map_state {
+        let _ = writeln!(o, "      sp->{0} = {0};", st.name);
+    }
     // Sub-output lag rings: allocate, then seed from the tail of the (still
     // live — its free was withheld) intermediate buffer. `dummyNBElement` here
     // is the caller's own output count; the buffer holds `lag` MORE elements
@@ -2441,7 +2537,7 @@ fn dispatch_identity_cond_on_handle(
 ///
 /// The three differ in exactly four places — the signature, which pointers are
 /// checked, what the identity path hands back, and which callee entry point
-/// each arm delegates to. Everything else (the `TA_MAX_INDEX` bound, the
+/// each arm delegates to. Everything else (the `TA_INDEX_MAX` bound, the
 /// optional-param validation, the handle allocation, the arm switch and the
 /// cleanup tail) is one text emitted once, so a fourth mode costs a variant
 /// and four arms rather than a fourth copy of the body.
@@ -2699,20 +2795,13 @@ fn emit_dispatch_open(
 /// State struct for a dispatch tier: the optional params plus one untyped sub
 /// handle, whose concrete type the discriminator param names.
 fn emit_dispatch_struct(o: &mut String, func: &FuncDef, dp: &DispatchPlan) {
-    let n = uname(func);
-    let _ = writeln!(o, "struct TA_{n}_Stream {{");
-    emit_range_head_fields(o, func);
-    emit_cur_fields(o, func);
-    for p in &func.optional_inputs {
-        let _ = writeln!(o, "   {} {};", opt_param_c_type(&p.param_type), p.name);
-    }
-    let _ = writeln!(
-        o,
-        "   /* Sub-stream handle, tagged by {}; NULL on the identity path. */",
+    let mut lines = handle_head_lines(func);
+    lines.push(StructLine::Comment(format!(
+        "/* Sub-stream handle, tagged by {}; NULL on the identity path. */",
         dp.param
-    );
-    let _ = writeln!(o, "   void *sub;");
-    let _ = writeln!(o, "}};\n");
+    )));
+    lines.push(StructLine::other("void *", "sub"));
+    render_state_struct(o, func, lines);
 }
 
 /// Per-arm dispatch bodies for Update/Peek/Close, plus the shared open
@@ -2827,6 +2916,10 @@ fn emit_dispatch(
         let _ = writeln!(o, "}}\n");
     }
 
+    if registry.in_tape_set(&func.name.to_lowercase()) {
+        emit_dispatch_tape(o, func, dp, identity_handle_cond.as_deref(), &outputs, enums);
+    }
+
     // --- Close -----------------------------------------------------------------
     let _ = writeln!(o, "{}\n{{", close_signature(func));
     let _ = writeln!(o, "   if( !stream ) return TA_SUCCESS;");
@@ -2846,6 +2939,97 @@ fn emit_dispatch(
     let _ = writeln!(o, "   }}");
     let _ = writeln!(o, "   TA_Free( stream );");
     let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
+}
+
+/// A dispatcher's tape entries (#445): route each to the arm's own, and answer
+/// the identity path here, which is why the arms' tape frames drop theirs.
+fn emit_dispatch_tape(
+    o: &mut String,
+    func: &FuncDef,
+    dp: &DispatchPlan,
+    identity_cond: Option<&str>,
+    outputs: &[String],
+    enums: &HashMap<String, EnumDef>,
+) {
+    let n = uname(func);
+    let bars = bar_params_sig(func);
+    let outs = out_params_sig(func);
+    let bar_args = streaming::input_array_names(func).join(", ");
+    let case_of = |label: &str| render_c_switch_label(label, enums);
+    let arms: Vec<_> = dp.arms.iter().filter(|a| a.supported && !a.callee.is_empty()).collect();
+    let identity = |o: &mut String, tail: &str| {
+        if let (Some(cond), Some(idp)) = (identity_cond, &dp.identity) {
+            let _ = writeln!(o, "   if( {cond} )\n   {{");
+            for (out, inp) in &idp.pairs {
+                let _ = writeln!(o, "      *{out} = {inp};");
+            }
+            if !tail.is_empty() {
+                let _ = writeln!(o, "{tail}");
+            }
+            let _ = writeln!(o, "   }}");
+        }
+    };
+
+    // --- StepTape -------------------------------------------------------------
+    let _ = writeln!(
+        o,
+        "/* Private function, not in public API. */\nvoid TA_{n}_StepTape( struct TA_{n}_Stream *stream, {TAPE_PARAMS}, {bars}{outs} )\n{{"
+    );
+    let mut retain = String::new();
+    emit_cur_retain(&mut retain, "   ", "stream", func);
+    emit_range_head_advance(&mut retain, "   ", "stream");
+    let mut early = String::new();
+    emit_cur_retain(&mut early, "      ", "stream", func);
+    emit_range_head_advance(&mut early, "      ", "stream");
+    let _ = write!(early, "      return;");
+    identity(o, &early);
+    let _ = writeln!(o, "   switch( stream->{} )\n   {{", dp.param);
+    for arm in &arms {
+        let cp = callee_prefix(&arm.callee);
+        let _ = writeln!(o, "   case {}:", case_of(&arm.label));
+        let _ = writeln!(
+            o,
+            "      {cp}_StepTape( (struct {cp}_Stream *)stream->sub, tape, tapeBase, tapeMask, {bar_args}, {} );\n      break;",
+            dispatch_arm_out_args(arm, outputs)
+        );
+    }
+    let _ = writeln!(o, "   default:\n      /* Unreachable: Open rejects arms without a sub-stream. */\n      break;\n   }}");
+    o.push_str(&retain);
+    let _ = writeln!(o, "}}\n");
+
+    // --- PeekTape -------------------------------------------------------------
+    let _ = writeln!(
+        o,
+        "/* Private function, not in public API. */\nvoid TA_{n}_PeekTape( const struct TA_{n}_Stream *stream, {TAPE_PARAMS}, {bars}{outs} )\n{{"
+    );
+    identity(o, "      return;");
+    let _ = writeln!(o, "   switch( stream->{} )\n   {{", dp.param);
+    for arm in &arms {
+        let cp = callee_prefix(&arm.callee);
+        let _ = writeln!(o, "   case {}:", case_of(&arm.label));
+        let _ = writeln!(
+            o,
+            "      {cp}_PeekTape( (const struct {cp}_Stream *)stream->sub, tape, tapeBase, tapeMask, {bar_args}, {} );\n      break;",
+            dispatch_arm_out_args(arm, outputs)
+        );
+    }
+    let _ = writeln!(o, "   default:\n      break;\n   }}\n}}\n");
+
+    // --- TapeDetach -----------------------------------------------------------
+    let _ = writeln!(
+        o,
+        "/* Private function, not in public API. */\nint TA_{n}_TapeDetach( struct TA_{n}_Stream *stream )\n{{"
+    );
+    if let Some(cond) = identity_cond {
+        let _ = writeln!(o, "   if( {cond} ) return 0;");
+    }
+    let _ = writeln!(o, "   switch( stream->{} )\n   {{", dp.param);
+    for arm in &arms {
+        let cp = callee_prefix(&arm.callee);
+        let _ = writeln!(o, "   case {}:", case_of(&arm.label));
+        let _ = writeln!(o, "      return {cp}_TapeDetach( (struct {cp}_Stream *)stream->sub );");
+    }
+    let _ = writeln!(o, "   default:\n      return 0;\n   }}\n}}\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -2887,70 +3071,42 @@ fn render_dual_pred(
 /// each arm touches only its own fields; Open's memset leaves the inactive
 /// mode's buffer pointers NULL (Release/Peek guard on them).
 fn emit_dual_state_struct(o: &mut String, func: &FuncDef, ma: &StreamModel, mb: &StreamModel) {
-    let mut a_nonscalar = String::new();
-    emit_nonscalar_struct_fields(&mut a_nonscalar, func, ma);
-    let mut b_nonscalar = String::new();
-    emit_nonscalar_struct_fields(&mut b_nonscalar, func, mb);
-    // Line-level union: every field line is `   <type> <name>;` with the name
-    // derived from its spec, so a spec both modes share renders the identical
-    // line and dedups away. A same-named field rendering DIFFERENTLY across
-    // modes is a type conflict — caught by the member-name check below.
-    let a_lines: std::collections::BTreeSet<&str> = a_nonscalar.lines().collect();
-    let mut union_nonscalar = a_nonscalar.clone();
-    for line in b_nonscalar.lines() {
-        if !a_lines.contains(line) {
-            union_nonscalar.push_str(line);
-            union_nonscalar.push('\n');
+    let stepped: std::collections::BTreeSet<String> = streaming::assigned_per_bar(ma)
+        .into_iter()
+        .chain(streaming::assigned_per_bar(mb))
+        .collect();
+    let mut lines = handle_head_lines(func);
+    lines.extend(private_extra_lines(func));
+    let union = |a: Vec<(String, VarType)>, b: Vec<(String, VarType)>, what: &str| {
+        let mut seen: std::collections::BTreeMap<String, VarType> = std::collections::BTreeMap::new();
+        let mut order: Vec<(String, VarType)> = Vec::new();
+        for (name, ty) in a.into_iter().chain(b) {
+            if let Some(prev) = seen.get(&name) {
+                assert!(
+                    *prev == ty,
+                    "{}: dual-mode {what} `{name}` has conflicting types across modes",
+                    func.name
+                );
+            } else {
+                seen.insert(name.clone(), ty.clone());
+                order.push((name, ty));
+            }
         }
+        order
+    };
+    for (name, ty) in union(ma.state.clone(), mb.state.clone(), "state") {
+        let per_bar = stepped.contains(&name);
+        lines.push(StructLine::typed(&ty, &name, per_bar));
     }
-    let mut member_names = std::collections::BTreeSet::new();
-    for line in union_nonscalar.lines() {
-        let name = line
-            .trim()
-            .trim_end_matches(';')
-            .split_whitespace()
-            .last()
-            .unwrap_or("")
-            .trim_start_matches('*')
-            .to_string();
-        assert!(
-            member_names.insert(name.clone()),
-            "{}: dual-mode non-scalar field `{name}` renders differently across modes",
-            func.name
-        );
+    let nonscalar = union(
+        nonscalar_struct_fields(func, ma),
+        nonscalar_struct_fields(func, mb),
+        "non-scalar field",
+    );
+    for (name, ty) in nonscalar {
+        lines.push(StructLine::typed(&ty, &name, true));
     }
-
-    let n = uname(func);
-    let _ = writeln!(o, "struct TA_{n}_Stream {{");
-    emit_range_head_fields(o, func);
-    emit_cur_fields(o, func);
-    for p in &func.optional_inputs {
-        let _ = writeln!(o, "   {} {};", opt_param_c_type(&p.param_type), p.name);
-    }
-    for (name, c_type) in &func.private_extra_params {
-        let _ = writeln!(o, "   {c_type} {name};");
-    }
-    // Union of the two modes' SCALAR state, mode-A order first, dedup by name.
-    let mut seen: std::collections::BTreeMap<String, &crate::ir::VarType> =
-        std::collections::BTreeMap::new();
-    let mut order: Vec<(String, VarType)> = Vec::new();
-    for (name, ty) in ma.state.iter().chain(mb.state.iter()) {
-        if let Some(prev) = seen.get(name) {
-            assert!(
-                *prev == ty,
-                "{}: dual-mode state `{name}` has conflicting types across modes",
-                func.name
-            );
-        } else {
-            seen.insert(name.clone(), ty);
-            order.push((name.clone(), ty.clone()));
-        }
-    }
-    for (name, ty) in &order {
-        let _ = writeln!(o, "   {};", c_decl(ty, name));
-    }
-    o.push_str(&union_nonscalar);
-    let _ = writeln!(o, "}};\n");
+    render_state_struct(o, func, lines);
 }
 
 /// Union of both modes' circs (mode-A order first, dedup by id). A shared id
@@ -3171,7 +3327,7 @@ fn emit_dual_mode(
         o,
         "/* Private function, not in public API. */\nstatic void TA_{n}_StepImpl( struct TA_{n}_Stream *sp, {bars}{outs} )\n{{"
     );
-    emit_dual_frame_body(o, func, dmp, enums, registry, helpers, counter, StepFrame::Commit);
+    emit_dual_frame_body(o, func, dmp, enums, registry, helpers, counter, StepFrame::Commit, None);
     let _ = writeln!(o, "}}\n");
 
     // --- OpenImpl: shared head, then a predicate branch per mode ------------
@@ -3220,7 +3376,7 @@ fn emit_dual_mode(
     emit_update(o, func, false);
     {
         let mut body = String::new();
-        emit_dual_frame_body(&mut body, func, dmp, enums, registry, helpers, counter, StepFrame::Peek);
+        emit_dual_frame_body(&mut body, func, dmp, enums, registry, helpers, counter, StepFrame::Peek, None);
         emit_peek(o, func, "", &body, false);
     }
     emit_close_from(o, func, ma.needs_release() || mb.needs_release());
@@ -3240,11 +3396,15 @@ fn emit_dual_frame_body(
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
     frame: StepFrame,
+    tape: Option<&streaming::TapeNames>,
 ) {
     let (ma, mb) = (&dmp.mode_a, &dmp.mode_b);
     // Identity (HMA period 1) short-circuits ahead of the predicate, as it does
     // in the batch and in Open: it is a property of the function, not of a mode.
-    emit_identity_step_branch(o, ma, enums, registry, helpers, counter, 3, frame);
+    // A tape frame's dispatcher owns it instead.
+    if tape.is_none() {
+        emit_identity_step_branch(o, ma, enums, registry, helpers, counter, 3, frame);
+    }
     let pred_h = render_dual_pred(&dmp.predicate, true, func, registry, helpers, counter);
     let _ = writeln!(o, "   if( {pred_h} )\n   {{");
     for (arm, model) in [(0, ma), (1, mb)] {
@@ -3252,7 +3412,7 @@ fn emit_dual_frame_body(
             let _ = writeln!(o, "   }}\n   else\n   {{");
         }
         let (mut decls, mut body) = (String::new(), String::new());
-        emit_step_inner(&mut decls, &mut body, model, enums, registry, helpers, counter, 6, frame);
+        emit_step_inner(&mut decls, &mut body, model, enums, registry, helpers, counter, 6, frame, tape);
         o.push_str(&decls);
         if !decls.is_empty() {
             let _ = writeln!(o);
@@ -3269,11 +3429,15 @@ fn emit_dual_frame_body(
 /// (`max(startIdx, lookback)`), and neither `startIdx` nor the lookback is
 /// otherwise on the handle, so there is nothing to derive it from at accessor
 /// time.
-fn emit_range_head_fields(o: &mut String, func: &FuncDef) {
-    let _ = writeln!(o, "   /* The bars this handle has an output for (see TA_{}_OutRange). */", uname(func));
-    for decl in RANGE_HEAD_FIELDS {
-        let _ = writeln!(o, "   {decl}");
+fn range_head_lines(func: &FuncDef) -> Vec<StructLine> {
+    let mut lines = vec![StructLine::Comment(format!(
+        "/* The bars this handle has an output for (see TA_{}_OutRange). */",
+        uname(func)
+    ))];
+    for name in RANGE_HEAD_FIELDS {
+        lines.push(StructLine::typed(&VarType::Integer, name, false));
     }
+    lines
 }
 
 /// The `cur_<output>` fields: the value(s) at the last bar the stream counted,
@@ -3284,15 +3448,119 @@ fn emit_range_head_fields(o: &mut String, func: &FuncDef) {
 /// Distinct from `lastOut_<output>` even where both exist (DX): `lastOut_` is
 /// the PREVIOUS bar's output, read by the body while computing this one, and
 /// it is emitted only for the outputs a body actually reads back.
-fn emit_cur_fields(o: &mut String, func: &FuncDef) {
-    let _ = writeln!(o, "   /* The value(s) at the last bar the stream counted (see TA_{}_Value). */", uname(func));
+fn cur_lines(func: &FuncDef) -> Vec<StructLine> {
+    let mut lines = vec![StructLine::Comment(format!(
+        "/* The value(s) at the last bar the stream counted (see TA_{}_Value). */",
+        uname(func)
+    ))];
     for out in &func.outputs {
-        let _ = writeln!(o, "   {} cur_{};", out_c_type(func, &out.name), out.name);
+        let ty = if out_c_type(func, &out.name) == "int" { VarType::Integer } else { VarType::Real };
+        lines.push(StructLine::typed(&ty, &format!("cur_{}", out.name), true));
+    }
+    lines
+}
+
+/// Range head, `cur_` values and optional params: the fields every tier's
+/// handle opens with.
+fn handle_head_lines(func: &FuncDef) -> Vec<StructLine> {
+    let mut lines = range_head_lines(func);
+    lines.extend(cur_lines(func));
+    for p in &func.optional_inputs {
+        let class = if p.param_type == ParamType::Real { FieldClass::Constant } else { FieldClass::Other };
+        lines.push(StructLine::Field {
+            name: p.name.clone(),
+            decl: format!("{} {}", opt_param_c_type(&p.param_type), p.name),
+            class,
+        });
+    }
+    lines
+}
+
+fn private_extra_lines(func: &FuncDef) -> Vec<StructLine> {
+    func.private_extra_params
+        .iter()
+        .map(|(name, c_type)| {
+            let class = if c_type == "double" { FieldClass::Constant } else { FieldClass::Other };
+            StructLine::Field { name: name.clone(), decl: format!("{c_type} {name}"), class }
+        })
+        .collect()
+}
+
+/// One line of a C stream handle's declaration, classed for the separation
+/// rule in [`render_state_struct`].
+enum StructLine {
+    Comment(String),
+    Field { name: String, decl: String, class: FieldClass },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FieldClass {
+    /// An int, an enum or a pointer.
+    Other,
+    /// A double some per-bar path stores to.
+    Stepped,
+    /// A double only `Open` writes.
+    Constant,
+}
+
+impl StructLine {
+    /// `per_bar`: a per-bar path stores the field. Only a double's class reads it.
+    fn typed(ty: &VarType, name: &str, per_bar: bool) -> Self {
+        let class = match ty {
+            VarType::Real | VarType::RealArray(_) if per_bar => FieldClass::Stepped,
+            VarType::Real | VarType::RealArray(_) => FieldClass::Constant,
+            _ => FieldClass::Other,
+        };
+        Self::Field { name: name.to_string(), decl: c_decl(ty, name), class }
+    }
+
+    /// A handle pointer: a field whose type has no [`VarType`].
+    fn other(c_type: &str, name: &str) -> Self {
+        let sep = if c_type.ends_with('*') { "" } else { " " };
+        Self::Field { name: name.to_string(), decl: format!("{c_type}{sep}{name}"), class: FieldClass::Other }
     }
 }
 
-/// The C declarations of the range head.
-pub const RANGE_HEAD_FIELDS: [&str; 2] = ["int outRangeBegIdx;", "int outRangeCount;"];
+/// Name prefix of the separators [`render_state_struct`] inserts.
+pub const STATE_PAD_PREFIX: &str = "pad_";
+
+/// Renders `struct TA_<N>_Stream`, with an unused double between a constant
+/// double and a stepped one that would otherwise touch. gcc can load a double
+/// as 16 bytes together with either neighbour; over a stepped neighbour that
+/// load overlaps a separate 8-byte store and cannot be forwarded.
+fn render_state_struct(o: &mut String, func: &FuncDef, lines: Vec<StructLine>) {
+    let n = uname(func);
+    let _ = writeln!(o, "struct TA_{n}_Stream {{");
+    let mut prev = FieldClass::Other;
+    let mut pads = 0usize;
+    for line in lines {
+        match line {
+            StructLine::Comment(c) => {
+                let _ = writeln!(o, "   {c}");
+            }
+            StructLine::Field { name, decl, class } => {
+                assert!(
+                    !name.starts_with(STATE_PAD_PREFIX),
+                    "{}: stream state field `{name}` takes the separator prefix",
+                    func.name
+                );
+                if matches!(
+                    (prev, class),
+                    (FieldClass::Constant, FieldClass::Stepped) | (FieldClass::Stepped, FieldClass::Constant)
+                ) {
+                    let _ = writeln!(o, "   {};", c_decl(&VarType::Real, &format!("{STATE_PAD_PREFIX}{pads}")));
+                    pads += 1;
+                }
+                let _ = writeln!(o, "   {decl};");
+                prev = class;
+            }
+        }
+    }
+    let _ = writeln!(o, "}};\n");
+}
+
+/// The range head's members, both `int`.
+const RANGE_HEAD_FIELDS: [&str; 2] = ["outRangeBegIdx", "outRangeCount"];
 
 /// Advance the handle's count by one bar it has an output for (issue #241).
 /// Emitted for a committing step and for `TA_<N>_Advance`, which counts a bar
@@ -3354,26 +3622,13 @@ fn emit_cur_capture(o: &mut String, indent: &str, func: &FuncDef, strided: bool)
 }
 
 fn emit_state_struct(o: &mut String, func: &FuncDef, model: &StreamModel) {
-    emit_state_struct_ex(o, func, model, "");
-}
-
-/// State struct with extra trailing fields (composed tier: typed sub handles
-/// appended after the producer's own fields).
-/// The non-scalar handle fields (out-feedback, lag slots, ring/window/circ/
-/// extrema buffers + their Peek mirrors) for one model. Shared by the loop-tier
-/// struct and the dual-mode union struct (whose two modes carry identical
-/// non-scalar state — TRIMA's odd/even arms share the same rings — so the union
-/// emits one model's set).
-fn emit_nonscalar_struct_fields(o: &mut String, func: &FuncDef, model: &StreamModel) {
-    for (name, ty) in nonscalar_struct_fields(func, model) {
-        let _ = writeln!(o, "   {};", c_decl(&ty, &name));
-    }
+    emit_state_struct_ex(o, func, model, Vec::new());
 }
 
 /// The struct's non-`model.state` fields, in declaration order, with the type
 /// each is declared with.
 ///
-/// One list, two readers: [`emit_nonscalar_struct_fields`] renders it, and the
+/// One list, two readers: the handle struct declares it, and the
 /// peek localizer types a local against it. A second hand-written type map
 /// would be a silent miscompile the first time the two disagreed about an
 /// `int`.
@@ -3431,23 +3686,20 @@ fn nonscalar_struct_fields(func: &FuncDef, model: &StreamModel) -> Vec<(String, 
     out
 }
 
-fn emit_state_struct_ex(o: &mut String, func: &FuncDef, model: &StreamModel, extra: &str) {
-    let n = uname(func);
-    let _ = writeln!(o, "struct TA_{n}_Stream {{");
-    emit_range_head_fields(o, func);
-    emit_cur_fields(o, func);
-    for p in &func.optional_inputs {
-        let _ = writeln!(o, "   {} {};", opt_param_c_type(&p.param_type), p.name);
-    }
-    for (name, c_type) in &func.private_extra_params {
-        let _ = writeln!(o, "   {c_type} {name};");
-    }
+/// State struct with extra trailing fields (composed tier: typed sub handles
+/// appended after the producer's own fields).
+fn emit_state_struct_ex(o: &mut String, func: &FuncDef, model: &StreamModel, extra: Vec<StructLine>) {
+    let stepped = streaming::assigned_per_bar(model);
+    let mut lines = handle_head_lines(func);
+    lines.extend(private_extra_lines(func));
     for (name, ty) in &model.state {
-        let _ = writeln!(o, "   {};", c_decl(ty, name));
+        lines.push(StructLine::typed(ty, name, stepped.contains(name)));
     }
-    emit_nonscalar_struct_fields(o, func, model);
-    o.push_str(extra);
-    let _ = writeln!(o, "}};\n");
+    for (name, ty) in nonscalar_struct_fields(func, model) {
+        lines.push(StructLine::typed(&ty, &name, true));
+    }
+    lines.extend(extra);
+    render_state_struct(o, func, lines);
 }
 
 /// Free-line list for one model's heap buffers (the `ReleaseImpl` body,
@@ -3552,7 +3804,7 @@ fn emit_step(
         "/* Private function, not in public API. */\nstatic void TA_{n}_StepImpl( struct TA_{n}_Stream *sp, {bars}{outs} )\n{{"
     );
     let (mut decls, mut body) = (String::new(), String::new());
-    emit_step_inner(&mut decls, &mut body, model, enums, registry, helpers, counter, 3, StepFrame::Commit);
+    emit_step_inner(&mut decls, &mut body, model, enums, registry, helpers, counter, 3, StepFrame::Commit, None);
     o.push_str(&decls);
     if !decls.is_empty() {
         let _ = writeln!(o);
@@ -3810,6 +4062,7 @@ impl ReloadScan<'_> {
             Statement::Comment(_)
             | Statement::UnrollHint { .. }
             | Statement::VarDecl { init: None, .. } => {}
+            Statement::Expr(Expr::FuncCall(name, _)) if name == super::stmt_walk::OPAQUE => {}
             Statement::Switch {
                 expr,
                 cases,
@@ -4135,9 +4388,15 @@ fn emit_step_inner(
     counter: &Cell<usize>,
     indent: usize,
     frame: StepFrame,
+    tape: Option<&streaming::TapeNames>,
 ) {
     let pad = " ".repeat(indent);
-    let transition = streaming::build_transition(model, &CNames)
+    let tape_names = tape.map(|t| CTapeNames(t.clone()));
+    let names: &dyn streaming::NameMap = match &tape_names {
+        Some(t) => t,
+        None => &CNames,
+    };
+    let transition = streaming::build_transition(model, names)
         .unwrap_or_else(|e| panic!("streaming transition: {e}"));
     // Peek localizes every field it writes instead, which is the stronger
     // property — the reload the election removes cannot survive a store that
@@ -4150,16 +4409,20 @@ fn emit_step_inner(
     let (transition, shadows, slot_temps, locals) = match frame {
         StepFrame::Commit => (transition, Vec::new(), Vec::new(), Vec::new()),
         StepFrame::Peek => {
-            let pt = streaming::peek_transition_widest(model, &CNames, &transition, None)
-                .unwrap_or_else(|e| panic!("{}: {e}", model.func.name));
+            let pt = if tape.is_some() {
+                streaming::tape_peek_transition(model, names, &transition, None)
+            } else {
+                streaming::peek_transition_widest(model, names, &transition, None)
+            }
+            .unwrap_or_else(|e| panic!("{}: {e}", model.func.name));
             let answered = answer_bare_returns(&pt.body);
-            let (locals, pt) = peek_localized(model, &CNames, pt, &answered);
+            let (locals, pt) = peek_localized(model, names, pt, &answered);
             (pt.body, pt.shadows, pt.slot_temps, locals)
         }
     };
     let transition = apply_step_scalars(&transition, &elected);
     let temps = match frame {
-        StepFrame::Commit => model.temps.clone(),
+        StepFrame::Commit => streaming::step_temps(model, tape),
         StepFrame::Peek => streaming::temps_used(&model.temps, &transition),
     };
     for (name, ty) in &temps {
@@ -4353,30 +4616,166 @@ fn emit_open_core_body(
     emit_open_and_fill_internal_wrapper(o, func);
 }
 
-/// State struct for a period bank (MAVP): the optional params, the bank of
-/// per-period sub handles, and the scratch the bank writes its outputs into.
-fn emit_period_bank_struct(o: &mut String, func: &FuncDef, plan: &streaming::PeriodBankPlan) {
+/// The tape frame's parameters, after the handle.
+const TAPE_PARAMS: &str = "const double tape[], int tapeBase, int tapeMask";
+
+/// `TA_<N>_StepTape`: the committing step of a period-bank slot (#445). It reads
+/// the input's history from the bank's tape and does none of `Update`'s checks,
+/// which the bank has already made.
+pub fn step_tape_signature(func: &FuncDef) -> String {
     let n = uname(func);
-    let subty = format!("struct {}_Stream", callee_prefix(&plan.callee));
-    let _ = writeln!(o, "struct TA_{n}_Stream {{");
-    emit_range_head_fields(o, func);
-    emit_cur_fields(o, func);
-    for p in &func.optional_inputs {
-        let _ = writeln!(o, "   {} {};", opt_param_c_type(&p.param_type), p.name);
+    format!(
+        "void TA_{n}_StepTape( struct TA_{n}_Stream *sp, {TAPE_PARAMS}, {}{} )",
+        bar_params_sig(func),
+        out_params_sig(func)
+    )
+}
+
+/// `TA_<N>_PeekTape`: the non-committing twin of [`step_tape_signature`].
+pub fn peek_tape_signature(func: &FuncDef) -> String {
+    let n = uname(func);
+    format!(
+        "void TA_{n}_PeekTape( const struct TA_{n}_Stream *sp, {TAPE_PARAMS}, {}{} )",
+        bar_params_sig(func),
+        out_params_sig(func)
+    )
+}
+
+/// `TA_<N>_TapeDetach`: free the buffers the tape replaces on a handle opened
+/// the ordinary way, and answer the deepest lag its steps will read.
+pub fn tape_detach_signature(func: &FuncDef) -> String {
+    let n = uname(func);
+    format!("int TA_{n}_TapeDetach( struct TA_{n}_Stream *sp )")
+}
+
+/// The one input a tape-set function's history is kept for.
+fn tape_input(func: &FuncDef) -> String {
+    let inputs = streaming::input_array_names(func);
+    assert!(
+        inputs.len() == 1,
+        "{}: a tape frame needs exactly one input, found {}",
+        uname(func),
+        inputs.len()
+    );
+    inputs[0].clone()
+}
+
+/// The three tape entries of a Loop or DualMode function a period bank steps.
+/// A function none of whose models keeps history of the input delegates to its
+/// ordinary step and peek.
+#[allow(clippy::too_many_arguments)]
+fn emit_tape_entries(
+    o: &mut String,
+    func: &FuncDef,
+    models: &[&StreamModel],
+    dual: Option<&streaming::DualModePlan>,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) {
+    let n = uname(func);
+    let input = tape_input(func);
+    let tape = streaming::TapeNames::new(&input);
+    let mut detach: Vec<String> = Vec::new();
+    for m in models {
+        streaming::check_tape_eligible(m, &input).unwrap_or_else(|e| panic!("{e}"));
+        for r in streaming::tape_covered_rings(m, &input) {
+            let (buf, cap) = (streaming::NameMap::ring_buf(&CNames, &r.var, &input), streaming::NameMap::ring_cap(&CNames, &r.var));
+            detach.push(format!("   if( {buf} ) {{ TA_Free( {buf} ); {buf} = NULL; }}"));
+            detach.push(format!("   if( {cap} > reach ) reach = {cap};"));
+        }
+        for w in streaming::tape_covered_windows(m, &input) {
+            let (buf, cap) = (streaming::NameMap::win_buf(&CNames, &w.var, &input), streaming::NameMap::win_cap(&CNames, &w.var));
+            detach.push(format!("   if( {buf} ) {{ TA_Free( {buf} ); {buf} = NULL; }}"));
+            detach.push(format!("   if( {cap} - 1 > reach ) reach = {cap} - 1;"));
+        }
     }
-    let _ = writeln!(o, "   int nBank;");
-    let _ = writeln!(o, "   {subty} **bank;");
-    let _ = writeln!(o, "   double *scratch;");
-    let _ = writeln!(o, "}};\n");
+    let mut seen = std::collections::BTreeSet::new();
+    detach.retain(|l| seen.insert(l.clone()));
+    let bar_args = streaming::input_array_names(func).join(", ");
+    let out_args: String = func.outputs.iter().map(|x| x.name.clone()).collect::<Vec<_>>().join(", ");
+    let unused_tape = "   (void)tape;\n   (void)tapeBase;\n   (void)tapeMask;\n";
+
+    // --- StepTape -----------------------------------------------------------
+    let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", step_tape_signature(func));
+    if detach.is_empty() {
+        o.push_str(unused_tape);
+        let _ = writeln!(o, "   TA_{n}_StepImpl( sp, {bar_args}, {out_args} );");
+    } else if let Some(dmp) = dual {
+        emit_dual_frame_body(o, func, dmp, enums, registry, helpers, counter, StepFrame::Commit, Some(&tape));
+    } else {
+        let (mut decls, mut body) = (String::new(), String::new());
+        emit_step_inner(&mut decls, &mut body, models[0], enums, registry, helpers, counter, 3, StepFrame::Commit, Some(&tape));
+        o.push_str(&decls);
+        if !decls.is_empty() {
+            let _ = writeln!(o);
+        }
+        o.push_str(&body);
+    }
+    let _ = writeln!(o, "   sp->outRangeCount++;\n}}\n");
+
+    // --- PeekTape -----------------------------------------------------------
+    let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", peek_tape_signature(func));
+    if detach.is_empty() {
+        o.push_str(unused_tape);
+        let _ = writeln!(o, "   (void)TA_{n}_Peek( sp, {bar_args}, {out_args} );");
+    } else {
+        let mut frame = String::new();
+        if let Some(dmp) = dual {
+            emit_dual_frame_body(&mut frame, func, dmp, enums, registry, helpers, counter, StepFrame::Peek, Some(&tape));
+        } else {
+            let (mut decls, mut body) = (String::new(), String::new());
+            emit_step_inner(&mut decls, &mut body, models[0], enums, registry, helpers, counter, 3, StepFrame::Peek, Some(&tape));
+            frame.push_str(&decls);
+            if !decls.is_empty() {
+                frame.push('\n');
+            }
+            frame.push_str(&body);
+        }
+        if !frame.contains("sp->") {
+            o.push_str("   (void)sp;\n");
+        }
+        o.push_str(&frame);
+    }
+    let _ = writeln!(o, "}}\n");
+
+    // --- TapeDetach ---------------------------------------------------------
+    let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", tape_detach_signature(func));
+    if detach.is_empty() {
+        let _ = writeln!(o, "   (void)sp;\n   return 0;\n}}\n");
+    } else {
+        let _ = writeln!(o, "   int reach = 0;");
+        for l in &detach {
+            let _ = writeln!(o, "{l}");
+        }
+        let _ = writeln!(o, "   return reach;\n}}\n");
+    }
+}
+
+/// State struct for a period bank (MAVP): the optional params, the bank of
+/// per-period sub handles, the scratch the bank writes its outputs into, and
+/// the tape of recent prices every slot reads its history from.
+fn emit_period_bank_struct(o: &mut String, func: &FuncDef, plan: &streaming::PeriodBankPlan) {
+    let subty = format!("struct {}_Stream", callee_prefix(&plan.callee));
+    let mut lines = handle_head_lines(func);
+    lines.push(StructLine::typed(&VarType::Integer, "nBank", false));
+    lines.push(StructLine::other(&format!("{subty} **"), "bank"));
+    lines.push(StructLine::typed(&VarType::RealPointer, "scratch", false));
+    lines.push(StructLine::typed(&VarType::Integer, "tapeMask", false));
+    lines.push(StructLine::typed(&VarType::Integer, "tapePos", true));
+    lines.push(StructLine::typed(&VarType::RealPointer, "tape", false));
+    render_state_struct(o, func, lines);
 }
 
 /// Emit the period-bank stream section (MAVP): a moving average whose period
 /// varies per bar. Open builds a bank of `maxPeriod - minPeriod + 1` sub-MA
 /// streams (one per possible period, each seeded from history via the callee's
-/// `OpenInternal`); Update advances the whole bank in lockstep and outputs the
-/// slot the current bar's clamped period selects; Peek previews only the
-/// selected slot; Close frees the bank. The bank inherits the callee's
-/// per-MAType streamability (MAType_MAMA rejects at the first sub-open).
+/// `OpenInternal`), then detaches each slot's copies of the price history in
+/// favour of one shared tape (#445); Update writes the bar into the tape,
+/// advances the whole bank in lockstep and outputs the slot the current bar's
+/// clamped period selects; Peek previews only the selected slot; Close frees
+/// the bank and the tape.
 #[allow(clippy::too_many_lines)]
 fn emit_period_bank(
     o: &mut String,
@@ -4416,14 +4815,183 @@ fn emit_period_bank(
         })
         .collect::<Vec<_>>()
         .join(", ");
+    // MATypes whose value is the callee's batch over the tape tail keep no
+    // bank: see streaming::window_evaluable.
+    let window_labels = registry.window_labels(&func.name.to_lowercase());
+    let windowed = !window_labels.is_empty();
+    let matype = &plan.matype_param;
+    let callee_args = |per: &str, ty: &str| -> String {
+        plan.callee_opts
+            .iter()
+            .map(|a| match a {
+                streaming::PeriodBankArg::Period => per.to_string(),
+                streaming::PeriodBankArg::MAType => ty.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    // A window-mode Open starts from Lookback(max) like the bank does, so every
+    // selected period's window must fit inside it; a band where one does not
+    // falls back to the bank.
+    let window_gate = |o: &mut String| {
+        let _ = writeln!(o, "   window = TA_{n}_WindowMode( {matype} );");
+        let _ = writeln!(o, "   if( {max} - {min} + 1 < {} ) window = 0;", crate::streaming::WINDOW_MIN_BAND);
+        let _ = writeln!(o, "   if( window )");
+        let _ = writeln!(o, "      for( k = 0; k < {max} - {min} + 1; k++ )");
+        let _ = writeln!(
+            o,
+            "         if( {pre}_Lookback( {} ) > lookbackTotal ) {{ window = 0; break; }}",
+            callee_args(&format!("{min} + k"), matype)
+        );
+    };
+    let clamp = |o: &mut String, pad: &str, x: &str, h: &str| {
+        let _ = writeln!(o, "{pad}cpReal = {x};");
+        let _ = writeln!(o, "{pad}if( !(cpReal >= {h}{min}) ) cp = {h}{min};");
+        let _ = writeln!(o, "{pad}else if( cpReal > {h}{max} ) cp = {h}{max};");
+        let _ = writeln!(o, "{pad}else cp = (int)cpReal;");
+    };
+    // Every slot opened, then detached from its own history; the tape is sized
+    // by the deepest lag any slot reads.
+    let open_bank = |o: &mut String, anchor: &str, hist: &str| {
+        let _ = writeln!(o, "\n   reach = 0;");
+        let _ = writeln!(o, "   for( k = 0; k < sp->nBank; k++ )");
+        let _ = writeln!(o, "   {{");
+        let _ = writeln!(
+            o,
+            "      retCode = {pre}_OpenInternal( &sp->bank[k], {price}, {anchor}, {hist}, {open_opts}, &sp->scratch[k] );"
+        );
+        let _ = writeln!(o, "      if( retCode != TA_SUCCESS ) {{ TA_{n}_Close( sp ); return retCode; }}");
+        let _ = writeln!(o, "      slotReach = {pre}_TapeDetach( sp->bank[k] );");
+        let _ = writeln!(o, "      if( slotReach > reach ) reach = slotReach;");
+        let _ = writeln!(o, "   }}");
+        let _ = writeln!(o, "   retCode = TA_{n}_TapeOpen( sp, {price}, {hist}, reach );");
+        let _ = writeln!(o, "   if( retCode != TA_SUCCESS ) {{ TA_{n}_Close( sp ); return retCode; }}");
+    };
+    let alloc_head = |o: &mut String| {
+        let _ = writeln!(o, "\n   sp = (struct TA_{n}_Stream *)TA_Malloc( sizeof(*sp) );");
+        let _ = writeln!(o, "   if( !sp ) return TA_ALLOC_ERR;");
+        let _ = writeln!(o, "   memset( sp, 0, sizeof(*sp) );");
+        for p in &func.optional_inputs {
+            let _ = writeln!(o, "   sp->{0} = {0};", p.name);
+        }
+        let _ = writeln!(o, "   sp->nBank = {max} - {min} + 1;");
+    };
+    let alloc_bank = |o: &mut String| {
+        let _ = writeln!(
+            o,
+            "   sp->bank = ({subty} **)TA_Malloc( sizeof({subty} *) * (size_t)sp->nBank );"
+        );
+        let _ = writeln!(o, "   if( !sp->bank ) {{ TA_Free( sp ); return TA_ALLOC_ERR; }}");
+        let _ = writeln!(
+            o,
+            "   memset( sp->bank, 0, sizeof({subty} *) * (size_t)sp->nBank );"
+        );
+        let _ = writeln!(
+            o,
+            "   sp->scratch = (double *)TA_Malloc( sizeof(double) * (size_t)sp->nBank );"
+        );
+        let _ = writeln!(o, "   if( !sp->scratch ) {{ TA_{n}_Close( sp ); return TA_ALLOC_ERR; }}");
+    };
+    // One committed bar: into the tape, then through every slot.
+    let step_bank = |o: &mut String, pad: &str, h: &str, bar: &str| {
+        let _ = writeln!(o, "{pad}{h}tapePos = ({h}tapePos + 1) & {h}tapeMask;");
+        let _ = writeln!(o, "{pad}{h}tape[{h}tapePos] = {bar};");
+        let _ = writeln!(o, "{pad}tapeBase = {h}tapePos + {h}tapeMask + 1;");
+        let _ = writeln!(o, "{pad}for( k = 0; k < {h}nBank; k++ )");
+        let _ = writeln!(
+            o,
+            "{pad}   {pre}_StepTape( {h}bank[k], {h}tape, tapeBase, {h}tapeMask, {bar}, &{h}scratch[k] );"
+        );
+    };
 
     // --- state struct -------------------------------------------------------
     emit_period_bank_struct(o, func, plan);
 
+    // --- TapeOpen -----------------------------------------------------------
+    let _ = writeln!(
+        o,
+        "/* Private function, not in public API. */\nstatic TA_RetCode TA_{n}_TapeOpen( struct TA_{n}_Stream *sp, const double {price}[], int historyLen, int reach )\n{{"
+    );
+    let _ = writeln!(o, "   int size, b;\n");
+    // Strictly above: at size == reach the deepest read lands on the current
+    // bar's slot and returns the wrong bar with no other symptom.
+    let _ = writeln!(o, "   size = 1;");
+    let _ = writeln!(o, "   while( size <= reach ) size <<= 1;");
+    let _ = writeln!(o, "   sp->tape = (double *)TA_Malloc( sizeof(double) * (size_t)size );");
+    let _ = writeln!(o, "   if( !sp->tape ) return TA_ALLOC_ERR;");
+    let _ = writeln!(o, "   memset( sp->tape, 0, sizeof(double) * (size_t)size );");
+    let _ = writeln!(o, "   sp->tapeMask = size - 1;");
+    let _ = writeln!(o, "   for( b = historyLen > size ? historyLen - size : 0; b < historyLen; b++ )");
+    let _ = writeln!(o, "      sp->tape[b & sp->tapeMask] = {price}[b];");
+    let _ = writeln!(o, "   sp->tapePos = (historyLen - 1) & sp->tapeMask;");
+    let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
+
+    if windowed {
+        let _ = writeln!(o, "/* Private function, not in public API. */\nstatic int TA_{n}_WindowMode( int maType )\n{{");
+        let _ = writeln!(o, "   switch( maType )\n   {{");
+        for label in window_labels {
+            if label == "*" {
+                let _ = writeln!(o, "   default:\n      return 1;");
+            } else {
+                let _ = writeln!(o, "   case {}:", crate::backends::c::render_c_switch_label(label, enums));
+            }
+        }
+        if !window_labels.iter().any(|l| l == "*") {
+            let _ = writeln!(o, "      return 1;\n   default:\n      return 0;");
+        }
+        let _ = writeln!(o, "   }}\n}}\n");
+
+        // The window is the `lb` committed bars before the incoming one, read
+        // from the tape, then that bar: the same values, in the same order, as
+        // the batch reads for it.
+        let _ = writeln!(
+            o,
+            "/* Private function, not in public API. */\nstatic TA_RetCode TA_{n}_EvalWindow( const struct TA_{n}_Stream *sp, double {price}, int cp, double *{out} )\n{{"
+        );
+        let _ = writeln!(o, "   double localWin[32];");
+        let _ = writeln!(o, "   double *win = localWin;");
+        let _ = writeln!(o, "   int lb, i, wBeg, wNb;");
+        let _ = writeln!(o, "   TA_RetCode retCode;\n");
+        let _ = writeln!(o, "   lb = {pre}_Lookback( {} );", callee_args("cp", &format!("sp->{matype}")));
+        let _ = writeln!(o, "   if( lb + 1 > 32 )\n   {{");
+        let _ = writeln!(o, "      win = (double *)TA_Malloc( sizeof(double) * (size_t)(lb + 1) );");
+        let _ = writeln!(o, "      if( !win ) return TA_ALLOC_ERR;\n   }}");
+        let _ = writeln!(o, "   for( i = 0; i < lb; i++ )");
+        let _ = writeln!(o, "      win[i] = sp->tape[(sp->tapePos + sp->tapeMask + 2 - lb + i) & sp->tapeMask];");
+        let _ = writeln!(o, "   win[lb] = {price};");
+        let _ = writeln!(
+            o,
+            "   retCode = {pre}( lb, lb, win, {}, &wBeg, &wNb, {out} );",
+            callee_args("cp", &format!("sp->{matype}"))
+        );
+        let _ = writeln!(o, "   if( win != localWin ) TA_Free( win );");
+        let _ = writeln!(o, "   return retCode;\n}}\n");
+
+        // Out of Update's body, so the bank path keeps its frame. The tape takes
+        // the bar only once the value exists: a failure changes nothing.
+        let _ = writeln!(
+            o,
+            "/* Private function, not in public API. */\nstatic TA_RetCode TA_{n}_UpdateWindow( struct TA_{n}_Stream *stream, double {price}, double {period}, double *{out} )\n{{"
+        );
+        let _ = writeln!(o, "   int cp;\n   double cpReal, v;\n   TA_RetCode retCode;\n");
+        clamp(o, "   ", period, "stream->");
+        let _ = writeln!(o, "   retCode = TA_{n}_EvalWindow( stream, {price}, cp, &v );");
+        let _ = writeln!(o, "   if( retCode != TA_SUCCESS ) return retCode;");
+        let _ = writeln!(o, "   stream->tapePos = (stream->tapePos + 1) & stream->tapeMask;");
+        let _ = writeln!(o, "   stream->tape[stream->tapePos] = {price};");
+        let _ = writeln!(o, "   *{out} = v;");
+        emit_cur_retain(o, "   ", "stream", func);
+        emit_range_head_advance(o, "   ", "stream");
+        let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
+    }
+
     // --- OpenInternal -------------------------------------------------------
     let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", open_internal_signature(func));
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
-    let _ = writeln!(o, "   int k, cp, lookbackTotal, subStart;");
+    let _ = writeln!(o, "   int k, cp, lookbackTotal, subStart, reach, slotReach;");
+    if windowed {
+        let _ = writeln!(o, "   int window, wBeg, wNb;");
+    }
     let _ = writeln!(o, "   double cpReal;");
     let _ = writeln!(o, "   TA_RetCode retCode;");
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
@@ -4452,55 +5020,30 @@ fn emit_period_bank(
     // this an anchor past the history publishes a negative count (and, where the
     // count is unsigned, underflows).
     let _ = writeln!(o, "   if( historyLen < subStart + 1 ) return TA_INSUFFICIENT_HISTORY;");
-
-    let _ = writeln!(o, "\n   sp = (struct TA_{n}_Stream *)TA_Malloc( sizeof(*sp) );");
-    let _ = writeln!(o, "   if( !sp ) return TA_ALLOC_ERR;");
-    let _ = writeln!(o, "   memset( sp, 0, sizeof(*sp) );");
-    for p in &func.optional_inputs {
-        let _ = writeln!(o, "   sp->{0} = {0};", p.name);
+    alloc_head(o);
+    if windowed {
+        window_gate(o);
+        let _ = writeln!(o, "   if( window )\n   {{");
+        let _ = writeln!(o, "      retCode = TA_{n}_TapeOpen( sp, {price}, historyLen, lookbackTotal );");
+        let _ = writeln!(o, "      if( retCode != TA_SUCCESS ) {{ TA_{n}_Close( sp ); return retCode; }}");
+        clamp(o, "      ", &format!("{period}[historyLen - 1]"), "");
+        let _ = writeln!(
+            o,
+            "      retCode = {pre}( historyLen - 1, historyLen - 1, {price}, {}, &wBeg, &wNb, {out} );",
+            callee_args("cp", matype)
+        );
+        let _ = writeln!(o, "      if( retCode != TA_SUCCESS ) {{ TA_{n}_Close( sp ); return retCode; }}");
+        let _ = writeln!(o, "   }}\n   else\n   {{");
     }
-    let _ = writeln!(o, "   sp->nBank = {max} - {min} + 1;");
-    let _ = writeln!(
-        o,
-        "   sp->bank = ({subty} **)TA_Malloc( sizeof({subty} *) * (size_t)sp->nBank );"
-    );
-    let _ = writeln!(o, "   if( !sp->bank ) {{ TA_Free( sp ); return TA_ALLOC_ERR; }}");
-    let _ = writeln!(
-        o,
-        "   memset( sp->bank, 0, sizeof({subty} *) * (size_t)sp->nBank );"
-    );
-    let _ = writeln!(
-        o,
-        "   sp->scratch = (double *)TA_Malloc( sizeof(double) * (size_t)sp->nBank );"
-    );
-    let _ = writeln!(
-        o,
-        "   if( !sp->scratch ) {{ TA_Free( sp->bank ); TA_Free( sp ); return TA_ALLOC_ERR; }}"
-    );
-    // Open one sub-MA per possible period, seeded from the full history.
-    let _ = writeln!(o, "\n   for( k = 0; k < sp->nBank; k++ )");
-    let _ = writeln!(o, "   {{");
-    let _ = writeln!(
-        o,
-        "      retCode = {pre}_OpenInternal( &sp->bank[k], {price}, subStart, historyLen, {open_opts}, &sp->scratch[k] );"
-    );
-    let _ = writeln!(o, "      if( retCode != TA_SUCCESS )");
-    let _ = writeln!(o, "      {{");
-    let _ = writeln!(o, "         int j;");
-    let _ = writeln!(o, "         for( j = 0; j < k; j++ ) {pre}_Close( sp->bank[j] );");
-    let _ = writeln!(
-        o,
-        "         TA_Free( sp->scratch ); TA_Free( sp->bank ); TA_Free( sp );"
-    );
-    let _ = writeln!(o, "         return retCode;");
-    let _ = writeln!(o, "      }}");
-    let _ = writeln!(o, "   }}");
+    alloc_bank(o);
+    open_bank(o, "subStart", "historyLen");
     // Current output: the last history bar's clamped period selects the slot.
-    let _ = writeln!(o, "\n   cpReal = {period}[historyLen - 1];");
-    let _ = writeln!(o, "   if( !(cpReal >= {min}) ) cp = {min};");
-    let _ = writeln!(o, "   else if( cpReal > {max} ) cp = {max};");
-    let _ = writeln!(o, "   else cp = (int)cpReal;");
+    let _ = writeln!(o);
+    clamp(o, "   ", &format!("{period}[historyLen - 1]"), "");
     let _ = writeln!(o, "   *{out} = sp->scratch[cp - {min}];");
+    if windowed {
+        let _ = writeln!(o, "   }}");
+    }
     // No out-param pair on the scalar open: `subStart` is the resolved
     // `max(startIdx, lookback)` the bank was opened at, which is the range's
     // start by definition.
@@ -4522,13 +5065,16 @@ fn emit_period_bank(
     // --- OpenAndFill --------------------------------------------------------
     // No per-bar output array exists to un-discard (the bank yields one selected
     // scalar per bar), so fill genuinely re-runs history: seed the bank at the
-    // FIRST output bar (lookbackTotal), emit that bar, then replay Update over
+    // FIRST output bar (lookbackTotal), emit that bar, then replay the step over
     // the rest, selecting the clamped-period slot each bar. Each sub-MA's
-    // (seed-on-prefix + Update) trajectory is bit-exact to its own batch, so the
+    // (seed-on-prefix + step) trajectory is bit-exact to its own batch, so the
     // filled array equals batch(0, historyLen-1) by construction.
     let _ = writeln!(o, "{}\n{{", open_and_fill_signature(func));
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
-    let _ = writeln!(o, "   int k, cp, lookbackTotal, t;");
+    let _ = writeln!(o, "   int k, cp, lookbackTotal, t, reach, slotReach, tapeBase;");
+    if windowed {
+        let _ = writeln!(o, "   int window, t1, cp2, wBeg, wNb;");
+    }
     let _ = writeln!(o, "   double cpReal;");
     let _ = writeln!(o, "   TA_RetCode retCode;");
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
@@ -4555,64 +5101,43 @@ fn emit_period_bank(
     let _ = writeln!(o, "      *outNBElement = 0;");
     let _ = writeln!(o, "      return TA_INSUFFICIENT_HISTORY;");
     let _ = writeln!(o, "   }}");
-    let _ = writeln!(o, "\n   sp = (struct TA_{n}_Stream *)TA_Malloc( sizeof(*sp) );");
-    let _ = writeln!(o, "   if( !sp ) return TA_ALLOC_ERR;");
-    let _ = writeln!(o, "   memset( sp, 0, sizeof(*sp) );");
-    for p in &func.optional_inputs {
-        let _ = writeln!(o, "   sp->{0} = {0};", p.name);
+    alloc_head(o);
+    if windowed {
+        // One batch call per run of equal clamped periods.
+        window_gate(o);
+        let _ = writeln!(o, "   if( window )\n   {{");
+        let _ = writeln!(o, "      for( t = lookbackTotal; t < historyLen; t = t1 + 1 )\n      {{");
+        clamp(o, "         ", &format!("{period}[t]"), "");
+        let _ = writeln!(o, "         for( t1 = t; t1 + 1 < historyLen; t1++ )\n         {{");
+        let _ = writeln!(o, "            cp2 = cp;");
+        clamp(o, "            ", &format!("{period}[t1 + 1]"), "");
+        let _ = writeln!(o, "            if( cp != cp2 ) {{ cp = cp2; break; }}\n         }}");
+        let _ = writeln!(
+            o,
+            "         retCode = {pre}( t, t1, {price}, {}, &wBeg, &wNb, &{out}[t - lookbackTotal] );",
+            callee_args("cp", matype)
+        );
+        let _ = writeln!(o, "         if( retCode != TA_SUCCESS ) {{ TA_{n}_Close( sp ); return retCode; }}\n      }}");
+        let _ = writeln!(o, "      retCode = TA_{n}_TapeOpen( sp, {price}, historyLen, lookbackTotal );");
+        let _ = writeln!(o, "      if( retCode != TA_SUCCESS ) {{ TA_{n}_Close( sp ); return retCode; }}");
+        let _ = writeln!(o, "   }}\n   else\n   {{");
     }
-    let _ = writeln!(o, "   sp->nBank = {max} - {min} + 1;");
-    let _ = writeln!(
-        o,
-        "   sp->bank = ({subty} **)TA_Malloc( sizeof({subty} *) * (size_t)sp->nBank );"
-    );
-    let _ = writeln!(o, "   if( !sp->bank ) {{ TA_Free( sp ); return TA_ALLOC_ERR; }}");
-    let _ = writeln!(
-        o,
-        "   memset( sp->bank, 0, sizeof({subty} *) * (size_t)sp->nBank );"
-    );
-    let _ = writeln!(
-        o,
-        "   sp->scratch = (double *)TA_Malloc( sizeof(double) * (size_t)sp->nBank );"
-    );
-    let _ = writeln!(
-        o,
-        "   if( !sp->scratch ) {{ TA_Free( sp->bank ); TA_Free( sp ); return TA_ALLOC_ERR; }}"
-    );
+    alloc_bank(o);
     // Seed each sub-MA at the first output bar (lookbackTotal), NOT the last.
-    let _ = writeln!(o, "\n   for( k = 0; k < sp->nBank; k++ )");
-    let _ = writeln!(o, "   {{");
-    let _ = writeln!(
-        o,
-        "      retCode = {pre}_OpenInternal( &sp->bank[k], {price}, lookbackTotal, lookbackTotal + 1, {open_opts}, &sp->scratch[k] );"
-    );
-    let _ = writeln!(o, "      if( retCode != TA_SUCCESS )");
-    let _ = writeln!(o, "      {{");
-    let _ = writeln!(o, "         int j;");
-    let _ = writeln!(o, "         for( j = 0; j < k; j++ ) {pre}_Close( sp->bank[j] );");
-    let _ = writeln!(
-        o,
-        "         TA_Free( sp->scratch ); TA_Free( sp->bank ); TA_Free( sp );"
-    );
-    let _ = writeln!(o, "         return retCode;");
-    let _ = writeln!(o, "      }}");
-    let _ = writeln!(o, "   }}");
+    open_bank(o, "lookbackTotal", "lookbackTotal + 1");
     // First output bar (lookbackTotal), then replay the remaining history.
-    let _ = writeln!(o, "\n   cpReal = {period}[lookbackTotal];");
-    let _ = writeln!(o, "   if( !(cpReal >= {min}) ) cp = {min};");
-    let _ = writeln!(o, "   else if( cpReal > {max} ) cp = {max};");
-    let _ = writeln!(o, "   else cp = (int)cpReal;");
+    let _ = writeln!(o);
+    clamp(o, "   ", &format!("{period}[lookbackTotal]"), "");
     let _ = writeln!(o, "   {out}[0] = sp->scratch[cp - {min}];");
     let _ = writeln!(o, "\n   for( t = lookbackTotal + 1; t < historyLen; t++ )");
     let _ = writeln!(o, "   {{");
-    let _ = writeln!(o, "      for( k = 0; k < sp->nBank; k++ )");
-    let _ = writeln!(o, "         {pre}_Update( sp->bank[k], {price}[t], &sp->scratch[k] );");
-    let _ = writeln!(o, "      cpReal = {period}[t];");
-    let _ = writeln!(o, "      if( !(cpReal >= {min}) ) cp = {min};");
-    let _ = writeln!(o, "      else if( cpReal > {max} ) cp = {max};");
-    let _ = writeln!(o, "      else cp = (int)cpReal;");
+    step_bank(o, "      ", "sp->", &format!("{price}[t]"));
+    clamp(o, "      ", &format!("{period}[t]"), "");
     let _ = writeln!(o, "      {out}[t - lookbackTotal] = sp->scratch[cp - {min}];");
     let _ = writeln!(o, "   }}");
+    if windowed {
+        let _ = writeln!(o, "   }}");
+    }
     let _ = writeln!(o, "\n   *outBegIdx = lookbackTotal;");
     let _ = writeln!(o, "   *outNBElement = historyLen - lookbackTotal;");
     emit_range_head_capture(o, "   ");
@@ -4622,17 +5147,16 @@ fn emit_period_bank(
 
     // --- Update -------------------------------------------------------------
     let _ = writeln!(o, "{}\n{{", update_signature(func));
-    let _ = writeln!(o, "   int k, cp;");
+    let _ = writeln!(o, "   int k, cp, tapeBase;");
     let _ = writeln!(o, "   double cpReal;");
     // inPeriods is in the bar check too: a non-finite period would reach `(int)`,
     // and the conversion of NaN or an infinity to int is undefined behaviour.
     o.push_str(&step_prologue(func, Frame::Step, true));
-    let _ = writeln!(o, "   for( k = 0; k < stream->nBank; k++ )");
-    let _ = writeln!(o, "      {pre}_Update( stream->bank[k], {price}, &stream->scratch[k] );");
-    let _ = writeln!(o, "   cpReal = {period};");
-    let _ = writeln!(o, "   if( !(cpReal >= stream->{min}) ) cp = stream->{min};");
-    let _ = writeln!(o, "   else if( cpReal > stream->{max} ) cp = stream->{max};");
-    let _ = writeln!(o, "   else cp = (int)cpReal;");
+    if windowed {
+        let _ = writeln!(o, "   if( !stream->bank ) return TA_{n}_UpdateWindow( stream, {price}, {period}, {out} );");
+    }
+    step_bank(o, "   ", "stream->", price);
+    clamp(o, "   ", period, "stream->");
     let _ = writeln!(o, "   *{out} = stream->scratch[cp - stream->{min}];");
     emit_cur_retain(o, "   ", "stream", func);
     emit_range_head_advance(o, "   ", "stream");
@@ -4645,13 +5169,13 @@ fn emit_period_bank(
     let _ = writeln!(o, "   int cp;");
     let _ = writeln!(o, "   double cpReal;");
     o.push_str(&step_prologue(func, Frame::Step, false));
-    let _ = writeln!(o, "   cpReal = {period};");
-    let _ = writeln!(o, "   if( !(cpReal >= stream->{min}) ) cp = stream->{min};");
-    let _ = writeln!(o, "   else if( cpReal > stream->{max} ) cp = stream->{max};");
-    let _ = writeln!(o, "   else cp = (int)cpReal;");
+    clamp(o, "   ", period, "stream->");
+    if windowed {
+        let _ = writeln!(o, "   if( !stream->bank ) return TA_{n}_EvalWindow( stream, {price}, cp, {out} );");
+    }
     let _ = writeln!(
         o,
-        "   {pre}_Peek( stream->bank[cp - stream->{min}], {price}, {out} );"
+        "   {pre}_PeekTape( stream->bank[cp - stream->{min}], stream->tape, ((stream->tapePos + 1) & stream->tapeMask) + stream->tapeMask + 1, stream->tapeMask, {price}, {out} );"
     );
     let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
 
@@ -4667,6 +5191,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "         TA_Free( stream->bank );");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      if( stream->scratch ) TA_Free( stream->scratch );");
+    let _ = writeln!(o, "      if( stream->tape ) TA_Free( stream->tape );");
     let _ = writeln!(o, "      TA_Free( stream );");
     let _ = writeln!(o, "   }}");
     let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
@@ -4879,8 +5404,8 @@ fn emit_ring_slots(
 /// loop-invariant), buffers are filled from the history tail (phase-free
 /// trailing reads only; CIRCBUF-order functions are a later tranche), and
 /// Peek's scratch mirrors are pre-allocated. On the identity path
-/// (`with_state == false`) capacities are zero and 1-slot buffers keep the
-/// transition's cap-0 guard and Peek's mirror copy well-defined.
+/// (`with_state == false`) capacities are zero and a 1-slot buffer keeps any
+/// read and Peek's mirror copy in bounds.
 #[allow(clippy::too_many_lines)]
 fn alloc_and_capture(
     func: &FuncDef,
@@ -4955,7 +5480,7 @@ fn alloc_and_capture(
     let fail = if model.rings().is_empty() {
         String::new()
     } else {
-        format!("{{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_ALLOC_ERR; }}")
+        format!("{{ {pre}{sp_fail}TA_{n}_ReleaseImpl( sp ); return TA_ALLOC_ERR; }}")
     };
     for ring in model.rings() {
         let v = &ring.var;
@@ -4970,7 +5495,7 @@ fn alloc_and_capture(
                 );
                 let _ = writeln!(
                     s,
-                    "{pad}if( sp->ringLag_{v} < {fwd} || sp->ringCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+                    "{pad}if( sp->ringLag_{v} < {fwd} || sp->ringCap_{v} > historyLen ) {{ {pre}{sp_fail}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
                     fwd = ring.fwd,
                     eid = crate::internal_error_ids::site(&format!("ringlag.{v}"))
                 );
@@ -4978,7 +5503,8 @@ fn alloc_and_capture(
                 let _ = writeln!(s, "{pad}sp->ringCap_{v} = (int)({} - {v});", model.cursor);
                 let _ = writeln!(
                     s,
-                    "{pad}if( sp->ringCap_{v} < 0 || sp->ringCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+                    "{pad}if( sp->ringCap_{v} < {min} || sp->ringCap_{v} > historyLen ) {{ {pre}{sp_fail}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+                    min = i32::from(ring.lag_ge1),
                     eid = crate::internal_error_ids::site(&format!("ringcap.{v}"))
                 );
             }
@@ -5014,7 +5540,7 @@ fn alloc_and_capture(
         }
         let _ = writeln!(
             s,
-            "{pad}if( sp->winCap_{v} < 1 || sp->winCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+            "{pad}if( sp->winCap_{v} < 1 || sp->winCap_{v} > historyLen ) {{ {pre}{sp_fail}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
             eid = crate::internal_error_ids::site(&format!("wincap.{v}"))
         );
         for arr in &win.arrays {
@@ -5022,7 +5548,7 @@ fn alloc_and_capture(
                 s,
                 "{pad}sp->win_{v}_{arr} = (double *)TA_Malloc( sizeof(double) * (size_t)sp->winCap_{v} );"
             );
-            let _ = writeln!(s, "{pad}if( !sp->win_{v}_{arr} ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_ALLOC_ERR; }}");
+            let _ = writeln!(s, "{pad}if( !sp->win_{v}_{arr} ) {{ {pre}{sp_fail}TA_{n}_ReleaseImpl( sp ); return TA_ALLOC_ERR; }}");
             // Fill with the history tail: slot cap-1 = last bar, so the next
             // update writes the new bar at pos 0 and (pos+cap-w)%cap walks
             // back w bars.
@@ -5049,7 +5575,7 @@ fn alloc_and_capture(
         }
         let _ = writeln!(
             s,
-            "{pad}if( sp->xCap < 1 || sp->xCap > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+            "{pad}if( sp->xCap < 1 || sp->xCap > historyLen ) {{ {pre}{sp_fail}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
             eid = crate::internal_error_ids::site("extrema")
         );
         // The slot map is a mask, so the ring is allocated at the next power of
@@ -5063,7 +5589,7 @@ fn alloc_and_capture(
                 s,
                 "{pad}sp->x_{arr} = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );"
             );
-            let _ = writeln!(s, "{pad}if( !sp->x_{arr} ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_ALLOC_ERR; }}");
+            let _ = writeln!(s, "{pad}if( !sp->x_{arr} ) {{ {pre}{sp_fail}TA_{n}_ReleaseImpl( sp ); return TA_ALLOC_ERR; }}");
         }
         if with_state {
             // Absolute slots: bar j lives at j % cap (matches the automaton's
@@ -5453,7 +5979,7 @@ fn emit_peek_loop(
     counter: &Cell<usize>,
 ) {
     let (mut decls, mut body) = (String::new(), String::new());
-    emit_step_inner(&mut decls, &mut body, model, enums, registry, helpers, counter, 3, StepFrame::Peek);
+    emit_step_inner(&mut decls, &mut body, model, enums, registry, helpers, counter, 3, StepFrame::Peek, None);
     emit_peek(o, func, &decls, &body, false);
 }
 

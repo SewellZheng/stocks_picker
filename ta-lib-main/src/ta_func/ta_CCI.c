@@ -71,6 +71,9 @@
  *                scales: `0.015*tempReal2` underflows to 0.0 on a denormal
  *                price the deviation's own band still calls "not flat", and
  *                the division returned +/-Inf under TA_SUCCESS.
+ *  092826 MF,CC  Sum the window around the slot just stored, taking it from
+ *                lastValue: a wide load over that slot waited for the store
+ *                (#455). Same order, same values.
  */
 
 TA_LIB_API int TA_CCI_Lookback( int optInTimePeriod )
@@ -106,9 +109,9 @@ TA_LIB_API TA_RetCode TA_CCI( int    startIdx,
    int circBuffer_Idx;
    int maxIdx_circBuffer;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -189,9 +192,18 @@ TA_LIB_API TA_RetCode TA_CCI( int    startIdx,
    {
       lastValue = (inHigh[i] + inLow[i] + inClose[i]) / 3;
       circBuffer[circBuffer_Idx] = lastValue;
-      /* Calculate the average for the whole period. */
+      /* Calculate the average for the whole period. Both sums take the
+       * slot just stored from lastValue, in the same order, so no load reads
+       * it back: a vector load spanning that slot stalls until the store
+       * commits.
+       */
       theAverage = 0;
-      for( j = 0; j < optInTimePeriod; j += 1 )
+      for( j = 0; j < circBuffer_Idx; j += 1 )
+      {
+         theAverage += circBuffer[j];
+      }
+      theAverage += lastValue;
+      for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 )
       {
          theAverage += circBuffer[j];
       }
@@ -200,7 +212,12 @@ TA_LIB_API TA_RetCode TA_CCI( int    startIdx,
        * for the whole period, then its mean.
        */
       tempReal2 = 0;
-      for( j = 0; j < optInTimePeriod; j += 1 )
+      for( j = 0; j < circBuffer_Idx; j += 1 )
+      {
+         tempReal2 += fabs(circBuffer[j] - theAverage);
+      }
+      tempReal2 += fabs(lastValue - theAverage);
+      for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 )
       {
          tempReal2 += fabs(circBuffer[j] - theAverage);
       }
@@ -268,9 +285,9 @@ TA_RetCode TA_S_CCI( int    startIdx,
    int circBuffer_Idx;
    int maxIdx_circBuffer;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -331,13 +348,23 @@ TA_RetCode TA_S_CCI( int    startIdx,
       lastValue = ((double)inHigh[i] + (double)inLow[i] + (double)inClose[i]) / 3;
       circBuffer[circBuffer_Idx] = lastValue;
       theAverage = 0;
-      for( j = 0; j < optInTimePeriod; j += 1 )
+      for( j = 0; j < circBuffer_Idx; j += 1 )
+      {
+         theAverage += circBuffer[j];
+      }
+      theAverage += lastValue;
+      for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 )
       {
          theAverage += circBuffer[j];
       }
       theAverage /= optInTimePeriod;
       tempReal2 = 0;
-      for( j = 0; j < optInTimePeriod; j += 1 )
+      for( j = 0; j < circBuffer_Idx; j += 1 )
+      {
+         tempReal2 += fabs(circBuffer[j] - theAverage);
+      }
+      tempReal2 += fabs(lastValue - theAverage);
+      for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 )
       {
          tempReal2 += fabs(circBuffer[j] - theAverage);
       }
@@ -396,9 +423,18 @@ static void TA_CCI_StepImpl( struct TA_CCI_Stream *sp, double inHigh, double inL
 
    lastValue = (inHigh + inLow + inClose) / 3;
    sp->cb_circBuffer[sp->circBuffer_Idx] = lastValue;
-   /* Calculate the average for the whole period. */
+   /* Calculate the average for the whole period. Both sums take the
+    * slot just stored from lastValue, in the same order, so no load reads
+    * it back: a vector load spanning that slot stalls until the store
+    * commits.
+    */
    theAverage = 0;
-   for( j = 0; j < sp->optInTimePeriod; j += 1 )
+   for( j = 0; j < sp->circBuffer_Idx; j += 1 )
+   {
+      theAverage += sp->cb_circBuffer[j];
+   }
+   theAverage += lastValue;
+   for( j = sp->circBuffer_Idx + 1; j < sp->optInTimePeriod; j += 1 )
    {
       theAverage += sp->cb_circBuffer[j];
    }
@@ -407,7 +443,12 @@ static void TA_CCI_StepImpl( struct TA_CCI_Stream *sp, double inHigh, double inL
     * for the whole period, then its mean.
     */
    tempReal2 = 0;
-   for( j = 0; j < sp->optInTimePeriod; j += 1 )
+   for( j = 0; j < sp->circBuffer_Idx; j += 1 )
+   {
+      tempReal2 += fabs(sp->cb_circBuffer[j] - theAverage);
+   }
+   tempReal2 += fabs(lastValue - theAverage);
+   for( j = sp->circBuffer_Idx + 1; j < sp->optInTimePeriod; j += 1 )
    {
       tempReal2 += fabs(sp->cb_circBuffer[j] - theAverage);
    }
@@ -459,7 +500,7 @@ static TA_RetCode TA_CCI_OpenImpl( struct TA_CCI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
@@ -547,9 +588,18 @@ static TA_RetCode TA_CCI_OpenImpl( struct TA_CCI_Stream **stream, const double i
       {
          lastValue = (inHigh[i] + inLow[i] + inClose[i]) / 3;
          circBuffer[circBuffer_Idx] = lastValue;
-         /* Calculate the average for the whole period. */
+         /* Calculate the average for the whole period. Both sums take the
+          * slot just stored from lastValue, in the same order, so no load reads
+          * it back: a vector load spanning that slot stalls until the store
+          * commits.
+          */
          theAverage = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 )
+         for( j = 0; j < circBuffer_Idx; j += 1 )
+         {
+            theAverage += circBuffer[j];
+         }
+         theAverage += lastValue;
+         for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 )
          {
             theAverage += circBuffer[j];
          }
@@ -558,7 +608,12 @@ static TA_RetCode TA_CCI_OpenImpl( struct TA_CCI_Stream **stream, const double i
           * for the whole period, then its mean.
           */
          tempReal2 = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 )
+         for( j = 0; j < circBuffer_Idx; j += 1 )
+         {
+            tempReal2 += fabs(circBuffer[j] - theAverage);
+         }
+         tempReal2 += fabs(lastValue - theAverage);
+         for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 )
          {
             tempReal2 += fabs(circBuffer[j] - theAverage);
          }
@@ -640,7 +695,7 @@ TA_LIB_API TA_RetCode TA_CCI_Open( TA_CCI_Stream **stream, const double inHigh[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_CCI_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -650,7 +705,7 @@ TA_LIB_API TA_RetCode TA_CCI_OpenAndFill( TA_CCI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CCI_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -665,7 +720,7 @@ TA_RetCode TA_CCI_OpenAndFillInternal( struct TA_CCI_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_CCI_Update( TA_CCI_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -684,29 +739,39 @@ TA_LIB_API TA_RetCode TA_CCI_Peek( const TA_CCI_Stream *stream, double inHigh, d
    double lastValue;
    int j;
    double *cb_circBuffer;
-   int pkSlot0 = -1;
-   double pkVal0 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    cb_circBuffer = sp->cb_circBuffer;
    lastValue = (inHigh + inLow + inClose) / 3;
-   pkSlot0 = sp->circBuffer_Idx;
-   pkVal0 = lastValue;
-   /* Calculate the average for the whole period. */
+   /* Calculate the average for the whole period. Both sums take the
+    * slot just stored from lastValue, in the same order, so no load reads
+    * it back: a vector load spanning that slot stalls until the store
+    * commits.
+    */
    theAverage = 0;
-   for( j = 0; j < sp->optInTimePeriod; j += 1 )
+   for( j = 0; j < sp->circBuffer_Idx; j += 1 )
    {
-      theAverage += (j != pkSlot0) ? cb_circBuffer[j] : pkVal0;
+      theAverage += cb_circBuffer[j];
+   }
+   theAverage += lastValue;
+   for( j = sp->circBuffer_Idx + 1; j < sp->optInTimePeriod; j += 1 )
+   {
+      theAverage += cb_circBuffer[j];
    }
    theAverage /= sp->optInTimePeriod;
    /* Do the summation of the ABS(TypePrice-average)
     * for the whole period, then its mean.
     */
    tempReal2 = 0;
-   for( j = 0; j < sp->optInTimePeriod; j += 1 )
+   for( j = 0; j < sp->circBuffer_Idx; j += 1 )
    {
-      tempReal2 += fabs(((j != pkSlot0) ? cb_circBuffer[j] : pkVal0) - theAverage);
+      tempReal2 += fabs(cb_circBuffer[j] - theAverage);
+   }
+   tempReal2 += fabs(lastValue - theAverage);
+   for( j = sp->circBuffer_Idx + 1; j < sp->optInTimePeriod; j += 1 )
+   {
+      tempReal2 += fabs(cb_circBuffer[j] - theAverage);
    }
    tempReal2 /= sp->optInTimePeriod;
    /* And finally, the CCI... */
@@ -762,7 +827,7 @@ TA_LIB_API TA_RetCode TA_CCI_OutRange( const TA_CCI_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_CCI_Advance( TA_CCI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

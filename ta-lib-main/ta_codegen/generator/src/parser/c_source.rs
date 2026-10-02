@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::ir::{
-    AltDef, ApiClaim, BinOp, CircBuf, CircBufLayout, Expr, HelperDef, HelperParam, LangClaim,
-    Statement, VarType,
+    AltClaim, AltDef, ApiClaim, BinOp, CircBuf, CircBufLayout, Expr, HelperDef, HelperParam,
+    LangClaim, Statement, VarType,
 };
 
 // --- Public API ---
@@ -181,17 +181,26 @@ fn classify_functions(func_def: &crate::ir::FuncDef, parsed: &ParsedCSource) -> 
             func_def.name,
             f.name
         );
-        let claims: Vec<&Pragma> = f.pragmas.iter().filter(|p| p.name == "TA_ALT").collect();
+        let claims: Vec<AltClaim> = f
+            .pragmas
+            .iter()
+            .filter(|p| p.name == "TA_ALT")
+            .map(|p| {
+                let (api, lang) = parse_ta_alt_claim(
+                    p.value.as_deref().unwrap_or_default(),
+                    p.line,
+                    Some(&func_def.name),
+                );
+                AltClaim { api, lang }
+            })
+            .collect();
         assert!(
-            claims.len() == 1,
-            "{}: `{}` carries {} `PRAGMA TA_ALT=` decorations; exactly one is required",
+            !claims.is_empty(),
+            "{}: `{}` carries 0 `PRAGMA TA_ALT=` decorations; at least one is required",
             func_def.name,
-            f.name,
-            claims.len()
+            f.name
         );
-        let value = claims[0].value.as_deref().unwrap_or_default();
-        let (api, lang) = parse_ta_alt_claim(value, claims[0].line, Some(&func_def.name));
-        alts.push(AltDef { name: f.name.clone(), index, api, lang, body: f.body.clone() });
+        alts.push(AltDef { name: f.name.clone(), index, claims, body: f.body.clone() });
     }
 
     assert!(
@@ -217,8 +226,8 @@ fn classify_functions(func_def: &crate::ir::FuncDef, parsed: &ParsedCSource) -> 
     alts
 }
 
-/// Whole-set checks over a function's alternates: numbering, and the two ways a
-/// body can end up winning no cell at all.
+/// Whole-set checks over a function's alternates: numbering, and the ways a body
+/// or one of its claims can end up deciding no cell at all.
 fn check_alt_set(alts: &[AltDef], func_def: &crate::ir::FuncDef, base_name: &str) {
     // The `<n>` restates the override order that file position already decides,
     // so a diff that reorders two alternates fails here instead of silently
@@ -240,25 +249,34 @@ fn check_alt_set(alts: &[AltDef], func_def: &crate::ir::FuncDef, base_name: &str
     // an alternate can be shadowed by the UNION of two later ones without any
     // single one covering it (`{ALL_API,C}` under `{BATCH,C}` + `{STREAM,C}`),
     // and the same sweep answers the base's liveness for free.
+    //
+    // One level down, a decoration decides a cell only where it is the winner's
+    // sole claim on it: a duplicate, or a claim a sibling subsumes, is as dead as
+    // an overridden one.
     let mut wins = vec![false; alts.len()];
+    let mut decides: Vec<Vec<bool>> = alts.iter().map(|a| vec![false; a.claims.len()]).collect();
     let mut base_wins = false;
     for &t in &crate::ir::ALL_TIERS {
         for &l in &crate::ir::ALL_LANGS {
-            match alts.iter().rposition(|a| a.api.covers(t) && a.lang.covers(l)) {
-                Some(i) => wins[i] = true,
-                None => base_wins = true,
+            let Some(i) = alts.iter().rposition(|a| a.covers(t, l)) else {
+                base_wins = true;
+                continue;
+            };
+            wins[i] = true;
+            let mut covering = alts[i].claims.iter().enumerate().filter(|(_, c)| c.covers(t, l));
+            if let (Some((j, _)), None) = (covering.next(), covering.next()) {
+                decides[i][j] = true;
             }
         }
     }
     for (a, won) in alts.iter().zip(&wins) {
         assert!(
             *won,
-            "{}: `{}` claims {{{},{}}} but later alternates cover every one of those cells — \
+            "{}: `{}` claims {} but later alternates cover every one of those cells — \
              it would never be used",
             func_def.name,
             a.name,
-            a.api.as_str(),
-            a.lang.as_str()
+            a.claims.iter().map(ToString::to_string).collect::<Vec<_>>().join(" + ")
         );
     }
     assert!(
@@ -267,6 +285,18 @@ fn check_alt_set(alts: &[AltDef], func_def: &crate::ir::FuncDef, base_name: &str
          never be used — an alternate is a specialization of the base, not a replacement",
         func_def.name
     );
+    for (a, claim_decides) in alts.iter().zip(&decides) {
+        for (c, decided) in a.claims.iter().zip(claim_decides) {
+            assert!(
+                *decided,
+                "{}: `PRAGMA TA_ALT={c}` on `{}` decides no cell: each cell it claims is \
+                 claimed again on `{}` or overridden by a later alternate",
+                func_def.name,
+                a.name,
+                a.name
+            );
+        }
+    }
 }
 
 /// The base function's parameter list, for the same-signature check.
@@ -398,6 +428,7 @@ impl TypeNames {
                 r,
             ) => self.is_real_expr(l) || self.is_real_expr(r),
             Expr::Ternary(_, a, b) => self.is_real_expr(a) || self.is_real_expr(b),
+            Expr::Neg(i) => self.is_real_expr(i),
             // Everything else is not PROVABLY floating-point, which is the bar
             // here. That includes an explicit `(int)` cast — writing one is the
             // whole point, so it must stop the walk — and any call, whose
@@ -646,6 +677,13 @@ fn parse_pragma(lines: &[String], line: u32, file: Option<&str>) -> Option<Pragm
         let close = v
             .find('}')
             .unwrap_or_else(|| panic!("{loc}PRAGMA {name}: unterminated `{{`"));
+        // Read as free text, a second value on the same line would be dropped.
+        let rest = v[close + 1..].trim_start();
+        assert!(
+            !rest.starts_with(',') && !rest.contains('{') && !rest.contains(&format!("{name}=")),
+            "{loc}PRAGMA {name}: one value per decoration; give the next its own \
+             `PRAGMA {name}=` line"
+        );
         &v[..=close]
     } else {
         let end = v.find(char::is_whitespace).unwrap_or(v.len());
@@ -1570,6 +1608,9 @@ struct Parser {
     /// CIRCBUF id -> element layout, captured at PROLOG so INIT/INIT_LOCAL_ONLY/DESTROY
     /// can carry the layout without a cross-statement lookup.
     circbufs: HashMap<String, CircBufLayout>,
+    /// How many [`parse_statements`](Parser::parse_statements) calls are open: 1
+    /// while parsing a function's own scope.
+    depth: usize,
 }
 
 /// Comment slots accumulated while climbing an if-condition's boolean spine: one
@@ -1593,6 +1634,16 @@ enum SpineDrain {
     GroupClose,
 }
 
+/// Whether `s` runs in place. An initializer runs ahead of the body; a chained
+/// assignment and a bare `{ .. }` both parse as a block.
+fn runs(s: &Statement) -> bool {
+    match s {
+        Statement::CircBuf(CircBuf::Prolog { .. }) | Statement::VarDecl { .. } => false,
+        Statement::Block { body } => body.iter().any(runs),
+        _ => true,
+    }
+}
+
 impl Parser {
     #[cfg(test)]
     fn new(tokens: Vec<Token>) -> Self {
@@ -1609,6 +1660,7 @@ impl Parser {
             comment_idx: 0,
             struct_defs: HashMap::new(),
             circbufs: HashMap::new(),
+            depth: 0,
         }
     }
 
@@ -1731,8 +1783,10 @@ impl Parser {
     }
 
     fn parse_statements(&mut self) -> Vec<Statement> {
+        self.depth += 1;
         let mut stmts = Vec::new();
         let mut declared_vars: HashSet<String> = HashSet::new();
+        let mut ran = false;
         while self.pos < self.tokens.len() {
             // Flush comments that precede the token at the current boundary so
             // they render immediately before the upcoming statement.
@@ -1745,18 +1799,25 @@ impl Parser {
                 self.advance();
                 continue;
             }
+            let at = self.pos;
             match self.peek().cloned() {
-                Some(Token::Ident(ref s)) if Self::is_type_keyword(s) => {
+                Some(Token::Ident(ref s)) if Self::is_type_keyword(s) || s == "const" => {
+                    if s == "const" {
+                        self.advance();
+                    }
                     let decls = self.parse_var_decl();
-                    Self::dedup_var_decls(decls, &mut declared_vars, &mut stmts);
-                }
-                Some(Token::Ident(ref s)) if s == "const" => {
-                    self.advance(); // consume `const`
-                    let decls = self.parse_var_decl();
+                    if ran && self.depth == 1 {
+                        self.reject_late_initializer(&decls, &declared_vars, at);
+                    }
                     Self::dedup_var_decls(decls, &mut declared_vars, &mut stmts);
                 }
                 _ => {
-                    stmts.push(self.parse_statement());
+                    let stmt = self.parse_statement();
+                    if ran && self.depth == 1 {
+                        self.reject_late_initializer(std::slice::from_ref(&stmt), &declared_vars, at);
+                    }
+                    ran |= runs(&stmt);
+                    stmts.push(stmt);
                 }
             }
         }
@@ -1764,7 +1825,32 @@ impl Parser {
         // or at end of the top-level body where the loop exits without a boundary
         // check at the final position).
         self.flush_comments(self.pos, &mut stmts);
+        self.depth -= 1;
         stmts
+    }
+
+    /// Every backend runs a function-scope initializer ahead of the body, so one
+    /// declared after a statement would read what that statement had not yet
+    /// computed, the same wrong way in all four. A re-declaration is already an
+    /// assignment in place, and a declaration inside a block stays in its block.
+    fn reject_late_initializer(&self, decls: &[Statement], declared: &HashSet<String>, at: usize) {
+        let late = decls.iter().find_map(|d| match d {
+            Statement::VarDecl { name, init: Some(_), .. } if !declared.contains(name) => Some(name),
+            _ => None,
+        });
+        if let Some(name) = late {
+            let loc = match (self.file.as_deref(), self.tok_lines.get(at)) {
+                (Some(f), Some(l)) => format!("{f}:{l}: "),
+                (Some(f), None) => format!("{f}: "),
+                _ => String::new(),
+            };
+            panic!(
+                "{loc}`{name}` is declared with an initializer after the function's first \
+                 statement. The generated code runs function-scope initializers before the \
+                 body, not here. Declare `{name}` with the other locals at the top of the \
+                 function and assign it here instead."
+            );
+        }
     }
 
     /// Deduplicate variable declarations: if a name was already declared, convert
@@ -3300,8 +3386,13 @@ impl Parser {
         if let Some(Token::Op(ref op)) = self.peek() {
             if op == "-" {
                 self.advance();
-                let operand = self.parse_unary();
-                return Expr::BinOp(Box::new(Expr::IntLiteral(0)), BinOp::Sub, Box::new(operand));
+                // A nonzero literal folds to its negative; `-0.0` must stay a
+                // negation, because a folded zero literal renders unsigned.
+                return match self.parse_unary() {
+                    Expr::IntLiteral(v) if v != 0 => Expr::IntLiteral(-v),
+                    Expr::Literal(v) if v != 0.0 => Expr::Literal(-v),
+                    operand => Expr::Neg(Box::new(operand)),
+                };
             }
             if op == "+" {
                 self.advance();
@@ -4486,6 +4577,42 @@ TA_RetCode test_func(int startIdx, int endIdx, int *outBegIdx, int *outNBElement
     fn test_tokenize_unexpected_char() {
         // Line 396: unexpected character
         tokenize("int x = @;");
+    }
+
+    // ===== Function-scope initializers after a statement =====
+
+    fn parse_scope(src: &str) -> Vec<Statement> {
+        Parser::new(tokenize(src)).parse_statements()
+    }
+
+    #[test]
+    #[should_panic(expected = "`b` is declared with an initializer after the function's first statement")]
+    fn a_function_scope_initializer_after_a_statement_is_rejected() {
+        parse_scope("int a; a = 1; double b = a;");
+    }
+
+    #[test]
+    #[should_panic(expected = "`c` is declared with an initializer after the function's first statement")]
+    fn a_chained_assignment_counts_as_a_statement() {
+        parse_scope("int a, b; a = b = 1; double c = a;");
+    }
+
+    #[test]
+    #[should_panic(expected = "`b` is declared with an initializer after the function's first statement")]
+    fn a_bare_block_counts_as_a_statement() {
+        parse_scope("int a; { a = 1; } double b = a;");
+    }
+
+    #[test]
+    fn initializers_the_backends_place_correctly_are_accepted() {
+        // Inside a block, after a statement: every backend keeps it in its block.
+        parse_scope("int a; a = 1; while( a ) { a = 0; double c = 2.0; }");
+        // A re-declaration: already an assignment in place.
+        parse_scope("double b = 1.0; int a; a = 2; double b = 3.0;");
+        // No initializer.
+        parse_scope("int a; a = 1; double c;");
+        // CIRCBUF_PROLOG declares; it runs nothing.
+        parse_scope("CIRCBUF_PROLOG(buf,double,30); double c = 2.0;");
     }
 
     // ===== extract_func_params edge cases =====
@@ -5734,13 +5861,16 @@ TA_RetCode test_func(int startIdx, int *outBegIdx)
         let tokens = tokenize("-x");
         let mut parser = Parser::new(tokens);
         let expr = parser.parse_expr();
-        match expr {
-            Expr::BinOp(left, BinOp::Sub, _) => match *left {
-                Expr::IntLiteral(0) => {}
-                other => panic!("Expected IntLiteral(0) for unary minus, got {other:?}"),
-            },
-            other => panic!("Expected Sub from 0 for unary minus, got {other:?}"),
-        }
+        assert_eq!(expr, Expr::Neg(Box::new(Expr::Var("x".into()))));
+    }
+
+    #[test]
+    fn test_unary_minus_folds_only_nonzero_literals() {
+        let parse = |src: &str| Parser::new(tokenize(src)).parse_expr();
+        assert_eq!(parse("-1"), Expr::IntLiteral(-1));
+        assert_eq!(parse("-0.5"), Expr::Literal(-0.5));
+        assert_eq!(parse("-0.0"), Expr::Neg(Box::new(Expr::Literal(0.0))));
+        assert_eq!(parse("-0"), Expr::Neg(Box::new(Expr::IntLiteral(0))));
     }
 
     #[test]

@@ -3,8 +3,8 @@
 //! per bar (memcmp on doubles), spot-asserts peek == update, and answers flat
 //! JSON (`ok`, per-leg match flags, first divergence as %a on mismatch). See
 //! docs/streaming-api-design.md, Verification. The whole handler is compiled
-//! out under TA_REF_SERVE, frozen reference libraries having no stream
-//! symbols.
+//! out under TA_REF_SERVE: it reads the current tree's private stream structs,
+//! whose layout a frozen release does not share.
 
 use super::{
     collect_pin_ids, sv_input_suffix, sv_range_bit, sv_reject_condition, SvRangeSite,
@@ -42,7 +42,7 @@ fn emit_sv_compare(
 
 /// The fuzz-convention input array for one expanded input name: price
 /// components map to their OHLCV series; generic reals map real0→close,
-/// real1→volume (matches abstract_call/fuzz-064 and the driver).
+/// real1→volume (matches the frozen-release serves' abstract_call and the driver).
 fn sv_input_array(name: &str, generic_idx: &mut usize) -> &'static str {
     match sv_input_suffix(name, generic_idx) {
         "o" => "sv_o",
@@ -332,6 +332,9 @@ fn sv_parse_state_struct(name: &str, text: &str) -> Vec<SvDecl> {
             !declarator.is_empty() && !ty.is_empty(),
             "{name}: unparsable stream state line `{line}`"
         );
+        if declarator.starts_with(crate::backends::c_stream::STATE_PAD_PREFIX) {
+            continue;
+        }
         // `double` and `int` are the only scalar storages the tiers emit; an
         // enum param (TA_MAType) compares like an int.
         out.push(SvDecl { name: declarator, ptr, len, is_int: ty != "double" });
@@ -454,6 +457,11 @@ fn sv_ptr_roles(
             roles.insert(
                 "scratch".to_string(),
                 SvPtr::Slots { count: "nBank".to_string(), is_int: false, phase: None },
+            );
+            // Bar b sits at slot b & tapeMask on every route, so slots compare raw.
+            roles.insert(
+                "tape".to_string(),
+                SvPtr::Slots { count: "tapeMask+1".to_string(), is_int: false, phase: None },
             );
         }
     }
@@ -978,9 +986,14 @@ fn emit_sv_value_probe(
 /// surfaces on the next bar. A leg that stopped early would read green on the
 /// defect it exists to catch.
 ///
+/// **Why the fork runs to the end before the original moves.** Fed in lockstep,
+/// a buffer the two share and each writes the bar into before reading (MAVP's
+/// tape) answers correctly on both, forever.
+///
 /// It also checks `TA_<N>_Value` on the fork, because a fork is the one caller
 /// that has no earlier call to have handed it a value — the case the accessor
 /// was added for.
+#[allow(clippy::too_many_lines)]
 fn emit_sv_clone_leg(
     s: &mut String,
     name: &str,
@@ -1022,6 +1035,10 @@ fn emit_sv_clone_leg(
     let _ = writeln!(s, "            {decl_a} {decl_b} {decl_v}");
     // The earliest prefix the opener accepts — the same one the prefix leg uses.
     s.push_str("            int cp0 = lb + 1, cmid, t, cOk = 1;\n");
+    for (i, is_int) in out_is_int.iter().enumerate() {
+        let ty = if *is_int { "int" } else { "double" };
+        let _ = writeln!(s, "            {ty} *fk{i} = NULL;");
+    }
     s.push_str("            if( cp0 <= svN - 1 )\n            {\n");
     let _ = writeln!(
         s,
@@ -1045,20 +1062,20 @@ fn emit_sv_clone_leg(
         let _ = writeln!(s, "                    if( cOk && ({cmp}) ) {{ cOk = 0; cloneBad = \"the fork's Value is not the bar it forked at\"; }}");
     }
     s.push_str("                }\n");
-    // Drive both to the end. A shared buffer diverges here and nowhere earlier.
+    // The fork to the end, then the original. A shared buffer diverges here and
+    // nowhere earlier.
+    for (i, is_int) in out_is_int.iter().enumerate() {
+        let ty = if *is_int { "int" } else { "double" };
+        let _ = writeln!(
+            s,
+            "                if( cOk && !(fk{i} = ({ty} *)malloc( sizeof({ty}) * (size_t)svN )) ) {{ cOk = 0; cloneBad = \"no memory for the fork's outputs\"; }}"
+        );
+    }
     s.push_str("                for( t = cmid; cOk && t < svN; t++ )\n                {\n");
-    let _ = writeln!(s, "                    TA_{name}_Update(cA, {bar_args}{addr_a});");
     let _ = writeln!(s, "                    TA_{name}_Update(cB, {bar_args}{addr_b});");
     for (i, is_int) in out_is_int.iter().enumerate() {
-        let same = if *is_int { format!("ca{i} != cb{i}") } else { format!("sv_bitne(ca{i}, cb{i})") };
-        let _ = writeln!(s, "                    if( {same} ) {{ cOk = 0; cloneBad = \"the fork and the original disagree\"; }}");
+        let _ = writeln!(s, "                    fk{i}[t] = cb{i};");
         let b = &bbuf[i];
-        let cross = if *is_int {
-            format!("ca{i} != {b}[t - svBeg]")
-        } else {
-            format!("sv_xtier_ne(ca{i}, {b}[t - svBeg], &svZsign)")
-        };
-        let _ = writeln!(s, "                    if( {cross} ) {{ cOk = 0; cloneBad = \"the original left batch after the fork\"; }}");
         let cross_b = if *is_int {
             format!("cb{i} != {b}[t - svBeg]")
         } else {
@@ -1067,6 +1084,23 @@ fn emit_sv_clone_leg(
         let _ = writeln!(s, "                    if( {cross_b} ) {{ cOk = 0; cloneBad = \"the fork left batch\"; }}");
     }
     s.push_str("                }\n");
+    s.push_str("                for( t = cmid; cOk && t < svN; t++ )\n                {\n");
+    let _ = writeln!(s, "                    TA_{name}_Update(cA, {bar_args}{addr_a});");
+    for (i, is_int) in out_is_int.iter().enumerate() {
+        let same = if *is_int { format!("ca{i} != fk{i}[t]") } else { format!("sv_bitne(ca{i}, fk{i}[t])") };
+        let _ = writeln!(s, "                    if( {same} ) {{ cOk = 0; cloneBad = \"the fork and the original disagree\"; }}");
+        let b = &bbuf[i];
+        let cross = if *is_int {
+            format!("ca{i} != {b}[t - svBeg]")
+        } else {
+            format!("sv_xtier_ne(ca{i}, {b}[t - svBeg], &svZsign)")
+        };
+        let _ = writeln!(s, "                    if( {cross} ) {{ cOk = 0; cloneBad = \"the original left batch after the fork\"; }}");
+    }
+    s.push_str("                }\n");
+    for i in 0..n {
+        let _ = writeln!(s, "                free( fk{i} );");
+    }
     s.push_str("                cloneChecked = 1; cloneLegs++;\n");
     s.push_str("                if( !cOk ) cloneOk = 0;\n");
     // Both consumed bars [cp0-1, svN-1], so both report the batch range. The
@@ -1172,7 +1206,7 @@ pub(crate) fn generate_c_stream_verify(
     // Cross-tier compare (stream vs batch, and OpenAndFill's array vs batch).
     // Differing bits that are numerically equal can only be +0.0 vs -0.0, which
     // max/min leave unspecified: counted, never a mismatch — the same benign
-    // class --fuzz-064 carries (issue #147). Same-tier compares (peek vs
+    // class the frozen-release fuzz carries (issue #147). Same-tier compares (peek vs
     // update) keep sv_bitne: one code path has no licence to differ at all.
     s.push_str("static int sv_xtier_ne(double a, double b, int *zsign) {\n");
     s.push_str("    if( !sv_bitne(a, b) ) return 0;\n");
@@ -1187,7 +1221,7 @@ pub(crate) fn generate_c_stream_verify(
     // TA_STREAM Shadows arithmetic, which no default setting exercises).
     s.push_str("static void sv_candle_avg(int mode) {\n");
     s.push_str("    int i;\n");
-    s.push_str("    for( i = 0; i < (int)TA_AllCandleSettings; i++ )\n");
+    s.push_str("    for( i = 0; i < TA_NB_CANDLE_SETTING; i++ )\n");
     s.push_str("        TA_SetCandleSettings( (TA_CandleSettingType)i,\n");
     s.push_str("                              mode == 2 ? TA_RangeType_Shadows : TA_Globals->candleSettings[i].rangeType,\n");
     s.push_str("                              mode == 1 ? 0 : (mode == 0 ? TA_Globals->candleSettings[i].avgPeriod + 3 : TA_Globals->candleSettings[i].avgPeriod),\n");
@@ -1196,27 +1230,25 @@ pub(crate) fn generate_c_stream_verify(
     // State-equivalence comparators, emitted before the handler that calls them.
     let (steq_code, steq_have) = generate_c_state_eq(funcs, enums);
     s.push_str(&steq_code);
-    s.push_str("static void handle_stream_verify(const char *json, char *resp, int resp_size) {\n");
-    s.push_str("    int fnLen = 0;\n");
-    s.push_str("    const char *fn = json_find_string(json, \"funcName\", &fnLen);\n");
-    s.push_str("    int svShape  = json_find_int(json, \"gen_shape\");\n");
-    s.push_str("    int svSeed   = json_find_int(json, \"gen_seed\");\n");
-    s.push_str("    int svN      = json_find_int(json, \"gen_n\");\n");
-    s.push_str("    int svK      = json_find_int(json, \"unstablePeriod\");\n");
-    s.push_str("    int svCandle = json_find_int(json, \"candleLegs\");\n");
-    s.push_str("    (void)svCandle;\n");
-    s.push_str("    (void)svK;\n");
-    s.push_str("    if( !fn ) { snprintf(resp, resp_size, \"{\\\"error\\\":\\\"missing funcName\\\"}\"); return; }\n");
-    s.push_str("    if( svN < 2 ) svN = 2;\n");
-    s.push_str("    if( svN > SV_MAXN ) svN = SV_MAXN;\n");
-    s.push_str("    fuzz_gen(svShape, svSeed, svN, sv_o, sv_h, sv_l, sv_c, sv_v, sv_oi);\n\n");
-
-    let mut first = true;
+    // One out-of-line function per indicator: inlined back into the handler,
+    // they become a single function that -flto compiles in one serial partition.
+    s.push_str("#if defined(_MSC_VER)\n#define SV_NOINLINE __declspec(noinline)\n#else\n#define SV_NOINLINE __attribute__((noinline))\n#endif\n");
+    let mut disp = String::new();
+    disp.push_str("static void handle_stream_verify(const char *json, char *resp, int resp_size) {\n");
+    disp.push_str("    int fnLen = 0;\n");
+    disp.push_str("    const char *fn = json_find_string(json, \"funcName\", &fnLen);\n");
+    disp.push_str("    int svShape  = json_find_int(json, \"gen_shape\");\n");
+    disp.push_str("    int svSeed   = json_find_int(json, \"gen_seed\");\n");
+    disp.push_str("    int svN      = json_find_int(json, \"gen_n\");\n");
+    disp.push_str("    int svK      = json_find_int(json, \"unstablePeriod\");\n");
+    disp.push_str("    int svCandle = json_find_int(json, \"candleLegs\");\n");
+    disp.push_str("    if( !fn ) { snprintf(resp, resp_size, \"{\\\"error\\\":\\\"missing funcName\\\"}\"); return; }\n");
+    disp.push_str("    if( svN < 2 ) svN = 2;\n");
+    disp.push_str("    if( svN > SV_MAXN ) svN = SV_MAXN;\n");
+    disp.push_str("    fuzz_gen(svShape, svSeed, svN, sv_o, sv_h, sv_l, sv_c, sv_v, sv_oi);\n");
     for func in funcs.iter().filter(|f| f.streaming) {
         let name = &func.name;
         let method = format!("TA_{name}");
-        let cond = if first { "if" } else { "else if" };
-        first = false;
 
         // Input arrays in fuzz convention, in signature order.
         let input_names = expand_input_names(&func.inputs);
@@ -1234,11 +1266,19 @@ pub(crate) fn generate_c_stream_verify(
         let pin_ids: Vec<i32> = collect_pin_ids(func, funcs, enums);
 
 
-        s.push_str(&format!(
-            "    {cond}( fnLen == {} && strncmp(fn, \"{method}\", {}) == 0 ) {{\n",
+        let _ = writeln!(
+            disp,
+            "    if( fnLen == {} && strncmp(fn, \"{method}\", {}) == 0 ) {{ sv_verify_{name}(json, resp, resp_size, svN, svK, svCandle); return; }}",
             method.len(),
             method.len()
-        ));
+        );
+        let _ = writeln!(
+            s,
+            "static SV_NOINLINE void sv_verify_{name}(const char *json, char *resp, int resp_size, int svN, int svK, int svCandle) {{"
+        );
+        s.push_str("    (void)svK;\n");
+        s.push_str("    (void)svCandle;\n");
+        let body_start = s.len();
 
         // Optional params from the request.
         for opt in &func.optional_inputs {
@@ -1249,7 +1289,7 @@ pub(crate) fn generate_c_stream_verify(
                 ));
             } else if matches!(&opt.param_type, ParamType::Enum(_)) {
                 s.push_str(&format!(
-                    "        TA_MAType {0} = (TA_MAType)json_find_int(json, \"{0}\");\n",
+                    "        TA_MAType {0} = json_find_matype(json, \"{0}\");\n",
                     opt.name
                 ));
             } else {
@@ -1728,8 +1768,22 @@ pub(crate) fn generate_c_stream_verify(
         );
         s.push_str("              else if( shrc != TA_INSUFFICIENT_HISTORY ) { shortHistOk = 0; shortHistBad = \"open rejected with the wrong retCode\"; }\n");
         s.push_str("              (void)stSH; }\n");
+        // OpenAndFill's guard is not always Open's: MAVP hand-rolls one per entry.
+        let _ = writeln!(
+            s,
+            "            {{ TA_{name}_Stream *stSF = NULL; int sfB = 0, sfN = 0; TA_RetCode sfrc = TA_{name}_OpenAndFill(&stSF, {in_args}lb, {opt_args}&sfB, &sfN, {});",
+            fbuf_names.join(", ")
+        );
+        let _ = writeln!(
+            s,
+            "              if( sfrc == TA_SUCCESS ) {{ shortHistOk = 0; shortHistBad = \"openAndFill accepted a history shorter than one output\"; TA_{name}_Close(stSF); }}"
+        );
+        s.push_str("              else if( sfrc != TA_INSUFFICIENT_HISTORY ) { shortHistOk = 0; shortHistBad = \"openAndFill rejected with the wrong retCode\"; }\n");
+        s.push_str("              (void)stSF; (void)sfB; (void)sfN; }\n");
         s.push_str("        }\n");
         s.push_str("        if( shortHistChecked && !shortHistOk ) allOk = 0;\n");
+        // Emit every new leg above this restore: `lb` includes svK, and past it the
+        // library runs at K=0, which agrees with `lb` only when svK is 0.
         for id in &pin_ids {
             s.push_str(&format!("        TA_SetUnstablePeriod({id}, 0);\n"));
         }
@@ -1744,14 +1798,20 @@ pub(crate) fn generate_c_stream_verify(
         } else {
             s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"fill_checked\\\":%d,\\\"fill_ok\\\":%d,\\\"fill_bars\\\":%d,\\\"ok\\\":%d,\\\"peek_checked\\\":%d,\\\"peek_ok\\\":%d,\\\"peek_reps\\\":%d,\\\"peek_rep_ok\\\":%d,\\\"peek_rejects\\\":%d,\\\"short_history_checked\\\":%d,\\\"short_history_ok\\\":%d,\\\"short_history_bad\\\":\\\"%s\\\",\\\"clone_checked\\\":%d,\\\"clone_legs\\\":%d,\\\"clone_ok\\\":%d,\\\"clone_bad\\\":\\\"%s\\\",\\\"value_checked\\\":%d,\\\"value_legs\\\":%d,\\\"value_ok\\\":%d,\\\"value_bad\\\":\\\"%s\\\",\\\"benign\\\":%d}\", fillChecked, fillOk, fillBars, allOk, peekChecked, peekAll, peekReps, peekRepAll, peekRejects, shortHistChecked, shortHistOk, shortHistBad, cloneChecked, cloneLegs, cloneOk, cloneBad, valueChecked, valueLegs, valueOk, valueBad, svZsign);\n");
         }
-        s.push_str("        return;\n");
-        s.push_str("    }\n");
+        let mut body = String::with_capacity(s.len() - body_start);
+        for l in s[body_start..].lines() {
+            body.push_str(l.strip_prefix("    ").unwrap_or(l));
+            body.push('\n');
+        }
+        s.truncate(body_start);
+        s.push_str(&body);
+        s.push_str("}\n\n");
     }
 
-    // Unknown / non-streamable function.
+    s.push_str(&disp);
     s.push_str("    snprintf(resp, resp_size, \"{\\\"error\\\":\\\"not_streamable\\\"}\");\n");
     s.push_str("}\n");
-    s.push_str("#else /* TA_REF_SERVE: frozen libs have no stream symbols */\n");
+    s.push_str("#else /* TA_REF_SERVE: a frozen release's stream structs are private to it */\n");
     s.push_str("static void handle_stream_verify(const char *json, char *resp, int resp_size) {\n");
     s.push_str("    (void)json;\n");
     s.push_str("    snprintf(resp, resp_size, \"{\\\"error\\\":\\\"not supported\\\"}\");\n");

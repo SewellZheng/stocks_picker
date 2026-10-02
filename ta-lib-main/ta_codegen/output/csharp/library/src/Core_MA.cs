@@ -63,6 +63,8 @@ public partial class Core
     *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
     *  090426 MF,CC Add ZLEMA (issue #347).
     *  090426 MF,CC Add RMA (issue #348).
+    *  092926 MF,CC Add VIDYA (issue #474).
+    *  092926 MF,CC Add ALMA (issue #475).
     */
    /// <summary>
    /// Number of leading input bars <c>Ma</c> consumes before it can produce its
@@ -77,8 +79,9 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Which moving-average algorithm to dispatch to (default 0 = SMA; values:
    /// 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int MaLookback( int optInTimePeriod, MAType optInMAType )
    {
@@ -134,6 +137,12 @@ public partial class Core
       case MAType.RMA:
          retValue = RmaLookback(optInTimePeriod);
          break;
+      case MAType.VIDYA:
+         retValue = VidyaLookback(optInTimePeriod, (3 * optInTimePeriod + 2) / 4);
+         break;
+      case MAType.ALMA:
+         retValue = AlmaLookback(optInTimePeriod, 6.0, 0.85);
+         break;
       default:
          retValue = 0;
          break;
@@ -156,10 +165,10 @@ public partial class Core
       int nbElement = 0;
       int outIdx = 0;
       int todayIdx = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -175,7 +184,7 @@ public partial class Core
       if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
          return RetCode.BadParam ;
       }
-      /* Nothing to produce: the range is shorter than the lookback. Answer here
+      /* Nothing to produce: the range ends before the lookback. Answer here
        * rather than forwarding.
        *
        * The VALUE is the same either way: ma_lookback returns exactly the lookback
@@ -295,6 +304,21 @@ public partial class Core
          outNBElement = _xr11.Count;
          retCode = RetCode.Success;
          break;
+      case MAType.VIDYA:
+         /* The one period is the EMA length; the CMO period is round(3n/4),
+          * Chande's 12:9 ratio.
+          */
+         OutRange _xr12 = Vidya(startIdx, endIdx, inReal, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal);
+         outBegIdx = _xr12.BegIdx;
+         outNBElement = _xr12.Count;
+         retCode = RetCode.Success;
+         break;
+      case MAType.ALMA:
+         OutRange _xr13 = Alma(startIdx, endIdx, inReal, optInTimePeriod, 6.0, 0.85, outReal);
+         outBegIdx = _xr13.BegIdx;
+         outNBElement = _xr13.Count;
+         retCode = RetCode.Success;
+         break;
       default:
          retCode = RetCode.BadParam;
          break;
@@ -316,10 +340,10 @@ public partial class Core
       int nbElement = 0;
       int outIdx = 0;
       int todayIdx = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -423,6 +447,18 @@ public partial class Core
          outNBElement = _xr11.Count;
          retCode = RetCode.Success;
          break;
+      case MAType.VIDYA:
+         OutRange _xr12 = Vidya(startIdx, endIdx, inReal, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal);
+         outBegIdx = _xr12.BegIdx;
+         outNBElement = _xr12.Count;
+         retCode = RetCode.Success;
+         break;
+      case MAType.ALMA:
+         OutRange _xr13 = Alma(startIdx, endIdx, inReal, optInTimePeriod, 6.0, 0.85, outReal);
+         outBegIdx = _xr13.BegIdx;
+         outNBElement = _xr13.Count;
+         retCode = RetCode.Success;
+         break;
       default:
          retCode = RetCode.BadParam;
          break;
@@ -448,8 +484,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>MaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>MaLookback</c> is a <b>success with
+   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -459,28 +500,48 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Which moving-average algorithm to dispatch to (default 0 = SMA; values:
    /// 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
    /// <param name="outReal">Selected moving average of the input. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// max(startIdx, MaLookback(...)) + 1</c> values, the count the call produces
+   /// (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Wma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Dema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Tema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Trima(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Kama(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Mama(int, int, ReadOnlySpan{double}, double, double, Span{double}, Span{double})"/>
+   /// <seealso cref="Core.T3(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
+   /// <seealso cref="Core.Hma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Zlema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Rma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Vidya(int, int, ReadOnlySpan{double}, int, int, Span{double})"/>
+   /// <seealso cref="Core.Alma(int, int, ReadOnlySpan{double}, int, double, double, Span{double})"/>
    public OutRange Ma( int startIdx,
                        int endIdx,
                        ReadOnlySpan<double> inReal,
@@ -524,8 +585,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>MaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>MaLookback</c> is a <b>success with
+   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -535,30 +601,50 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Which moving-average algorithm to dispatch to (default 0 = SMA; values:
    /// 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
    /// <param name="outReal">Selected moving average of the input. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// max(startIdx, MaLookback(...)) + 1</c> values, the count the call produces
+   /// (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Wma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Dema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Tema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Trima(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Kama(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Mama(int, int, ReadOnlySpan{double}, double, double, Span{double}, Span{double})"/>
+   /// <seealso cref="Core.T3(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
+   /// <seealso cref="Core.Hma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Zlema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Rma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Vidya(int, int, ReadOnlySpan{double}, int, int, Span{double})"/>
+   /// <seealso cref="Core.Alma(int, int, ReadOnlySpan{double}, int, double, double, Span{double})"/>
    public OutRange Ma( int startIdx,
                        int endIdx,
                        ReadOnlySpan<float> inReal,
@@ -617,7 +703,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -630,13 +716,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("MA", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -688,6 +774,12 @@ public partial class Core
             case MAType.RMA:
                this.sub = new RmaStream((RmaStream) other.sub!);
                break;
+            case MAType.VIDYA:
+               this.sub = new VidyaStream((VidyaStream) other.sub!);
+               break;
+            case MAType.ALMA:
+               this.sub = new AlmaStream((AlmaStream) other.sub!);
+               break;
             default:
                throw new InvalidOperationException("unreachable: open rejects arms without a sub-stream");
             }
@@ -698,7 +790,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -709,7 +800,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -717,9 +808,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("MA", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("MA", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("MA", "update", nameof(inReal));
          core.MaStepImpl(this, inReal);
          outRangeCount++;
          return cur_outReal;
@@ -731,16 +822,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public double Peek( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("MA", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("MA", "peek", nameof(inReal));
          MaStream sp = this;
          double cur_outReal = 0.0;
          if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
@@ -798,6 +888,14 @@ public partial class Core
             cur_outReal = ((RmaStream) sp.sub!).Peek(inReal);
             break;
          }
+         case MAType.VIDYA: {
+            cur_outReal = ((VidyaStream) sp.sub!).Peek(inReal);
+            break;
+         }
+         case MAType.ALMA: {
+            cur_outReal = ((AlmaStream) sp.sub!).Peek(inReal);
+            break;
+         }
          default:
             break; /* unreachable: open rejects arms without a sub-stream */
          }
@@ -821,7 +919,7 @@ public partial class Core
       }
    }
 
-   internal void MaStepImpl( MaStream sp, double inReal )
+   private void MaStepImpl( MaStream sp, double inReal )
    {
       if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
          sp.cur_outReal = inReal;
@@ -878,6 +976,14 @@ public partial class Core
          sp.cur_outReal = ((RmaStream) sp.sub!).Update(inReal);
          break;
       }
+      case MAType.VIDYA: {
+         sp.cur_outReal = ((VidyaStream) sp.sub!).Update(inReal);
+         break;
+      }
+      case MAType.ALMA: {
+         sp.cur_outReal = ((AlmaStream) sp.sub!).Update(inReal);
+         break;
+      }
       default:
          break; /* unreachable: open rejects arms without a sub-stream */
       }
@@ -889,7 +995,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1020,6 +1126,22 @@ public partial class Core
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
+      case MAType.VIDYA: {
+         VidyaStream sub = VidyaOpenInternal(inReal, startIdx, optInTimePeriod, (3 * optInTimePeriod + 2) / 4);
+         sp.outRangeBegIdx = sub.outRangeBegIdx;
+         sp.outRangeCount = sub.outRangeCount;
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case MAType.ALMA: {
+         AlmaStream sub = AlmaOpenInternal(inReal, startIdx, optInTimePeriod, 6.0, 0.85);
+         sp.outRangeBegIdx = sub.outRangeBegIdx;
+         sp.outRangeCount = sub.outRangeCount;
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
       default:
          return RetCode.BadParam;
       }
@@ -1036,7 +1158,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1169,6 +1291,22 @@ public partial class Core
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
+      case MAType.VIDYA: {
+         VidyaStream sub = VidyaOpenAndFill(inReal, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal);
+         outBegIdx = sub.outRangeBegIdx;
+         outNBElement = sub.outRangeCount;
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case MAType.ALMA: {
+         AlmaStream sub = AlmaOpenAndFill(inReal, optInTimePeriod, 6.0, 0.85, outReal);
+         outBegIdx = sub.outRangeBegIdx;
+         outNBElement = sub.outRangeCount;
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
       default:
          return RetCode.BadParam;
       }
@@ -1185,7 +1323,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1295,6 +1433,18 @@ public partial class Core
          sp.cur_outReal = sub.cur_outReal;
          break;
       }
+      case MAType.VIDYA: {
+         VidyaStream sub = VidyaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, out outBegIdx, out outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
+      case MAType.ALMA: {
+         AlmaStream sub = AlmaOpenAndFillInternal(inReal, startIdx, optInTimePeriod, 6.0, 0.85, out outBegIdx, out outNBElement, outReal);
+         sp.sub = sub;
+         sp.cur_outReal = sub.cur_outReal;
+         break;
+      }
       default:
          return RetCode.BadParam;
       }
@@ -1310,6 +1460,9 @@ public partial class Core
       RetCode retCode = MaOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInMAType);
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("MA", "open", nameof(inReal), inReal.Length, startIdx, MaLookback(optInTimePeriod, optInMAType));
       }
       throw StreamFailure("MA", "open", retCode);
    }
@@ -1331,12 +1484,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MaLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public MaStream MaOpen( ReadOnlySpan<double> inReal, int optInTimePeriod, MAType optInMAType )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MA open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MA open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MA open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return MaOpenInternal(inReal, 0, optInTimePeriod, optInMAType);
    }
 
@@ -1367,12 +1520,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public MaStream MaOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, MAType optInMAType, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MA openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MA openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("MA", "openAndFill", inReal.Length, MaLookback(optInTimePeriod, optInMAType));
       RequireFillLength("MA", "openAndFill", "outReal", outReal.Length, guardOutLen);
       MaStream sp = new MaStream(this);
@@ -1381,6 +1534,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("MA", "openAndFill", nameof(inReal), inReal.Length, 0, MaLookback(optInTimePeriod, optInMAType));
       }
       throw StreamFailure("MA", "openAndFill", retCode);
    }
@@ -1395,6 +1551,194 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("MA", "openAndFill", nameof(inReal), inReal.Length, startIdx, MaLookback(optInTimePeriod, optInMAType));
+      }
       throw StreamFailure("MA", "openAndFill", retCode);
+   }
+
+   private double MaStepTape( MaStream sp, ReadOnlySpan<double> tape, int tapeBase, int tapeMask, double inReal )
+   {
+      if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
+         sp.cur_outReal = inReal;
+         sp.outRangeCount++;
+         return sp.cur_outReal;
+      }
+      switch( sp.optInMAType )
+      {
+      case MAType.SMA: {
+         sp.cur_outReal = SmaStepTape((SmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.EMA: {
+         sp.cur_outReal = EmaStepTape((EmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.WMA: {
+         sp.cur_outReal = WmaStepTape((WmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.DEMA: {
+         sp.cur_outReal = DemaStepTape((DemaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.TEMA: {
+         sp.cur_outReal = TemaStepTape((TemaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.TRIMA: {
+         sp.cur_outReal = TrimaStepTape((TrimaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.KAMA: {
+         sp.cur_outReal = KamaStepTape((KamaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.MAMA: {
+         MamaValue subValue = MamaStepTape((MamaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         sp.cur_outReal = subValue.MAMA;
+         break;
+      }
+      case MAType.T3: {
+         sp.cur_outReal = T3StepTape((T3Stream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.HMA: {
+         sp.cur_outReal = HmaStepTape((HmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.ZLEMA: {
+         sp.cur_outReal = ZlemaStepTape((ZlemaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.RMA: {
+         sp.cur_outReal = RmaStepTape((RmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.VIDYA: {
+         sp.cur_outReal = VidyaStepTape((VidyaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.ALMA: {
+         sp.cur_outReal = AlmaStepTape((AlmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      default:
+         break; /* unreachable: open rejects arms without a sub-stream */
+      }
+      sp.outRangeCount++;
+      return sp.cur_outReal;
+   }
+
+   private double MaPeekTape( MaStream sp, ReadOnlySpan<double> tape, int tapeBase, int tapeMask, double inReal )
+   {
+      double cur_outReal = 0.0;
+      if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
+         cur_outReal = inReal;
+         return cur_outReal;
+      }
+      switch( sp.optInMAType )
+      {
+      case MAType.SMA: {
+         cur_outReal = SmaPeekTape((SmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.EMA: {
+         cur_outReal = EmaPeekTape((EmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.WMA: {
+         cur_outReal = WmaPeekTape((WmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.DEMA: {
+         cur_outReal = DemaPeekTape((DemaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.TEMA: {
+         cur_outReal = TemaPeekTape((TemaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.TRIMA: {
+         cur_outReal = TrimaPeekTape((TrimaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.KAMA: {
+         cur_outReal = KamaPeekTape((KamaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.MAMA: {
+         MamaValue subValue = MamaPeekTape((MamaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         cur_outReal = subValue.MAMA;
+         break;
+      }
+      case MAType.T3: {
+         cur_outReal = T3PeekTape((T3Stream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.HMA: {
+         cur_outReal = HmaPeekTape((HmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.ZLEMA: {
+         cur_outReal = ZlemaPeekTape((ZlemaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.RMA: {
+         cur_outReal = RmaPeekTape((RmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.VIDYA: {
+         cur_outReal = VidyaPeekTape((VidyaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      case MAType.ALMA: {
+         cur_outReal = AlmaPeekTape((AlmaStream) sp.sub!, tape, tapeBase, tapeMask, inReal);
+         break;
+      }
+      default:
+         break; /* unreachable: open rejects arms without a sub-stream */
+      }
+      return cur_outReal;
+   }
+
+   private int MaTapeDetach( MaStream sp )
+   {
+      if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
+         return 0;
+      }
+      switch( sp.optInMAType )
+      {
+      case MAType.SMA:
+         return SmaTapeDetach((SmaStream) sp.sub!);
+      case MAType.EMA:
+         return EmaTapeDetach((EmaStream) sp.sub!);
+      case MAType.WMA:
+         return WmaTapeDetach((WmaStream) sp.sub!);
+      case MAType.DEMA:
+         return DemaTapeDetach((DemaStream) sp.sub!);
+      case MAType.TEMA:
+         return TemaTapeDetach((TemaStream) sp.sub!);
+      case MAType.TRIMA:
+         return TrimaTapeDetach((TrimaStream) sp.sub!);
+      case MAType.KAMA:
+         return KamaTapeDetach((KamaStream) sp.sub!);
+      case MAType.MAMA:
+         return MamaTapeDetach((MamaStream) sp.sub!);
+      case MAType.T3:
+         return T3TapeDetach((T3Stream) sp.sub!);
+      case MAType.HMA:
+         return HmaTapeDetach((HmaStream) sp.sub!);
+      case MAType.ZLEMA:
+         return ZlemaTapeDetach((ZlemaStream) sp.sub!);
+      case MAType.RMA:
+         return RmaTapeDetach((RmaStream) sp.sub!);
+      case MAType.VIDYA:
+         return VidyaTapeDetach((VidyaStream) sp.sub!);
+      case MAType.ALMA:
+         return AlmaTapeDetach((AlmaStream) sp.sub!);
+      default:
+         return 0;
+      }
    }
 }

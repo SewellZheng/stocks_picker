@@ -81,7 +81,7 @@ public partial class Core
          return -1;
       }
       if( optInTimePeriod > 1 ) {
-         return optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1 ;
+         return optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1 ;
       } else {
          return 1 ;
       }
@@ -110,10 +110,10 @@ public partial class Core
       double diffM = 0;
       double minusDM1 = 0;
       int i = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -190,7 +190,7 @@ public partial class Core
        *    New Concepts In Technical Trading Systems, J. Welles Wilder Jr
        */
       if( optInTimePeriod > 1 ) {
-         lookbackTotal = optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1;
+         lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1;
       } else {
          lookbackTotal = 1;
       }
@@ -227,8 +227,8 @@ public partial class Core
             diffM = prevLow - tempReal;
             /* Minus Delta */
             prevLow = tempReal;
-            minusDM1 = (diffM > 0.0) ? diffM : 0.0;
-            minusDM1 = (diffP < diffM) ? minusDM1 : 0.0;
+            minusDM1 = MaxGt(diffM, 0.0);
+            minusDM1 = KeepIfLt(diffP, diffM, minusDM1);
             outReal[outIdx++] = minusDM1;
          }
          outNBElement = outIdx;
@@ -258,13 +258,13 @@ public partial class Core
           * select, not the max, ends the step.
           */
          tempReal = diffM - diffP;
-         minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+         minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
          tempReal = prevMinusDM + minusDM1;
          prevMinusDM = (prevMinusDM > tempReal) ? prevMinusDM : tempReal;
       }
       /* Process subsequent DM */
       /* Skip the unstable period. */
-      i = this.unstablePeriod[(int)FuncUnstId.MINUS_DM];
+      i = this._unstablePeriod[(int)FuncUnstId.MINUS_DM];
       while( i-- != 0 ) {
          today += 1;
          tempReal = inHigh[today];
@@ -276,7 +276,7 @@ public partial class Core
          /* Minus Delta */
          prevLow = tempReal;
          tempReal = diffM - diffP;
-         minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+         minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
          tempReal = prevMinusDM - prevMinusDM * invPeriod;
          prevMinusDM = tempReal + minusDM1;
          prevMinusDM = (tempReal > prevMinusDM) ? tempReal : prevMinusDM;
@@ -297,7 +297,7 @@ public partial class Core
          /* Minus Delta */
          prevLow = tempReal;
          tempReal = diffM - diffP;
-         minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+         minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
          tempReal = prevMinusDM - prevMinusDM * invPeriod;
          prevMinusDM = tempReal + minusDM1;
          prevMinusDM = (tempReal > prevMinusDM) ? tempReal : prevMinusDM;
@@ -329,10 +329,10 @@ public partial class Core
       double diffM = 0;
       double minusDM1 = 0;
       int i = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -344,7 +344,7 @@ public partial class Core
          return RetCode.BadParam ;
       }
       if( optInTimePeriod > 1 ) {
-         lookbackTotal = optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1;
+         lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1;
       } else {
          lookbackTotal = 1;
       }
@@ -370,8 +370,8 @@ public partial class Core
             tempReal = (double)inLow[today];
             diffM = prevLow - tempReal;
             prevLow = tempReal;
-            minusDM1 = (diffM > 0.0) ? diffM : 0.0;
-            minusDM1 = (diffP < diffM) ? minusDM1 : 0.0;
+            minusDM1 = MaxGt(diffM, 0.0);
+            minusDM1 = KeepIfLt(diffP, diffM, minusDM1);
             outReal[outIdx++] = minusDM1;
          }
          outNBElement = outIdx;
@@ -393,11 +393,11 @@ public partial class Core
          diffM = prevLow - tempReal;
          prevLow = tempReal;
          tempReal = diffM - diffP;
-         minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+         minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
          tempReal = prevMinusDM + minusDM1;
          prevMinusDM = (prevMinusDM > tempReal) ? prevMinusDM : tempReal;
       }
-      i = this.unstablePeriod[(int)FuncUnstId.MINUS_DM];
+      i = this._unstablePeriod[(int)FuncUnstId.MINUS_DM];
       while( i-- != 0 ) {
          today += 1;
          tempReal = (double)inHigh[today];
@@ -407,7 +407,7 @@ public partial class Core
          diffM = prevLow - tempReal;
          prevLow = tempReal;
          tempReal = diffM - diffP;
-         minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+         minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
          tempReal = prevMinusDM - prevMinusDM * invPeriod;
          prevMinusDM = tempReal + minusDM1;
          prevMinusDM = (tempReal > prevMinusDM) ? tempReal : prevMinusDM;
@@ -423,7 +423,7 @@ public partial class Core
          diffM = prevLow - tempReal;
          prevLow = tempReal;
          tempReal = diffM - diffP;
-         minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+         minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
          tempReal = prevMinusDM - prevMinusDM * invPeriod;
          prevMinusDM = tempReal + minusDM1;
          prevMinusDM = (tempReal > prevMinusDM) ? tempReal : prevMinusDM;
@@ -446,8 +446,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>MinusDmLookback</c> is a <b>success
+   /// NaN. A valid range that ends before <c>MinusDmLookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -457,25 +462,36 @@ public partial class Core
    /// <param name="optInTimePeriod">Wilder smoothing period (default 14; range 1..100000; <c>int.MinValue</c>
    /// selects the default).</param>
    /// <param name="outReal">Smoothed minus directional movement. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// max(startIdx, MinusDmLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.PlusDm(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.MinusDi(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.PlusDi(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Dx(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Adx(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Adxr(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange MinusDm( int startIdx,
                             int endIdx,
                             ReadOnlySpan<double> inHigh,
@@ -515,8 +531,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>MinusDmLookback</c> is a <b>success
+   /// NaN. A valid range that ends before <c>MinusDmLookback</c> is a <b>success
    /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -526,27 +547,38 @@ public partial class Core
    /// <param name="optInTimePeriod">Wilder smoothing period (default 14; range 1..100000; <c>int.MinValue</c>
    /// selects the default).</param>
    /// <param name="outReal">Smoothed minus directional movement. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// max(startIdx, MinusDmLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.PlusDm(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.MinusDi(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.PlusDi(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Dx(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Adx(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Adxr(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange MinusDm( int startIdx,
                             int endIdx,
                             ReadOnlySpan<float> inHigh,
@@ -607,7 +639,7 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -620,13 +652,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("MINUS_DM", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -646,7 +678,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -657,7 +688,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -666,9 +697,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("MINUS_DM", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("MINUS_DM", "update", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.NonFiniteBar("MINUS_DM", "update", !double.IsFinite(inHigh) ? nameof(inHigh) : nameof(inLow));
          core.MinusDmStepImpl(this, inHigh, inLow);
          outRangeCount++;
          return cur_outReal;
@@ -680,9 +711,8 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -690,7 +720,7 @@ public partial class Core
       /// it.</returns>
       public double Peek( double inHigh, double inLow )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("MINUS_DM", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.NonFiniteBar("MINUS_DM", "peek", !double.IsFinite(inHigh) ? nameof(inHigh) : nameof(inLow));
          MinusDmStream sp = this;
          double cur_outReal = 0.0;
          if( sp.optInTimePeriod <= 1 ) {
@@ -708,8 +738,8 @@ public partial class Core
             diffM = prevLow - tempReal;
             /* Minus Delta */
             prevLow = tempReal;
-            minusDM1 = (diffM > 0.0) ? diffM : 0.0;
-            minusDM1 = (diffP < diffM) ? minusDM1 : 0.0;
+            minusDM1 = MaxGt(diffM, 0.0);
+            minusDM1 = KeepIfLt(diffP, diffM, minusDM1);
             cur_outReal = minusDM1;
          } else {
             double tempReal = 0.0;
@@ -728,7 +758,7 @@ public partial class Core
             /* Minus Delta */
             prevLow = tempReal;
             tempReal = diffM - diffP;
-            minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+            minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
             tempReal = prevMinusDM - prevMinusDM * sp.invPeriod;
             prevMinusDM = tempReal + minusDM1;
             prevMinusDM = (tempReal > prevMinusDM) ? tempReal : prevMinusDM;
@@ -754,7 +784,7 @@ public partial class Core
       }
    }
 
-   internal void MinusDmStepImpl( MinusDmStream sp, double inHigh, double inLow )
+   private void MinusDmStepImpl( MinusDmStream sp, double inHigh, double inLow )
    {
       if( sp.optInTimePeriod <= 1 ) {
          double tempReal = 0.0;
@@ -769,8 +799,8 @@ public partial class Core
          diffM = sp.prevLow - tempReal;
          /* Minus Delta */
          sp.prevLow = tempReal;
-         minusDM1 = (diffM > 0.0) ? diffM : 0.0;
-         minusDM1 = (diffP < diffM) ? minusDM1 : 0.0;
+         minusDM1 = MaxGt(diffM, 0.0);
+         minusDM1 = KeepIfLt(diffP, diffM, minusDM1);
          sp.cur_outReal = minusDM1;
       } else {
          double tempReal = 0.0;
@@ -786,7 +816,7 @@ public partial class Core
          /* Minus Delta */
          sp.prevLow = tempReal;
          tempReal = diffM - diffP;
-         minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+         minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
          tempReal = sp.prevMinusDM - sp.prevMinusDM * sp.invPeriod;
          sp.prevMinusDM = tempReal + minusDM1;
          sp.prevMinusDM = (tempReal > sp.prevMinusDM) ? tempReal : sp.prevMinusDM;
@@ -803,7 +833,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inLow.Length != inHigh.Length ) {
@@ -893,7 +923,7 @@ public partial class Core
           *    New Concepts In Technical Trading Systems, J. Welles Wilder Jr
           */
          if( optInTimePeriod > 1 ) {
-            lookbackTotal = optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1;
+            lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1;
          } else {
             lookbackTotal = 1;
          }
@@ -929,8 +959,8 @@ public partial class Core
             diffM = prevLow - tempReal;
             /* Minus Delta */
             prevLow = tempReal;
-            minusDM1 = (diffM > 0.0) ? diffM : 0.0;
-            minusDM1 = (diffP < diffM) ? minusDM1 : 0.0;
+            minusDM1 = MaxGt(diffM, 0.0);
+            minusDM1 = KeepIfLt(diffP, diffM, minusDM1);
             outReal[outIdx++ * outStride] = minusDM1;
          }
          outNBElement = outIdx;
@@ -1021,7 +1051,7 @@ public partial class Core
           *    New Concepts In Technical Trading Systems, J. Welles Wilder Jr
           */
          if( optInTimePeriod > 1 ) {
-            lookbackTotal = optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1;
+            lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.MINUS_DM] - 1;
          } else {
             lookbackTotal = 1;
          }
@@ -1064,13 +1094,13 @@ public partial class Core
              * select, not the max, ends the step.
              */
             tempReal = diffM - diffP;
-            minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+            minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
             tempReal = prevMinusDM + minusDM1;
             prevMinusDM = (prevMinusDM > tempReal) ? prevMinusDM : tempReal;
          }
          /* Process subsequent DM */
          /* Skip the unstable period. */
-         i = this.unstablePeriod[(int)FuncUnstId.MINUS_DM];
+         i = this._unstablePeriod[(int)FuncUnstId.MINUS_DM];
          while( i-- != 0 ) {
             today += 1;
             tempReal = inHigh[today];
@@ -1082,7 +1112,7 @@ public partial class Core
             /* Minus Delta */
             prevLow = tempReal;
             tempReal = diffM - diffP;
-            minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+            minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
             tempReal = prevMinusDM - prevMinusDM * invPeriod;
             prevMinusDM = tempReal + minusDM1;
             prevMinusDM = (tempReal > prevMinusDM) ? tempReal : prevMinusDM;
@@ -1103,7 +1133,7 @@ public partial class Core
             /* Minus Delta */
             prevLow = tempReal;
             tempReal = diffM - diffP;
-            minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
+            minusDM1 = KeepIfGt(tempReal, 0.0, diffM);
             tempReal = prevMinusDM - prevMinusDM * invPeriod;
             prevMinusDM = tempReal + minusDM1;
             prevMinusDM = (tempReal > prevMinusDM) ? tempReal : prevMinusDM;
@@ -1131,6 +1161,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("MINUS_DM", "openAndFill", nameof(inHigh), inHigh.Length, startIdx, MinusDmLookback(optInTimePeriod));
+      }
       throw StreamFailure("MINUS_DM", "openAndFill", retCode);
    }
 
@@ -1144,6 +1177,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("MINUS_DM", "open", nameof(inHigh), inHigh.Length, startIdx, MinusDmLookback(optInTimePeriod));
       }
       throw StreamFailure("MINUS_DM", "open", retCode);
    }
@@ -1165,12 +1201,12 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public MinusDmStream MinusDmOpen( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int optInTimePeriod )
    {
       if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MINUS_DM open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inHigh.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MINUS_DM open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inHigh.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MINUS_DM open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inLow.IsEmpty ) throw new TALibArgumentException("MINUS_DM open: inLow is empty", nameof(inLow), RetCode.BadParam);
       RequireHistoryLength("MINUS_DM", "open", "inLow", inLow.Length, inHigh.Length);
       return MinusDmOpenInternal(inHigh, inLow, 0, optInTimePeriod);
@@ -1202,12 +1238,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public MinusDmStream MinusDmOpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int optInTimePeriod, Span<double> outReal )
    {
       if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MINUS_DM openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inHigh.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MINUS_DM openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inHigh.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MINUS_DM openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inLow.IsEmpty ) throw new TALibArgumentException("MINUS_DM openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
       int guardOutLen = OpenFillCount("MINUS_DM", "openAndFill", inHigh.Length, MinusDmLookback(optInTimePeriod));
       RequireHistoryLength("MINUS_DM", "openAndFill", "inLow", inLow.Length, inHigh.Length);

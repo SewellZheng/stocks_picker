@@ -87,9 +87,9 @@ TA_LIB_API TA_RetCode TA_ZLEMA( int    startIdx,
    int lag;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -201,9 +201,9 @@ TA_RetCode TA_S_ZLEMA( int    startIdx,
    int lag;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -283,6 +283,7 @@ struct TA_ZLEMA_Stream {
    double cur_outReal;
    int optInTimePeriod;
    double optInK_1;
+   double pad_0;
    double prevMA;
    int ringPos_trailingIdx;
    int ringCap_trailingIdx;
@@ -298,7 +299,7 @@ static void TA_ZLEMA_ReleaseImpl( struct TA_ZLEMA_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_ZLEMA_StepImpl( struct TA_ZLEMA_Stream *sp, double inReal, double *outReal )
+static TA_FMA_STEP_INLINE void TA_ZLEMA_StepImpl( struct TA_ZLEMA_Stream *sp, double inReal, double *outReal )
 {
    if( sp->optInTimePeriod == 1 )
    {
@@ -329,7 +330,7 @@ static TA_RetCode TA_ZLEMA_OpenImpl( struct TA_ZLEMA_Stream **stream, const doub
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -498,7 +499,7 @@ TA_LIB_API TA_RetCode TA_ZLEMA_Open( TA_ZLEMA_Stream **stream, const double inRe
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_ZLEMA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -508,7 +509,7 @@ TA_LIB_API TA_RetCode TA_ZLEMA_OpenAndFill( TA_ZLEMA_Stream **stream, const doub
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_ZLEMA_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -520,10 +521,11 @@ TA_RetCode TA_ZLEMA_OpenAndFillInternal( struct TA_ZLEMA_Stream **stream, const 
    return TA_ZLEMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_ZLEMA_Update( TA_ZLEMA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -566,6 +568,38 @@ TA_LIB_API TA_RetCode TA_ZLEMA_Close( TA_ZLEMA_Stream *stream )
    return TA_SUCCESS;
 }
 
+/* Private function, not in public API. */
+void TA_ZLEMA_StepTape( struct TA_ZLEMA_Stream *sp, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   sp->prevMA = fma(2.0 * inReal - tape[(tapeBase - sp->ringCap_trailingIdx) & tapeMask] - sp->prevMA, sp->optInK_1, sp->prevMA);
+   *outReal= sp->prevMA;
+   sp->cur_outReal = *outReal;
+   sp->outRangeCount++;
+}
+
+/* Private function, not in public API. */
+void TA_ZLEMA_PeekTape( const struct TA_ZLEMA_Stream *sp, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   double prevMA;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
+
+   prevMA = sp->prevMA;
+   pkSlot0 = tapeBase & tapeMask;
+   pkVal0 = inReal;
+   prevMA = fma(2.0 * inReal - ((((tapeBase - sp->ringCap_trailingIdx) & tapeMask) != pkSlot0) ? tape[(tapeBase - sp->ringCap_trailingIdx) & tapeMask] : pkVal0) - prevMA, sp->optInK_1, prevMA);
+   *outReal= prevMA;
+}
+
+/* Private function, not in public API. */
+int TA_ZLEMA_TapeDetach( struct TA_ZLEMA_Stream *sp )
+{
+   int reach = 0;
+   if( sp->ring_trailingIdx_inReal ) { TA_Free( sp->ring_trailingIdx_inReal ); sp->ring_trailingIdx_inReal = NULL; }
+   if( sp->ringCap_trailingIdx > reach ) reach = sp->ringCap_trailingIdx;
+   return reach;
+}
+
 TA_LIB_API TA_RetCode TA_ZLEMA_Value( const TA_ZLEMA_Stream *stream, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
@@ -584,7 +618,7 @@ TA_LIB_API TA_RetCode TA_ZLEMA_OutRange( const TA_ZLEMA_Stream *stream, int *out
 TA_LIB_API TA_RetCode TA_ZLEMA_Advance( TA_ZLEMA_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

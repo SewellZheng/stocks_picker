@@ -105,9 +105,9 @@ TA_LIB_API TA_RetCode TA_MASSI( int    startIdx,
    int ratioRing_Idx;
    int maxIdx_ratioRing;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
@@ -310,9 +310,9 @@ TA_RetCode TA_S_MASSI( int    startIdx,
    int ratioRing_Idx;
    int maxIdx_ratioRing;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
@@ -461,6 +461,7 @@ struct TA_MASSI_Stream {
    int optInFastPeriod;
    int optInSlowPeriod;
    double optInK_1;
+   double pad_0;
    double ema1;
    double ema2;
    double total;
@@ -479,7 +480,7 @@ static void TA_MASSI_ReleaseImpl( struct TA_MASSI_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_MASSI_StepImpl( struct TA_MASSI_Stream *sp, double inHigh, double inLow, double *outReal )
+static TA_FMA_STEP_INLINE void TA_MASSI_StepImpl( struct TA_MASSI_Stream *sp, double inHigh, double inLow, double *outReal )
 {
    double hl;
    double ratio;
@@ -520,7 +521,7 @@ static TA_RetCode TA_MASSI_OpenImpl( struct TA_MASSI_Stream **stream, const doub
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 9;
@@ -750,7 +751,7 @@ TA_LIB_API TA_RetCode TA_MASSI_Open( TA_MASSI_Stream **stream, const double inHi
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_MASSI_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInFastPeriod, optInSlowPeriod, outReal );
 }
@@ -760,7 +761,7 @@ TA_LIB_API TA_RetCode TA_MASSI_OpenAndFill( TA_MASSI_Stream **stream, const doub
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_MASSI_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal );
@@ -772,10 +773,11 @@ TA_RetCode TA_MASSI_OpenAndFillInternal( struct TA_MASSI_Stream **stream, const 
    return TA_MASSI_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_MASSI_Update( TA_MASSI_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
@@ -854,7 +856,7 @@ TA_LIB_API TA_RetCode TA_MASSI_OutRange( const TA_MASSI_Stream *stream, int *out
 TA_LIB_API TA_RetCode TA_MASSI_Advance( TA_MASSI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

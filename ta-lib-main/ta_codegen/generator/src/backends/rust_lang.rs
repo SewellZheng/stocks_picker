@@ -92,6 +92,14 @@ pub struct RustRenderCtx {
     /// because the frame's locals drop the `sp.` qualifier the gate keys on.
     /// Off, the loop takes the same generic fallback the step takes.
     pub for_range_lowering: bool,
+    /// Whether innermost loops may become counted loops over windows
+    /// ([`super::rust_window`]). Set for batch bodies only.
+    pub window_loops: bool,
+    /// Inputs resliced to `..=endIdx`, so all of one length.
+    pub same_len_inputs: std::collections::HashSet<String>,
+    /// The integer optional inputs: the only `i32`s a window bound may take
+    /// through a cast. Set for batch bodies only.
+    pub int_params: std::collections::HashSet<String>,
     /// If true, emit a pre-loop bounds-assert preamble at the top of the body. The
     /// asserts give LLVM the proof it needs to elide the per-access bounds checks on
     /// the safe `[]` indexing that follows — the generated code never uses `unsafe`.
@@ -134,11 +142,11 @@ pub struct RustRenderCtx {
     pub result_error_returns: bool,
     /// Fully-qualified MAType constant (`TA_MAType_SMA`) → its Rust rendering
     /// (`matype::SMA`, the generated crate-internal value), derived by
-    /// [`build_matype_map`]. Populated for batch/lookback bodies — the only
-    /// place `optInMAType == TA_MAType_*` comparisons render; stream bodies
-    /// dispatch MA-type structurally (case labels / sub-opens) and leave this
-    /// empty. Empty ⇒ the constant renders literally (unresolved), which a
-    /// build catches immediately.
+    /// [`build_matype_map`]. Populated for batch/lookback bodies and composed
+    /// streams, whose Open transcribes a batch tail that may compare MA types;
+    /// the other stream bodies dispatch MA-type structurally (case labels /
+    /// sub-opens) and leave this empty. Empty ⇒ the constant renders literally
+    /// (unresolved), which a build catches immediately.
     pub matype_map: std::collections::HashMap<String, String>,
     /// CIRCBUF ids rendered with the C-style hybrid storage (stack array up to
     /// the PROLOG static size, heap `Vec` above it), mapped to that static
@@ -146,6 +154,10 @@ pub struct RustRenderCtx {
     /// keep pure-`Vec` storage, whose ownership the open path moves into the
     /// stream state struct.
     pub circbuf_hybrid_static: std::collections::HashMap<String, i64>,
+    /// Per batch ring (a CIRCBUF the body advances), a storage slice whose
+    /// length is the ring's: the wrap tests against it, which lets LLVM drop
+    /// the ring's own check. A batch CIRCBUF absent here has no cursor.
+    pub circbuf_len_of: std::collections::HashMap<String, String>,
     /// Output parameters typed `Option<&mut [T]>` because their .yaml marks them
     /// `nullable` (rule B6a). Every store into one is wrapped in an `if let
     /// Some(..) = ..as_deref_mut()`, so a caller that passed `None` is skipped.
@@ -267,6 +279,9 @@ impl RustRenderCtx {
     pub fn empty() -> Self {
         RustRenderCtx {
             for_range_lowering: true,
+            window_loops: false,
+            same_len_inputs: std::collections::HashSet::new(),
+            int_params: std::collections::HashSet::new(),
             bounds_asserts: false,
             index_vars: std::collections::HashSet::new(),
             real_vars: std::collections::HashSet::new(),
@@ -280,6 +295,7 @@ impl RustRenderCtx {
             matype_map: std::collections::HashMap::new(),
             enum_vars: std::collections::HashMap::new(),
             circbuf_hybrid_static: std::collections::HashMap::new(),
+            circbuf_len_of: std::collections::HashMap::new(),
             nullable_outputs: std::collections::HashSet::new(),
             nullable_shadow: false,
         }
@@ -392,6 +408,7 @@ fn expr_is_int_array_typed(expr: &Expr, ctx: &RustRenderCtx) -> bool {
             expr_is_int_array_typed(left, ctx) && stays_i32(right)
                 || expr_is_int_array_typed(right, ctx) && stays_i32(left)
         }
+        Expr::Neg(inner) => expr_is_int_array_typed(inner, ctx),
         _ => false,
     }
 }
@@ -487,7 +504,7 @@ fn gen_imports() -> String {
 /// `vfmadd`, and the public name becomes a dispatcher through
 /// `ta_lib_dispatch::dispatch_fma!` (one cached CPU check per call; both
 /// paths are correctly rounded, so which clone runs never changes bits).
-/// Lookback and the stream tier stay undispatched, mirroring the C decision.
+/// Lookback stays undispatched; the stream tier has its own pass.
 fn fma_dispatch_wrap(text: String, fn_name: &str, vis: &str) -> String {
     if !fma::EMIT_FMA || !text.contains(".mul_add(") {
         return text;
@@ -589,6 +606,8 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         *body = ir_cleanup::drop_answered_cross_call_guards(body, &admits, None);
         *body = ir_cleanup::drop_deallocation(body);
         *body = ir_cleanup::drop_inert_guards(body);
+        let sets = super::fma::build_fma_var_sets(body, &func.outputs, &super::fma::INDEX_PARAM_SEEDS);
+        *body = super::rust_respell::rewrite(body, &sets.view(), helpers, &sets.recurrent_select_targets);
     }
     let func = &elected;
 
@@ -634,11 +653,11 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     let mut sentinel_vars = std::collections::HashSet::new();
     collect_sentinel_vars(&body_func.body, &mut sentinel_vars);
     // Also detect integer variables that participate in signed arithmetic
-    // (< 0, 0 - N, negative-capable casts — issue #160). Deliberately NOT
+    // (< 0, -x, negative-capable casts — issue #160). Deliberately NOT
     // transitive through var-to-var copies: propagating the extremum family's
     // -1 sentinels into their loop indices churned 14 hot files for no
     // behavior change. A local needing signedness must be assigned a signed
-    // EXPRESSION (cast, negative literal, 0-N) directly.
+    // EXPRESSION (cast, negative literal, -x) directly.
     collect_signed_int_vars(&body_func.body, &index_vars, &real_vars, &mut sentinel_vars);
     reject_unsupported_negative_casts(&body_func.body, &real_vars, &func.name);
     // Remove sentinel/signed vars from index_vars — they're i32, not usize
@@ -656,6 +675,9 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     prune_enum_locals(&mut index_vars, &enum_vars);
     let ctx = RustRenderCtx {
             for_range_lowering: true,
+        window_loops: true,
+        same_len_inputs: std::collections::HashSet::new(),
+        int_params: int_param_names(func),
         bounds_asserts: true,
         index_vars,
         real_vars,
@@ -669,6 +691,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         matype_map: build_matype_map(enums),
         enum_vars,
         circbuf_hybrid_static: collect_circbuf_static(&func.body),
+        circbuf_len_of: collect_circbuf_len_of(&func.body),
         nullable_outputs: super::common::nullable_output_names(func),
         nullable_shadow: false,
     };
@@ -792,8 +815,9 @@ fn internal_callee(name: &str) -> String {
 ///
 /// **Order is the contract, not an implementation detail.** The index rules
 /// (B1, B2) first, then the parameters (B3, carried by the `<N>_Lookback` call's
-/// `?`), then the buffers (B4, B5) — `docs/error-handling-spec.md` 2.2, and the
-/// same order [`super::java::gen_argument_checks`] emits. Put the input bound at
+/// `?`), then the buffers (B4, B5): the order of the batch table
+/// (`https://ta-lib.org/spec/errors/#b1`), and the one
+/// [`super::java::gen_argument_checks`] emits. Put the input bound at
 /// the top and `SMA(10, 9, ..)` answers `BadParam` where `test_index_range_xlang`
 /// requires `OutOfRangeEndIndex`.
 fn gen_public_entry(
@@ -859,7 +883,7 @@ fn gen_public_entry(
 /// past the end of the series the caller supplied is a caller bug on every
 /// range, and the only reason C answers it with `TA_SUCCESS` is that it has no
 /// size to check against. `guardOutLen` is the count actually produced, which on
-/// a range shorter than the lookback is `0`: no output space is owed, so any
+/// a range that ends before the lookback is `0`: no output space is owed, so any
 /// length will do, including none (rule N1).
 ///
 /// B3 rides on `<N>_Lookback`'s `?`. Rule L2 makes the lookback's parameter
@@ -875,10 +899,10 @@ fn gen_argument_checks(func: &FuncDef, snake: &str) -> String {
     // a cross-indicator call -- but they have to be HERE, ahead of the buffer
     // bounds, or a malformed range answers the wrong code. They also make
     // `endIdx + 1` below non-overflowing.
-    out.push_str("        if startIdx > Self::MAX_INDEX {\n");
+    out.push_str("        if startIdx > Self::INDEX_MAX {\n");
     out.push_str("            return Err(RetCode::OutOfRangeStartIndex);\n");
     out.push_str("        }\n");
-    out.push_str("        if endIdx > Self::MAX_INDEX || endIdx < startIdx {\n");
+    out.push_str("        if endIdx > Self::INDEX_MAX || endIdx < startIdx {\n");
     out.push_str("            return Err(RetCode::OutOfRangeEndIndex);\n");
     out.push_str("        }\n");
     if func.inputs.is_empty() && func.outputs.is_empty() {
@@ -954,15 +978,15 @@ fn gen_guarded_func(
     out.push_str("    ) -> RetCode {\n");
 
     // Range check. `usize` makes C's two negative-index conditions
-    // unrepresentable, so MAX_INDEX is what gives OutOfRangeStartIndex a
+    // unrepresentable, so INDEX_MAX is what gives OutOfRangeStartIndex a
     // producer here at all. The end-index arm answers OutOfRangeEndIndex to
     // match C and the crate's own abstract tier (#180; C6 of #179). No gate can
     // see this arm: the JSON-RPC server re-implements C's guard, so the crate's
     // own answer never reaches the driver.
-    out.push_str("        if startIdx > Self::MAX_INDEX {\n");
+    out.push_str("        if startIdx > Self::INDEX_MAX {\n");
     out.push_str("            return RetCode::OutOfRangeStartIndex;\n");
     out.push_str("        }\n");
-    out.push_str("        if endIdx > Self::MAX_INDEX || endIdx < startIdx {\n");
+    out.push_str("        if endIdx > Self::INDEX_MAX || endIdx < startIdx {\n");
     out.push_str("            return RetCode::OutOfRangeEndIndex;\n");
     out.push_str("        }\n");
 
@@ -995,7 +1019,7 @@ fn gen_guarded_func(
                 // Cross-typed pairs are skipped because safe code cannot lay
                 // a `&mut [f64]` over a `&mut [i32]` to begin with, so there is
                 // nothing to detect — not because the compare is unspellable
-                // (both `as *const u8` would do). Appendix E of
+                // (both `as *const u8` would do). Rationale B6 in
                 // `docs/error-handling-spec.md`, #262.
                 if (a.param_type == ParamType::Integer) != (b.param_type == ParamType::Integer) {
                     continue;
@@ -1035,6 +1059,9 @@ fn gen_guarded_func(
         prune_enum_locals(&mut g_index_vars, &enum_vars);
         let g_ctx = RustRenderCtx {
             for_range_lowering: true,
+            window_loops: true,
+            same_len_inputs: std::collections::HashSet::new(),
+            int_params: int_param_names(func),
             // The guarded preamble is emitted once by gen_guarded_func above, not
             // from the statement renderer — keep this false so it cannot double.
             bounds_asserts: false,
@@ -1050,6 +1077,7 @@ fn gen_guarded_func(
             matype_map: build_matype_map(enums),
             enum_vars,
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
+            circbuf_len_of: collect_circbuf_len_of(&func.body),
             nullable_outputs: super::common::nullable_output_names(func),
             nullable_shadow: false,
         };
@@ -1137,6 +1165,9 @@ fn gen_guarded_func(
         prune_enum_locals(&mut g_index_vars, &enum_vars);
         let g_ctx = RustRenderCtx {
             for_range_lowering: true,
+            window_loops: true,
+            same_len_inputs: std::collections::HashSet::new(),
+            int_params: int_param_names(func),
             // The guarded preamble is emitted once by gen_guarded_func above, not
             // from the statement renderer — keep this false so it cannot double.
             bounds_asserts: false,
@@ -1152,6 +1183,7 @@ fn gen_guarded_func(
             matype_map: build_matype_map(enums),
             enum_vars,
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
+            circbuf_len_of: collect_circbuf_len_of(&func.body),
             nullable_outputs: super::common::nullable_output_names(func),
             nullable_shadow: false,
         };
@@ -1248,18 +1280,7 @@ fn gen_guarded_func(
             out.push_str(&emit_rust_unpacking(&candle_used, 8));
         }
 
-        // Body-assigned vars (for skipping VarDecl inits that get overwritten)
-        let g_body_assigned: std::collections::HashSet<String> = func
-            .body
-            .iter()
-            .filter_map(|s| {
-                if let Statement::Assign { target: Expr::Var(name), .. } = s {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let g_body_assigned = overwritten_before_read(&func.body);
 
         // VarDecl initializations (only when not body-assigned)
         for stmt in &func.body {
@@ -1269,7 +1290,7 @@ fn gen_guarded_func(
                 }
                 let mut hoisted = Vec::new();
                 let mut cnt = g_inline_counter.get();
-                let new_init = hoist_block_helpers(init, helpers, &mut hoisted, &mut cnt, &[]);
+                let new_init = hoist_block_helpers(init, helpers, &mut hoisted, &mut cnt, KEPT_INLINE);
                 g_inline_counter.set(cnt);
                 out.push_str(&render_hoisted_blocks(
                     &hoisted, 8, &g_ctx, &g_for_loop_vars, &g_var_inits,
@@ -1291,18 +1312,125 @@ fn gen_guarded_func(
         }
 
         // Render body statements
+        let indexed = indexed_arrays(&func.body);
+        let mut resliced = g_ctx.clone();
+        let mut reslice = String::new();
+        for input in func.inputs.iter().filter(|i| indexed.contains(&i.name)) {
+            reslice.push_str(&format!("        let {0} = &{0}[..=endIdx];\n", input.name));
+            resliced.same_len_inputs.insert(input.name.clone());
+        }
+        // With no lookback every call that got here computes, and the preamble
+        // has already asserted each input covers `endIdx`.
+        let at_entry = lookback_is_zero(func) && !func.body.iter().any(is_empty_range_exit);
+        if at_entry {
+            out.push_str(&reslice);
+        }
+        let mut past_reslice = at_entry;
         for stmt in &func.body {
             if matches!(stmt, Statement::VarDecl { .. }) {
                 continue;
             }
+            let ctx = if past_reslice { &resliced } else { &g_ctx };
             out.push_str(&render_statement(
-                stmt, 8, &g_ctx, &g_for_loop_vars, &g_var_inits,
+                stmt, 8, ctx, &g_for_loop_vars, &g_var_inits,
                 &g_output_names, &g_opt_real_params, enums, registry, helpers, &g_inline_counter,
             ));
+            if !past_reslice && is_empty_range_exit(stmt) {
+                out.push_str(&reslice);
+                past_reslice = true;
+            }
         }
     }
     out.push_str("    }\n");
 
+    out
+}
+
+/// The body's `if( startIdx > endIdx ) { ..; return ..; }`. Past it every
+/// input is read, if at all, at or below `endIdx`, which the preamble asserted
+/// in bounds once the body raised `startIdx` to its lookback. Reslicing each leg
+/// to `..=endIdx` there gives all legs one length LLVM knows, so a read at the
+/// loop index needs no check and the legs' checks merge.
+fn is_empty_range_exit(stmt: &Statement) -> bool {
+    let Statement::If { condition: Expr::BinOp(l, BinOp::Greater, r), then_body, else_body, .. } = stmt else {
+        return false;
+    };
+    matches!((l.as_ref(), r.as_ref()), (Expr::Var(s), Expr::Var(e)) if s == "startIdx" && e == "endIdx")
+        && else_body.is_empty()
+        && matches!(then_body.last(), Some(Statement::Return { .. }))
+}
+
+fn lookback_is_zero(func: &FuncDef) -> bool {
+    match &func.lookback {
+        Some(LookbackExpr::Literal(0)) => true,
+        Some(LookbackExpr::Code(stmts)) => {
+            let code: Vec<&Statement> = stmts.iter().filter(|s| !matches!(s, Statement::Comment(_))).collect();
+            matches!(code.as_slice(), [Statement::Return { value: Some(Expr::IntLiteral(0)) }])
+        }
+        _ => false,
+    }
+}
+
+/// Every array `body` indexes, at any depth.
+fn indexed_arrays(body: &[Statement]) -> std::collections::HashSet<String> {
+    let found = std::cell::RefCell::new(std::collections::HashSet::new());
+    crate::streaming::rewrite_stmts(
+        body,
+        &|e| {
+            if let Expr::ArrayAccess(n, _) = &e {
+                found.borrow_mut().insert(n.clone());
+            }
+            e
+        },
+        &|s| Some(s),
+    );
+    found.into_inner()
+}
+
+/// Locals whose declared initializer the body overwrites before reading: the
+/// first top-level statement to name one is a plain store of a value that does
+/// not read it. The renderers skip that initializer and emit every other one.
+pub(crate) fn overwritten_before_read(body: &[Statement]) -> std::collections::HashSet<String> {
+    let mut read = std::collections::HashSet::new();
+    let mut out = std::collections::HashSet::new();
+    for s in body {
+        match s {
+            // Emitted ahead of the body, so what one reads is read first.
+            Statement::VarDecl { init: Some(init), .. } => read.extend(var_names(std::slice::from_ref(&Statement::Expr(init.clone())))),
+            Statement::VarDecl { .. } => {}
+            _ => {
+                if let Statement::Assign { target: Expr::Var(n), value, compound: false } = s {
+                    let value_reads = var_names(std::slice::from_ref(&Statement::Expr(value.clone())));
+                    if !read.contains(n) && !value_reads.contains(n) {
+                        out.insert(n.clone());
+                    }
+                }
+                read.extend(var_names(std::slice::from_ref(s)));
+            }
+        }
+    }
+    out
+}
+
+/// Every name `stmts` reads or writes, at any depth: variables, arrays,
+/// pointers, and circular-buffer sizes.
+fn var_names(stmts: &[Statement]) -> std::collections::HashSet<String> {
+    fn visit(stmts: &[Statement], out: &mut std::collections::HashSet<String>) {
+        for s in stmts {
+            crate::streaming::walk_stmt_own_exprs(s, &mut |e| {
+                crate::streaming::walk_expr(e, &mut |x| {
+                    if let Expr::Var(n) | Expr::ArrayAccess(n, _) | Expr::PointerDeref(n) = x {
+                        out.insert(n.clone());
+                    }
+                });
+            });
+            for body in crate::streaming::nested_bodies(s).0 {
+                visit(body, out);
+            }
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    visit(stmts, &mut out);
     out
 }
 
@@ -1412,7 +1540,7 @@ fn gen_private_func_inner(
     // `pub(crate)`, not `pub`: C makes `TA_XXX_Private` file-`static` and Java/C#
     // make theirs package-private/internal, so a `pub` here was the one backend
     // where a caller could reach an entry point with no validation prologue --
-    // and therefore no TA_MAX_INDEX bound (#180). Cross-indicator calls are all
+    // and therefore no TA_INDEX_MAX bound (#180). Cross-indicator calls are all
     // in-crate, so nothing legitimate loses access.
     // #[inline] enables cross-module inlining for cross-indicator calls
     out.push_str("    #[inline]\n");
@@ -1543,21 +1671,7 @@ fn gen_private_func_inner(
     // (int_output_names tracked via ctx.int_output_names for i32 array cast detection)
 
     // Collect variables that have both VarDecl init AND a body assignment
-    let body_assigned: std::collections::HashSet<String> = func
-        .body
-        .iter()
-        .filter_map(|s| {
-            if let Statement::Assign {
-                target: Expr::Var(name),
-                ..
-            } = s
-            {
-                Some(name.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
+    let body_assigned = overwritten_before_read(&func.body);
 
     let inline_counter = Cell::new(0);
 
@@ -1582,7 +1696,7 @@ fn gen_private_func_inner(
             // Hoist multi-statement helpers from init expressions
             let mut hoisted = Vec::new();
             let mut cnt = inline_counter.get();
-            let new_init = hoist_block_helpers(init, helpers, &mut hoisted, &mut cnt, &[]);
+            let new_init = hoist_block_helpers(init, helpers, &mut hoisted, &mut cnt, KEPT_INLINE);
             inline_counter.set(cnt);
             out.push_str(&render_hoisted_blocks(
                 &hoisted, 8, ctx, &for_loop_vars, &var_inits,
@@ -1649,7 +1763,7 @@ fn gen_generic_params(func: &FuncDef) -> String {
 ///
 /// A `nullable` output (rule B6a) is `Option<&mut [T]>`. Rust can spell
 /// "declined" distinctly from "empty" and so it does, which leaves C# the only
-/// backend where the two collapse — Appendix F of `docs/error-handling-spec.md`.
+/// backend where the two collapse (rationale O5 in `docs/error-handling-spec.md`).
 /// `None` means *compute it but do not write it out*: every store to that output
 /// is guarded and its capacity assert is skipped.
 fn output_param_type(output: &Output) -> String {
@@ -1686,7 +1800,7 @@ fn nullable_target_base<'a>(
 /// each other, and every unallocated `Vec` hands out the same dangling aligned
 /// pointer — so a bare `as_ptr()` comparison rejected three separately allocated
 /// empty `Vec`s while accepting three zero-length subslices of one buffer, which
-/// is worse than either answer. A range shorter than the lookback produces
+/// is worse than either answer. A range that ends before the lookback produces
 /// nothing and needs no output space (rule N1), so those calls are legal and C
 /// and Java always accepted them (Appendix D item 11).
 ///
@@ -1860,14 +1974,15 @@ pub(crate) enum CircBufTier {
     /// Batch: C's hybrid — a zeroed stack array at the static size, a heap `Vec`
     /// behind it, and a `&mut` slice the body indexes through. The heap `Vec` is
     /// declared only when a runtime `CIRCBUF_INIT` exists to reach it
-    /// (`INIT_LOCAL_ONLY` never leaves the stack array).
-    BatchHybrid { has_runtime_init: bool },
+    /// (`INIT_LOCAL_ONLY` never leaves the stack array). The cursor only when the
+    /// body advances it, and never a bound: the wrap tests the slice length.
+    BatchHybrid { has_runtime_init: bool, is_ring: bool },
 }
 
 /// Emit the function-top declarations for a CIRCBUF prolog, plus the `usize`
-/// rotation index and bound. The bound is seeded to `static_size - 1` (NOT 0)
-/// so the `INIT_LOCAL_ONLY` path (HT functions) sizes its buffer correctly
-/// before any `INIT` runs. Indent is the 8-space body level.
+/// rotation index and bound where the tier has them. The bound is seeded to
+/// `static_size - 1` (NOT 0) so the `INIT_LOCAL_ONLY` path (HT functions) sizes
+/// its buffer correctly before any `INIT` runs. Indent is the 8-space body level.
 pub(crate) fn emit_circbuf_prolog_rust(
     id: &str,
     layout: &CircBufLayout,
@@ -1887,7 +2002,7 @@ pub(crate) fn emit_circbuf_prolog_rust(
                     "        let mut {storage}: Vec<{vt}> = Vec::new();\n"
                 ));
             }
-            CircBufTier::BatchHybrid { has_runtime_init } => {
+            CircBufTier::BatchHybrid { has_runtime_init, .. } => {
                 s.push_str(&format!(
                     "        let mut local_{storage}: [{vt}; {static_size}] = [{zero}; {static_size}];\n"
                 ));
@@ -1902,11 +2017,19 @@ pub(crate) fn emit_circbuf_prolog_rust(
             }
         }
     }
-    s.push_str(&format!("        let mut {id}_Idx: usize = 0;\n"));
-    s.push_str(&format!(
-        "        let mut maxIdx_{id}: usize = {};\n",
-        static_size - 1
-    ));
+    match tier {
+        CircBufTier::StreamVec => {
+            s.push_str(&format!("        let mut {id}_Idx: usize = 0;\n"));
+            s.push_str(&format!(
+                "        let mut maxIdx_{id}: usize = {};\n",
+                static_size - 1
+            ));
+        }
+        CircBufTier::BatchHybrid { is_ring: true, .. } => {
+            s.push_str(&format!("        let mut {id}_Idx: usize = 0;\n"));
+        }
+        CircBufTier::BatchHybrid { is_ring: false, .. } => {}
+    }
     s
 }
 
@@ -1924,28 +2047,51 @@ pub(crate) fn collect_circbuf_static(body: &[Statement]) -> std::collections::Ha
         .collect()
 }
 
+pub(crate) fn collect_circbuf_len_of(body: &[Statement]) -> std::collections::HashMap<String, String> {
+    body.iter()
+        .filter_map(|s| match s {
+            Statement::CircBuf(CircBuf::Prolog { id, layout, .. }) if circbuf_is_ring(body, id) => {
+                circbuf_storage(id, layout).into_iter().next().map(|(storage, _)| (id.clone(), storage))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// The batch tier's storage shape for `id` in `body`. The heap `Vec` is declared
 /// only when a runtime `CIRCBUF_INIT` can reach it.
 pub(crate) fn batch_circbuf_tier(body: &[Statement], id: &str) -> CircBufTier {
-    CircBufTier::BatchHybrid { has_runtime_init: circbuf_has_runtime_init(body, id) }
+    CircBufTier::BatchHybrid {
+        has_runtime_init: circbuf_has_runtime_init(body, id),
+        is_ring: circbuf_is_ring(body, id),
+    }
 }
 
 /// Whether a runtime-sized `CIRCBUF_INIT` for `id` appears anywhere in `body`
 /// (as opposed to `INIT_LOCAL_ONLY`, which never needs the heap fallback).
 pub(crate) fn circbuf_has_runtime_init(body: &[Statement], id: &str) -> bool {
+    any_circbuf_op(body, &|op| matches!(op, CircBuf::Init { id: i, .. } if i == id))
+}
+
+/// Whether `body` advances `id` with `CIRCBUF_NEXT`. A CIRCBUF it never advances
+/// is period-sized scratch indexed directly, whose cursor nothing reads.
+fn circbuf_is_ring(body: &[Statement], id: &str) -> bool {
+    any_circbuf_op(body, &|op| matches!(op, CircBuf::Next { id: i } if i == id))
+}
+
+fn any_circbuf_op(body: &[Statement], pred: &dyn Fn(&CircBuf) -> bool) -> bool {
     body.iter().any(|stmt| match stmt {
-        Statement::CircBuf(CircBuf::Init { id: init_id, .. }) => init_id == id,
+        Statement::CircBuf(op) => pred(op),
         Statement::If { then_body, else_body, .. } => {
-            circbuf_has_runtime_init(then_body, id) || circbuf_has_runtime_init(else_body, id)
+            any_circbuf_op(then_body, pred) || any_circbuf_op(else_body, pred)
         }
         Statement::While { body: b, .. }
         | Statement::DoWhile { body: b, .. }
         | Statement::For { body: b, .. }
         | Statement::ForC { body: b, .. }
-        | Statement::Block { body: b } => circbuf_has_runtime_init(b, id),
+        | Statement::Block { body: b } => any_circbuf_op(b, pred),
         Statement::Switch { cases, default, .. } => {
-            cases.iter().any(|(_, cb)| circbuf_has_runtime_init(cb, id))
-                || circbuf_has_runtime_init(default, id)
+            cases.iter().any(|(_, cb)| any_circbuf_op(cb, pred)) || any_circbuf_op(default, pred)
         }
         _ => false,
     })
@@ -2011,14 +2157,10 @@ pub(crate) fn collect_var_types(
     }
 }
 
-/// Check if an expression is `0 - 1` (unary minus parsed as `BinOp(IntLiteral(0), Sub, IntLiteral(1))`).
+/// Check if an expression is the literal `-1`.
 fn is_negative_one(expr: &Expr) -> bool {
-    matches!(
-        expr,
-        Expr::BinOp(left, BinOp::Sub, right)
-            if matches!(left.as_ref(), Expr::IntLiteral(0))
-            && matches!(right.as_ref(), Expr::IntLiteral(1))
-    )
+    matches!(expr, Expr::Neg(inner) if matches!(inner.as_ref(), Expr::IntLiteral(1)))
+        || matches!(expr, Expr::IntLiteral(-1))
 }
 
 /// Issue #160: fail generation LOUDLY when a negative-capable `(int)(float)`
@@ -2128,15 +2270,16 @@ fn render_signed_dest_value(
 /// name-heuristic float classifier alone misses e.g. `double basis; (int)basis`).
 /// sqrt/fabs/abs inners are provably non-negative (HMA's sqrtPeriod stays usize).
 fn cast_inner_negative_capable(inner: &Expr, real_vars: &std::collections::HashSet<String>) -> bool {
-    let is_float = fma::expr_is_float_typed(inner, None)
-        || matches!(inner, Expr::Var(v) if real_vars.contains(v));
+    let base = if let Expr::Neg(i) = inner { i.as_ref() } else { inner };
+    let is_float = fma::expr_is_float_typed(base, None)
+        || matches!(base, Expr::Var(v) if real_vars.contains(v));
     is_float
         && !matches!(inner,
                      Expr::FuncCall(name, _) if name == "sqrt" || name == "fabs" || name == "abs")
 }
 
 /// Check if an expression can produce a negative integer value.
-/// Catches: `0 - N`, `-N` literal, negative-capable `(int)` casts (#160),
+/// Catches: `-x`, `0 - N`, `-N` literal, negative-capable `(int)` casts (#160),
 /// arithmetic/ternary combinations of the above.
 fn expr_can_be_negative(expr: &Expr, real_vars: &std::collections::HashSet<String>) -> bool {
     match expr {
@@ -2147,8 +2290,8 @@ fn expr_can_be_negative(expr: &Expr, real_vars: &std::collections::HashSet<Strin
                 || expr_can_be_negative(left, real_vars)
                 || expr_can_be_negative(right, real_vars)
         }
-        // ~x is negative for every x >= 0 (two's complement)
-        Expr::BitwiseNot(_) => true,
+        // ~x is negative for every x >= 0 (two's complement), -x for every x > 0
+        Expr::BitwiseNot(_) | Expr::Neg(_) => true,
         // (int)(<float expr>) truncates: negative doubles yield negative ints (#160)
         Expr::Cast(VarType::Integer | VarType::Index, inner) => {
             cast_inner_negative_capable(inner, real_vars)
@@ -2336,7 +2479,7 @@ fn count_increments_in_expr(name: &str, expr: &Expr) -> usize {
         }
         Expr::ArrayAccess(_, idx) => count_increments_in_expr(name, idx),
         Expr::FuncCall(_, args) => args.iter().map(|a| count_increments_in_expr(name, a)).sum(),
-        Expr::Not(inner) | Expr::BitwiseNot(inner) | Expr::Cast(_, inner) => {
+        Expr::Not(inner) | Expr::BitwiseNot(inner) | Expr::Neg(inner) | Expr::Cast(_, inner) => {
             count_increments_in_expr(name, inner)
         }
         Expr::Ternary(cond, then_expr, else_expr) => {
@@ -2710,16 +2853,259 @@ struct RustStmt<'a, 'e> {
     inline_counter: &'a Cell<usize>,
 }
 
+/// `while( v < e ) { a[v] = a[v+1]; v++; }` or its mirror `while( v > e ) {
+/// a[v] = a[v-1]; v--; }`: returns `(a, forward)`. `e` must name neither `a` nor
+/// `v` and be side-effect free, so evaluating it once, before the move, is the
+/// loop's own semantics.
+fn pure_shift<'x>(condition: &Expr, body: &'x [Statement]) -> Option<(&'x str, bool)> {
+    fn pure_bound(bound: &Expr, index: &str, arr: &str) -> bool {
+        match bound {
+            Expr::IntLiteral(_) => true,
+            Expr::Var(name) => name != index && name != arr,
+            Expr::BinOp(lhs, BinOp::Add | BinOp::Sub, rhs) => {
+                pure_bound(lhs, index, arr) && pure_bound(rhs, index, arr)
+            }
+            Expr::Neg(inner) => pure_bound(inner, index, arr),
+            _ => false,
+        }
+    }
+    let Expr::BinOp(lhs, cmp, bound) = condition else { return None };
+    let Expr::Var(v) = lhs.as_ref() else { return None };
+    let (forward, step) = match cmp {
+        BinOp::Less => (true, BinOp::Add),
+        BinOp::Greater => (false, BinOp::Sub),
+        _ => return None,
+    };
+    let is_v_step = |e: &Expr| {
+        matches!(e, Expr::BinOp(l, op, r)
+            if *op == step && matches!(l.as_ref(), Expr::Var(n) if n == v)
+                && matches!(r.as_ref(), Expr::IntLiteral(1)))
+    };
+    let [Statement::Assign { target: Expr::ArrayAccess(a, dst), value: Expr::ArrayAccess(a2, src), compound: false },
+        Statement::Assign { target: Expr::Var(v2), value: inc, .. }] = body
+    else {
+        return None;
+    };
+    let dst_is_v = matches!(dst.as_ref(), Expr::Var(n) if n == v);
+    (a == a2 && v2 == v && dst_is_v && is_v_step(src) && is_v_step(inc) && pure_bound(bound, v, a))
+        .then_some((a.as_str(), forward))
+}
+
+/// `e`, a sum of `usize` terms, rendered with wrapping steps: a start below
+/// zero comes out above any length, so the `get` it feeds fails instead of the
+/// subtraction panicking in a debug build.
+fn wrapping_index(e: &Expr, idx: &dyn Fn(&Expr) -> String) -> String {
+    fn terms<'e>(e: &'e Expr, plus: bool, out: &mut Vec<(&'e Expr, bool)>) {
+        match e {
+            Expr::BinOp(l, BinOp::Add, r) => {
+                terms(l, plus, out);
+                terms(r, plus, out);
+            }
+            Expr::BinOp(l, BinOp::Sub, r) => {
+                terms(l, plus, out);
+                terms(r, !plus, out);
+            }
+            Expr::Neg(inner) => terms(inner, !plus, out),
+            other => out.push((other, plus)),
+        }
+    }
+    let mut ts = Vec::new();
+    terms(e, true, &mut ts);
+    let operand = |t: &Expr| {
+        let r = idx(t);
+        if r.chars().all(|c| c.is_alphanumeric() || c == '_') { r } else { format!("({r})") }
+    };
+    let mut acc = match ts.first() {
+        Some((Expr::IntLiteral(n), true)) => format!("{n}usize"),
+        Some((t, true)) => operand(t),
+        _ => "0usize".to_string(),
+    };
+    let skip = usize::from(matches!(ts.first(), Some((_, true))));
+    for (t, plus) in &ts[skip..] {
+        let op = if *plus { "wrapping_add" } else { "wrapping_sub" };
+        acc = format!("{acc}.{op}({})", idx(t));
+    }
+    acc
+}
+
 impl RustStmt<'_, '_> {
+    /// The stream tier keeps every cursor; the batch tier only a ring's.
+    fn circbuf_has_cursor(&self, id: &str) -> bool {
+        !self.ctx.circbuf_hybrid_static.contains_key(id) || self.ctx.circbuf_len_of.contains_key(id)
+    }
+
+    /// A pure shift as one `copy_within` (a memmove). Element by element it keeps
+    /// two bounds checks per slot and never becomes a memmove; both leave `v == e`.
+    /// `None` unless the rendered loop indexes `a` by the bare `v` and compares it
+    /// as `v < e` / `v > e`, which is what makes `v` and `e` usize here.
+    fn shift_as_copy_within(&self, condition: &Expr, body: &[Statement], pad: &str) -> Option<String> {
+        let (arr, forward) = pure_shift(condition, body)?;
+        let Expr::BinOp(lhs, _, _) = condition else { return None };
+        let r = |e: &Expr| render_expr(e, self.ctx, self.opt_real_params, self.registry, self.helpers);
+        let v = r(lhs);
+        let access = r(&Expr::ArrayAccess(arr.to_string(), lhs.clone()));
+        let buf = access.strip_suffix(&format!("[{v}]"))?;
+        let cond = render_condition(condition, self.ctx, self.opt_real_params, self.registry, self.helpers);
+        let op = if forward { " < " } else { " > " };
+        let end = cond.strip_prefix(&format!("{v}{op}"))?;
+        let simple = end.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.');
+        let copy = if forward {
+            format!("{buf}.copy_within({v} + 1..={end}, {v});")
+        } else if let Ok(n) = end.parse::<u64>() {
+            format!("{buf}.copy_within({end}..{v}, {});", n + 1)
+        } else if simple {
+            format!("{buf}.copy_within({end}..{v}, {end} + 1);")
+        } else {
+            format!("{buf}.copy_within({end}..{v}, ({end}) + 1);")
+        };
+        Some(format!("{pad}if {cond} {{\n{pad}    {copy}\n{pad}    {v} = {end};\n{pad}}}\n"))
+    }
+
+    /// The loop as [`super::rust_window`] lowers it, or `None` to render it as
+    /// written. `as_written` is the loop after any `for` init, for a failed
+    /// guard the loop may still pass. A `do_while` runs the pass the guard
+    /// counts, and one more when the guard fails.
+    #[allow(clippy::too_many_lines)]
+    fn windowed(
+        &self,
+        condition: &Expr,
+        body: &[Statement],
+        update: Option<&Statement>,
+        as_written: &Statement,
+        do_while: bool,
+        indent: usize,
+    ) -> Option<String> {
+        use super::rust_window::{window_name, Names, PASS, TRIP};
+        if !self.ctx.window_loops {
+            return None;
+        }
+        let ctx = self.ctx;
+        let index = |n: &str| ctx.index_vars.contains(n) && !ctx.sentinel_vars.contains(n);
+        let usize_expr = |e: &Expr| expr_is_usize(e, ctx);
+        let castable = |e: &Expr| matches!(e, Expr::Var(n) if ctx.int_params.contains(n));
+        // A fixed-size array's length is already known to LLVM, and the loops
+        // over one run a constant few passes that a window's entry checks
+        // would outweigh.
+        let fixed = |a: &str| ctx.real_array_vars.contains(a) || (ctx.int_vec_vars.contains(a) && !ctx.vec_vars.contains(a));
+        let sliceable = |a: &str| !ctx.nullable_outputs.contains(a) && !fixed(a);
+        let same_len = |a: &str| ctx.same_len_inputs.contains(a);
+        let ring_storage = |id: &str| ctx.circbuf_len_of.get(id).cloned();
+        let names = Names {
+            index: &index,
+            usize_expr: &usize_expr,
+            castable: &castable,
+            sliceable: &sliceable,
+            same_len: &same_len,
+            ring_storage: &ring_storage,
+        };
+        let plan = super::rust_window::plan(condition, body, update, &names)?;
+        // A tested counter steps before the do-while's first test, not its
+        // first pass.
+        if do_while && plan.cond_step.is_some() {
+            return None;
+        }
+        // `as_written` is a `for` loop past its init: the range lowering would
+        // restart it from the counter's declaration.
+        let unwindowed = |indent: usize| {
+            let mut as_is = ctx.clone();
+            as_is.window_loops = false;
+            as_is.for_range_lowering = false;
+            RustStmt { ctx: &as_is, ..*self }.walk_stmt(as_written, indent)
+        };
+
+        let mut inner = ctx.clone();
+        inner.index_vars.insert(TRIP.to_string());
+        inner.index_vars.insert(PASS.to_string());
+        let inner_stmt = RustStmt { ctx: &inner, ..*self };
+        let idx = |e: &Expr| render_index_expr(e, &inner, self.opt_real_params, self.registry, self.helpers);
+        let pad = " ".repeat(indent);
+        let guard = render_condition(&plan.guard, &inner, self.opt_real_params, self.registry, self.helpers);
+        let mut out = format!("{pad}if {guard} {{\n{pad}    let {TRIP}: usize = {};\n", idx(&plan.trip));
+        let len = |extra: i64| if extra == 0 { TRIP.to_string() } else { format!("{TRIP} + {extra}") };
+        let deep = if plan.checked {
+            let (names, cuts): (Vec<String>, Vec<String>) = plan
+                .windows
+                .iter()
+                .enumerate()
+                .map(|(j, w)| {
+                    let get = if w.mutable { "get_mut" } else { "get" };
+                    let start = wrapping_index(&w.start, &idx);
+                    (format!("Some({})", window_name(j)), format!("{}.{get}({start}..).and_then(|w| w.{get}(..{}))", w.array, len(w.extra)))
+                })
+                .unzip();
+            let (names, cuts) = if names.len() == 1 {
+                (names[0].clone(), cuts[0].clone())
+            } else {
+                (format!("({})", names.join(", ")), format!("({})", cuts.join(", ")))
+            };
+            out.push_str(&format!("{pad}    if let {names} = {cuts} {{\n"));
+            // A window bound through the `Option` reaches LLVM without its
+            // length, which leaves a check on every access; cut again, once.
+            for (j, w) in plan.windows.iter().enumerate() {
+                let m = if w.mutable { "mut " } else { "" };
+                out.push_str(&format!("{pad}        let {n} = &{m}{n}[..{}];\n", len(w.extra), n = window_name(j)));
+            }
+            4
+        } else {
+            for (j, w) in plan.windows.iter().enumerate() {
+                let m = if w.mutable { "mut " } else { "" };
+                out.push_str(&format!(
+                    "{pad}    let {} = &{m}{}[{}..][..{}];\n",
+                    window_name(j),
+                    w.array,
+                    idx(&w.start),
+                    len(w.extra)
+                ));
+            }
+            0
+        };
+        let dpad = " ".repeat(indent + deep);
+        let range = if plan.reverse { format!("(0..{TRIP}).rev()") } else { format!("0..{TRIP}") };
+        out.push_str(&format!("{dpad}    for {PASS} in {range} {{\n"));
+        for s in &plan.body {
+            out.push_str(&inner_stmt.walk_stmt(s, indent + deep + 8));
+        }
+        out.push_str(&format!("{dpad}    }}\n"));
+        let last = plan.cond_step.as_ref().map(|c| format!("{c} = {c}.wrapping_sub(1);"));
+        if let Some(last) = &last {
+            out.push_str(&format!("{dpad}    {last}\n"));
+        }
+        if plan.checked {
+            out.push_str(&format!("{pad}    }} else {{\n"));
+            out.push_str(&unwindowed(indent + 8));
+            out.push_str(&format!("{pad}    }}\n"));
+        }
+        match &last {
+            None if do_while => {
+                out.push_str(&format!("{pad}}} else {{\n"));
+                out.push_str(&unwindowed(indent + 4));
+                out.push_str(&format!("{pad}}}\n"));
+            }
+            None => out.push_str(&format!("{pad}}}\n")),
+            Some(last) => {
+                out.push_str(&format!("{pad}}} else {{\n"));
+                if plan.may_pass_unguarded {
+                    out.push_str(&unwindowed(indent + 4));
+                } else {
+                    out.push_str(&format!("{pad}    {last}\n"));
+                }
+                out.push_str(&format!("{pad}}}\n"));
+            }
+        }
+        Some(out)
+    }
+
     /// Shared `if` tail (then-body + else branch with `} else if` collapse) used
     /// by both the flat and multi-line-condition rendering paths.
-    fn render_if_tail(&self, then_body: &[Statement], else_body: &[Statement], indent: usize) -> String {
+    fn render_if_tail(&self, then_body: &[Statement], else_body: &[Statement], cold_else: bool, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let mut out = String::new();
         for s in then_body {
             out.push_str(&self.walk_stmt(s, indent + 4));
         }
-        if else_body.is_empty() {
+        if cold_else {
+            out.push_str(&format!("{pad}}} else {{\n{pad}    cold_arm();\n{pad}}}\n"));
+        } else if else_body.is_empty() {
             out.push_str(&format!("{pad}}}\n"));
         } else {
             let code_start = else_body
@@ -2751,6 +3137,16 @@ impl StatementEmitter for RustStmt<'_, '_> {
         super::stmt_walk::line_comment(lines, indent)
     }
 
+    fn opaque(&self, vars: &[Expr], indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        let mut out = String::new();
+        for v in vars {
+            let t = render_assign_target(v, self.ctx, self.opt_real_params, self.registry, self.helpers);
+            let _ = std::fmt::Write::write_fmt(&mut out, format_args!("{pad}{t} = core::hint::black_box({t});\n"));
+        }
+        out
+    }
+
     fn circ_buf(&self, op: &CircBuf, indent: usize) -> String {
         let pad = " ".repeat(indent);
         match op {
@@ -2758,9 +3154,10 @@ impl StatementEmitter for RustStmt<'_, '_> {
             // Destroy: Vec storage drops automatically — no explicit free.
             CircBuf::Prolog { .. } | CircBuf::Destroy { .. } => String::new(),
             // Advance with conditional reset (not modulo) — matches the reference macro.
-            CircBuf::Next { id } => {
-                format!("{pad}{id}_Idx += 1;\n{pad}if {id}_Idx > maxIdx_{id} {{ {id}_Idx = 0; }}\n")
-            }
+            CircBuf::Next { id } => match self.ctx.circbuf_len_of.get(id) {
+                Some(storage) => format!("{pad}{id}_Idx += 1;\n{pad}if {id}_Idx >= {storage}.len() {{ {id}_Idx = 0; }}\n"),
+                None => format!("{pad}{id}_Idx += 1;\n{pad}if {id}_Idx > maxIdx_{id} {{ {id}_Idx = 0; }}\n"),
+            },
             // Runtime-sized. Batch tier (id present in circbuf_hybrid_static):
             // C-style hybrid — bind the slices to the prolog's stack arrays when
             // the runtime size fits the static capacity, heap-allocate otherwise.
@@ -2790,9 +3187,12 @@ impl StatementEmitter for RustStmt<'_, '_> {
                     s.push_str(&format!(
                         "{pad}if ({sz}) as usize <= {static_size}usize {{\n"
                     ));
+                    // Exactly `size` long, as the heap arm is: one length for
+                    // LLVM to bound every index by, where the whole stack array
+                    // would leave two (#438).
                     for (storage, _) in circbuf_storage(id, layout) {
                         s.push_str(&format!(
-                            "{pad}    {storage} = &mut local_{storage};\n"
+                            "{pad}    {storage} = &mut local_{storage}[..({sz}) as usize];\n"
                         ));
                     }
                     s.push_str(&format!("{pad}}} else {{\n"));
@@ -2822,8 +3222,12 @@ impl StatementEmitter for RustStmt<'_, '_> {
                         ));
                     }
                 }
-                s.push_str(&format!("{pad}maxIdx_{id} = (({sz}) as usize) - 1;\n"));
-                s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
+                if !self.ctx.circbuf_hybrid_static.contains_key(id) {
+                    s.push_str(&format!("{pad}maxIdx_{id} = (({sz}) as usize) - 1;\n"));
+                }
+                if self.circbuf_has_cursor(id) {
+                    s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
+                }
                 s
             }
             // Always the static capacity; bound was seeded in the prolog (maxIdx + 1).
@@ -2848,7 +3252,9 @@ impl StatementEmitter for RustStmt<'_, '_> {
                         ));
                     }
                 }
-                s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
+                if self.circbuf_has_cursor(id) {
+                    s.push_str(&format!("{pad}{id}_Idx = 0;\n"));
+                }
                 s
             }
         }
@@ -2964,7 +3370,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
         let mut hoisted = Vec::new();
         let mut cnt = self.inline_counter.get();
         let new_value = hoist_block_helpers(
-            value, self.helpers, &mut hoisted, &mut cnt, &[],
+            value, self.helpers, &mut hoisted, &mut cnt, KEPT_INLINE,
         );
         // Canonicalize accumulator recurrences so all backends fuse the same
         // product regardless of operand order (cross-language / batch-vs-stream).
@@ -3317,6 +3723,9 @@ impl StatementEmitter for RustStmt<'_, '_> {
 
     fn while_loop(&self, condition: &Expr, while_body: &[Statement], indent: usize) -> String {
         let pad = " ".repeat(indent);
+        if let Some(out) = self.shift_as_copy_within(condition, while_body, &pad) {
+            return out;
+        }
         if let Expr::BinOp(left, BinOp::LessEq, right) = condition {
             if let Expr::Var(iter_name) = left.as_ref() {
                 if self.ctx.for_range_lowering && self.for_loop_vars.contains(iter_name) {
@@ -3337,6 +3746,10 @@ impl StatementEmitter for RustStmt<'_, '_> {
                 }
             }
         }
+        let as_written = Statement::While { condition: condition.clone(), body: while_body.to_vec() };
+        if let Some(out) = self.windowed(condition, while_body, None, &as_written, false, indent) {
+            return out;
+        }
         let mut out = format!(
             "{}while {} {{\n",
             pad,
@@ -3350,6 +3763,10 @@ impl StatementEmitter for RustStmt<'_, '_> {
     }
 
     fn do_while(&self, condition: &Expr, while_body: &[Statement], indent: usize) -> String {
+        let as_written = Statement::DoWhile { condition: condition.clone(), body: while_body.to_vec() };
+        if let Some(out) = self.windowed(condition, while_body, None, &as_written, true, indent) {
+            return out;
+        }
         let pad = " ".repeat(indent);
         let mut out = format!("{pad}loop {{\n");
         for s in while_body {
@@ -3371,6 +3788,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
         if contains_alloc_err_return(then_body) {
             return String::new();
         }
+        let cold_else = super::divisor_guard::is_divisor_guard(condition, then_body, else_body);
         // Split `if(A && B)` into nested `if(A) { if(B)` when both sides
         // contain a candle function call (ta_candlerange/ta_candleaverage).
         // This prevents the compiler from speculatively computing both sides
@@ -3423,7 +3841,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
                 let mut out = format!("{pad}if ");
                 out.push_str(&cond_text);
                 out.push_str(&format!("{pad}{{\n"));
-                out.push_str(&self.render_if_tail(then_body, else_body, indent));
+                out.push_str(&self.render_if_tail(then_body, else_body, cold_else, indent));
                 return out;
             }
         }
@@ -3432,7 +3850,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
             pad,
             render_condition(condition, self.ctx, self.opt_real_params, self.registry, self.helpers)
         );
-        out.push_str(&self.render_if_tail(then_body, else_body, indent));
+        out.push_str(&self.render_if_tail(then_body, else_body, cold_else, indent));
         out
     }
 
@@ -3501,6 +3919,22 @@ impl StatementEmitter for RustStmt<'_, '_> {
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn for_c(&self, init: &Statement, condition: &Expr, update: &Statement, for_body: &[Statement], indent: usize) -> String {
         let pad = " ".repeat(indent);
+        if let [one] = for_body {
+            let as_while = [one.clone(), update.clone()];
+            if let Some(shift) = self.shift_as_copy_within(condition, &as_while, &pad) {
+                return self.walk_stmt(init, indent) + &shift;
+            }
+        }
+        let mut after_init = for_body.to_vec();
+        after_init.push(update.clone());
+        let as_written = Statement::While { condition: condition.clone(), body: after_init };
+        if let Some(out) = self.windowed(condition, for_body, Some(update), &as_written, false, indent) {
+            let inits = match init {
+                Statement::Block { body } => body.clone(),
+                other => vec![other.clone()],
+            };
+            return inits.iter().map(|s| self.walk_stmt(s, indent)).collect::<String>() + &out;
+        }
         // Range-iteration fast path: for(i=start; i<=end; i++) → for i in start..(end+1)
         // Uses exclusive range (not ..=) because LLVM vectorizes exclusive ranges
         // but generates suboptimal cinc+double-compare for inclusive ranges.
@@ -3722,7 +4156,7 @@ fn expr_has_uncast_array_access(expr: &Expr) -> bool {
         Expr::BinOp(left, _, right) => {
             expr_has_uncast_array_access(left) || expr_has_uncast_array_access(right)
         }
-        Expr::Not(inner) | Expr::BitwiseNot(inner) => expr_has_uncast_array_access(inner),
+        Expr::Not(inner) | Expr::BitwiseNot(inner) | Expr::Neg(inner) => expr_has_uncast_array_access(inner),
         Expr::FuncCall(_, args) => args.iter().any(expr_has_uncast_array_access),
         Expr::Ternary(cond, then_expr, else_expr) => {
             expr_has_uncast_array_access(cond)
@@ -3745,6 +4179,9 @@ fn render_assign_target(
         }
         Expr::Var(name) => name.clone(),
         Expr::ArrayAccess(name, idx) => {
+            if let Some(w) = super::rust_window::render_marker(idx) {
+                return w;
+            }
             let idx_rendered = render_index_expr(idx, ctx, opt_real_params, registry, helpers);
             format!("{name}[{idx_rendered}]")
         }
@@ -3753,6 +4190,7 @@ fn render_assign_target(
         | Expr::BinOp(_, _, _)
         | Expr::Cast(_, _)
         | Expr::Not(_)
+        | Expr::Neg(_)
         | Expr::BitwiseNot(_)
         | Expr::FuncCall(_, _)
         | Expr::PointerDeref(_)
@@ -3851,6 +4289,7 @@ fn render_binop_operand(
         | Expr::Var(_)
         | Expr::ArrayAccess(_, _)
         | Expr::Not(_)
+        | Expr::Neg(_)
         | Expr::BitwiseNot(_)
         | Expr::FuncCall(_, _)
         | Expr::PointerDeref(_)
@@ -3990,6 +4429,9 @@ impl ExprEmitter for RustExpr<'_> {
     }
 
     fn array_access(&self, name: &str, idx: &Expr) -> String {
+        if let Some(w) = super::rust_window::render_marker(idx) {
+            return w;
+        }
         let idx_rendered =
             render_index_expr(idx, self.ctx, self.opt_real_params, self.registry, self.helpers);
         // Always safe `[]` indexing. The bounds-assert preamble lets LLVM elide the
@@ -4438,6 +4880,7 @@ fn expr_is_integer(expr: &Expr) -> bool {
         }
         Expr::IntLiteral(_) | Expr::Cast(VarType::Integer | VarType::Index, _) => true,
         Expr::BinOp(left, _, right) => expr_is_integer(left) && expr_is_integer(right),
+        Expr::Neg(inner) => expr_is_integer(inner),
         _ => false,
     }
 }
@@ -4504,7 +4947,7 @@ fn expr_is_i32_typed(expr: &Expr) -> bool {
             expr_is_i32_typed(left) && (expr_is_i32_typed(right) || matches!(right.as_ref(), Expr::IntLiteral(_)))
                 || expr_is_i32_typed(right) && matches!(left.as_ref(), Expr::IntLiteral(_))
         }
-        Expr::BitwiseNot(inner) => expr_is_i32_typed(inner),
+        Expr::BitwiseNot(inner) | Expr::Neg(inner) => expr_is_i32_typed(inner),
         Expr::Cast(VarType::Integer, _inner) => {
             true
         }
@@ -4556,6 +4999,7 @@ fn expr_is_i32_typed_ctx(expr: &Expr, ctx: &RustRenderCtx) -> bool {
                 || (l_i32 && r_usize && contains_sentinel_expr(left, ctx))
                 || (r_i32 && l_usize && contains_sentinel_expr(right, ctx))
         }
+        Expr::Neg(inner) => expr_is_i32_typed_ctx(inner, ctx),
         _ => false,
     }
 }
@@ -4566,6 +5010,7 @@ fn contains_sentinel_expr(expr: &Expr, ctx: &RustRenderCtx) -> bool {
         Expr::BinOp(left, _, right) => {
             contains_sentinel_expr(left, ctx) || contains_sentinel_expr(right, ctx)
         }
+        Expr::Neg(inner) => contains_sentinel_expr(inner, ctx),
         _ => false,
     }
 }
@@ -4586,6 +5031,10 @@ pub(crate) fn expr_is_untyped_integer(expr: &Expr) -> bool {
             let left_is_int = expr_is_untyped_integer(left) || matches!(left.as_ref(), Expr::IntLiteral(_));
             let right_is_int = expr_is_untyped_integer(right) || matches!(right.as_ref(), Expr::IntLiteral(_));
             left_is_int && right_is_int && !expr_is_i32_typed(left) && !expr_is_i32_typed(right)
+        }
+        Expr::Neg(inner) => {
+            (expr_is_untyped_integer(inner) || matches!(inner.as_ref(), Expr::IntLiteral(_)))
+                && !expr_is_i32_typed(inner)
         }
         _ => false,
     }
@@ -4661,6 +5110,7 @@ fn expr_renders_as_usize_despite_i32(expr: &Expr, ctx: &RustRenderCtx) -> bool {
             expr_renders_as_usize_despite_i32(left, ctx)
                 || expr_renders_as_usize_despite_i32(right, ctx)
         }
+        Expr::Neg(inner) => expr_renders_as_usize_despite_i32(inner, ctx),
         _ => false,
     }
 }
@@ -4843,6 +5293,11 @@ fn decompose_rust_array_ref(
 // runtime method calls (`self.ta_candlerange` / `self.ta_candleaverage`)
 // which dispatch on the actual rangeType value.
 
+/// Helpers rendered by [`render_func_call`] rather than hoisted from their C
+/// body: the C divides `ta_candleaverage` by a selected 2.0 or 1.0, which LLVM
+/// keeps as a DIVSD, where the inline rendering multiplies.
+pub(crate) const KEPT_INLINE: &[&str] = &["ta_candleaverage"];
+
 /// The `match` arms of `ta_candlerange`, shared by the two sites that inline it
 /// (`ta_candlerange` itself and the `avgPeriod == 0` fallback inside
 /// `ta_candleaverage`).
@@ -4858,13 +5313,20 @@ fn decompose_rust_array_ref(
 /// through to `0`, so folding it into the Shadows arm would answer an
 /// out-of-range rangeType differently than C does.
 fn candle_range_arms(open: &str, high: &str, low: &str, close: &str) -> String {
-    format!(
-        "0 => (({close}) - ({open})).abs(), \
-         1 => ({high}) - ({low}), \
-         2 => (({high}) - (if ({close}) >= ({open}) {{ ({close}) }} else {{ ({open}) }})) \
-            + ((if ({close}) >= ({open}) {{ ({open}) }} else {{ ({close}) }}) - ({low})), \
-         _ => 0.0"
-    )
+    let [real_body, high_low, shadows] = candle_range_arm_exprs(open, high, low, close);
+    format!("0 => {real_body}, 1 => {high_low}, 2 => {shadows}, _ => 0.0")
+}
+
+/// The RealBody, HighLow and Shadows arms of [`candle_range_arms`].
+fn candle_range_arm_exprs(open: &str, high: &str, low: &str, close: &str) -> [String; 3] {
+    [
+        format!("(({close}) - ({open})).abs()"),
+        format!("({high}) - ({low})"),
+        format!(
+            "(({high}) - (if ({close}) >= ({open}) {{ ({close}) }} else {{ ({open}) }})) \
+            + ((if ({close}) >= ({open}) {{ ({open}) }} else {{ ({close}) }}) - ({low}))"
+        ),
+    ]
 }
 
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
@@ -4983,23 +5445,41 @@ fn render_func_call(
         } else {
             format!("{call}.unwrap_or(usize::MAX)")
         }
+    } else if fname == super::rust_respell::CANDLE_RANGE_DIFF && args.len() == 9 {
+        let r: Vec<String> = args.iter().map(|a| render_expr(a, ctx, opt_real_params, registry, helpers)).collect();
+        let a = candle_range_arm_exprs(&r[1], &r[2], &r[3], &r[4]);
+        let b = candle_range_arm_exprs(&r[5], &r[6], &r[7], &r[8]);
+        // `_`: C's range is 0 for an unknown type, and 0 - 0 is +0.0.
+        format!(
+            "(match {} {{ 0 => ({}) - ({}), 1 => ({}) - ({}), 2 => ({}) - ({}), _ => 0.0 }})",
+            r[0], a[0], b[0], a[1], b[1], a[2], b[2]
+        )
+    } else if fname == super::rust_respell::SELECT_OTHER && args.len() == 3 {
+        let r: Vec<String> = args.iter().map(|a| render_expr(a, ctx, opt_real_params, registry, helpers)).collect();
+        format!("f64::from_bits(f64::to_bits({}) ^ f64::to_bits({}) ^ f64::to_bits({}))", r[0], r[1], r[2])
     } else if let Some(mf) = MathFn::from_name(fname) {
         // Math functions take priority over the indicator registry.
         // `atan(x)` in source means the C math function, not a cross-indicator call.
         //
-        // 2-arg: max/fmax → a.max(b), min/fmin → a.min(b)
-        // 1-arg: ABS/fabs → .ta_abs() (generic) or .abs() (concrete)
-        // 1-arg: all others → .ta_{fname}() (generic) or .{fname}() (concrete)
+        // f64::max/min/floor/ceil are not C's: the first two answer NaN
+        // differently, the last two are libm calls without SSE4.1. The crate's
+        // clippy.toml disallows all four, so a float site misread as an integer
+        // one fails the lint.
         match mf {
-            MathFn::Max if args.len() >= 2 => {
+            MathFn::Max | MathFn::Min if args.len() >= 2 => {
                 let a = render_expr(&args[0], ctx, opt_real_params, registry, helpers);
                 let b = render_expr(&args[1], ctx, opt_real_params, registry, helpers);
-                return format!("({a}).max({b})");
-            }
-            MathFn::Min if args.len() >= 2 => {
-                let a = render_expr(&args[0], ctx, opt_real_params, registry, helpers);
-                let b = render_expr(&args[1], ctx, opt_real_params, registry, helpers);
-                return format!("({a}).min({b})");
+                let m = if matches!(mf, MathFn::Max) { "max" } else { "min" };
+                let fs = ctx.fma_view();
+                let int = |e: &Expr| expr_is_i32_typed_ctx(e, ctx) || super::fma::is_definitely_integer(e, &fs);
+                let real = !ctx.is_lookback
+                    && args.iter().any(|e| super::fma::expr_is_float_typed(e, Some(&fs)))
+                    && !args.iter().any(int);
+                if !real {
+                    return format!("({a}).{m}({b})");
+                }
+                let lit = |e: &Expr, r: String| if let Expr::IntLiteral(v) = e { format!("{v}_f64") } else { r };
+                return format!("c_{m}({}, {})", lit(&args[0], a), lit(&args[1], b));
             }
             _ => {}
         }
@@ -5022,6 +5502,9 @@ fn render_func_call(
             } else {
                 x
             };
+            if matches!(mf, MathFn::Floor | MathFn::Ceil) {
+                return format!("c_{method}({x_wrapped})");
+            }
             return format!("({x_wrapped}).{method}()");
         }
         format!("{fname}()")
@@ -5126,11 +5609,12 @@ fn render_func_call(
             .collect();
         let (rt, ap, factor, sum) = (&r[0], &r[1], &r[2], &r[3]);
         let (open, high, low, close) = (&r[4], &r[5], &r[6], &r[7]);
-        // Single expression: factor * (if ap!=0 { sum/ap } else { candlerange }) / (if rt==2 { 2.0 } else { 1.0 })
+        // C divides by `rt == 2 ? 2.0 : 1.0`; halving is exact, so multiplying
+        // by 0.5 gives its bits without a DIVSD.
         format!(
             "(({factor}) * (if ({ap}) != 0 {{ ({sum}) / ({ap} as f64) }} else {{ \
              match {rt} {{ {} }} \
-             }}) / (if ({rt}) == 2 {{ 2.0 }} else {{ 1.0 }}))",
+             }}) * (if ({rt}) == 2 {{ 0.5 }} else {{ 1.0 }}))",
             candle_range_arms(open, high, low, close)
         )
     } else if registry.contains(fname) || fname.ends_with("_private") {
@@ -5652,10 +6136,12 @@ type ElectionMap = HashMap<String, String>;
 /// The rule, stated over the IR and over nothing else — no function name, no
 /// buffer name, no MA type appears anywhere in this pass:
 ///
-/// 1. match an `if`/`else if`/…/`else` chain whose *every* condition is an
-///    input↔output pointer equality and whose *every* arm is only
-///    `scratch = someOutput;` elections ([`Self::election_chain`]);
-/// 2. take the terminal `else`'s mapping — the binding safe Rust always reaches;
+/// 1. match an `if`/`else if`/…/`else` chain whose *every* condition is a bare
+///    input↔output pointer equality, and whose terminal `else` — the only arm
+///    safe Rust reaches — is only `scratch = someOutput;` elections
+///    ([`Self::election_chain`]); the arms before it are dead and may hold
+///    anything, such as `MAVP`'s allocating in-place arm;
+/// 2. take that terminal `else`'s mapping;
 /// 3. delete the chain and rename those scratch names to their elected outputs
 ///    through the rest of the enclosing block;
 /// 4. drop any guard the rename has turned into a self-comparison.
@@ -5663,11 +6149,9 @@ type ElectionMap = HashMap<String, String>;
 /// Being general is not the same as being greedy, and clause 1 is where the
 /// restraint lives:
 ///
-/// * `STOCH`, `STOCHF` and `MAVP` mix an allocation and an `…IsAllocated = 1;`
-///   flag into a branch, so their arms are not elections and the chain is
-///   rejected. Their output is byte-for-byte unchanged. Tolerating one allocating
-///   arm would reach them, and is a widening of *this rule* for a later change —
-///   never a per-function case.
+/// * a condition that is not a bare equality, such as `STOCH`'s and `STOCHF`'s
+///   `out == inHigh || out == inLow || ...`, rejects the chain, and so does a
+///   terminal `else` that allocates.
 /// * an election reaches only the end of its own block. `BBANDS` elects inside
 ///   `if( optInMAType == TA_MAType_SMA ) { ... }`, so the general MA path that
 ///   follows keeps its genuine `vec![0.0; ...]` allocations, and so do both
@@ -5681,8 +6165,7 @@ type ElectionMap = HashMap<String, String>;
 ///   alone, because the rename would then be wrong. The fallback is exactly
 ///   today's `.to_vec()`.
 ///
-/// `BBANDS` is currently the only function in `input/` written in this shape, but
-/// the pass never asks which function it is looking at; anything added in that
+/// The pass never asks which function it is looking at; anything added in that
 /// shape benefits automatically, and the other three backends stay byte-identical
 /// because the pass does not run for them.
 struct ScratchElection<'a> {
@@ -5706,7 +6189,14 @@ pub(crate) fn elect_output_scratch(func: &FuncDef) -> FuncDef {
         let mut locals = std::collections::HashSet::new();
         collect_array_locals(body, &mut locals);
         let pass = ScratchElection { inputs: &inputs, outputs: &outputs, locals: &locals };
-        *body = pass.block(body, &ElectionMap::new(), &[]);
+        let elected = pass.block(body, &ElectionMap::new(), &[]);
+        // A local every use of which the election renamed is no longer declared.
+        let dead: std::collections::HashSet<&String> =
+            locals.iter().filter(|l| references_var(body.iter(), l) && !references_var(elected.iter(), l)).collect();
+        *body = elected
+            .into_iter()
+            .filter(|s| !matches!(s, Statement::VarDecl { name, .. } if dead.contains(name)))
+            .collect();
     }
     out
 }
@@ -5734,8 +6224,7 @@ fn election_note(elected: &[(String, String)]) -> Vec<String> {
     for (local, out) in elected {
         lines.push(format!("  C's `{local}` is `{out}`"));
     }
-    lines.push("This function therefore allocates nothing, exactly as the C does.".to_string());
-    lines.push("The aliasing arms, the input-alias guard and the copy-back are all".to_string());
+    lines.push("C's aliasing arms and any guard or copy-back they need are".to_string());
     lines.push("unreachable here: `&[T]` and `&mut [T]` parameters can never".to_string());
     lines.push("overlap, and neither can two `&mut [T]`. See issue #146.".to_string());
     lines
@@ -5848,42 +6337,19 @@ impl ScratchElection<'_> {
         out
     }
 
-    /// Match a whole `if`/`else if`/…/`else` chain that is *nothing but* a
-    /// scratch-buffer election, and return the terminal `else`'s mapping — the
-    /// binding safe Rust always reaches. `None` leaves the statement alone.
-    ///
-    /// All four conditions have to hold at once:
-    ///
-    /// 1. every link's condition is a bare pointer equality between an array
-    ///    *parameter* pair Rust decides statically (an input against an output);
-    /// 2. every `then` arm consists only of `local = someOutput;` elections
-    ///    (comments aside) and elects at least one;
-    /// 3. the chain ends in an `else` that does the same;
-    /// 4. nothing else appears in any arm.
-    ///
-    /// (4) is what keeps the pass conservative rather than greedy, and it is the
-    /// clause that declines `STOCH`, `STOCHF` and `MAVP`: their arms mix an
-    /// allocation and a `…IsAllocated = 1;` flag into the branch, so they are not
-    /// elections — they are a genuine in-place defence with a real buffer to
-    /// allocate. `MAVP` is inverted as well (the allocation in the `then`, the
-    /// election in the `else`), so (2) rejects it on the first link. Reaching those
-    /// needs a matcher that tolerates one allocating arm; that is a widening of
-    /// this rule, not a special case bolted onto it.
+    /// Clause 1 of [`ScratchElection`]: the terminal `else`'s mapping of a
+    /// matching chain, or `None` to leave the statement alone.
     ///
     /// Matching happens *before* [`Self::descend`] recurses (see
     /// [`ScratchElection`]): a pass that walked the child blocks first would
     /// collapse an inner `else if` link and silently truncate the chain.
     fn election_chain(&self, stmt: &Statement) -> Option<Vec<(String, String)>> {
-        let Statement::If { condition, then_body, else_body, .. } = stmt else {
+        let Statement::If { condition, else_body, .. } = stmt else {
             return None;
         };
-        // (1) the link's own condition.
         if !self.is_alias_test(condition) {
             return None;
         }
-        // (2) the `then` arm elects, and does nothing else.
-        self.arm_elections(then_body)?;
-        // (3)/(4) either the chain continues, or this `else` is the terminal arm.
         let executable: Vec<&Statement> = else_body
             .iter()
             .filter(|s| !matches!(s, Statement::Comment(_)))
@@ -6046,9 +6512,8 @@ fn tail_always_returns<'a, I: Iterator<Item = &'a Statement>>(rest: I) -> bool {
 }
 
 /// True if `name` is still read or written somewhere in `rest`. An election with
-/// no uses left in scope is dead code — `STOCH`/`STOCHF` write theirs on the
-/// unreachable aliasing arm — and eliding it would change the generated text
-/// without removing any work, so those are left exactly as they are.
+/// no uses left in scope is dead code, and eliding it would change the generated
+/// text without removing any work, so those are left exactly as they are.
 fn references_var<'a, I: Iterator<Item = &'a Statement>>(rest: I, name: &str) -> bool {
     let stmts: Vec<Statement> = rest.cloned().collect();
     let mut found = false;
@@ -6230,6 +6695,7 @@ fn walk_rename(expr: &Expr, elections: &ElectionMap, hit: &mut bool) -> Expr {
         }
         Expr::Not(inner) => Expr::Not(Box::new(walk_rename(inner, elections, hit))),
         Expr::BitwiseNot(inner) => Expr::BitwiseNot(Box::new(walk_rename(inner, elections, hit))),
+        Expr::Neg(inner) => Expr::Neg(Box::new(walk_rename(inner, elections, hit))),
         Expr::FuncCall(name, args) => Expr::FuncCall(
             name.clone(),
             args.iter().map(|a| walk_rename(a, elections, hit)).collect(),
@@ -6314,6 +6780,7 @@ fn expr_mentions_index_domain(expr: &Expr) -> bool {
             expr_mentions_index_domain(a) || expr_mentions_index_domain(b)
         }
         Expr::Cast(_, inner)
+        | Expr::Neg(inner)
         | Expr::PostIncrement(inner)
         | Expr::PostDecrement(inner)
         | Expr::PreIncrement(inner)
@@ -6507,4 +6974,12 @@ fn gen_footer() -> String {
      /* End of File */\n\
      /***************/\n"
         .to_string()
+}
+
+fn int_param_names(func: &FuncDef) -> std::collections::HashSet<String> {
+    func.optional_inputs
+        .iter()
+        .filter(|o| o.param_type == ParamType::Integer)
+        .map(|o| o.name.clone())
+        .collect()
 }

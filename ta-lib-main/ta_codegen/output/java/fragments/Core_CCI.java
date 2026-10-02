@@ -27,6 +27,9 @@
  *                scales: `0.015*tempReal2` underflows to 0.0 on a denormal
  *                price the deviation's own band still calls "not flat", and
  *                the division returned +/-Inf under TA_SUCCESS.
+ *  092826 MF,CC  Sum the window around the slot just stored, taking it from
+ *                lastValue: a wide load over that slot waited for the store
+ *                (#455). Same order, same values.
  */
 
    /**
@@ -73,10 +76,10 @@
       double[] circBuffer;
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -131,9 +134,17 @@
       do {
          lastValue = (inHigh[i] + inLow[i] + inClose[i]) / 3;
          circBuffer[circBuffer_Idx] = lastValue;
-         /* Calculate the average for the whole period. */
+         /* Calculate the average for the whole period. Both sums take the
+          * slot just stored from lastValue, in the same order, so no load reads
+          * it back: a vector load spanning that slot stalls until the store
+          * commits.
+          */
          theAverage = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 ) {
+         for( j = 0; j < circBuffer_Idx; j += 1 ) {
+            theAverage += circBuffer[j];
+         }
+         theAverage += lastValue;
+         for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 ) {
             theAverage += circBuffer[j];
          }
          theAverage /= optInTimePeriod;
@@ -141,7 +152,11 @@
           * for the whole period, then its mean.
           */
          tempReal2 = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 ) {
+         for( j = 0; j < circBuffer_Idx; j += 1 ) {
+            tempReal2 += Math.abs(circBuffer[j] - theAverage);
+         }
+         tempReal2 += Math.abs(lastValue - theAverage);
+         for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 ) {
             tempReal2 += Math.abs(circBuffer[j] - theAverage);
          }
          tempReal2 /= optInTimePeriod;
@@ -202,10 +217,10 @@
       double[] circBuffer;
       int circBuffer_Idx = 0;
       int maxIdx_circBuffer = (30)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -240,12 +255,20 @@
          lastValue = ((double)inHigh[i] + (double)inLow[i] + (double)inClose[i]) / 3;
          circBuffer[circBuffer_Idx] = lastValue;
          theAverage = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 ) {
+         for( j = 0; j < circBuffer_Idx; j += 1 ) {
+            theAverage += circBuffer[j];
+         }
+         theAverage += lastValue;
+         for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 ) {
             theAverage += circBuffer[j];
          }
          theAverage /= optInTimePeriod;
          tempReal2 = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 ) {
+         for( j = 0; j < circBuffer_Idx; j += 1 ) {
+            tempReal2 += Math.abs(circBuffer[j] - theAverage);
+         }
+         tempReal2 += Math.abs(lastValue - theAverage);
+         for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 ) {
             tempReal2 += Math.abs(circBuffer[j] - theAverage);
          }
          tempReal2 /= optInTimePeriod;
@@ -274,8 +297,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cciLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#cciLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -286,11 +309,12 @@
     *        (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects the
     *        default).
     * @param outReal CCI value per bar. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, cciLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -341,8 +365,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#cciLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#cciLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -353,11 +377,12 @@
     *        (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects the
     *        default).
     * @param outReal CCI value per bar. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, cciLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -434,7 +459,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -448,12 +473,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("CCI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -484,15 +509,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inHigh, double inLow, double inClose ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("CCI update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("CCI update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("CCI update", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          core.cciStepImpl(this, inHigh, inLow, inClose);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -502,15 +527,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("CCI peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("CCI peek", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          CciStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -519,23 +542,31 @@
          double lastValue = 0.0;
          int j = 0;
          double cur_outReal = 0.0;
-         int pkSlot0 = -1;
-         double pkVal0 = 0.0;
          lastValue = (inHigh + inLow + inClose) / 3;
-         pkSlot0 = sp.circBuffer_Idx;
-         pkVal0 = lastValue;
-         /* Calculate the average for the whole period. */
+         /* Calculate the average for the whole period. Both sums take the
+          * slot just stored from lastValue, in the same order, so no load reads
+          * it back: a vector load spanning that slot stalls until the store
+          * commits.
+          */
          theAverage = 0;
-         for( j = 0; j < sp.optInTimePeriod; j += 1 ) {
-            theAverage += (j != pkSlot0) ? sp.cb_circBuffer[j] : pkVal0;
+         for( j = 0; j < sp.circBuffer_Idx; j += 1 ) {
+            theAverage += sp.cb_circBuffer[j];
+         }
+         theAverage += lastValue;
+         for( j = sp.circBuffer_Idx + 1; j < sp.optInTimePeriod; j += 1 ) {
+            theAverage += sp.cb_circBuffer[j];
          }
          theAverage /= sp.optInTimePeriod;
          /* Do the summation of the ABS(TypePrice-average)
           * for the whole period, then its mean.
           */
          tempReal2 = 0;
-         for( j = 0; j < sp.optInTimePeriod; j += 1 ) {
-            tempReal2 += Math.abs(((j != pkSlot0) ? sp.cb_circBuffer[j] : pkVal0) - theAverage);
+         for( j = 0; j < sp.circBuffer_Idx; j += 1 ) {
+            tempReal2 += Math.abs(sp.cb_circBuffer[j] - theAverage);
+         }
+         tempReal2 += Math.abs(lastValue - theAverage);
+         for( j = sp.circBuffer_Idx + 1; j < sp.optInTimePeriod; j += 1 ) {
+            tempReal2 += Math.abs(sp.cb_circBuffer[j] - theAverage);
          }
          tempReal2 /= sp.optInTimePeriod;
          /* And finally, the CCI... */
@@ -601,9 +632,17 @@
       int j = 0;
       lastValue = (inHigh + inLow + inClose) / 3;
       sp.cb_circBuffer[sp.circBuffer_Idx] = lastValue;
-      /* Calculate the average for the whole period. */
+      /* Calculate the average for the whole period. Both sums take the
+       * slot just stored from lastValue, in the same order, so no load reads
+       * it back: a vector load spanning that slot stalls until the store
+       * commits.
+       */
       theAverage = 0;
-      for( j = 0; j < sp.optInTimePeriod; j += 1 ) {
+      for( j = 0; j < sp.circBuffer_Idx; j += 1 ) {
+         theAverage += sp.cb_circBuffer[j];
+      }
+      theAverage += lastValue;
+      for( j = sp.circBuffer_Idx + 1; j < sp.optInTimePeriod; j += 1 ) {
          theAverage += sp.cb_circBuffer[j];
       }
       theAverage /= sp.optInTimePeriod;
@@ -611,7 +650,11 @@
        * for the whole period, then its mean.
        */
       tempReal2 = 0;
-      for( j = 0; j < sp.optInTimePeriod; j += 1 ) {
+      for( j = 0; j < sp.circBuffer_Idx; j += 1 ) {
+         tempReal2 += Math.abs(sp.cb_circBuffer[j] - theAverage);
+      }
+      tempReal2 += Math.abs(lastValue - theAverage);
+      for( j = sp.circBuffer_Idx + 1; j < sp.optInTimePeriod; j += 1 ) {
          tempReal2 += Math.abs(sp.cb_circBuffer[j] - theAverage);
       }
       tempReal2 /= sp.optInTimePeriod;
@@ -664,7 +707,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
@@ -727,9 +770,17 @@
       do {
          lastValue = (inHigh[i] + inLow[i] + inClose[i]) / 3;
          circBuffer[circBuffer_Idx] = lastValue;
-         /* Calculate the average for the whole period. */
+         /* Calculate the average for the whole period. Both sums take the
+          * slot just stored from lastValue, in the same order, so no load reads
+          * it back: a vector load spanning that slot stalls until the store
+          * commits.
+          */
          theAverage = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 ) {
+         for( j = 0; j < circBuffer_Idx; j += 1 ) {
+            theAverage += circBuffer[j];
+         }
+         theAverage += lastValue;
+         for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 ) {
             theAverage += circBuffer[j];
          }
          theAverage /= optInTimePeriod;
@@ -737,7 +788,11 @@
           * for the whole period, then its mean.
           */
          tempReal2 = 0;
-         for( j = 0; j < optInTimePeriod; j += 1 ) {
+         for( j = 0; j < circBuffer_Idx; j += 1 ) {
+            tempReal2 += Math.abs(circBuffer[j] - theAverage);
+         }
+         tempReal2 += Math.abs(lastValue - theAverage);
+         for( j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 ) {
             tempReal2 += Math.abs(circBuffer[j] - theAverage);
          }
          tempReal2 /= optInTimePeriod;
@@ -798,12 +853,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("CCI openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("CCI openAndFill", inHigh.length, startIdx, cciLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("CCI openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("CCI openAndFill: " + retCode, retCode);
+      throw streamFailure("CCI openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind cciOpen (composition seam). */
    CciStream cciOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
@@ -819,12 +871,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("CCI open: history shorter than lookback + 1");
+         throw insufficientHistory("CCI open", inHigh.length, startIdx, cciLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("CCI open: internal error", retCode);
-      }
-      throw new TALibArgumentException("CCI open: " + retCode, retCode);
+      throw streamFailure("CCI open", retCode);
    }
    /**
     * Open a live CCI stream over the warm-up history; the handle's
@@ -871,7 +920,7 @@
       requireHistoryLength("CCI openAndFill", "inClose", inClose.length, inHigh.length);
       requireLength("CCI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
-         throw new TALibArgumentException("CCI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("CCI openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

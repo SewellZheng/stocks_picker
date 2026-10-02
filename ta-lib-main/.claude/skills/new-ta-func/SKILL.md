@@ -18,9 +18,7 @@ From these it generates all **four** backends: **C** (in place under `src/ta_fun
 C# XML doc comments.
 
 > Use this skill to **add a brand-new** function, **modify** an existing one, or
-> **extend the generator** to support a new C construct. The correctness baseline is
-> the frozen pre-cutover reference (the `reference-pre-cutover` tag, served as
-> `ta_ref_serve`) plus ta_regtest's hardcoded expected values.
+> **extend the generator** to support a new C construct.
 >
 > **`website/src/contribute/README.md` owns the process and the invariants** — spec
 > approval, golden-value sourcing, the "Invariants / violating any of these fails
@@ -106,7 +104,7 @@ both directions:
 
 - **Omit it** and you silently ship the corpus's only batch-only function. Nothing
   catches that: the generator's corpus check
-  (`ta_codegen/generator/tests/streaming_suite.rs`) only validates functions that
+  (`ta_codegen/generator/tests/all/streaming_suite.rs`) only validates functions that
   already declare the flag, and asserts a floor rather than a total; ta_regtest's
   flag-vs-server check sees both sides agree that there is no stream. In Java it is
   worse than silent — `StreamSmokeTest` sweeps the metadata registry for a
@@ -159,7 +157,8 @@ bite while authoring the `.c`):
 ### 4. Write / adjust the documentation — `ta_codegen/input/<name>/<name>.md`
 
 The canonical prose source: summary, the formula in its **original algebraic form**
-(never implementation artifacts — no zero-guards, epsilons or `period == 1` cases),
+(never implementation artifacts — no zero-guards, epsilons or `period == 1` cases;
+state a value returned where the algebra is undefined only when a reader would wonder),
 inputs/outputs, references. Rendered into four targets — the website function page,
 the Rust rustdoc (including a runnable doctest), the Java Javadoc and the C# XML doc
 comments — so the four cannot describe the same function differently. The C# ones are
@@ -199,17 +198,18 @@ shared walkers' matches are exhaustive with no wildcard arm, so Rust points you 
 
 ### 6. Write the regression test — and register it in four places
 
-**A brand-new function is verified by nothing until you do this**, and both halves of
-the obvious command are vacuous:
+**A brand-new function's values are checked against nothing independent until you
+do this:**
 
 - `--function=<NAME>` substring-matches **DO_TEST tag strings**, not function names.
   A name in no tag runs zero test groups and exits **0**.
-- The generic `--codegen` sweep marks the function *skipped* — it diffs against the
-  frozen `ta_ref_serve`, which predates it — and runs only the self-comparing float
-  leg.
+- The generic `--codegen` sweep value-compares it like any other function, but
+  against the in-process C library generated from the same source: it proves the
+  four languages agree, not that the numbers are right.
 
-So: write a golden-value test (`src/tools/ta_regtest/ta_test_func/test_composite.c` is
-the pattern for a composite; `test_marketfi.c` for a standalone file), with values from
+So: write a golden-value test (`test_composite1.c` / `test_composite2.c` under
+`src/tools/ta_regtest/ta_test_func/` are the pattern for a composite; `test_marketfi.c`
+and `test_emv.c` for a standalone file), with values from
 an independent source, documenting the source, its version and the tolerance at the
 call site. Then register it:
 
@@ -221,11 +221,20 @@ call site. Then register it:
    region) and `src/tools/ta_regtest/Makefile.am`. The autotools list is what the dist
    nightly builds; `scripts/build.py check-source-lists` catches a one-sided edit.
 
-Cross-language checking is also **not** automatic. Wrap each golden call site in
+The sweep reaches the servers only on its own inputs: the 252-bar corpus, each
+parameter moved off its default one at a time. Route a golden call through
 `if( server_verify_active() ) { … server_verify( "<NAME>", … ); }` (declared in
-`src/tools/ta_regtest/server_verify.h`; `test_cmf.c` is the exemplar) —
-it replays that exact call on all four language servers and compares bit-for-bit.
-It is inert without `--codegen`, so adding it costs a bare run nothing.
+`src/tools/ta_regtest/server_verify.h`; `test_cmf.c` is the exemplar) when its inputs
+or parameter vector are ones the sweep never sends: hand-built bars, a flat or
+zero-volume bar, a published vector, two parameters off their defaults at once. A
+routed call on the sweep's own corpus and parameters buys a duplicate. It replays that
+exact call on all four language servers and is inert without `--codegen`. Under
+`--codegen`, a group that routes nothing fails.
+
+A new `MAType` member needs a direct pin of `TA_MA_Lookback(n, X) == TA_X_Lookback(n)`,
+at a non-zero unstable period when X has one. No value comparison can see a wrong MA
+lookback arm: `MA` forwards to the callee, which clamps to its own lookback, so only
+the caller's buffer sizing is wrong.
 
 Add the CHANGELOG entry too: one bullet under `### Added` → `- New TA Functions:`,
 formatted `  - NAME: Human name, short clause (#NNN)`.
@@ -238,8 +247,8 @@ scripts/build.py generate        # FULL, unfiltered — writes what --func= skip
 scripts/build.py servers         # note: this runs generate-servers only, not generate
 scripts/build.py libraries       # the jar asserts your function is on the packaged Core
 cd bin && ./ta_regtest --function=<NAME>              # your hand-written legs
-cd bin && ./ta_regtest --codegen --function=<NAME>    # + server_verify, all four languages
-cd bin && ./ta_regtest --xlang-hash --function=<NAME> # the zero-tolerance bitwise gate
+cd bin && ./ta_regtest --codegen --function=<NAME>    # + the sweep and server_verify, all four languages
+cd bin && ./ta_regtest --xlang-hash --function=<NAME> # the same compare over the seeded fuzz corpus
 scripts/build.py check-source-lists
 scripts/build.py regen-check     # THE PR GATE: regenerating must change nothing
 scripts/build.py clippy          # -D warnings over BOTH crates, incl. the generated one
@@ -247,8 +256,6 @@ cd ta_codegen/generator && cargo test
 cargo test --doc -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
 cargo test --lib -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
 ```
-
-`--codegen` needs `bin/ta_ref_serve`; on a fresh clone build it via `scripts/regtest.py`.
 
 Things that are easy to get wrong here:
 
@@ -266,10 +273,10 @@ Things that are easy to get wrong here:
   failure naming your function in a test you never touched is the inventory asking to
   be updated, not a regression.
 - `git diff` the other backends' generated output. The `--codegen` sweep compares every
-  function against the frozen reference at a 1e-9 element-wise tolerance — nothing is
-  compared bit-exactly there. Bit-identical parity is the separate, corpus-wide
-  `--xlang-hash`. Run the sweep once without `--function=` before committing: any
-  function you did not touch that moves is a real regression.
+  function in all four languages against the in-process C library: bitwise, with 1e-9
+  only for Java and C# calls that reach a transcendental. Run the sweep once without
+  `--function=` before committing: any function you did not touch that moves is a real
+  regression.
 
 ## Key files
 

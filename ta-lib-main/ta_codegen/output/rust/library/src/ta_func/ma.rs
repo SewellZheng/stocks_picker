@@ -61,6 +61,8 @@
  *  072426 MF,CC TA_MAType_DISABLED: period-independent identity copy (issue #93).
  *  090426 MF,CC Add ZLEMA (issue #347).
  *  090426 MF,CC Add RMA (issue #348).
+ *  092926 MF,CC Add VIDYA (issue #474).
+ *  092926 MF,CC Add ALMA (issue #475).
  */
 
 // Import types from parent module
@@ -81,7 +83,7 @@ impl Core {
     /// * `optInTimePeriod` — Averaging window length (default 30, range 1..=100000)
     /// * `optInMAType` — Which moving-average algorithm to dispatch to (default 0 = SMA, values:
     ///   0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, `MAType::DEFAULT` selects the default)
+    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
     ///
     /// # Errors
     ///
@@ -139,6 +141,12 @@ impl Core {
             MAType::RMA => {
                 retValue = self.rma_lookback(optInTimePeriod)?;
             }
+            MAType::VIDYA => {
+                retValue = self.vidya_lookback(optInTimePeriod, (3 * optInTimePeriod + 2) / 4)?;
+            }
+            MAType::ALMA => {
+                retValue = self.alma_lookback(optInTimePeriod, 6.0, 0.85)?;
+            }
             _ => {
                 retValue = 0;
             }
@@ -159,10 +167,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -182,7 +190,7 @@ impl Core {
         let mut nbElement: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut todayIdx: usize = 0_usize;
-        // Nothing to produce: the range is shorter than the lookback. Answer here
+        // Nothing to produce: the range ends before the lookback. Answer here
         // rather than forwarding.
         //
         // The VALUE is the same either way: ma_lookback returns exactly the lookback
@@ -216,13 +224,17 @@ impl Core {
         if optInTimePeriod == 1 || optInMAType == MAType::DISABLED {
             nbElement = endIdx - startIdx + 1;
             (*outNBElement) = nbElement;
-            // for( todayIdx = startIdx, outIdx = 0; outIdx < nbElement; outIdx += 1, todayIdx += 1 )
             todayIdx = startIdx;
             outIdx = 0;
-            while outIdx < nbElement {
-                outReal[outIdx] = ((inReal[todayIdx]) as f64);
-                outIdx += 1;
-                todayIdx += 1;
+            if outIdx < nbElement {
+                let _wn: usize = nbElement - outIdx;
+                let _w0 = &inReal[todayIdx..][.._wn];
+                let _w1 = &mut outReal[outIdx..][.._wn];
+                for _wk in 0.._wn {
+                    _w1[_wk] = ((_w0[_wk]) as f64);
+                    outIdx += 1;
+                    todayIdx += 1;
+                }
             }
             (*outBegIdx) = startIdx;
             return RetCode::Success;
@@ -303,6 +315,20 @@ impl Core {
                 (*outNBElement) = _xr11.count;
                 retCode = RetCode::Success;
             }
+            MAType::VIDYA => {
+                // The one period is the EMA length; the CMO period is round(3n/4),
+                // Chande's 12:9 ratio.
+                let _xr12 = match self.vidya(startIdx, endIdx, inReal, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal) { Ok(_r) => _r, Err(_e) => return _e };
+                (*outBegIdx) = _xr12.beg_idx;
+                (*outNBElement) = _xr12.count;
+                retCode = RetCode::Success;
+            }
+            MAType::ALMA => {
+                let _xr13 = match self.alma(startIdx, endIdx, inReal, optInTimePeriod, 6.0, 0.85, outReal) { Ok(_r) => _r, Err(_e) => return _e };
+                (*outBegIdx) = _xr13.beg_idx;
+                (*outNBElement) = _xr13.count;
+                retCode = RetCode::Success;
+            }
             _ => {
                 retCode = RetCode::BadParam;
             }
@@ -322,7 +348,7 @@ impl Core {
     /// * `optInTimePeriod` — Averaging window length (default 30, range 1..=100000)
     /// * `optInMAType` — Which moving-average algorithm to dispatch to (default 0 = SMA, values:
     ///   0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, `MAType::DEFAULT` selects the default)
+    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
     /// * `outReal` — Selected moving average of the input.
     ///
     /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
@@ -330,15 +356,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -366,7 +392,7 @@ impl Core {
     /// [`SMA`](Core::sma) · [`EMA`](Core::ema) · [`WMA`](Core::wma) · [`DEMA`](Core::dema) ·
     /// [`TEMA`](Core::tema) · [`TRIMA`](Core::trima) · [`KAMA`](Core::kama) ·
     /// [`MAMA`](Core::mama) · [`T3`](Core::t3) · [`HMA`](Core::hma) · [`ZLEMA`](Core::zlema) ·
-    /// [`RMA`](Core::rma)
+    /// [`RMA`](Core::rma) · [`VIDYA`](Core::vidya) · [`ALMA`](Core::alma)
     #[doc(alias = "TA_MA")]
     #[doc(alias = "MovingAverage")]
     pub fn ma(
@@ -378,10 +404,10 @@ impl Core {
         optInMAType: MAType,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.ma_lookback(optInTimePeriod, optInMAType)?;
@@ -453,6 +479,8 @@ enum MaSub {
     Hma(HmaStream),
     Zlema(ZlemaStream),
     Rma(RmaStream),
+    Vidya(VidyaStream),
+    Alma(AlmaStream),
 }
 
 #[allow(unused_variables)]
@@ -507,8 +535,69 @@ impl Core {
             MaSub::Rma(sub) => {
                 (*outReal) = sub.update(inReal)?;
             }
+            MaSub::Vidya(sub) => {
+                (*outReal) = sub.update(inReal)?;
+            }
+            MaSub::Alma(sub) => {
+                (*outReal) = sub.update(inReal)?;
+            }
         }
         Ok(())
+    }
+
+    fn ma_step_tape_impl(sp: &mut MaStreamState, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64, outReal: &mut f64) {
+        if sp.optInTimePeriod == 1 || sp.optInMAType == MAType::DISABLED {
+            (*outReal) = inReal;
+            return;
+        }
+        match &mut sp.sub {
+            MaSub::Identity => {
+                (*outReal) = inReal;
+            }
+            MaSub::Sma(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Ema(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Wma(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Dema(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Tema(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Trima(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Kama(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Mama(sub) => {
+                let subValue = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+                (*outReal) = subValue.0;
+            }
+            MaSub::T3(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Hma(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Zlema(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Rma(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Vidya(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+            MaSub::Alma(sub) => {
+                (*outReal) = sub.step_tape(tape, tapeBase, tapeMask, inReal);
+            }
+        }
     }
 
     /// Internal startIdx-anchored open behind [`Core::ma_open`] (composition seam).
@@ -518,7 +607,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -603,6 +692,16 @@ impl Core {
                 let subRange = sub.out_range();
                 (MaSub::Rma(sub), subValue, subRange)
             }
+            MAType::VIDYA => {
+                let (sub, subValue) = self.vidya_open_internal(inReal, startIdx, optInTimePeriod, (3 * optInTimePeriod + 2) / 4)?;
+                let subRange = sub.out_range();
+                (MaSub::Vidya(sub), subValue, subRange)
+            }
+            MAType::ALMA => {
+                let (sub, subValue) = self.alma_open_internal(inReal, startIdx, optInTimePeriod, 6.0, 0.85)?;
+                let subRange = sub.out_range();
+                (MaSub::Alma(sub), subValue, subRange)
+            }
             _ => return Err(RetCode::BadParam),
         };
         let state = MaStreamState { optInTimePeriod, optInMAType, sub, cur_outReal: value, };
@@ -675,7 +774,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -754,6 +853,14 @@ impl Core {
                 let (sub, fillRange) = self.rma_open_and_fill(inReal, optInTimePeriod, outReal)?;
                 (MaSub::Rma(sub), fillRange)
             }
+            MAType::VIDYA => {
+                let (sub, fillRange) = self.vidya_open_and_fill(inReal, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outReal)?;
+                (MaSub::Vidya(sub), fillRange)
+            }
+            MAType::ALMA => {
+                let (sub, fillRange) = self.alma_open_and_fill(inReal, optInTimePeriod, 6.0, 0.85, outReal)?;
+                (MaSub::Alma(sub), fillRange)
+            }
             _ => return Err(RetCode::BadParam),
         };
         let state = MaStreamState { optInTimePeriod, optInMAType, sub, cur_outReal: outReal[fillRange.count - 1], };
@@ -768,7 +875,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -836,6 +943,12 @@ impl Core {
             MAType::RMA => MaSub::Rma(
                 self.rma_open_and_fill_internal(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal)?,
             ),
+            MAType::VIDYA => MaSub::Vidya(
+                self.vidya_open_and_fill_internal(inReal, startIdx, optInTimePeriod, (3 * optInTimePeriod + 2) / 4, outBegIdx, outNBElement, outReal)?,
+            ),
+            MAType::ALMA => MaSub::Alma(
+                self.alma_open_and_fill_internal(inReal, startIdx, optInTimePeriod, 6.0, 0.85, outBegIdx, outNBElement, outReal)?,
+            ),
             _ => return Err(RetCode::BadParam),
         };
         let state = MaStreamState { optInTimePeriod, optInMAType, sub, cur_outReal: outReal[*outNBElement - 1], };
@@ -850,7 +963,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl MaStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -868,11 +981,11 @@ impl MaStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_MA_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() {
@@ -888,16 +1001,15 @@ impl MaStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_MA_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -927,6 +1039,8 @@ impl MaStream {
                 MaSub::Hma(sub) => { outReal = sub.peek(inReal)?; }
                 MaSub::Zlema(sub) => { outReal = sub.peek(inReal)?; }
                 MaSub::Rma(sub) => { outReal = sub.peek(inReal)?; }
+                MaSub::Vidya(sub) => { outReal = sub.peek(inReal)?; }
+                MaSub::Alma(sub) => { outReal = sub.peek(inReal)?; }
             }
         }
         Ok(outReal)
@@ -955,7 +1069,7 @@ impl MaStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_MA_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -973,15 +1087,110 @@ impl MaStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_MA_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;
         Ok(())
+    }
+}
+
+#[allow(non_snake_case)]
+#[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
+impl MaStream {
+    pub(crate) fn step_tape(&mut self, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64) -> f64 {
+        let mut outReal: f64 = 0.0_f64;
+        Core::ma_step_tape_impl(&mut self.state, tape, tapeBase, tapeMask, inReal, &mut outReal);
+        self.state.cur_outReal = outReal;
+        self.out.count += 1;
+        outReal
+    }
+
+    pub(crate) fn peek_tape(&self, tape: &[f64], tapeBase: usize, tapeMask: usize, inReal: f64) -> Result<f64, RetCode> {
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            if sp.optInTimePeriod == 1 || sp.optInMAType == MAType::DISABLED {
+                outReal = inReal;
+                return Ok(outReal);
+            }
+            match &sp.sub {
+                MaSub::Identity => {
+                    outReal = inReal;
+                }
+                MaSub::Sma(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Ema(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Wma(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Dema(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Tema(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Trima(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Kama(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Mama(sub) => {
+                    let subValue = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                    outReal = subValue.0;
+                }
+                MaSub::T3(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Hma(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Zlema(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Rma(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Vidya(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+                MaSub::Alma(sub) => {
+                    outReal = sub.peek_tape(tape, tapeBase, tapeMask, inReal)?;
+                }
+            }
+        }
+        Ok(outReal)
+    }
+
+    pub(crate) fn tape_detach(&mut self) -> usize {
+        match &mut self.state.sub {
+            MaSub::Identity => 0,
+            MaSub::Sma(sub) => sub.tape_detach(),
+            MaSub::Ema(sub) => sub.tape_detach(),
+            MaSub::Wma(sub) => sub.tape_detach(),
+            MaSub::Dema(sub) => sub.tape_detach(),
+            MaSub::Tema(sub) => sub.tape_detach(),
+            MaSub::Trima(sub) => sub.tape_detach(),
+            MaSub::Kama(sub) => sub.tape_detach(),
+            MaSub::Mama(sub) => sub.tape_detach(),
+            MaSub::T3(sub) => sub.tape_detach(),
+            MaSub::Hma(sub) => sub.tape_detach(),
+            MaSub::Zlema(sub) => sub.tape_detach(),
+            MaSub::Rma(sub) => sub.tape_detach(),
+            MaSub::Vidya(sub) => sub.tape_detach(),
+            MaSub::Alma(sub) => sub.tape_detach(),
+        }
     }
 }
 

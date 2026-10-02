@@ -63,10 +63,10 @@
       double otherLow = 0;
       double tempHigh = 0;
       double tempLow = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInLeftBars == Integer.MIN_VALUE ) {
@@ -158,10 +158,10 @@
       double otherLow = 0;
       double tempHigh = 0;
       double tempLow = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInLeftBars == Integer.MIN_VALUE ) {
@@ -252,8 +252,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#fractalLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#fractalLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -267,14 +267,16 @@
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outSwingHigh 100 when the bar {@code optInRightBars} back is a
     *        strict swing high, 0 otherwise. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, fractalLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outSwingLow 100 when the bar {@code optInRightBars} back is a
     *        strict swing low, 0 otherwise. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, fractalLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -342,8 +344,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#fractalLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#fractalLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -357,14 +359,16 @@
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outSwingHigh 100 when the bar {@code optInRightBars} back is a
     *        strict swing high, 0 otherwise. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, fractalLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @param outSwingLow 100 when the bar {@code optInRightBars} back is a
     *        strict swing low, 0 otherwise. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, fractalLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -446,7 +450,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -460,12 +464,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("FRACTAL advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -498,16 +502,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public void update( double inHigh, double inLow, FractalOut out ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("FRACTAL update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("FRACTAL update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TALibArgumentException("FRACTAL update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("FRACTAL update", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
          core.fractalStepImpl(this, inHigh, inLow);
          this.outRangeCount++;
          out.swingHigh = this.cur_outSwingHigh;
@@ -518,16 +522,14 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, FractalOut out ) {
          requireArgument("FRACTAL peek", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
-            throw new TALibArgumentException("FRACTAL peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("FRACTAL peek", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
          FractalStream sp = this;
          int i = 0;
          double pivotHigh = 0.0;
@@ -703,7 +705,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length ) {
@@ -807,12 +809,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("FRACTAL openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("FRACTAL openAndFill", inHigh.length, startIdx, fractalLookback(optInLeftBars, optInRightBars));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("FRACTAL openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("FRACTAL openAndFill: " + retCode, retCode);
+      throw streamFailure("FRACTAL openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind fractalOpen (composition seam). */
    FractalStream fractalOpenInternal( double inHigh[], double inLow[], int startIdx, int optInLeftBars, int optInRightBars )
@@ -829,12 +828,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("FRACTAL open: history shorter than lookback + 1");
+         throw insufficientHistory("FRACTAL open", inHigh.length, startIdx, fractalLookback(optInLeftBars, optInRightBars));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("FRACTAL open: internal error", retCode);
-      }
-      throw new TALibArgumentException("FRACTAL open: " + retCode, retCode);
+      throw streamFailure("FRACTAL open", retCode);
    }
    /**
     * Open a live FRACTAL stream over the warm-up history; the handle's
@@ -878,7 +874,7 @@
       requireLength("FRACTAL openAndFill", "outSwingHigh", outSwingHigh, guardOutLen);
       requireLength("FRACTAL openAndFill", "outSwingLow", outSwingLow, guardOutLen);
       if( (Object)outSwingHigh == (Object)inHigh || (Object)outSwingHigh == (Object)inLow || (Object)outSwingLow == (Object)inHigh || (Object)outSwingLow == (Object)inLow || (Object)outSwingHigh == (Object)outSwingLow ) {
-         throw new TALibArgumentException("FRACTAL openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("FRACTAL openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

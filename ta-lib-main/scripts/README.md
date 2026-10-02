@@ -12,6 +12,8 @@ See `README-DEVS.md` at the repo root for the build/test/release walkthroughs.
 | `regtest.py` | Full pipeline: generate → build → correctness → benchmark. The nightly drives it three ways. |
 | `python-dev.py` | Keeps `~/ta-lib-python` on **dev** in step with this worktree: builds the wrapper from both `_ta_lib.pyx` and the committed `_ta_lib.c`, runs its suite, checks that regenerating changes nothing, and diffs its enum/flag tables against `include/`. `sync` regenerates the drift. Commits nothing. |
 | `abi.py` | `check`: the PR/nightly gate on the public C ABI and the shared library version. `sync.py` does the updating. |
+| `quiet.py` | The shared quiet window for timing runs across sessions on one machine: `measure` holds it exclusively, `noisy` marks a heavy job so measurers back off, `status` names the holder and the queue. |
+| `test_quiet.py` | Tests for `quiet.py`, each against a throwaway HOME. |
 | `gen_test_reference.py` | Rebuilds `ta_regtest`'s baked numerical goldens (`src/tools/ta_regtest/ta_test_reference_golden.{h,c}`) from the datasets in `ta_test_reference.c`, in exact rational arithmetic. Run it when a dataset changes; `--check` verifies in place. Deliberately NOT on a gate — `ta_regtest --function=REFERENCE` catches a stale table at runtime, because the oracle stops reproducing it. |
 
 ## Verification gates
@@ -23,7 +25,7 @@ Pass/fail only — build something, drive it, exit non-zero. Each is one nightly
 | `synth_gate.py` | `synth-gate` | Generator surface no shipped indicator uses, via synthetic functions injected into a throwaway worktree (`ta_codegen/generator/input_synth/`) |
 | `stream_sanitize.py` | `stream-sanitizers` | The C streaming API under ASan/UBSan/LSan — paths the batch sanitizer job never calls |
 | `rust_stream_debug.py` | `cross-language-rust-debug` | The Rust streaming API under debug overflow checks; reuses the request generator from `stream_sanitize.py` |
-| `bench_icount.py` | `dev-nightly` (`icount` job) | Retired instructions for all ~1000 C entry points against `.github/perf/icount-baseline-<arch>.tsv`. Counts, not time: exact on a shared runner, which is what lets a 10% threshold mean anything. The baseline only ever moves down, so a sub-threshold regression is never absorbed; raising a row takes `--accept`, which names the rows and leaves every other row's accumulated best alone. Read its header for what a count cannot see |
+| `bench_icount.py` | `dev-nightly` (`icount` job) | Retired instructions for all ~1000 C entry points against `.github/perf/icount-baseline-<arch>.tsv`, and again with `--shape=peg` against `icount-baseline-<arch>-peg.tsv`. Counts, not time: exact on a shared runner, which is what lets a 10% threshold mean anything. The baseline only ever moves down, so a sub-threshold regression is never absorbed; raising a row takes `--accept`, which names the rows and leaves every other row's accumulated best alone. Read its header for what a count cannot see |
 
 Everything else CI gates on lives in `ta_regtest` (C), `abi.py check`, or a step
 inside `build.py` / `regtest.py`.
@@ -46,5 +48,4 @@ inside `build.py` / `regtest.py`.
 |---|---|
 | `utilities/` | Versions, package digests, file/archive comparison, Windows `vcvarsall` — imported across the release scripts |
 | `install_tests/` | MSI and Python-wheel install verification — imported by `test-dist.py` |
-| `serve_version.py` | Builds a "serve of another version" oracle from a pinned worktree — imported by `utilities/ref_serve.py` |
-| `build_064_serve.py` | Builds `bin/ta_064_serve` (the frozen v0.6.4 oracle for `ta_regtest --fuzz-064`) — called by `build.py` |
+| `utilities/ta_ref.py` | Builds the serve of each `ta_ref/` member (`bin/ta_ref_<X_Y_Z>_serve`); imported by `build.py ref` and `regtest.py` |

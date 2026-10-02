@@ -88,9 +88,9 @@ TA_LIB_API TA_RetCode TA_AROON( int    startIdx,
    int today;
    int i;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -137,8 +137,8 @@ TA_LIB_API TA_RetCode TA_AROON( int    startIdx,
    outIdx = 0;
    today = startIdx;
    trailingIdx = startIdx - optInTimePeriod;
-   lowestIdx = 0 - 1;
-   highestIdx = 0 - 1;
+   lowestIdx = -1;
+   highestIdx = -1;
    lowest = 0.0;
    highest = 0.0;
    factor = (double)100.0 / (double)optInTimePeriod;
@@ -226,9 +226,9 @@ TA_RetCode TA_S_AROON( int    startIdx,
    int today;
    int i;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -261,8 +261,8 @@ TA_RetCode TA_S_AROON( int    startIdx,
    outIdx = 0;
    today = startIdx;
    trailingIdx = startIdx - optInTimePeriod;
-   lowestIdx = 0 - 1;
-   highestIdx = 0 - 1;
+   lowestIdx = -1;
+   highestIdx = -1;
    lowest = 0.0;
    highest = 0.0;
    factor = (double)100.0 / (double)optInTimePeriod;
@@ -333,6 +333,7 @@ struct TA_AROON_Stream {
    int optInTimePeriod;
    double lowest;
    double highest;
+   double pad_0;
    double factor;
    int trailingIdx;
    int lowestIdx;
@@ -425,7 +426,7 @@ static TA_RetCode TA_AROON_OpenImpl( struct TA_AROON_Stream **stream, const doub
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outAroonDown || !outAroonUp ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
@@ -478,8 +479,8 @@ static TA_RetCode TA_AROON_OpenImpl( struct TA_AROON_Stream **stream, const doub
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - optInTimePeriod;
-      lowestIdx = 0 - 1;
-      highestIdx = 0 - 1;
+      lowestIdx = -1;
+      highestIdx = -1;
       lowest = 0.0;
       highest = 0.0;
       factor = (double)100.0 / (double)optInTimePeriod;
@@ -604,7 +605,7 @@ TA_LIB_API TA_RetCode TA_AROON_Open( TA_AROON_Stream **stream, const double inHi
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outAroonDown || !outAroonUp ) return TA_BAD_PARAM;
    return TA_AROON_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outAroonDown, outAroonUp );
 }
@@ -614,7 +615,7 @@ TA_LIB_API TA_RetCode TA_AROON_OpenAndFill( TA_AROON_Stream **stream, const doub
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outAroonDown || !outAroonUp ) return TA_BAD_PARAM;
    if( (const void *)outAroonDown == (const void *)inHigh || (const void *)outAroonDown == (const void *)inLow || (const void *)outAroonUp == (const void *)inHigh || (const void *)outAroonUp == (const void *)inLow || (const void *)outAroonDown == (const void *)outAroonUp ) return TA_BAD_PARAM;
    return TA_AROON_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp );
@@ -629,7 +630,7 @@ TA_RetCode TA_AROON_OpenAndFillInternal( struct TA_AROON_Stream **stream, const 
 TA_LIB_API TA_RetCode TA_AROON_Update( TA_AROON_Stream *stream, double inHigh, double inLow, double *outAroonDown, double *outAroonUp )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outAroonDown || !outAroonUp ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
@@ -744,7 +745,7 @@ TA_LIB_API TA_RetCode TA_AROON_OutRange( const TA_AROON_Stream *stream, int *out
 TA_LIB_API TA_RetCode TA_AROON_Advance( TA_AROON_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

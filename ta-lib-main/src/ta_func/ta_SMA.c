@@ -81,9 +81,9 @@ TA_LIB_API TA_RetCode TA_SMA( int    startIdx,
    int trailingIdx;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -164,9 +164,9 @@ TA_RetCode TA_S_SMA( int    startIdx,
    int trailingIdx;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -271,7 +271,7 @@ static TA_RetCode TA_SMA_OpenImpl( struct TA_SMA_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -385,7 +385,7 @@ TA_LIB_API TA_RetCode TA_SMA_Open( TA_SMA_Stream **stream, const double inReal[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_SMA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -395,7 +395,7 @@ TA_LIB_API TA_RetCode TA_SMA_OpenAndFill( TA_SMA_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_SMA_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -410,7 +410,7 @@ TA_RetCode TA_SMA_OpenAndFillInternal( struct TA_SMA_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_SMA_Update( TA_SMA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -450,6 +450,45 @@ TA_LIB_API TA_RetCode TA_SMA_Close( TA_SMA_Stream *stream )
    return TA_SUCCESS;
 }
 
+/* Private function, not in public API. */
+void TA_SMA_StepTape( struct TA_SMA_Stream *sp, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   double tempReal;
+
+   sp->periodTotal += (double)inReal;
+   tempReal = sp->periodTotal;
+   sp->periodTotal -= (double)tape[(tapeBase - sp->ringCap_trailingIdx) & tapeMask];
+   *outReal= tempReal / (double)sp->optInTimePeriod;
+   sp->cur_outReal = *outReal;
+   sp->outRangeCount++;
+}
+
+/* Private function, not in public API. */
+void TA_SMA_PeekTape( const struct TA_SMA_Stream *sp, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   double tempReal;
+   double periodTotal;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
+
+   periodTotal = sp->periodTotal;
+   pkSlot0 = tapeBase & tapeMask;
+   pkVal0 = inReal;
+   periodTotal += (double)inReal;
+   tempReal = periodTotal;
+   periodTotal -= (double)((((tapeBase - sp->ringCap_trailingIdx) & tapeMask) != pkSlot0) ? tape[(tapeBase - sp->ringCap_trailingIdx) & tapeMask] : pkVal0);
+   *outReal= tempReal / (double)sp->optInTimePeriod;
+}
+
+/* Private function, not in public API. */
+int TA_SMA_TapeDetach( struct TA_SMA_Stream *sp )
+{
+   int reach = 0;
+   if( sp->ring_trailingIdx_inReal ) { TA_Free( sp->ring_trailingIdx_inReal ); sp->ring_trailingIdx_inReal = NULL; }
+   if( sp->ringCap_trailingIdx > reach ) reach = sp->ringCap_trailingIdx;
+   return reach;
+}
+
 TA_LIB_API TA_RetCode TA_SMA_Value( const TA_SMA_Stream *stream, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
@@ -468,7 +507,7 @@ TA_LIB_API TA_RetCode TA_SMA_OutRange( const TA_SMA_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_SMA_Advance( TA_SMA_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

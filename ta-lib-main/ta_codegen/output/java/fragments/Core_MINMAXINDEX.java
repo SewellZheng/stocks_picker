@@ -52,10 +52,10 @@
       int i = 0;
       int highestIdx = 0;
       int lowestIdx = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -90,9 +90,9 @@
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - nbInitialElementNeeded;
-      highestIdx = 0 - 1;
+      highestIdx = -1;
       highest = 0.0;
-      lowestIdx = 0 - 1;
+      lowestIdx = -1;
       lowest = 0.0;
       while( today <= endIdx ) {
          tmpHigh = inReal[today];
@@ -160,10 +160,10 @@
       int i = 0;
       int highestIdx = 0;
       int lowestIdx = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -186,9 +186,9 @@
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - nbInitialElementNeeded;
-      highestIdx = 0 - 1;
+      highestIdx = -1;
       highest = 0.0;
-      lowestIdx = 0 - 1;
+      lowestIdx = -1;
       lowest = 0.0;
       while( today <= endIdx ) {
          tmpHigh = (double)inReal[today];
@@ -245,8 +245,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#minmaxindexLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#minmaxindexLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -254,13 +254,15 @@
     * @param optInTimePeriod Window length in bars (default 30; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outMinIdx Absolute index (into inReal) of the window minimum. Must
-    *        hold at least {@code endIdx - startIdx + 1} values.
+    *        hold at least {@code endIdx - max(startIdx, minmaxindexLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @param outMaxIdx Absolute index (into inReal) of the window maximum. Must
-    *        hold at least {@code endIdx - startIdx + 1} values.
+    *        hold at least {@code endIdx - max(startIdx, minmaxindexLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -314,8 +316,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#minmaxindexLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#minmaxindexLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -323,13 +325,15 @@
     * @param optInTimePeriod Window length in bars (default 30; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param outMinIdx Absolute index (into inReal) of the window minimum. Must
-    *        hold at least {@code endIdx - startIdx + 1} values.
+    *        hold at least {@code endIdx - max(startIdx, minmaxindexLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @param outMaxIdx Absolute index (into inReal) of the window maximum. Must
-    *        hold at least {@code endIdx - startIdx + 1} values.
+    *        hold at least {@code endIdx - max(startIdx, minmaxindexLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -413,7 +417,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -427,12 +431,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MINMAXINDEX advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -469,16 +473,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public void update( double inReal, MinmaxindexOut out ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MINMAXINDEX update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("MINMAXINDEX update", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("MINMAXINDEX update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MINMAXINDEX update", "inReal");
          core.minmaxindexStepImpl(this, inReal);
          this.outRangeCount++;
          out.minIdx = this.cur_outMinIdx;
@@ -489,16 +493,14 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, MinmaxindexOut out ) {
          requireArgument("MINMAXINDEX peek", "out", out);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("MINMAXINDEX peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MINMAXINDEX peek", "inReal");
          MinmaxindexStream sp = this;
          double tmpHigh = 0.0;
          double tmpLow = 0.0;
@@ -661,7 +663,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -698,9 +700,9 @@
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - nbInitialElementNeeded;
-      highestIdx = 0 - 1;
+      highestIdx = -1;
       highest = 0.0;
-      lowestIdx = 0 - 1;
+      lowestIdx = -1;
       lowest = 0.0;
       while( today <= endIdx ) {
          tmpHigh = inReal[today];
@@ -784,12 +786,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MINMAXINDEX openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("MINMAXINDEX openAndFill", inReal.length, startIdx, minmaxindexLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MINMAXINDEX openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("MINMAXINDEX openAndFill: " + retCode, retCode);
+      throw streamFailure("MINMAXINDEX openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind minmaxindexOpen (composition seam). */
    MinmaxindexStream minmaxindexOpenInternal( double inReal[], int startIdx, int optInTimePeriod )
@@ -806,12 +805,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MINMAXINDEX open: history shorter than lookback + 1");
+         throw insufficientHistory("MINMAXINDEX open", inReal.length, startIdx, minmaxindexLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MINMAXINDEX open: internal error", retCode);
-      }
-      throw new TALibArgumentException("MINMAXINDEX open: " + retCode, retCode);
+      throw streamFailure("MINMAXINDEX open", retCode);
    }
    /**
     * Open a live MINMAXINDEX stream over the warm-up history; the handle's
@@ -851,7 +847,7 @@
       requireLength("MINMAXINDEX openAndFill", "outMinIdx", outMinIdx, guardOutLen);
       requireLength("MINMAXINDEX openAndFill", "outMaxIdx", outMaxIdx, guardOutLen);
       if( (Object)outMinIdx == (Object)inReal || (Object)outMaxIdx == (Object)inReal || (Object)outMinIdx == (Object)outMaxIdx ) {
-         throw new TALibArgumentException("MINMAXINDEX openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("MINMAXINDEX openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

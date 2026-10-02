@@ -111,10 +111,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -218,6 +218,8 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inReal0 = &inReal0[..=endIdx];
+        let inReal1 = &inReal1[..=endIdx];
         // Consume first input.
         trailingIdx = startIdx - nbInitialElementNeeded;
         trailing_last_price_x = inReal0[trailingIdx];
@@ -246,23 +248,27 @@ impl Core {
         // zero (issue #253).
         if last_price_x != 0.0 {
             shift_x = (inReal0[i] - last_price_x) / last_price_x;
+        } else {
+            cold_arm();
         }
         if last_price_y != 0.0 {
             shift_y = (inReal1[i] - last_price_y) / last_price_y;
+        } else {
+            cold_arm();
         }
         while i < startIdx {
             tmp_real = inReal0[i];
             if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
-                x = 0_f64 - shift_x;
+                x = -shift_x;
             }
             last_price_x = tmp_real;
             tmp_real = inReal1[{ let _v = i; i += 1; _v }];
             if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
-                y = 0_f64 - shift_y;
+                y = -shift_y;
             }
             last_price_y = tmp_real;
             S_xx += x * x;
@@ -280,14 +286,14 @@ impl Core {
             if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
-                x = 0_f64 - shift_x;
+                x = -shift_x;
             }
             last_price_x = tmp_real;
             tmp_real = inReal1[{ let _v = i; i += 1; _v }];
             if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
-                y = 0_f64 - shift_y;
+                y = -shift_y;
             }
             last_price_y = tmp_real;
             S_xx += x * x;
@@ -297,8 +303,8 @@ impl Core {
             S_y += y;
             denom_scale = n * S_xx;
             denom = denom_scale - S_x * S_x;
-            // Re-anchor and rebuild when the shift has gone stale. The same three
-            // triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+            // Re-anchor and rebuild when the shift has gone stale. Three triggers:
+            // the denominator has shrunk below 1e-6 of the scale
             // it is extracted from; OR the return that just left sat so far from the
             // shift that its squared term dwarfs what remains; OR at least every 32
             // windows.
@@ -331,10 +337,10 @@ impl Core {
             // both from the start; this brings BETA level. S_yy exists only to scale
             // this test -- nothing else reads it.
             //
-            // The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-            // a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-            // into S_xx, so the ratio when that term leaves lands an order or two
-            // below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+            // The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+            // return amplifies: a tick multiplying the price by k puts k-1 into the
+            // return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+            // an order or two below the value-scale case. At 1e6 a 1e5 tick slips
             // through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
             // Pinned by test_beta_outlier_transit.
             //
@@ -360,10 +366,14 @@ impl Core {
                 while j < i {
                     if prev_x != 0.0 {
                         tmp_real += (inReal0[j] - prev_x) / prev_x;
+                    } else {
+                        cold_arm();
                     }
                     prev_x = inReal0[j];
                     if prev_y != 0.0 {
                         shift_y += (inReal1[j] - prev_y) / prev_y;
+                    } else {
+                        cold_arm();
                     }
                     prev_y = inReal1[j];
                     j += 1;
@@ -383,13 +393,13 @@ impl Core {
                     if prev_x != 0.0 {
                         x = (inReal0[j] - prev_x) / prev_x - shift_x;
                     } else {
-                        x = 0_f64 - shift_x;
+                        x = -shift_x;
                     }
                     prev_x = inReal0[j];
                     if prev_y != 0.0 {
                         y = (inReal1[j] - prev_y) / prev_y - shift_y;
                     } else {
-                        y = 0_f64 - shift_y;
+                        y = -shift_y;
                     }
                     prev_y = inReal1[j];
                     S_xx += x * x;
@@ -418,7 +428,7 @@ impl Core {
             if trailing_last_price_x != 0.0 {
                 x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
             } else {
-                x = 0_f64 - shift_x;
+                x = -shift_x;
             }
             trailing_last_price_x = tmp_real;
             tmp_real = inReal1[trailingIdx];
@@ -426,7 +436,7 @@ impl Core {
             if trailing_last_price_y != 0.0 {
                 y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
             } else {
-                y = 0_f64 - shift_y;
+                y = -shift_y;
             }
             trailing_last_price_y = tmp_real;
             // Write the output.
@@ -480,15 +490,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -529,10 +539,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.beta_lookback(optInTimePeriod)?;
@@ -631,14 +641,14 @@ impl Core {
         if sp.last_price_x != 0.0 {
             x = (tmp_real - sp.last_price_x) / sp.last_price_x - sp.shift_x;
         } else {
-            x = 0_f64 - sp.shift_x;
+            x = -sp.shift_x;
         }
         sp.last_price_x = tmp_real;
         tmp_real = sp.x_inReal1[((({ let _v = sp.i; sp.i += 1; _v }) as i32) & sp.xMask) as usize];
         if sp.last_price_y != 0.0 {
             y = (tmp_real - sp.last_price_y) / sp.last_price_y - sp.shift_y;
         } else {
-            y = 0_f64 - sp.shift_y;
+            y = -sp.shift_y;
         }
         sp.last_price_y = tmp_real;
         sp.S_xx += x * x;
@@ -648,8 +658,8 @@ impl Core {
         sp.S_y += y;
         denom_scale = sp.n * sp.S_xx;
         denom = denom_scale - sp.S_x * sp.S_x;
-        // Re-anchor and rebuild when the shift has gone stale. The same three
-        // triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+        // Re-anchor and rebuild when the shift has gone stale. Three triggers:
+        // the denominator has shrunk below 1e-6 of the scale
         // it is extracted from; OR the return that just left sat so far from the
         // shift that its squared term dwarfs what remains; OR at least every 32
         // windows.
@@ -682,10 +692,10 @@ impl Core {
         // both from the start; this brings BETA level. S_yy exists only to scale
         // this test -- nothing else reads it.
         //
-        // The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-        // a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-        // into S_xx, so the ratio when that term leaves lands an order or two
-        // below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+        // The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+        // return amplifies: a tick multiplying the price by k puts k-1 into the
+        // return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+        // an order or two below the value-scale case. At 1e6 a 1e5 tick slips
         // through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
         // Pinned by test_beta_outlier_transit.
         //
@@ -711,10 +721,14 @@ impl Core {
             while sp.j < sp.i {
                 if prev_x != 0.0 {
                     tmp_real += (sp.x_inReal0[(sp.j & sp.xMask) as usize] - prev_x) / prev_x;
+                } else {
+                    cold_arm();
                 }
                 prev_x = sp.x_inReal0[(sp.j & sp.xMask) as usize];
                 if prev_y != 0.0 {
                     sp.shift_y += (sp.x_inReal1[(sp.j & sp.xMask) as usize] - prev_y) / prev_y;
+                } else {
+                    cold_arm();
                 }
                 prev_y = sp.x_inReal1[(sp.j & sp.xMask) as usize];
                 sp.j += 1;
@@ -734,13 +748,13 @@ impl Core {
                 if prev_x != 0.0 {
                     x = (sp.x_inReal0[(sp.j & sp.xMask) as usize] - prev_x) / prev_x - sp.shift_x;
                 } else {
-                    x = 0_f64 - sp.shift_x;
+                    x = -sp.shift_x;
                 }
                 prev_x = sp.x_inReal0[(sp.j & sp.xMask) as usize];
                 if prev_y != 0.0 {
                     y = (sp.x_inReal1[(sp.j & sp.xMask) as usize] - prev_y) / prev_y - sp.shift_y;
                 } else {
-                    y = 0_f64 - sp.shift_y;
+                    y = -sp.shift_y;
                 }
                 prev_y = sp.x_inReal1[(sp.j & sp.xMask) as usize];
                 sp.S_xx += x * x;
@@ -769,7 +783,7 @@ impl Core {
         if sp.trailing_last_price_x != 0.0 {
             x = (tmp_real - sp.trailing_last_price_x) / sp.trailing_last_price_x - sp.shift_x;
         } else {
-            x = 0_f64 - sp.shift_x;
+            x = -sp.shift_x;
         }
         sp.trailing_last_price_x = tmp_real;
         tmp_real = sp.x_inReal1[(sp.trailingIdx & sp.xMask) as usize];
@@ -777,7 +791,7 @@ impl Core {
         if sp.trailing_last_price_y != 0.0 {
             y = (tmp_real - sp.trailing_last_price_y) / sp.trailing_last_price_y - sp.shift_y;
         } else {
-            y = 0_f64 - sp.shift_y;
+            y = -sp.shift_y;
         }
         sp.trailing_last_price_y = tmp_real;
         // Write the output.
@@ -811,7 +825,7 @@ impl Core {
         if inReal0.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal0.len() > Self::MAX_INDEX + 1 {
+        if inReal0.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -950,23 +964,27 @@ impl Core {
         // zero (issue #253).
         if last_price_x != 0.0 {
             shift_x = (inReal0[i] - last_price_x) / last_price_x;
+        } else {
+            cold_arm();
         }
         if last_price_y != 0.0 {
             shift_y = (inReal1[i] - last_price_y) / last_price_y;
+        } else {
+            cold_arm();
         }
         while i < startIdx {
             tmp_real = inReal0[i];
             if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
-                x = 0_f64 - shift_x;
+                x = -shift_x;
             }
             last_price_x = tmp_real;
             tmp_real = inReal1[{ let _v = i; i += 1; _v }];
             if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
-                y = 0_f64 - shift_y;
+                y = -shift_y;
             }
             last_price_y = tmp_real;
             S_xx += x * x;
@@ -984,14 +1002,14 @@ impl Core {
             if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
-                x = 0_f64 - shift_x;
+                x = -shift_x;
             }
             last_price_x = tmp_real;
             tmp_real = inReal1[{ let _v = i; i += 1; _v }];
             if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
-                y = 0_f64 - shift_y;
+                y = -shift_y;
             }
             last_price_y = tmp_real;
             S_xx += x * x;
@@ -1001,8 +1019,8 @@ impl Core {
             S_y += y;
             denom_scale = n * S_xx;
             denom = denom_scale - S_x * S_x;
-            // Re-anchor and rebuild when the shift has gone stale. The same three
-            // triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+            // Re-anchor and rebuild when the shift has gone stale. Three triggers:
+            // the denominator has shrunk below 1e-6 of the scale
             // it is extracted from; OR the return that just left sat so far from the
             // shift that its squared term dwarfs what remains; OR at least every 32
             // windows.
@@ -1035,10 +1053,10 @@ impl Core {
             // both from the start; this brings BETA level. S_yy exists only to scale
             // this test -- nothing else reads it.
             //
-            // The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-            // a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-            // into S_xx, so the ratio when that term leaves lands an order or two
-            // below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+            // The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+            // return amplifies: a tick multiplying the price by k puts k-1 into the
+            // return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+            // an order or two below the value-scale case. At 1e6 a 1e5 tick slips
             // through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
             // Pinned by test_beta_outlier_transit.
             //
@@ -1064,10 +1082,14 @@ impl Core {
                 while j < i {
                     if prev_x != 0.0 {
                         tmp_real += (inReal0[j] - prev_x) / prev_x;
+                    } else {
+                        cold_arm();
                     }
                     prev_x = inReal0[j];
                     if prev_y != 0.0 {
                         shift_y += (inReal1[j] - prev_y) / prev_y;
+                    } else {
+                        cold_arm();
                     }
                     prev_y = inReal1[j];
                     j += 1;
@@ -1087,13 +1109,13 @@ impl Core {
                     if prev_x != 0.0 {
                         x = (inReal0[j] - prev_x) / prev_x - shift_x;
                     } else {
-                        x = 0_f64 - shift_x;
+                        x = -shift_x;
                     }
                     prev_x = inReal0[j];
                     if prev_y != 0.0 {
                         y = (inReal1[j] - prev_y) / prev_y - shift_y;
                     } else {
-                        y = 0_f64 - shift_y;
+                        y = -shift_y;
                     }
                     prev_y = inReal1[j];
                     S_xx += x * x;
@@ -1122,7 +1144,7 @@ impl Core {
             if trailing_last_price_x != 0.0 {
                 x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
             } else {
-                x = 0_f64 - shift_x;
+                x = -shift_x;
             }
             trailing_last_price_x = tmp_real;
             tmp_real = inReal1[trailingIdx];
@@ -1130,7 +1152,7 @@ impl Core {
             if trailing_last_price_y != 0.0 {
                 y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
             } else {
-                y = 0_f64 - shift_y;
+                y = -shift_y;
             }
             trailing_last_price_y = tmp_real;
             // Write the output.
@@ -1289,7 +1311,7 @@ impl Core {
         if inReal0.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal0.len() > Self::MAX_INDEX + 1 {
+        if inReal0.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.beta_lookback(optInTimePeriod)?;
@@ -1322,7 +1344,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl BetaStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -1340,11 +1362,11 @@ impl BetaStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_BETA_Update")]
     pub fn update(&mut self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal0.is_finite() || !inReal1.is_finite() {
@@ -1359,16 +1381,15 @@ impl BetaStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_BETA_Peek")]
     pub fn peek(&self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
         if !inReal0.is_finite() || !inReal1.is_finite() {
@@ -1414,7 +1435,7 @@ impl BetaStream {
             if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
-                x = 0_f64 - shift_x;
+                x = -shift_x;
             }
             last_price_x = tmp_real;
             pkIdx0 = ((({ let _v = i; i += 1; _v }) as i32) & sp.xMask) as usize;
@@ -1422,7 +1443,7 @@ impl BetaStream {
             if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
-                y = 0_f64 - shift_y;
+                y = -shift_y;
             }
             last_price_y = tmp_real;
             S_xx += x * x;
@@ -1432,8 +1453,8 @@ impl BetaStream {
             S_y += y;
             denom_scale = sp.n * S_xx;
             denom = denom_scale - S_x * S_x;
-            // Re-anchor and rebuild when the shift has gone stale. The same three
-            // triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+            // Re-anchor and rebuild when the shift has gone stale. Three triggers:
+            // the denominator has shrunk below 1e-6 of the scale
             // it is extracted from; OR the return that just left sat so far from the
             // shift that its squared term dwarfs what remains; OR at least every 32
             // windows.
@@ -1466,10 +1487,10 @@ impl BetaStream {
             // both from the start; this brings BETA level. S_yy exists only to scale
             // this test -- nothing else reads it.
             //
-            // The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-            // a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-            // into S_xx, so the ratio when that term leaves lands an order or two
-            // below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+            // The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+            // return amplifies: a tick multiplying the price by k puts k-1 into the
+            // return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+            // an order or two below the value-scale case. At 1e6 a 1e5 tick slips
             // through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
             // Pinned by test_beta_outlier_transit.
             //
@@ -1495,10 +1516,14 @@ impl BetaStream {
                 while j < i {
                     if prev_x != 0.0 {
                         tmp_real += ((if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 }) - prev_x) / prev_x;
+                    } else {
+                        cold_arm();
                     }
                     prev_x = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 });
                     if prev_y != 0.0 {
                         shift_y += ((if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 }) - prev_y) / prev_y;
+                    } else {
+                        cold_arm();
                     }
                     prev_y = (if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 });
                     j += 1;
@@ -1518,13 +1543,13 @@ impl BetaStream {
                     if prev_x != 0.0 {
                         x = ((if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 }) - prev_x) / prev_x - shift_x;
                     } else {
-                        x = 0_f64 - shift_x;
+                        x = -shift_x;
                     }
                     prev_x = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 });
                     if prev_y != 0.0 {
                         y = ((if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 }) - prev_y) / prev_y - shift_y;
                     } else {
-                        y = 0_f64 - shift_y;
+                        y = -shift_y;
                     }
                     prev_y = (if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 });
                     S_xx += x * x;
@@ -1553,7 +1578,7 @@ impl BetaStream {
             if trailing_last_price_x != 0.0 {
                 x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
             } else {
-                x = 0_f64 - shift_x;
+                x = -shift_x;
             }
             trailing_last_price_x = tmp_real;
             tmp_real = (if ((trailingIdx & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(trailingIdx & sp.xMask) as usize] } else { pkVal1 });
@@ -1561,7 +1586,7 @@ impl BetaStream {
             if trailing_last_price_y != 0.0 {
                 y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
             } else {
-                y = 0_f64 - shift_y;
+                y = -shift_y;
             }
             trailing_last_price_y = tmp_real;
             // Write the output.
@@ -1603,7 +1628,7 @@ impl BetaStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_BETA_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1621,11 +1646,11 @@ impl BetaStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_BETA_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

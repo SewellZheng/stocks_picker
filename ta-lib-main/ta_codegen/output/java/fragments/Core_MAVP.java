@@ -16,6 +16,7 @@
  *  072726 MF,CC  #145. Index the bucket table relative to the smallest period
  *                used, and bound it so an off-contract period cannot overflow.
  *  080326 MF,CC  Split the size temp from the cast-fed period temp (#160).
+ *  092526 MF,CC  #442. Allocate the multi-period buffers on that path only.
  */
 
    /**
@@ -26,25 +27,25 @@
     * output.
     *
     * @param optInMinPeriod Lower clamp for the per-bar period (default 2; range
-    *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+    *        1..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMaxPeriod Upper clamp for the per-bar period (default 30;
-    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    *        range 1..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type applied (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int mavpLookback( int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
    {
       if( optInMinPeriod == Integer.MIN_VALUE ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return -1;
       }
       if( optInMaxPeriod == Integer.MIN_VALUE ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return -1;
       }
       if( optInMAType == MAType.DEFAULT ) {
@@ -55,7 +56,7 @@
        * lookback answers a usable number for a call that cannot run.
        */
       if( optInMinPeriod > optInMaxPeriod ) {
-         return 0 - 1 ;
+         return -1 ;
       }
       return maLookback(optInMaxPeriod, optInMAType) ;
 
@@ -95,20 +96,20 @@
       MInteger localBegIdx = new MInteger();
       MInteger localNbElement = new MInteger();
       RetCode retCode;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInMinPeriod == Integer.MIN_VALUE ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInMaxPeriod == Integer.MIN_VALUE ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
@@ -156,11 +157,7 @@
          return RetCode.SUCCESS ;
       }
       outputSize = endIdx - firstOut + 1;
-      /* Allocate intermediate local buffer. */
-      localOutputArray = new double[(int)(outputSize * 1)];
       localPeriodArray = new int[(int)(outputSize * 1)];
-      /* Output indices grouped by clamped period (counting sort below). */
-      sortedIdx = new int[(int)(outputSize * 1)];
       /* In-place defence (issue #130): each ma() pass below re-reads inReal over
        * the full range, so with outReal==inReal the results are staged in a
        * scratch buffer and copied once at the end. A regular call writes
@@ -177,8 +174,8 @@
        * range of periods actually used so all later work is sized by the data,
        * not by optInMaxPeriod. The floor at 1 (and on minUsed's start value)
        * keeps a period below 1 from indexing the occurrence tables out of range.
-       * mavp.yaml caps both periods at [1, 100000], so it is inert through the
-       * API; it is kept because this file is the source of truth for four
+       * mavp.yaml's period range starts at 1, so it is inert through the API;
+       * it is kept because this file is the source of truth for four
        * backends and it makes the shared source safe by construction rather than
        * by trusting each backend's prologue to be identical.
        */
@@ -223,8 +220,8 @@
       }
       /* Bound the bucket table before sizing it.
        *
-       * Unreachable through the API: mavp.yaml caps both periods at 100000, so
-       * the widest spread expressible is 99999. It is kept because it protects a
+       * Unreachable through the API: mavp.yaml's period range keeps the spread
+       * below this bound. It is kept because it protects a
        * memory-safety property and this file is the source of truth for four
        * backends — without it the size expression below can overflow (signed
        * overflow in C, a wrapped negative in Java, a usize underflow panic in
@@ -245,13 +242,6 @@
          outNBElement.value = 0;
          return RetCode.BAD_PARAM ;
       }
-      /* Per-period bucket cursor for the counting sort. Indexed RELATIVE to
-       * minUsed: only [minUsed, maxUsed+1] is ever touched, so sizing from the
-       * largest period used allocated up to 400KB for a band of periods that
-       * may be a handful wide — and allocated it even on the single-period
-       * fast path below.
-       */
-      bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
       if( minUsed == maxUsed ) {
          /* Single distinct period: one MA pass, written straight into the
           * destination buffer. Nothing to group or copy.
@@ -261,6 +251,9 @@
          localNbElement.value = _xr0.count();
          retCode = RetCode.SUCCESS;
       } else {
+         localOutputArray = new double[(int)(outputSize * 1)];
+         sortedIdx = new int[(int)(outputSize * 1)];
+         bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
          /* Counting sort: sortedIdx ends up holding the output indices ordered
           * by period, one contiguous ascending slice per distinct period, with
           * bucketOfs[p] the end of period p's slice.
@@ -321,10 +314,6 @@
             bucketStart = bucketEnd;
          }
       }
-      /* Pointer-inequality guard, not finalIsAllocated: in backends where the
-       * scratch election materializes as a copy (Rust), the copy-back must
-       * always run; in C/Java the non-aliased self-copy is skipped.
-       */
       if( localFinalArray != outReal ) {
          System.arraycopy(localFinalArray, 0, outReal, 0, outputSize * 1);
       }
@@ -368,20 +357,20 @@
       MInteger localBegIdx = new MInteger();
       MInteger localNbElement = new MInteger();
       RetCode retCode;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInMinPeriod == Integer.MIN_VALUE ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInMaxPeriod == Integer.MIN_VALUE ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
@@ -412,9 +401,7 @@
          return RetCode.SUCCESS ;
       }
       outputSize = endIdx - firstOut + 1;
-      localOutputArray = new double[(int)(outputSize * 1)];
       localPeriodArray = new int[(int)(outputSize * 1)];
-      sortedIdx = new int[(int)(outputSize * 1)];
       finalIsAllocated = 0;
       if( false ) {
          finalIsAllocated = 1;
@@ -454,13 +441,15 @@
          outNBElement.value = 0;
          return RetCode.BAD_PARAM ;
       }
-      bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
       if( minUsed == maxUsed ) {
          OutRange _xr0 = ma(startIdx, endIdx, inReal, minUsed, optInMAType, localFinalArray);
          localBegIdx.value = _xr0.begIdx();
          localNbElement.value = _xr0.count();
          retCode = RetCode.SUCCESS;
       } else {
+         localOutputArray = new double[(int)(outputSize * 1)];
+         sortedIdx = new int[(int)(outputSize * 1)];
+         bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
          for( curPeriod = minUsed; curPeriod <= maxUsed + 1; curPeriod += 1 ) {
             bucketOfs[curPeriod - minUsed] = 0;
          }
@@ -519,27 +508,28 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#mavpLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#mavpLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal series to be averaged.
     * @param inPeriods per-bar desired MA period.
     * @param optInMinPeriod Lower clamp for the per-bar period (default 2; range
-    *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+    *        1..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMaxPeriod Upper clamp for the per-bar period (default 30;
-    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    *        range 1..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type applied (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param outReal variable-period moving average. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, mavpLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -597,27 +587,28 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#mavpLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#mavpLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal series to be averaged.
     * @param inPeriods per-bar desired MA period.
     * @param optInMinPeriod Lower clamp for the per-bar period (default 2; range
-    *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+    *        1..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMaxPeriod Upper clamp for the per-bar period (default 30;
-    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    *        range 1..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type applied (default 0 = SMA; values:
     *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; {@code MAType.DEFAULT} selects
-    *        the default).
+    *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+    *        {@code MAType.DEFAULT} selects the default).
     * @param outReal variable-period moving average. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, mavpLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -680,7 +671,10 @@
       private int optInMaxPeriod;
       private MAType optInMAType;
       private double cur_outReal;
-      // One sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
+      private int tapeMask;
+      private int tapePos;
+      private double[] tape;
+      // Empty in window mode; otherwise one sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
       private MaStream[] bank;
       private int outRangeBegIdx;
       private int outRangeCount;
@@ -697,7 +691,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -711,12 +705,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MAVP advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -727,6 +721,9 @@
          this.optInMaxPeriod = other.optInMaxPeriod;
          this.optInMAType = other.optInMAType;
          this.cur_outReal = other.cur_outReal;
+         this.tapeMask = other.tapeMask;
+         this.tapePos = other.tapePos;
+         this.tape = other.tape.clone();
          this.bank = new MaStream[other.bank.length];
          for( int bankIdx = 0; bankIdx < other.bank.length; bankIdx++ ) {
             this.bank[bankIdx] = new MaStream(other.bank[bankIdx]);
@@ -749,15 +746,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal, double inPeriods ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MAVP update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) || !Double.isFinite(inPeriods) )
-            throw new TALibArgumentException("MAVP update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MAVP update", !Double.isFinite(inReal) ? "inReal" : "inPeriods");
          core.mavpStepImpl(this, inReal, inPeriods);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -767,15 +764,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal, double inPeriods ) {
          if( !Double.isFinite(inReal) || !Double.isFinite(inPeriods) )
-            throw new TALibArgumentException("MAVP peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MAVP peek", !Double.isFinite(inReal) ? "inReal" : "inPeriods");
          MavpStream sp = this;
          int cp = (int)inPeriods;
          if( cp < sp.optInMinPeriod ) {
@@ -784,7 +779,7 @@
             cp = sp.optInMaxPeriod;
          }
          int slot = cp - sp.optInMinPeriod;
-         double cur_outReal = sp.bank[slot].peek(inReal);
+         double cur_outReal = sp.bank.length == 0 ? core.mavpEvalWindow(sp, inReal, cp) : core.maPeekTape(sp.bank[slot], sp.tape, ((sp.tapePos + 1) & sp.tapeMask) + sp.tapeMask + 1, sp.tapeMask, inReal);
          return cur_outReal;
       }
 
@@ -816,6 +811,19 @@
    }
    private void mavpStepImpl( MavpStream sp, double inReal, double inPeriods )
    {
+      if( sp.bank.length == 0 ) {
+         int cp = (int)inPeriods;
+         if( cp < sp.optInMinPeriod ) {
+            cp = sp.optInMinPeriod;
+         } else if( cp > sp.optInMaxPeriod ) {
+            cp = sp.optInMaxPeriod;
+         }
+         double v = mavpEvalWindow(sp, inReal, cp);
+         sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;
+         sp.tape[sp.tapePos] = inReal;
+         sp.cur_outReal = v;
+         return;
+      }
       int cp = (int)inPeriods;
       if( cp < sp.optInMinPeriod ) {
          cp = sp.optInMinPeriod;
@@ -823,12 +831,51 @@
          cp = sp.optInMaxPeriod;
       }
       int slot = cp - sp.optInMinPeriod;
+      sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;
+      sp.tape[sp.tapePos] = inReal;
+      int tapeBase = sp.tapePos + sp.tapeMask + 1;
       for( int bankIdx = 0; bankIdx < sp.bank.length; bankIdx++ ) {
-         double subValue = sp.bank[bankIdx].update(inReal);
+         double subValue = maStepTape(sp.bank[bankIdx], sp.tape, tapeBase, sp.tapeMask, inReal);
          if( bankIdx == slot ) {
             sp.cur_outReal = subValue;
          }
       }
+   }
+   private void mavpTapeOpen( MavpStream sp, double inReal[], int historyLen, int reach )
+   {
+      int size = 1;
+      while( size <= reach ) {
+         size <<= 1;
+      }
+      sp.tape = new double[size];
+      sp.tapeMask = size - 1;
+      for( int b = historyLen > size ? historyLen - size : 0; b < historyLen; b++ ) {
+         sp.tape[b & sp.tapeMask] = inReal[b];
+      }
+      sp.tapePos = (historyLen - 1) & sp.tapeMask;
+   }
+   private static boolean mavpWindowMode( MAType t )
+   {
+      switch( t )
+      {
+      case ALMA:
+      case DISABLED:
+         return true;
+      default:
+         return false;
+      }
+   }
+   private double mavpEvalWindow( MavpStream sp, double inReal, int cp )
+   {
+      int lb = maLookback(cp, sp.optInMAType);
+      double[] win = new double[lb + 1];
+      for( int i = 0; i < lb; i++ ) {
+         win[i] = sp.tape[(sp.tapePos + sp.tapeMask + 2 - lb + i) & sp.tapeMask];
+      }
+      win[lb] = inReal;
+      double[] out1 = new double[1];
+      ma(lb, lb, win, cp, sp.optInMAType, out1);
+      return out1[0];
    }
    private RetCode mavpOpenImpl( MavpStream sp, double inReal[], double inPeriods[], int startIdx, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
    {
@@ -836,7 +883,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inPeriods.length != inReal.length ) {
@@ -844,12 +891,12 @@
       }
       if( optInMinPeriod == Integer.MIN_VALUE ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInMaxPeriod == Integer.MIN_VALUE ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
@@ -873,9 +920,43 @@
          return RetCode.INSUFFICIENT_HISTORY;
       }
       int nBank = optInMaxPeriod - optInMinPeriod + 1;
+      boolean window = mavpWindowMode(optInMAType);
+      if( optInMaxPeriod - optInMinPeriod + 1 < 12 ) window = false;
+      if( window ) {
+         for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
+            if( maLookback(optInMinPeriod + bankIdx, optInMAType) > lookbackTotal ) {
+               window = false;
+               break;
+            }
+         }
+      }
+      if( window ) {
+         int cp = (int)inPeriods[historyLen - 1];
+         if( cp < optInMinPeriod ) {
+            cp = optInMinPeriod;
+         } else if( cp > optInMaxPeriod ) {
+            cp = optInMaxPeriod;
+         }
+         sp.optInMinPeriod = optInMinPeriod;
+         sp.optInMaxPeriod = optInMaxPeriod;
+         sp.optInMAType = optInMAType;
+         sp.bank = new MaStream[0];
+         mavpTapeOpen(sp, inReal, historyLen, lookbackTotal);
+         double[] out1 = new double[1];
+         ma(historyLen - 1, historyLen - 1, inReal, cp, optInMAType, out1);
+         sp.cur_outReal = out1[0];
+         sp.outRangeBegIdx = subStart;
+         sp.outRangeCount = historyLen - subStart;
+         return RetCode.SUCCESS;
+      }
       MaStream[] bank = new MaStream[nBank];
+      int reach = 0;
       for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
          bank[bankIdx] = maOpenInternal(inReal, subStart, optInMinPeriod + bankIdx, optInMAType);
+         int slotReach = maTapeDetach(bank[bankIdx]);
+         if( slotReach > reach ) {
+            reach = slotReach;
+         }
       }
       int cp = (int)inPeriods[historyLen - 1];
       if( cp < optInMinPeriod ) {
@@ -887,6 +968,7 @@
       sp.optInMaxPeriod = optInMaxPeriod;
       sp.optInMAType = optInMAType;
       sp.bank = bank;
+      mavpTapeOpen(sp, inReal, historyLen, reach);
       sp.cur_outReal = bank[cp - optInMinPeriod].cur_outReal;
       sp.outRangeBegIdx = subStart;
       sp.outRangeCount = historyLen - subStart;
@@ -898,7 +980,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inPeriods.length != inReal.length ) {
@@ -906,12 +988,12 @@
       }
       if( optInMinPeriod == Integer.MIN_VALUE ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInMaxPeriod == Integer.MIN_VALUE ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInMAType == MAType.DEFAULT ) {
@@ -929,14 +1011,60 @@
          return RetCode.INSUFFICIENT_HISTORY;
       }
       int nBank = optInMaxPeriod - optInMinPeriod + 1;
+      boolean window = mavpWindowMode(optInMAType);
+      if( optInMaxPeriod - optInMinPeriod + 1 < 12 ) window = false;
+      if( window ) {
+         for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
+            if( maLookback(optInMinPeriod + bankIdx, optInMAType) > lookbackTotal ) {
+               window = false;
+               break;
+            }
+         }
+      }
+      if( window ) {
+         double[] run = new double[historyLen - lookbackTotal];
+         int t1;
+         for( int t = lookbackTotal; t < historyLen; t = t1 + 1 ) {
+            int cp = (int)inPeriods[t];
+            if( cp < optInMinPeriod ) {
+               cp = optInMinPeriod;
+            } else if( cp > optInMaxPeriod ) {
+               cp = optInMaxPeriod;
+            }
+            for( t1 = t; t1 + 1 < historyLen; t1++ ) {
+               int cp2 = (int)inPeriods[t1 + 1];
+               if( cp2 < optInMinPeriod ) {
+                  cp2 = optInMinPeriod;
+               } else if( cp2 > optInMaxPeriod ) {
+                  cp2 = optInMaxPeriod;
+               }
+               if( cp2 != cp ) {
+                  break;
+               }
+            }
+            ma(t, t1, inReal, cp, optInMAType, run);
+            System.arraycopy(run, 0, outReal, t - lookbackTotal, t1 - t + 1);
+         }
+         sp.optInMinPeriod = optInMinPeriod;
+         sp.optInMaxPeriod = optInMaxPeriod;
+         sp.optInMAType = optInMAType;
+         sp.bank = new MaStream[0];
+         mavpTapeOpen(sp, inReal, historyLen, lookbackTotal);
+         outBegIdx.value = lookbackTotal;
+         outNBElement.value = historyLen - lookbackTotal;
+         sp.cur_outReal = outReal[outNBElement.value - 1];
+         return RetCode.SUCCESS;
+      }
       /* Seed each sub at the first output bar (lookbackTotal), NOT the last. */
-      MaStream[] bank = new MaStream[nBank];
-      double[] scratch = new double[nBank];
       double[] seedPrefix = java.util.Arrays.copyOfRange(inReal, 0, lookbackTotal + 1);
+      MaStream[] bank = new MaStream[nBank];
+      int reach = 0;
       for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
-         MaStream sub = maOpenInternal(seedPrefix, lookbackTotal, optInMinPeriod + bankIdx, optInMAType);
-         bank[bankIdx] = sub;
-         scratch[bankIdx] = sub.cur_outReal;
+         bank[bankIdx] = maOpenInternal(seedPrefix, lookbackTotal, optInMinPeriod + bankIdx, optInMAType);
+         int slotReach = maTapeDetach(bank[bankIdx]);
+         if( slotReach > reach ) {
+            reach = slotReach;
+         }
       }
       /* First output bar (lookbackTotal), then replay the remaining history. */
       int cp = (int)inPeriods[lookbackTotal];
@@ -945,25 +1073,18 @@
       } else if( cp > optInMaxPeriod ) {
          cp = optInMaxPeriod;
       }
-      outReal[0] = scratch[cp - optInMinPeriod];
-      for( int t = lookbackTotal + 1; t < historyLen; t++ ) {
-         for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
-            scratch[bankIdx] = bank[bankIdx].update(inReal[t]);
-         }
-         cp = (int)inPeriods[t];
-         if( cp < optInMinPeriod ) {
-            cp = optInMinPeriod;
-         } else if( cp > optInMaxPeriod ) {
-            cp = optInMaxPeriod;
-         }
-         outReal[t - lookbackTotal] = scratch[cp - optInMinPeriod];
-      }
-      outBegIdx.value = lookbackTotal;
-      outNBElement.value = historyLen - lookbackTotal;
       sp.optInMinPeriod = optInMinPeriod;
       sp.optInMaxPeriod = optInMaxPeriod;
       sp.optInMAType = optInMAType;
       sp.bank = bank;
+      mavpTapeOpen(sp, seedPrefix, lookbackTotal + 1, reach);
+      outReal[0] = bank[cp - optInMinPeriod].cur_outReal;
+      for( int t = lookbackTotal + 1; t < historyLen; t++ ) {
+         mavpStepImpl(sp, inReal[t], inPeriods[t]);
+         outReal[t - lookbackTotal] = sp.cur_outReal;
+      }
+      outBegIdx.value = lookbackTotal;
+      outNBElement.value = historyLen - lookbackTotal;
       sp.cur_outReal = outReal[outNBElement.value - 1];
       return RetCode.SUCCESS;
    }
@@ -976,12 +1097,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MAVP open: history shorter than lookback + 1");
+         throw insufficientHistory("MAVP open", inReal.length, startIdx, mavpLookback(optInMinPeriod, optInMaxPeriod, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MAVP open: internal error", retCode);
-      }
-      throw new TALibArgumentException("MAVP open: " + retCode, retCode);
+      throw streamFailure("MAVP open", retCode);
    }
    /**
     * Open a live MAVP stream over the warm-up history; the handle's
@@ -1035,10 +1153,7 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MAVP openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("MAVP openAndFill", inReal.length, 0, mavpLookback(optInMinPeriod, optInMaxPeriod, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MAVP openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("MAVP openAndFill: " + retCode, retCode);
+      throw streamFailure("MAVP openAndFill", retCode);
    }

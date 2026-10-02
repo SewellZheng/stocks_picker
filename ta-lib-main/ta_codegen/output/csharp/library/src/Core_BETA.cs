@@ -127,10 +127,10 @@ public partial class Core
       int outIdx = 0;
       int trailingIdx = 0;
       int nbInitialElementNeeded = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -246,14 +246,14 @@ public partial class Core
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -271,14 +271,14 @@ public partial class Core
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -288,8 +288,8 @@ public partial class Core
          S_y += y;
          denom_scale = n * S_xx;
          denom = denom_scale - S_x * S_x;
-         /* Re-anchor and rebuild when the shift has gone stale. The same three
-          * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+         /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+          * the denominator has shrunk below 1e-6 of the scale
           * it is extracted from; OR the return that just left sat so far from the
           * shift that its squared term dwarfs what remains; OR at least every 32
           * windows.
@@ -322,10 +322,10 @@ public partial class Core
           * both from the start; this brings BETA level. S_yy exists only to scale
           * this test -- nothing else reads it.
           *
-          * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-          * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-          * into S_xx, so the ratio when that term leaves lands an order or two
-          * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+          * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+          * return amplifies: a tick multiplying the price by k puts k-1 into the
+          * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+          * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
           * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
           * Pinned by test_beta_outlier_transit.
           *
@@ -371,13 +371,13 @@ public partial class Core
                if( prev_x != 0.0 ) {
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = inReal0[j];
                if( prev_y != 0.0 ) {
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = inReal1[j];
                S_xx += x * x;
@@ -396,9 +396,7 @@ public partial class Core
              * and denom_scale == 0 reduces that trigger to `denom < 0`), so the
              * divide below can rely on it being >= 0.
              */
-            if( denom < 0.0 ) {
-               denom = 0.0;
-            }
+            denom = MaxGt(0.0, denom);
          }
          /* Always read the trailing before writing the output because the input and output
           * buffer can be the same.
@@ -407,7 +405,7 @@ public partial class Core
          if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
@@ -415,7 +413,7 @@ public partial class Core
          if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          /* Write the output.
@@ -484,10 +482,10 @@ public partial class Core
       int outIdx = 0;
       int trailingIdx = 0;
       int nbInitialElementNeeded = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -543,14 +541,14 @@ public partial class Core
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = (double)inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -567,14 +565,14 @@ public partial class Core
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = (double)inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -615,13 +613,13 @@ public partial class Core
                if( prev_x != 0.0 ) {
                   x = ((double)inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = (double)inReal0[j];
                if( prev_y != 0.0 ) {
                   y = ((double)inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = (double)inReal1[j];
                S_xx += x * x;
@@ -632,15 +630,13 @@ public partial class Core
             }
             denom_scale = n * S_xx;
             denom = denom_scale - S_x * S_x;
-            if( denom < 0.0 ) {
-               denom = 0.0;
-            }
+            denom = MaxGt(0.0, denom);
          }
          tmp_real = (double)inReal0[trailingIdx];
          if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = (double)inReal1[trailingIdx];
@@ -648,7 +644,7 @@ public partial class Core
          if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          if( denom > 0.00000000000001 * denom_scale ) {
@@ -684,8 +680,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>BetaLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>BetaLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -695,25 +696,34 @@ public partial class Core
    /// <param name="optInTimePeriod">Rolling window length (number of returns) for the regression sums (default
    /// 5; range 1..100000; <c>int.MinValue</c> selects the default).</param>
    /// <param name="outReal">Beta: regression slope of inReal1-returns on inReal0-returns. Must hold at
-   /// least <c>endIdx - startIdx + 1</c> values.</param>
+   /// least <c>endIdx - max(startIdx, BetaLookback(...)) + 1</c> values, the
+   /// count the call produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Correl(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.LinearregSlope(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Var(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
+   /// <seealso cref="Core.Stddev(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
    public OutRange Beta( int startIdx,
                          int endIdx,
                          ReadOnlySpan<double> inReal0,
@@ -755,8 +765,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>BetaLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>BetaLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -766,27 +781,36 @@ public partial class Core
    /// <param name="optInTimePeriod">Rolling window length (number of returns) for the regression sums (default
    /// 5; range 1..100000; <c>int.MinValue</c> selects the default).</param>
    /// <param name="outReal">Beta: regression slope of inReal1-returns on inReal0-returns. Must hold at
-   /// least <c>endIdx - startIdx + 1</c> values.</param>
+   /// least <c>endIdx - max(startIdx, BetaLookback(...)) + 1</c> values, the
+   /// count the call produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Correl(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.LinearregSlope(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Var(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
+   /// <seealso cref="Core.Stddev(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
    public OutRange Beta( int startIdx,
                          int endIdx,
                          ReadOnlySpan<float> inReal0,
@@ -864,7 +888,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -877,13 +901,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("BETA", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -922,7 +946,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -933,7 +956,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -942,9 +965,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal0, double inReal1 )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("BETA", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("BETA", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.NonFiniteBar("BETA", "update", !double.IsFinite(inReal0) ? nameof(inReal0) : nameof(inReal1));
          core.BetaStepImpl(this, inReal0, inReal1);
          outRangeCount++;
          return cur_outReal;
@@ -956,9 +979,8 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal0">This bar's value for <c>inReal0</c>.</param>
       /// <param name="inReal1">This bar's value for <c>inReal1</c>.</param>
@@ -966,7 +988,7 @@ public partial class Core
       /// it.</returns>
       public double Peek( double inReal0, double inReal1 )
       {
-         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("BETA", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.NonFiniteBar("BETA", "peek", !double.IsFinite(inReal0) ? nameof(inReal0) : nameof(inReal1));
          BetaStream sp = this;
          double tmp_real = 0.0;
          double denom = 0.0;
@@ -1005,7 +1027,7 @@ public partial class Core
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          pkIdx0 = i++ & sp.xMask;
@@ -1013,7 +1035,7 @@ public partial class Core
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -1023,8 +1045,8 @@ public partial class Core
          S_y += y;
          denom_scale = sp.n * S_xx;
          denom = denom_scale - S_x * S_x;
-         /* Re-anchor and rebuild when the shift has gone stale. The same three
-          * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+         /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+          * the denominator has shrunk below 1e-6 of the scale
           * it is extracted from; OR the return that just left sat so far from the
           * shift that its squared term dwarfs what remains; OR at least every 32
           * windows.
@@ -1057,10 +1079,10 @@ public partial class Core
           * both from the start; this brings BETA level. S_yy exists only to scale
           * this test -- nothing else reads it.
           *
-          * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-          * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-          * into S_xx, so the ratio when that term leaves lands an order or two
-          * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+          * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+          * return amplifies: a tick multiplying the price by k puts k-1 into the
+          * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+          * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
           * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
           * Pinned by test_beta_outlier_transit.
           *
@@ -1106,13 +1128,13 @@ public partial class Core
                if( prev_x != 0.0 ) {
                   x = ((((j & sp.xMask) != pkSlot0) ? sp.x_inReal0[j & sp.xMask] : pkVal0) - prev_x) / prev_x - shift_x;
                } else {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = ((j & sp.xMask) != pkSlot0) ? sp.x_inReal0[j & sp.xMask] : pkVal0;
                if( prev_y != 0.0 ) {
                   y = ((((j & sp.xMask) != pkSlot1) ? sp.x_inReal1[j & sp.xMask] : pkVal1) - prev_y) / prev_y - shift_y;
                } else {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = ((j & sp.xMask) != pkSlot1) ? sp.x_inReal1[j & sp.xMask] : pkVal1;
                S_xx += x * x;
@@ -1131,9 +1153,7 @@ public partial class Core
              * and denom_scale == 0 reduces that trigger to `denom < 0`), so the
              * divide below can rely on it being >= 0.
              */
-            if( denom < 0.0 ) {
-               denom = 0.0;
-            }
+            denom = MaxGt(0.0, denom);
          }
          /* Always read the trailing before writing the output because the input and output
           * buffer can be the same.
@@ -1142,7 +1162,7 @@ public partial class Core
          if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = ((trailingIdx & sp.xMask) != pkSlot1) ? sp.x_inReal1[trailingIdx & sp.xMask] : pkVal1;
@@ -1150,7 +1170,7 @@ public partial class Core
          if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          /* Write the output.
@@ -1186,7 +1206,7 @@ public partial class Core
       }
    }
 
-   internal void BetaStepImpl( BetaStream sp, double inReal0, double inReal1 )
+   private void BetaStepImpl( BetaStream sp, double inReal0, double inReal1 )
    {
       double tmp_real = 0.0;
       double denom = 0.0;
@@ -1202,14 +1222,14 @@ public partial class Core
       if( sp.last_price_x != 0.0 ) {
          x = (tmp_real - sp.last_price_x) / sp.last_price_x - sp.shift_x;
       } else {
-         x = 0 - sp.shift_x;
+         x = -sp.shift_x;
       }
       sp.last_price_x = tmp_real;
       tmp_real = sp.x_inReal1[sp.i++ & sp.xMask];
       if( sp.last_price_y != 0.0 ) {
          y = (tmp_real - sp.last_price_y) / sp.last_price_y - sp.shift_y;
       } else {
-         y = 0 - sp.shift_y;
+         y = -sp.shift_y;
       }
       sp.last_price_y = tmp_real;
       sp.S_xx += x * x;
@@ -1219,8 +1239,8 @@ public partial class Core
       sp.S_y += y;
       denom_scale = sp.n * sp.S_xx;
       denom = denom_scale - sp.S_x * sp.S_x;
-      /* Re-anchor and rebuild when the shift has gone stale. The same three
-       * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+      /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+       * the denominator has shrunk below 1e-6 of the scale
        * it is extracted from; OR the return that just left sat so far from the
        * shift that its squared term dwarfs what remains; OR at least every 32
        * windows.
@@ -1253,10 +1273,10 @@ public partial class Core
        * both from the start; this brings BETA level. S_yy exists only to scale
        * this test -- nothing else reads it.
        *
-       * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-       * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-       * into S_xx, so the ratio when that term leaves lands an order or two
-       * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+       * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+       * return amplifies: a tick multiplying the price by k puts k-1 into the
+       * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+       * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
        * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
        * Pinned by test_beta_outlier_transit.
        *
@@ -1302,13 +1322,13 @@ public partial class Core
             if( prev_x != 0.0 ) {
                x = (sp.x_inReal0[sp.j & sp.xMask] - prev_x) / prev_x - sp.shift_x;
             } else {
-               x = 0 - sp.shift_x;
+               x = -sp.shift_x;
             }
             prev_x = sp.x_inReal0[sp.j & sp.xMask];
             if( prev_y != 0.0 ) {
                y = (sp.x_inReal1[sp.j & sp.xMask] - prev_y) / prev_y - sp.shift_y;
             } else {
-               y = 0 - sp.shift_y;
+               y = -sp.shift_y;
             }
             prev_y = sp.x_inReal1[sp.j & sp.xMask];
             sp.S_xx += x * x;
@@ -1327,9 +1347,7 @@ public partial class Core
           * and denom_scale == 0 reduces that trigger to `denom < 0`), so the
           * divide below can rely on it being >= 0.
           */
-         if( denom < 0.0 ) {
-            denom = 0.0;
-         }
+         denom = MaxGt(0.0, denom);
       }
       /* Always read the trailing before writing the output because the input and output
        * buffer can be the same.
@@ -1338,7 +1356,7 @@ public partial class Core
       if( sp.trailing_last_price_x != 0.0 ) {
          x = (tmp_real - sp.trailing_last_price_x) / sp.trailing_last_price_x - sp.shift_x;
       } else {
-         x = 0 - sp.shift_x;
+         x = -sp.shift_x;
       }
       sp.trailing_last_price_x = tmp_real;
       tmp_real = sp.x_inReal1[sp.trailingIdx & sp.xMask];
@@ -1346,7 +1364,7 @@ public partial class Core
       if( sp.trailing_last_price_y != 0.0 ) {
          y = (tmp_real - sp.trailing_last_price_y) / sp.trailing_last_price_y - sp.shift_y;
       } else {
-         y = 0 - sp.shift_y;
+         y = -sp.shift_y;
       }
       sp.trailing_last_price_y = tmp_real;
       /* Write the output.
@@ -1409,7 +1427,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inReal1.Length != inReal0.Length ) {
@@ -1530,14 +1548,14 @@ public partial class Core
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -1555,14 +1573,14 @@ public partial class Core
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -1572,8 +1590,8 @@ public partial class Core
          S_y += y;
          denom_scale = n * S_xx;
          denom = denom_scale - S_x * S_x;
-         /* Re-anchor and rebuild when the shift has gone stale. The same three
-          * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+         /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+          * the denominator has shrunk below 1e-6 of the scale
           * it is extracted from; OR the return that just left sat so far from the
           * shift that its squared term dwarfs what remains; OR at least every 32
           * windows.
@@ -1606,10 +1624,10 @@ public partial class Core
           * both from the start; this brings BETA level. S_yy exists only to scale
           * this test -- nothing else reads it.
           *
-          * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-          * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-          * into S_xx, so the ratio when that term leaves lands an order or two
-          * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+          * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+          * return amplifies: a tick multiplying the price by k puts k-1 into the
+          * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+          * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
           * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
           * Pinned by test_beta_outlier_transit.
           *
@@ -1655,13 +1673,13 @@ public partial class Core
                if( prev_x != 0.0 ) {
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = inReal0[j];
                if( prev_y != 0.0 ) {
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = inReal1[j];
                S_xx += x * x;
@@ -1680,9 +1698,7 @@ public partial class Core
              * and denom_scale == 0 reduces that trigger to `denom < 0`), so the
              * divide below can rely on it being >= 0.
              */
-            if( denom < 0.0 ) {
-               denom = 0.0;
-            }
+            denom = MaxGt(0.0, denom);
          }
          /* Always read the trailing before writing the output because the input and output
           * buffer can be the same.
@@ -1691,7 +1707,7 @@ public partial class Core
          if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
@@ -1699,7 +1715,7 @@ public partial class Core
          if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          /* Write the output.
@@ -1778,6 +1794,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("BETA", "openAndFill", nameof(inReal0), inReal0.Length, startIdx, BetaLookback(optInTimePeriod));
+      }
       throw StreamFailure("BETA", "openAndFill", retCode);
    }
 
@@ -1791,6 +1810,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("BETA", "open", nameof(inReal0), inReal0.Length, startIdx, BetaLookback(optInTimePeriod));
       }
       throw StreamFailure("BETA", "open", retCode);
    }
@@ -1814,12 +1836,12 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public BetaStream BetaOpen( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int optInTimePeriod )
    {
       if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "BETA open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal0.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "BETA open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "BETA open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inReal1.IsEmpty ) throw new TALibArgumentException("BETA open: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
       RequireHistoryLength("BETA", "open", "inReal1", inReal1.Length, inReal0.Length);
       return BetaOpenInternal(inReal0, inReal1, 0, optInTimePeriod);
@@ -1853,12 +1875,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public BetaStream BetaOpenAndFill( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "BETA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal0.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "BETA openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "BETA openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inReal1.IsEmpty ) throw new TALibArgumentException("BETA openAndFill: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
       int guardOutLen = OpenFillCount("BETA", "openAndFill", inReal0.Length, BetaLookback(optInTimePeriod));
       RequireHistoryLength("BETA", "openAndFill", "inReal1", inReal1.Length, inReal0.Length);

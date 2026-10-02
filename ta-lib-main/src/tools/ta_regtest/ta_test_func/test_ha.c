@@ -80,9 +80,9 @@
  *     8. The startIdx/endIdx range sweep, TA_STABLE_CONVERGING: HA_open is
  *        recursive and its seed's influence halves every bar.
  *
- *   Cross-language value coverage is server_verify in legs 1, 2 and 7 plus the
- *   --xlang-hash sweep; the frozen ta_ref_serve predates this function, so the
- *   --codegen value comparison cannot run for it.
+ *   Cross-language value coverage comes from server_verify in legs 1, 2 and
+ *   7, --codegen and --xlang-hash. All three compare against this library,
+ *   so none can catch a wrong formula.
  */
 
 /**** Headers ****/
@@ -191,9 +191,8 @@ static const HaGolden haSeedOracle[] =
  * numpy reduction answers a third thing again -- so what is pinned here is the
  * ONE tie rule all four of our backends can share: the extremum starts at the
  * raw high (or low) and moves only on a STRICTLY greater (or lesser) candidate,
- * which is why the two-argument max/min builtins are not used. C's macros
- * return their second operand on a tie; Rust, Java and .NET return the negative
- * zero; --xlang-hash compares raw bytes. */
+ * which is why the two-argument max/min builtins are not used; --xlang-hash
+ * compares raw bytes. */
 static const int haZeroSignBits[HA_ZERO_NB][4] =
 {
    { 1, 0, 1, 0 },

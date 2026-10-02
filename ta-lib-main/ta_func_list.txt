@@ -7,16 +7,19 @@ ADOSC               Chaikin A/D Oscillator
 ADR                 Average Day Range
 ADX                 Average Directional Movement Index
 ADXR                Average Directional Movement Index Rating
+ALMA                Arnaud Legoux Moving Average
 AO                  Awesome Oscillator
 APO                 Absolute Price Oscillator
 AROON               Aroon
 AROONOSC            Aroon Oscillator
+ASI                 Wilder Accumulative Swing Index
 ASIN                Vector Trigonometric ASin
 ATAN                Vector Trigonometric ATan
 ATR                 Average True Range
 AVGDEV              Average Deviation
 AVGPRICE            Average Price
 BBANDS              Bollinger Bands
+BBW                 Bollinger BandWidth
 BETA                Beta
 BOP                 Balance Of Power
 CCI                 Commodity Channel Index
@@ -82,6 +85,10 @@ CDLUNIQUE3RIVER     Unique 3 River
 CDLUPSIDEGAP2CROWS  Upside Gap Two Crows
 CDLXSIDEGAP3METHODS Upside/Downside Gap Three Methods
 CEIL                Vector Ceil
+CG                  Center of Gravity Oscillator
+CHOP                Choppiness Index
+CHOPTR              Choppiness Index (True Range Box)
+CKSP                Chande Kroll Stop
 CMF                 Chaikin Money Flow
 CMO                 Chande Momentum Oscillator
 CMOU                Chande Momentum Oscillator (Unsmoothed)
@@ -89,6 +96,8 @@ COPPOCK             Coppock Curve
 CORREL              Pearson's Correlation Coefficient (r)
 COS                 Vector Trigonometric Cos
 COSH                Vector Trigonometric Cosh
+CRSI                Connors Relative Strength Index
+CTI                 Correlation Trend Indicator
 CUMSUM              Cumulative Sum
 CVI                 Chaikin's Volatility
 DEMA                Double Exponential Moving Average
@@ -98,12 +107,14 @@ DPO                 Detrended Price Oscillator
 DX                  Directional Movement Index
 EFI                 Elder's Force Index
 EMA                 Exponential Moving Average
+EMV                 Arms Ease of Movement
 ER                  Kaufman Efficiency Ratio
 ERI                 Elder Ray Index (Bull Power / Bear Power)
 EXP                 Vector Arithmetic Exp
 FLOOR               Vector Floor
 FOSC                Forecast Oscillator
 FRACTAL             Williams Fractal
+FRAMA               Fractal Adaptive Moving Average
 HA                  Heikin-Ashi Candles
 HMA                 Hull Moving Average
 HT_DCPERIOD         Hilbert Transform - Dominant Cycle Period
@@ -112,10 +123,14 @@ HT_PHASOR           Hilbert Transform - Phasor Components
 HT_SINE             Hilbert Transform - SineWave
 HT_TRENDLINE        Hilbert Transform - Instantaneous Trendline
 HT_TRENDMODE        Hilbert Transform - Trend vs Cycle Mode
+IBS                 Internal Bar Strength
 IMI                 Intraday Momentum Index
 KAMA                Kaufman Adaptive Moving Average
 KC                  Keltner Channels
 KDJ                 KDJ Stochastic
+KST                 Know Sure Thing (Pring)
+KSTEXT              Know Sure Thing with controllable MA type
+KURTOSIS            Rolling Excess Kurtosis
 LINEARREG           Linear Regression
 LINEARREG_ANGLE     Linear Regression Angle
 LINEARREG_INTERCEPT Linear Regression Intercept
@@ -132,6 +147,8 @@ MASSI               Mass Index
 MAVP                Moving average with variable period
 MAX                 Highest value over a specified period
 MAXINDEX            Index of highest value over a specified period
+MCGD                McGinley Dynamic
+MEDIAN              Rolling Median
 MEDPRICE            Median Price
 MFI                 Money Flow Index
 MIDPOINT            MidPoint over period
@@ -147,6 +164,7 @@ MULT                Vector Arithmetic Mult
 NATR                Normalized Average True Range
 NVI                 Negative Volume Index
 OBV                 On Balance Volume
+PERCENTB            Bollinger Bands %B
 PERCENTILE          Percentile (nearest rank)
 PERCENTRANK         Percent Rank
 PLUS_DI             Plus Directional Indicator
@@ -163,14 +181,17 @@ ROCR                Rate of change ratio: (price/prevPrice)
 ROCR100             Rate of change ratio 100 scale: (price/prevPrice)*100
 RSI                 Relative Strength Index
 RVI                 Relative Volatility Index
+RVIR                Relative Volatility Index, refined high/low form
 RVOL                Relative Volume
 SAR                 Parabolic SAR
 SAREXT              Parabolic SAR - Extended
+SI                  Wilder Swing Index
 SIN                 Vector Trigonometric Sin
 SINH                Vector Trigonometric Sinh
 SMA                 Simple Moving Average
 SMI                 Stochastic Momentum Index
 SQRT                Vector Square Root
+STC                 Schaff Trend Cycle
 STDDEV              Standard Deviation
 STOCH               Stochastic
 STOCHF              Stochastic Fast
@@ -191,6 +212,7 @@ TYPPRICE            Typical Price
 ULTOSC              Ultimate Oscillator
 VAR                 Variance
 VHF                 Vertical Horizontal Filter
+VIDYA               Variable Index Dynamic Average
 VORTEX              Vortex Indicator
 VWAP                Volume Weighted Average Price
 VWMA                Volume Weighted Moving Average

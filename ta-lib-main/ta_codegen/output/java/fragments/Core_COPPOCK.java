@@ -89,10 +89,10 @@
       double[] sRing;
       int sRing_Idx = 0;
       int maxIdx_sRing = (50)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInWMAPeriod == Integer.MIN_VALUE ) {
@@ -299,10 +299,10 @@
       double[] sRing;
       int sRing_Idx = 0;
       int maxIdx_sRing = (50)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInWMAPeriod == Integer.MIN_VALUE ) {
@@ -428,8 +428,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#coppockLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#coppockLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -441,11 +441,12 @@
     * @param optInROC2Period Long rate-of-change period (default 14; range
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Coppock Curve value. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, coppockLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -497,8 +498,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#coppockLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#coppockLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -510,11 +511,12 @@
     * @param optInROC2Period Long rate-of-change period (default 14; range
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Coppock Curve value. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, coppockLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -600,7 +602,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -614,12 +616,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("COPPOCK advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -664,15 +666,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("COPPOCK update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("COPPOCK update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("COPPOCK update", "inReal");
          core.coppockStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -682,15 +684,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("COPPOCK peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("COPPOCK peek", "inReal");
          CoppockStream sp = this;
          int q = 0;
          int rw = 0;
@@ -707,20 +707,8 @@
          double periodSum = sp.periodSum;
          int sRing_Idx = sp.sRing_Idx;
          double trailingValue = sp.trailingValue;
-         int pkSlot0 = -1;
-         double pkVal0 = 0.0;
-         int pkSlot1 = -1;
-         double pkVal1 = 0.0;
-         if( sp.ringCap_roc1Idx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inReal;
-         }
-         if( sp.ringCap_roc2Idx == 0 ) {
-            pkSlot1 = 0;
-            pkVal1 = inReal;
-         }
-         base1 = (sp.ringPos_roc1Idx != pkSlot0) ? sp.ring_roc1Idx_inReal[sp.ringPos_roc1Idx] : pkVal0;
-         base2 = (sp.ringPos_roc2Idx != pkSlot1) ? sp.ring_roc2Idx_inReal[sp.ringPos_roc2Idx] : pkVal1;
+         base1 = sp.ring_roc1Idx_inReal[sp.ringPos_roc1Idx];
+         base2 = sp.ring_roc2Idx_inReal[sp.ringPos_roc2Idx];
          roc1 = (base1 != 0.0) ? (inReal / base1 - 1.0) * 100.0 : 0.0;
          roc2 = (base2 != 0.0) ? (inReal / base2 - 1.0) * 100.0 : 0.0;
          tempReal = roc1 + roc2;
@@ -813,12 +801,8 @@
       double base2 = 0.0;
       double roc1 = 0.0;
       double roc2 = 0.0;
-      if( sp.ringCap_roc1Idx == 0 ) {
-         sp.ring_roc1Idx_inReal[0] = inReal;
-      }
-      if( sp.ringCap_roc2Idx == 0 ) {
-         sp.ring_roc2Idx_inReal[0] = inReal;
-      }
+      int ringCapL_roc1Idx = 0;
+      int ringCapL_roc2Idx = 0;
       base1 = sp.ring_roc1Idx_inReal[sp.ringPos_roc1Idx];
       base2 = sp.ring_roc2Idx_inReal[sp.ringPos_roc2Idx];
       roc1 = (base1 != 0.0) ? (inReal / base1 - 1.0) * 100.0 : 0.0;
@@ -875,14 +859,16 @@
          sp.cur_outReal = sp.periodSum / sp.divider;
       }
       sp.periodSum -= sp.periodSub;
+      ringCapL_roc1Idx = sp.ringCap_roc1Idx;
       sp.ring_roc1Idx_inReal[sp.ringPos_roc1Idx] = inReal;
       sp.ringPos_roc1Idx = sp.ringPos_roc1Idx + 1;
-      if( sp.ringPos_roc1Idx >= sp.ringCap_roc1Idx ) {
+      if( sp.ringPos_roc1Idx >= ringCapL_roc1Idx ) {
          sp.ringPos_roc1Idx = 0;
       }
+      ringCapL_roc2Idx = sp.ringCap_roc2Idx;
       sp.ring_roc2Idx_inReal[sp.ringPos_roc2Idx] = inReal;
       sp.ringPos_roc2Idx = sp.ringPos_roc2Idx + 1;
-      if( sp.ringPos_roc2Idx >= sp.ringCap_roc2Idx ) {
+      if( sp.ringPos_roc2Idx >= ringCapL_roc2Idx ) {
          sp.ringPos_roc2Idx = 0;
       }
    }
@@ -917,7 +903,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInWMAPeriod == Integer.MIN_VALUE ) {
@@ -1095,14 +1081,14 @@
       outNBElement.value = outIdx;
       /* Capture the live batch state into the handle. */
       int cap_roc1Idx = inIdx - roc1Idx;
-      if( cap_roc1Idx < 0 || cap_roc1Idx > historyLen ) {
+      if( cap_roc1Idx < 1 || cap_roc1Idx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_roc1Idx = (cap_roc1Idx > 0)? cap_roc1Idx : 1;
       double[] capRing_roc1Idx_inReal = new double[allocN_roc1Idx];
       System.arraycopy(inReal, historyLen - cap_roc1Idx, capRing_roc1Idx_inReal, 0, cap_roc1Idx);
       int cap_roc2Idx = inIdx - roc2Idx;
-      if( cap_roc2Idx < 0 || cap_roc2Idx > historyLen ) {
+      if( cap_roc2Idx < 1 || cap_roc2Idx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_roc2Idx = (cap_roc2Idx > 0)? cap_roc2Idx : 1;
@@ -1145,12 +1131,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("COPPOCK openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("COPPOCK openAndFill", inReal.length, startIdx, coppockLookback(optInWMAPeriod, optInROC1Period, optInROC2Period));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("COPPOCK openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("COPPOCK openAndFill: " + retCode, retCode);
+      throw streamFailure("COPPOCK openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind coppockOpen (composition seam). */
    CoppockStream coppockOpenInternal( double inReal[], int startIdx, int optInWMAPeriod, int optInROC1Period, int optInROC2Period )
@@ -1166,12 +1149,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("COPPOCK open: history shorter than lookback + 1");
+         throw insufficientHistory("COPPOCK open", inReal.length, startIdx, coppockLookback(optInWMAPeriod, optInROC1Period, optInROC2Period));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("COPPOCK open: internal error", retCode);
-      }
-      throw new TALibArgumentException("COPPOCK open: " + retCode, retCode);
+      throw streamFailure("COPPOCK open", retCode);
    }
    /**
     * Open a live COPPOCK stream over the warm-up history; the handle's
@@ -1210,7 +1190,7 @@
       int guardOutLen = openFillCount("COPPOCK openAndFill", inReal.length, coppockLookback(optInWMAPeriod, optInROC1Period, optInROC2Period));
       requireLength("COPPOCK openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("COPPOCK openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("COPPOCK openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

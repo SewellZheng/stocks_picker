@@ -52,6 +52,11 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  071626 MF,CC  Initial version (#119).
+ *  092726 MF,CC  0 on a slow window of zero bars for the windowed MA types (#454).
+ *  092826 MF,CC  #459 fuse the fast and slow SMA into one pass over the input:
+ *                two running sums, no intermediate buffer, no allocation.
+ *                Bit-identical.
+ *  092826 MF,CC  Fuse the fast and slow EMA into one pass (#459).
  */
 
 // Import types from parent module
@@ -73,7 +78,7 @@ impl Core {
     /// * `optInSlowPeriod` — Period of the slow MA (default 26, range 2..=100000)
     /// * `optInMAType` — Moving average type used for both MAs (default 1 = EMA, values: 0=SMA,
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, `MAType::DEFAULT` selects the default)
+    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
     ///
     /// # Errors
     ///
@@ -106,6 +111,40 @@ impl Core {
         startIdx: usize,
         endIdx: usize,
         inVolume: &[f64],
+        optInFastPeriod: i32,
+        optInSlowPeriod: i32,
+        optInMAType: MAType,
+        outBegIdx: &mut usize,
+        outNBElement: &mut usize,
+        outReal: &mut [f64],
+    ) -> RetCode {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, pvo_impl_fma, pvo_impl_scalar, (startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.pvo_impl_scalar(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal)
+    }
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn pvo_impl_fma(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inVolume: &[f64],
+        optInFastPeriod: i32,
+        optInSlowPeriod: i32,
+        optInMAType: MAType,
+        outBegIdx: &mut usize,
+        outNBElement: &mut usize,
+        outReal: &mut [f64],
+    ) -> RetCode {
+        self.pvo_impl_scalar(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal)
+    }
+    #[inline(always)]
+    fn pvo_impl_scalar(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inVolume: &[f64],
         mut optInFastPeriod: i32,
         mut optInSlowPeriod: i32,
         mut optInMAType: MAType,
@@ -113,10 +152,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInFastPeriod) as i32) == (i32::MIN) {
@@ -144,21 +183,229 @@ impl Core {
         let mut fastBeg: usize = 0_usize;
         let mut fastNb: usize = 0_usize;
         let mut offset: usize = 0_usize;
+        let mut slowLookback: usize = 0_usize;
+        let mut windowed: usize = 0_usize;
+        let mut zeroRun: usize = 0_usize;
         let mut i: usize = 0_usize;
-        // Nothing to produce: the range is shorter than the lookback. Return before
+        // Nothing to produce: the range ends before the lookback. Return before
         // touching anything.
         //
         // Without this the fast MA below runs first, and its lookback is SMALLER
         // than pvo's own — so it reads the whole range and computes a result the
         // empty slow MA then discards. Observably identical (the slow MA's own early
         // return already yields 0,0 here), but it is the difference between "a range
-        // shorter than the lookback reads nothing" being true of this function and
+        // that ends before the lookback reads nothing" being true of this function and
         // being false: with a caller-supplied inVolume that stops short of endIdx, that
         // discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
         // probe over every guarded core.
         if self.ma_lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType).unwrap_or(usize::MAX) > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
+            return RetCode::Success;
+        }
+        if optInMAType == MAType::SMA {
+            // SMA fast path: the fast window is the newest optInFastPeriod bars of the
+            // slow one, so ONE pass over the input serves both moving averages - two
+            // running sums, no intermediate buffer and no allocation, where the general
+            // path below makes two passes and allocates the fast MA in full.
+            //
+            // Bit-identical to that path. Each sum sees exactly the add/subtract
+            // sequence TA_SMA gives it at its own period, starting from its own first
+            // output bar - which is why the fast sum is walked alone over the bars the
+            // slow MA does not reach (its running total is path-dependent, so arriving
+            // at the first output bar by a shorter route would change the low bits) -
+            // and each quotient is formed as sma.c forms it: the total AFTER adding the
+            // new bar and BEFORE dropping the trailing one, divided by the period.
+            //
+            // SMA is one of the windowed types, so the dead-window rule of #454 applies
+            // here too: _zeroRun is the same counter the general path keeps, warmed over
+            // the same bars (which are the bars the slow sum is seeded from) and held at
+            // the slow lookback once the window is dead.
+            //
+            // inVolume may alias outReal, as it may in the general path. outReal[_outIdx]
+            // is written at bar _i with _outIdx <= _i-optInSlowPeriod+1 <= both trailing
+            // indices, and every read of bar _i happens before that write, so no bar is
+            // overwritten before its last read.
+            //
+            // Every read is inside [0, endIdx]: the guard above leaves the slow
+            // lookback no greater than endIdx, and the public tier rejects
+            // endIdx < startIdx, so _slowStart <= endIdx and the seeding loops stop
+            // one bar below it. There is nothing left for an empty-output arm to
+            // catch, which is why this path has none.
+            let mut _fastTotal: f64 = 0.0_f64;
+            let mut _slowTotal: f64 = 0.0_f64;
+            let mut _fastValue: f64 = 0.0_f64;
+            let mut _slowValue: f64 = 0.0_f64;
+            let mut _slowMA: f64 = 0.0_f64;
+            let mut _i: usize = 0_usize;
+            let mut _j: usize = 0_usize;
+            let mut _outIdx: usize = 0_usize;
+            let mut _fastStart: usize = 0_usize;
+            let mut _slowStart: usize = 0_usize;
+            let mut _fastTrailing: usize = 0_usize;
+            let mut _slowTrailing: usize = 0_usize;
+            let mut _slowLookback: usize = 0_usize;
+            let mut _zeroRun: usize = 0_usize;
+            // Make sure slow is really slower than the fast period! if not, swap...
+            if optInSlowPeriod < optInFastPeriod {
+                tempInteger = (optInSlowPeriod) as usize;
+                optInSlowPeriod = optInFastPeriod;
+                optInFastPeriod = (tempInteger) as i32;
+            }
+            _fastStart = (optInFastPeriod - 1) as usize;
+            if _fastStart < startIdx {
+                _fastStart = startIdx;
+            }
+            _slowStart = (optInSlowPeriod - 1) as usize;
+            if _slowStart < startIdx {
+                _slowStart = startIdx;
+            }
+            _fastTrailing = _fastStart - (((optInFastPeriod - 1)) as usize);
+            _fastTotal = 0.0;
+            _j = _fastTrailing;
+            if _j < _fastStart {
+                let _wn: usize = _fastStart - _j;
+                let _w0 = &inVolume[_j..][.._wn];
+                for _wk in 0.._wn {
+                    _fastTotal += _w0[_wk];
+                    _j += 1;
+                }
+            }
+            // One loop seeds the slow sum and warms the dead-window counter: the bars
+            // it walks, [_slowStart-_slowLookback, _slowStart), are exactly the ones
+            // the general path warms _zeroRun over.
+            _slowLookback = (optInSlowPeriod - 1) as usize;
+            _zeroRun = 0;
+            _slowTrailing = _slowStart - _slowLookback;
+            _slowTotal = 0.0;
+            _j = _slowTrailing;
+            if _j < _slowStart {
+                let _wn: usize = _slowStart - _j;
+                let _w0 = &inVolume[_j..][.._wn];
+                for _wk in 0.._wn {
+                    _slowTotal += _w0[_wk];
+                    _zeroRun = (if (_w0[_wk]).abs() <= 0.0 { _zeroRun + 1 } else { 0 });
+                    _j += 1;
+                }
+            }
+            // The bars the fast MA has and the slow one does not: advance the fast sum
+            // alone. No output, but the sum must arrive at _slowStart along the same
+            // path TA_SMA would have taken.
+            _i = _fastStart;
+            if _i < _slowStart {
+                let _wn: usize = _slowStart - _i;
+                let _w0 = &inVolume[_fastTrailing..][.._wn];
+                let _w1 = &inVolume[_i..][.._wn];
+                for _wk in 0.._wn {
+                    _fastTotal += _w1[_wk];
+                    _fastTotal -= _w0[_wk];
+                    _fastTrailing += 1;
+                    _i += 1;
+                }
+            }
+            _outIdx = 0;
+            for _i in (_slowStart as usize)..(endIdx as usize) + 1 {
+                _zeroRun = (if (inVolume[_i]).abs() <= 0.0 { _zeroRun + 1 } else { 0 });
+                _fastTotal += inVolume[_i];
+                _fastValue = _fastTotal;
+                _fastTotal -= inVolume[_fastTrailing];
+                _fastTrailing += 1;
+                _slowTotal += inVolume[_i];
+                _slowValue = _slowTotal;
+                _slowTotal -= inVolume[_slowTrailing];
+                _slowTrailing += 1;
+                _slowMA = _slowValue / (optInSlowPeriod as f64);
+                if _zeroRun > _slowLookback {
+                    _zeroRun = _slowLookback;
+                    outReal[_outIdx] = 0.0;
+                } else if !((_slowMA).abs() < 1e-14) {
+                    outReal[_outIdx] = (_fastValue / (optInFastPeriod as f64) - _slowMA) / _slowMA * 100.0;
+                } else {
+                    outReal[_outIdx] = 0.0;
+                }
+                _outIdx += 1;
+            }
+            _i = (endIdx as usize) + 1;
+            (*outBegIdx) = _slowStart;
+            (*outNBElement) = _outIdx;
+            return RetCode::Success;
+        }
+        if optInMAType == MAType::EMA {
+            // EMA fast path: both recursions in one loop, no buffer. Bit-identical to
+            // the general path only while each EMA is seeded at its OWN lookback and
+            // keeps ema.c's recursion spelling: the fast EMA starts earlier than the
+            // slow one, and a shared seed bar would change every output.
+            let mut _eFastK: f64 = 0.0_f64;
+            let mut _eSlowK: f64 = 0.0_f64;
+            let mut _eFast: f64 = 0.0_f64;
+            let mut _eSlow: f64 = 0.0_f64;
+            let mut _eX: f64 = 0.0_f64;
+            let mut _eN: usize = 0_usize;
+            let mut _eToday: usize = 0_usize;
+            let mut _eFastToday: usize = 0_usize;
+            let mut _eSlowToday: usize = 0_usize;
+            let mut _eSlowStart: usize = 0_usize;
+            let mut _eOutIdx: usize = 0_usize;
+            if optInSlowPeriod < optInFastPeriod {
+                tempInteger = (optInSlowPeriod) as usize;
+                optInSlowPeriod = optInFastPeriod;
+                optInFastPeriod = (tempInteger) as i32;
+            }
+            _eFastK = 2.0 / ((optInFastPeriod + 1) as f64);
+            _eSlowK = 2.0 / ((optInSlowPeriod + 1) as f64);
+            _eFastToday = self.ema_lookback(optInFastPeriod).unwrap_or(usize::MAX);
+            if _eFastToday < startIdx {
+                _eFastToday = startIdx;
+            }
+            _eFastToday -= self.ema_lookback(optInFastPeriod).unwrap_or(usize::MAX);
+            _eSlowStart = self.ema_lookback(optInSlowPeriod).unwrap_or(usize::MAX);
+            if _eSlowStart < startIdx {
+                _eSlowStart = startIdx;
+            }
+            _eSlowToday = _eSlowStart - self.ema_lookback(optInSlowPeriod).unwrap_or(usize::MAX);
+            _eFast = 0.0;
+            // for( _eN = 0; _eN < ((optInFastPeriod) as usize); _eN += 1 )
+            _eN = 0;
+            while _eN < ((optInFastPeriod) as usize) {
+                _eFast += inVolume[{ let _v = _eFastToday; _eFastToday += 1; _v }];
+                _eN += 1;
+            }
+            _eFast = _eFast / ((optInFastPeriod) as f64);
+            while _eFastToday <= _eSlowStart {
+                _eFast = (inVolume[{ let _v = _eFastToday; _eFastToday += 1; _v }] - _eFast as f64).mul_add(_eFastK, _eFast);
+            }
+            _eSlow = 0.0;
+            // for( _eN = 0; _eN < ((optInSlowPeriod) as usize); _eN += 1 )
+            _eN = 0;
+            while _eN < ((optInSlowPeriod) as usize) {
+                _eSlow += inVolume[{ let _v = _eSlowToday; _eSlowToday += 1; _v }];
+                _eN += 1;
+            }
+            _eSlow = _eSlow / ((optInSlowPeriod) as f64);
+            while _eSlowToday <= _eSlowStart {
+                _eSlow = (inVolume[{ let _v = _eSlowToday; _eSlowToday += 1; _v }] - _eSlow as f64).mul_add(_eSlowK, _eSlow);
+            }
+            _eOutIdx = 0;
+            if !((_eSlow).abs() < 1e-14) {
+                outReal[_eOutIdx] = (_eFast - _eSlow) / _eSlow * 100.0;
+            } else {
+                outReal[_eOutIdx] = 0.0;
+            }
+            _eOutIdx += 1;
+            _eToday = _eSlowStart + 1;
+            while _eToday <= endIdx {
+                _eX = inVolume[{ let _v = _eToday; _eToday += 1; _v }];
+                _eFast = (_eX - _eFast as f64).mul_add(_eFastK, _eFast);
+                _eSlow = (_eX - _eSlow as f64).mul_add(_eSlowK, _eSlow);
+                if !((_eSlow).abs() < 1e-14) {
+                    outReal[_eOutIdx] = (_eFast - _eSlow) / _eSlow * 100.0;
+                } else {
+                    outReal[_eOutIdx] = 0.0;
+                }
+                _eOutIdx += 1;
+            }
+            (*outBegIdx) = _eSlowStart;
+            (*outNBElement) = _eOutIdx;
             return RetCode::Success;
         }
         // Allocate an intermediate buffer.
@@ -185,17 +432,50 @@ impl Core {
         // many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
         // outReal[i], with a non-negative index. An empty slow MA skips the loop.
         offset = fastNb - (*outNBElement);
-        // Calculate ((fast MA)-(slow MA))/(slow MA) in the output.
-        // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
-        i = 0;
-        while i < ((((*outNBElement) as usize)) as usize) {
-            tempReal = outReal[i];
-            if !((tempReal).abs() < 1e-14) {
-                outReal[i] = (((tempBuffer[i + offset] - tempReal) / tempReal * 100.0) as f64);
-            } else {
-                outReal[i] = 0.0;
-            }
+        // A windowed slow MA (SMA, WMA, TRIMA, HMA) over bars that are all exactly
+        // zero is exactly zero, but its running sums leave residue there that
+        // TA_IS_ZERO does not catch, and residue over residue is noise where 0 is
+        // documented. zeroRun counts the trailing zero bars, held at slowLookback once
+        // the window is dead. The recursive MA types really are nonzero on such a
+        // window, so they keep the plain loop.
+        slowLookback = self.ma_lookback(optInSlowPeriod, optInMAType).unwrap_or(usize::MAX);
+        windowed = (if optInMAType == MAType::SMA || optInMAType == MAType::WMA || optInMAType == MAType::TRIMA || optInMAType == MAType::HMA { 1 } else { 0 });
+        zeroRun = 0;
+        // for( i = (*outBegIdx) - slowLookback; i < (*outBegIdx); i += 1 )
+        i = (*outBegIdx) - slowLookback;
+        while i < (*outBegIdx) {
+            zeroRun = (if (inVolume[i]).abs() <= 0.0 { zeroRun + 1 } else { 0 });
             i += 1;
+        }
+        if windowed != 0 {
+            // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
+            i = 0;
+            while i < ((((*outNBElement) as usize)) as usize) {
+                zeroRun = (if (inVolume[((*outBegIdx) + i) as usize]).abs() <= 0.0 { zeroRun + 1 } else { 0 });
+                tempReal = outReal[i];
+                if zeroRun > slowLookback {
+                    zeroRun = slowLookback;
+                    outReal[i] = 0.0;
+                } else if !((tempReal).abs() < 1e-14) {
+                    outReal[i] = (((tempBuffer[i + offset] - tempReal) / tempReal * 100.0) as f64);
+                } else {
+                    outReal[i] = 0.0;
+                }
+                i += 1;
+            }
+        } else {
+            // Calculate ((fast MA)-(slow MA))/(slow MA) in the output.
+            // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
+            i = 0;
+            while i < ((((*outNBElement) as usize)) as usize) {
+                tempReal = outReal[i];
+                if !((tempReal).abs() < 1e-14) {
+                    outReal[i] = (((tempBuffer[i + offset] - tempReal) / tempReal * 100.0) as f64);
+                } else {
+                    outReal[i] = 0.0;
+                }
+                i += 1;
+            }
         }
         return RetCode::Success;
     }
@@ -217,7 +497,7 @@ impl Core {
     /// * `optInSlowPeriod` — Period of the slow MA (default 26, range 2..=100000)
     /// * `optInMAType` — Moving average type used for both MAs (default 1 = EMA, values: 0=SMA,
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, `MAType::DEFAULT` selects the default)
+    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
     /// * `outReal` — PVO value in percent.
     ///
     /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
@@ -225,15 +505,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -282,10 +562,10 @@ impl Core {
         optInMAType: MAType,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.pvo_lookback(optInFastPeriod, optInSlowPeriod, optInMAType)?;
@@ -341,6 +621,9 @@ struct PvoStreamState {
     optInMAType: MAType,
     sub0: MaStream,
     sub1: MaStream,
+    slowLookback: usize,
+    windowed: usize,
+    zeroRun: usize,
     cur_outReal: f64,
 }
 
@@ -358,13 +641,31 @@ impl Core {
         // Pipeline the new bar through the sub-streams (batch tail order).
         cur_tempBuffer = sp.sub0.update(inVolume)?;
         cur_outReal = sp.sub1.update(inVolume)?;
+        let slowLookback: usize = sp.slowLookback;
+        let windowed: usize = sp.windowed;
+        let mut zeroRun: usize = sp.zeroRun;
         // Combine map (batch tail, per bar).
-        tempReal = cur_outReal;
-        if !((tempReal).abs() < 1e-14) {
-            cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+        if windowed != 0 {
+            zeroRun = (if (inVolume).abs() <= 0.0 { zeroRun + 1 } else { 0 });
+            tempReal = cur_outReal;
+            if zeroRun > slowLookback {
+                zeroRun = slowLookback;
+                cur_outReal = 0.0;
+            } else if !((tempReal).abs() < 1e-14) {
+                cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+            } else {
+                cur_outReal = 0.0;
+            }
         } else {
-            cur_outReal = 0.0;
+            // Calculate ((fast MA)-(slow MA))/(slow MA) in the output.
+            tempReal = cur_outReal;
+            if !((tempReal).abs() < 1e-14) {
+                cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+            } else {
+                cur_outReal = 0.0;
+            }
         }
+        sp.zeroRun = zeroRun;
         (*outReal) = cur_outReal;
         Ok(())
     }
@@ -377,7 +678,7 @@ impl Core {
         if inVolume.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inVolume.len() > Self::MAX_INDEX + 1 {
+        if inVolume.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInFastPeriod) as i32) == (i32::MIN) {
@@ -414,15 +715,18 @@ impl Core {
         let mut fastBeg: usize = 0_usize;
         let mut fastNb: usize = 0_usize;
         let mut offset: usize = 0_usize;
+        let mut slowLookback: usize = 0_usize;
+        let mut windowed: usize = 0_usize;
+        let mut zeroRun: usize = 0_usize;
         let mut i: usize = 0_usize;
-        // Nothing to produce: the range is shorter than the lookback. Return before
+        // Nothing to produce: the range ends before the lookback. Return before
         // touching anything.
         //
         // Without this the fast MA below runs first, and its lookback is SMALLER
         // than pvo's own — so it reads the whole range and computes a result the
         // empty slow MA then discards. Observably identical (the slow MA's own early
         // return already yields 0,0 here), but it is the difference between "a range
-        // shorter than the lookback reads nothing" being true of this function and
+        // that ends before the lookback reads nothing" being true of this function and
         // being false: with a caller-supplied inVolume that stops short of endIdx, that
         // discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
         // probe over every guarded core.
@@ -455,17 +759,50 @@ impl Core {
         // many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
         // outReal[i], with a non-negative index. An empty slow MA skips the loop.
         offset = fastNb - (*outNBElement);
-        // Calculate ((fast MA)-(slow MA))/(slow MA) in the output.
-        // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
-        i = 0;
-        while i < ((((*outNBElement) as usize)) as usize) {
-            tempReal = sc_outReal[i];
-            if !((tempReal).abs() < 1e-14) {
-                sc_outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
-            } else {
-                sc_outReal[i] = 0.0;
-            }
+        // A windowed slow MA (SMA, WMA, TRIMA, HMA) over bars that are all exactly
+        // zero is exactly zero, but its running sums leave residue there that
+        // TA_IS_ZERO does not catch, and residue over residue is noise where 0 is
+        // documented. zeroRun counts the trailing zero bars, held at slowLookback once
+        // the window is dead. The recursive MA types really are nonzero on such a
+        // window, so they keep the plain loop.
+        slowLookback = self.ma_lookback(optInSlowPeriod, optInMAType)?;
+        windowed = (if optInMAType == MAType::SMA || optInMAType == MAType::WMA || optInMAType == MAType::TRIMA || optInMAType == MAType::HMA { 1 } else { 0 });
+        zeroRun = 0;
+        // for( i = (*outBegIdx) - slowLookback; i < (*outBegIdx); i += 1 )
+        i = (*outBegIdx) - slowLookback;
+        while i < (*outBegIdx) {
+            zeroRun = (if (inVolume[i]).abs() <= 0.0 { zeroRun + 1 } else { 0 });
             i += 1;
+        }
+        if windowed != 0 {
+            // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
+            i = 0;
+            while i < ((((*outNBElement) as usize)) as usize) {
+                zeroRun = (if (inVolume[((*outBegIdx) + i) as usize]).abs() <= 0.0 { zeroRun + 1 } else { 0 });
+                tempReal = sc_outReal[i];
+                if zeroRun > slowLookback {
+                    zeroRun = slowLookback;
+                    sc_outReal[i] = 0.0;
+                } else if !((tempReal).abs() < 1e-14) {
+                    sc_outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+                } else {
+                    sc_outReal[i] = 0.0;
+                }
+                i += 1;
+            }
+        } else {
+            // Calculate ((fast MA)-(slow MA))/(slow MA) in the output.
+            // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
+            i = 0;
+            while i < ((((*outNBElement) as usize)) as usize) {
+                tempReal = sc_outReal[i];
+                if !((tempReal).abs() < 1e-14) {
+                    sc_outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+                } else {
+                    sc_outReal[i] = 0.0;
+                }
+                i += 1;
+            }
         }
 
         // Capture the live producer state + sub handles.
@@ -479,6 +816,9 @@ impl Core {
             optInMAType,
             sub0,
             sub1,
+            slowLookback,
+            windowed,
+            zeroRun,
         };
         state.cur_outReal = sc_outReal[*outNBElement - 1];
         if outStride != 1 && *outNBElement > 0 {
@@ -569,7 +909,7 @@ impl Core {
         if inVolume.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inVolume.len() > Self::MAX_INDEX + 1 {
+        if inVolume.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.pvo_lookback(optInFastPeriod, optInSlowPeriod, optInMAType)?;
@@ -599,7 +939,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl PvoStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -617,11 +957,11 @@ impl PvoStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_PVO_Update")]
     pub fn update(&mut self, inVolume: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inVolume.is_finite() {
@@ -637,16 +977,15 @@ impl PvoStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_PVO_Peek")]
     pub fn peek(&self, inVolume: f64) -> Result<f64, RetCode> {
         if !inVolume.is_finite() {
@@ -663,12 +1002,29 @@ impl PvoStream {
             // Pipeline the new bar through the sub-streams (batch tail order).
             cur_tempBuffer = sp.sub0.peek(inVolume)?;
             cur_outReal = sp.sub1.peek(inVolume)?;
+            let slowLookback: usize = sp.slowLookback;
+            let windowed: usize = sp.windowed;
+            let mut zeroRun: usize = sp.zeroRun;
             // Combine map (batch tail, per bar).
-            tempReal = cur_outReal;
-            if !((tempReal).abs() < 1e-14) {
-                cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+            if windowed != 0 {
+                zeroRun = (if (inVolume).abs() <= 0.0 { zeroRun + 1 } else { 0 });
+                tempReal = cur_outReal;
+                if zeroRun > slowLookback {
+                    zeroRun = slowLookback;
+                    cur_outReal = 0.0;
+                } else if !((tempReal).abs() < 1e-14) {
+                    cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+                } else {
+                    cur_outReal = 0.0;
+                }
             } else {
-                cur_outReal = 0.0;
+                // Calculate ((fast MA)-(slow MA))/(slow MA) in the output.
+                tempReal = cur_outReal;
+                if !((tempReal).abs() < 1e-14) {
+                    cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+                } else {
+                    cur_outReal = 0.0;
+                }
             }
             (*outReal) = cur_outReal;
         }
@@ -698,7 +1054,7 @@ impl PvoStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_PVO_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -716,11 +1072,11 @@ impl PvoStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_PVO_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

@@ -22,7 +22,7 @@
 //!   not-serializable for free.
 //!
 //! - **The step stays a method on `Core`, not on the handle.** Transcribed
-//!   bodies read the unstable period as `this.unstablePeriod[(int)FuncUnstId.X]`,
+//!   bodies read the unstable period as `this._unstablePeriod[(int)FuncUnstId.X]`,
 //!   which only compiles inside a `Core` instance method; passing the handle in
 //!   measured indistinguishable from `this`.
 //!
@@ -84,9 +84,8 @@ pub const SECTION_MARKER: &str = "/**** Streaming API *****/";
 /// Whether a C# stream section is emitted for this function.
 ///
 /// Resolves `PRAGMA TA_ALT` here rather than at the caller, exactly as the Rust
-/// and Java twins do: six functions carry an `_ALT1` body claiming the STREAM
-/// tier, and analyzing `func.body` would silently analyze the batch-only block
-/// scan instead.
+/// and Java twins do: where an `_ALT<n>` body claims the STREAM tier, analyzing
+/// `func.body` would silently analyze the wrong body.
 pub fn emits_stream(func: &FuncDef, lookup: &dyn streaming::CalleeLookup) -> bool {
     if !func.streaming {
         return false;
@@ -240,6 +239,54 @@ impl streaming::NameMap for CsStreamNames {
     }
 }
 
+/// [`CsStreamNames`] for a tape frame (#445).
+struct CsTapeNames(streaming::TapeNames);
+
+impl streaming::NameMap for CsTapeNames {
+    fn state(&self, name: &str) -> String {
+        streaming::NameMap::state(&CsStreamNames, name)
+    }
+    fn bar(&self, array: &str) -> String {
+        streaming::NameMap::bar(&CsStreamNames, array)
+    }
+    fn output(&self, name: &str) -> Expr {
+        streaming::NameMap::output(&CsStreamNames, name)
+    }
+    fn ring_buf(&self, var: &str, array: &str) -> String {
+        streaming::NameMap::ring_buf(&CsStreamNames, var, array)
+    }
+    fn ring_pos(&self, var: &str) -> String {
+        streaming::NameMap::ring_pos(&CsStreamNames, var)
+    }
+    fn ring_lag(&self, var: &str) -> String {
+        streaming::NameMap::ring_lag(&CsStreamNames, var)
+    }
+    fn ring_cap(&self, var: &str) -> String {
+        streaming::NameMap::ring_cap(&CsStreamNames, var)
+    }
+    fn win_buf(&self, var: &str, array: &str) -> String {
+        streaming::NameMap::win_buf(&CsStreamNames, var, array)
+    }
+    fn win_pos(&self, var: &str) -> String {
+        streaming::NameMap::win_pos(&CsStreamNames, var)
+    }
+    fn win_cap(&self, var: &str) -> String {
+        streaming::NameMap::win_cap(&CsStreamNames, var)
+    }
+    fn circ_buf(&self, storage: &str) -> String {
+        streaming::NameMap::circ_buf(&CsStreamNames, storage)
+    }
+    fn extrema_buf(&self, array: &str) -> String {
+        streaming::NameMap::extrema_buf(&CsStreamNames, array)
+    }
+    fn extrema_mask(&self) -> String {
+        streaming::NameMap::extrema_mask(&CsStreamNames)
+    }
+    fn tape(&self) -> Option<streaming::TapeNames> {
+        Some(self.0.clone())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // State fields
 // ---------------------------------------------------------------------------
@@ -331,8 +378,8 @@ fn state_fields_from(
     for ring in model.rings() {
         let v = &ring.var;
         fields.push((format!("ringPos_{v}"), "int".into(), "0".into()));
-        // Identity path: cap 0 (back==0) / back+1 (back>0) with 1-slot buffers,
-        // keeping the transition's cap-0 guard and any read well-defined.
+        // Identity path: cap 0 (back==0) / back+1 (back>0); a 1-slot buffer
+        // keeps any read in bounds.
         let id_cap = if ring.back > 0 {
             format!("{}", ring.back + 1)
         } else {
@@ -417,9 +464,8 @@ pub fn generate(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    // Resolve `PRAGMA TA_ALT` here too — `generate` has direct callers, and six
-    // functions carry an `_ALT1` body claiming the STREAM tier. Nothing below
-    // may read `func.body`.
+    // Resolve `PRAGMA TA_ALT` here too: `generate` has direct callers. Nothing
+    // below may read `func.body`.
     let resolved = func.resolved_for(crate::ir::Lang::CSharp);
     let func: &FuncDef = &resolved;
     assert!(
@@ -451,15 +497,30 @@ pub fn generate(
     if let Some(m) = func.alt_marker(crate::ir::Tier::Stream, crate::ir::Lang::CSharp) {
         let _ = writeln!(o, "   /* {m} */\n");
     }
+    let taped = registry.in_tape_set(&func.name.to_lowercase());
     match &plan {
         StreamPlan::Loop(model) => {
             emit_loop(&mut o, func, model, &stream_fma, enums, registry, helpers, &counter);
+            if taped {
+                emit_tape_entries(
+                    &mut o, func, &[model], None, &stream_fma, enums, registry, helpers, &counter,
+                );
+            }
         }
         StreamPlan::DualMode(dmp) => {
             emit_dual_mode(&mut o, func, dmp, &stream_fma, enums, registry, helpers, &counter);
+            if taped {
+                emit_tape_entries(
+                    &mut o, func, &[&dmp.mode_a, &dmp.mode_b], Some(dmp), &stream_fma, enums,
+                    registry, helpers, &counter,
+                );
+            }
         }
         StreamPlan::Dispatch(dp) => {
             emit_dispatch(&mut o, func, dp, &stream_fma, enums, registry, helpers, &counter);
+            if taped {
+                emit_dispatch_tape(&mut o, func, dp, &stream_fma, enums, registry, helpers, &counter);
+            }
         }
         StreamPlan::PeriodBank(pb) => {
             emit_period_bank(&mut o, func, pb, registry, helpers, enums);
@@ -887,7 +948,7 @@ fn emit_handle_class_with_members(
          caller chose not to take the fill."
     ));
     d.para(
-        "The last bar it can reach is <see cref=\"Core.MaxIndex\"/>; past that \
+        "The last bar it can reach is <see cref=\"Core.IndexMax\"/>; past that \
          <c>Update</c> and <c>Advance</c> throw.",
     );
     d.close("remarks");
@@ -915,7 +976,7 @@ fn emit_handle_class_with_members(
     );
     d.para(
         "Throws <see cref=\"System.ArgumentException\"/> once <see cref=\"OutRange\"/> has \
-         reached bar <see cref=\"Core.MaxIndex\"/>, the last one the batch tier can \
+         reached bar <see cref=\"Core.IndexMax\"/>, the last one the batch tier can \
          address and the last this handle will count. <c>Update</c> throws the same \
          there.",
     );
@@ -1029,10 +1090,10 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
 }
 
 /// Rule U4 — the opener's index-pair check read on a live handle, one bar at a
-/// time (`docs/error-handling-spec.md` §2.4, which carries why a sub-handle
-/// cannot answer it before its parent).
+/// time. Why a sub-handle cannot answer it before its parent: rationale U4 in
+/// `docs/error-handling-spec.md`.
 ///
-/// `>` and not `>=`: an opener may legally take `MaxIndex + 1` bars (rule S2),
+/// `>` and not `>=`: an opener may legally take `IndexMax + 1` bars (rule S2),
 /// so a handle can be born holding the last bar in the domain and it is the NEXT
 /// one that has nowhere to go.
 ///
@@ -1041,7 +1102,7 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
 fn out_range_ceiling_guard(func: &FuncDef, indent: &str, what: &str) -> String {
     let n = base_name(func);
     format!(
-        "{indent}if( outRangeBegIdx + outRangeCount > Core.MaxIndex )\n\
+        "{indent}if( outRangeBegIdx + outRangeCount > Core.IndexMax )\n\
          {indent}   throw Core.StreamFailure(\"{n}\", \"{what}\", RetCode.OutOfRangeEndIndex);\n"
     )
 }
@@ -1065,8 +1126,8 @@ fn advance_out_range(indent: &str) -> String {
 /// The rejection changes nothing at all — the produced-bar count included.
 /// Counting a bar the caller declined to commit is `Advance()`'s job.
 ///
-/// Routed through `Core.StreamFailure` so the message prefix and the exception
-/// type match the open rejections exactly.
+/// The condition stays one test; which input failed is worked out only on the
+/// throw path, so the accepting path is unchanged.
 fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
     let bars = streaming::input_array_names(func);
     if bars.is_empty() {
@@ -1075,7 +1136,12 @@ fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
     let n = base_name(func);
     let conds: Vec<String> = bars.iter().map(|b| format!("!double.IsFinite({b})")).collect();
     let cond = conds.join(" || ");
-    let throw = format!("throw Core.StreamFailure(\"{n}\", \"{what}\", RetCode.BadParam);");
+    let (last, rest) = bars.split_last().expect("non-empty");
+    let mut name = format!("nameof({last})");
+    for b in rest.iter().rev() {
+        name = format!("!double.IsFinite({b}) ? nameof({b}) : {name}");
+    }
+    let throw = format!("throw Core.NonFiniteBar(\"{n}\", \"{what}\", {name});");
     format!("{indent}if( {cond} ) {throw}\n")
 }
 
@@ -1098,9 +1164,6 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
     d.summary("Commit one closed bar, returning the new current value.");
     d.open("remarks");
     d.para(
-        "Allocates nothing — neither handle state nor a return value.",
-    );
-    d.para(
         "Throws <see cref=\"System.ArgumentException\"/> if any bar value is not finite \
          (NaN or an infinity). That check runs before anything is written, so nothing \
          moves — <see cref=\"OutRange\"/> included — and <see cref=\"Value\"/> still \
@@ -1113,7 +1176,7 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
     );
     d.para(
         "Throws <see cref=\"System.ArgumentException\"/> once <see cref=\"OutRange\"/> has \
-         reached bar <see cref=\"Core.MaxIndex\"/>, which no re-feed clears: the handle \
+         reached bar <see cref=\"Core.IndexMax\"/>, which no re-feed clears: the handle \
          has run out of index domain and only a shorter history can start a new one.",
     );
     d.close("remarks");
@@ -1149,9 +1212,8 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
          return — the same transition, with every store it would make carried in a local \
          instead. Never writes this handle, so peeks may run concurrently with each other.",
     );
-    d.para("Its cost does not grow with the period.");
     d.para(
-        "It counts no bar, so it keeps answering past the <see cref=\"Core.MaxIndex\"/> \
+        "It counts no bar, so it keeps answering past the <see cref=\"Core.IndexMax\"/> \
          ceiling <c>Update</c> stops at.",
     );
     d.close("remarks");
@@ -1216,8 +1278,9 @@ fn emit_clone_method(o: &mut String, func: &FuncDef) {
 ///
 /// `single_precision` is always false — the stream tier is double-only. The
 /// double-address-of and float-input sets are empty (transitions carry no
-/// out-params), and `matype_map` is empty because stream bodies dispatch
-/// MA-type structurally rather than via `== TA_MAType_*`.
+/// out-params), and `matype_map` is empty: a transition dispatches MA-type
+/// structurally. The Open region sets it, since the batch region it
+/// transcribes may compare `== TA_MAType_*`.
 fn stream_ctx<'a>(
     empty: &'a HashSet<String>,
     counter: &'a Cell<usize>,
@@ -1233,6 +1296,7 @@ fn stream_ctx<'a>(
         inline_counter: counter,
         fma: Some(fma_sets),
         matype_map: HashMap::new(),
+        plain_selects: Cell::new(false),
     }
 }
 
@@ -1374,60 +1438,76 @@ fn build_dispatch_peek_frame(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
+    let arms: Vec<&streaming::DispatchArm> = dp.arms.iter().filter(|a| a.supported).collect();
+    dispatch_peek_frame_with(
+        func, dp, &arms, outputs, ctx, enums, registry, helpers, 9,
+        &|cls: &str, _: &streaming::DispatchArm| format!("(({cls}) sp.sub!).Peek({bar_args})"),
+    )
+}
+
+/// [`build_dispatch_peek_frame`] over `arms` at `indent`, each arm's value
+/// coming from `call` (given the callee's handle class).
+#[allow(clippy::too_many_arguments)]
+fn dispatch_peek_frame_with(
+    func: &FuncDef,
+    dp: &streaming::DispatchPlan,
+    arms: &[&streaming::DispatchArm],
+    outputs: &[String],
+    ctx: &CsRenderCtx,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    indent: usize,
+    call: &dyn Fn(&str, &streaming::DispatchArm) -> String,
+) -> String {
+    let p = " ".repeat(indent);
     let mut f = String::new();
     for out in &func.outputs {
         let cty = out_cs_type(func, &out.name);
         let zero = if cty == "int" { "0" } else { "0.0" };
-        let _ = writeln!(f, "         {cty} cur_{} = {zero};", out.name);
+        let _ = writeln!(f, "{p}{cty} cur_{} = {zero};", out.name);
     }
     if let Some(idp) = &dp.identity {
         let cond = params_on_state(func, &idp.condition);
         let cond = render_predicate(&cond, ctx, registry, helpers);
-        let _ = writeln!(f, "         if( {cond} ) {{");
+        let _ = writeln!(f, "{p}if( {cond} ) {{");
         for (out, inp) in &idp.pairs {
-            let _ = writeln!(f, "            cur_{out} = {inp};");
+            let _ = writeln!(f, "{p}   cur_{out} = {inp};");
         }
-        let _ = writeln!(f, "            return {};", fresh_value_expr(func, ""));
-        let _ = writeln!(f, "         }}");
+        let _ = writeln!(f, "{p}   return {};", fresh_value_expr(func, ""));
+        let _ = writeln!(f, "{p}}}");
     }
-    let _ = writeln!(f, "         switch( sp.{} )", dp.param);
-    let _ = writeln!(f, "         {{");
-    for arm in dp.arms.iter().filter(|a| a.supported) {
+    let _ = writeln!(f, "{p}switch( sp.{} )", dp.param);
+    let _ = writeln!(f, "{p}{{");
+    for arm in arms {
         let label = render_csharp_switch_label(&arm.label, enums);
         let cls = callee_stream_class(registry, &arm.callee);
-        let _ = writeln!(f, "         case {label}: {{");
+        let _ = writeln!(f, "{p}case {label}: {{");
         if arm.out_map.len() == 1 {
             let streaming::OutSlot::Forward(k) = arm.out_map[0] else {
                 panic!("single-output arm cannot discard its only slot")
             };
-            let _ = writeln!(
-                f,
-                "            cur_{} = (({cls}) sp.sub!).Peek({bar_args});",
-                outputs[k]
-            );
+            let _ = writeln!(f, "{p}   cur_{} = {};", outputs[k], call(&cls, arm));
         } else {
             let vt = callee_value_type(registry, &arm.callee);
-            let _ = writeln!(
-                f,
-                "            {vt} subValue = (({cls}) sp.sub!).Peek({bar_args});"
-            );
+            let _ = writeln!(f, "{p}   {vt} subValue = {};", call(&cls, arm));
             for (i, slot) in arm.out_map.iter().enumerate() {
                 if let streaming::OutSlot::Forward(k) = slot {
                     let _ = writeln!(
                         f,
-                        "            cur_{} = subValue.{};",
+                        "{p}   cur_{} = subValue.{};",
                         outputs[*k],
                         callee_value_member(registry, &arm.callee, i)
                     );
                 }
             }
         }
-        let _ = writeln!(f, "            break;");
-        let _ = writeln!(f, "         }}");
+        let _ = writeln!(f, "{p}   break;");
+        let _ = writeln!(f, "{p}}}");
     }
-    let _ = writeln!(f, "         default:");
-    let _ = writeln!(f, "            break; /* unreachable: open rejects arms without a sub-stream */");
-    let _ = writeln!(f, "         }}");
+    let _ = writeln!(f, "{p}default:");
+    let _ = writeln!(f, "{p}   break; /* unreachable: open rejects arms without a sub-stream */");
+    let _ = writeln!(f, "{p}}}");
     f
 }
 
@@ -1473,7 +1553,12 @@ fn peek_frame_arm_named(
 ) -> Option<String> {
     let pad = " ".repeat(indent);
     let transition = streaming::build_transition(model, names).ok()?;
-    let pt = streaming::peek_transition_widest(model, names, &transition, None).ok()?;
+    let pt = if names.tape().is_some() {
+        streaming::tape_peek_transition(model, names, &transition, None)
+    } else {
+        streaming::peek_transition_widest(model, names, &transition, None)
+    }
+    .ok()?;
     let bufs = streaming::transition_buffers(model, names);
     let (locals, body_ir) = localize_state_writes(func, &pt.body, &[], &bufs)?;
     // The transition's own early exit — the param-degenerate identity
@@ -1541,11 +1626,11 @@ fn peek_frame_arm_named(
     Some(out)
 }
 
-/// `internal void <base>StepImpl( <Class> sp, double bar... )` — the one
+/// `private void <base>StepImpl( <Class> sp, double bar... )` — the one
 /// per-bar transition; `Update` runs it on live state, `Peek` on a copy.
 ///
 /// It stays a method on `Core` rather than on the handle because transcribed
-/// bodies render unstable-period reads as `this.unstablePeriod[(int)FuncUnstId.X]`,
+/// bodies render unstable-period reads as `this._unstablePeriod[(int)FuncUnstId.X]`,
 /// which only compiles inside a `Core` instance method.
 #[allow(clippy::too_many_arguments)]
 fn emit_step(
@@ -1561,7 +1646,8 @@ fn emit_step(
 ) {
     emit_step_sig(o, func);
     emit_step_body(
-        o, func, model, step_settings, stream_fma, enums, registry, helpers, counter, 6,
+        o, func, model, &CsStreamNames, step_settings, stream_fma, enums, registry, helpers,
+        counter, 6,
     );
     let _ = writeln!(o, "   }}");
 }
@@ -1572,7 +1658,7 @@ fn emit_step_sig(o: &mut String, func: &FuncDef) {
     let base = pascal_words(&base_name(func));
     let class = stream_class_name(func);
     let (sig_bars, _) = bar_params(func);
-    let _ = writeln!(o, "\n   internal void {base}StepImpl( {class} sp, {sig_bars} )");
+    let _ = writeln!(o, "\n   private void {base}StepImpl( {class} sp, {sig_bars} )");
     let _ = writeln!(o, "   {{");
 }
 
@@ -1583,6 +1669,7 @@ fn emit_step_body(
     o: &mut String,
     _func: &FuncDef,
     model: &StreamModel,
+    names: &dyn streaming::NameMap,
     step_settings: &BTreeSet<String>,
     stream_fma: &FmaVarSets,
     enums: &HashMap<String, EnumDef>,
@@ -1592,7 +1679,7 @@ fn emit_step_body(
     indent: usize,
 ) {
     let pad = " ".repeat(indent);
-    for (name, ty) in &model.temps {
+    for (name, ty) in &streaming::step_temps(model, names.tape().as_ref()) {
         let (cty, default) = field_type_and_default(ty);
         let _ = writeln!(o, "{pad}{cty} {name} = {default};");
     }
@@ -1608,7 +1695,7 @@ fn emit_step_body(
         let _ = writeln!(o, "{pad}double {s}_factor = sp.cs_{s}_factor;");
     }
 
-    let transition = streaming::build_transition(model, &CsStreamNames)
+    let transition = streaming::build_transition(model, names)
         .unwrap_or_else(|e| panic!("streaming transition: {e}"));
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
@@ -1989,19 +2076,19 @@ fn emit_open_validation(
 ) {
     let inputs = streaming::input_array_names(func);
     let first = &inputs[0];
-    // The implied index pair first: an opener is a batch call over
-    // `[0, historyLen - 1]`, so S1 and S2 are B1 and B2 read on that range and
-    // answer the same two codes (docs/error-handling-spec.md 2.3). `historyLen`
-    // is the FIRST input's length, so a later input of a different length is an
-    // argument disagreement, not an empty history.
+    // S1 and S2 run first, ahead of every other check, answering
+    // OutOfRangeStartIndex and OutOfRangeEndIndex
+    // (https://ta-lib.org/spec/streaming/#s1). `historyLen` is the FIRST input's
+    // length, so a later input of a different length is an argument
+    // disagreement, not an empty history.
     let _ = writeln!(o, "      if( historyLen < 1 ) {{");
     let _ = writeln!(o, "         return RetCode.OutOfRangeStartIndex;");
     let _ = writeln!(o, "      }}");
     // The fill covers bars 0..historyLen-1, so its last bar is an index like any
-    // other and MaxIndex bounds it too (#180). Without this the streaming entry
+    // other and IndexMax bounds it too (#180). Without this the streaming entry
     // points would compute over exactly the ranges the batch call refuses, and
     // the two are required to agree bit for bit.
-    let _ = writeln!(o, "      if( historyLen > MaxIndex + 1 ) {{");
+    let _ = writeln!(o, "      if( historyLen > IndexMax + 1 ) {{");
     let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
     let _ = writeln!(o, "      }}");
     let mismatches: Vec<String> = inputs[1..]
@@ -2090,7 +2177,8 @@ fn emit_open_region(
         float_input_params: &empty,
         inline_counter: counter,
         fma: Some(stream_fma),
-        matype_map: HashMap::new(),
+        matype_map: build_matype_map(enums),
+        plain_selects: Cell::new(false),
     };
 
     // VarDecl initializations (mirrors gen_func_inner).
@@ -2164,7 +2252,7 @@ fn emit_identity_fast_path(
     let _ = writeln!(o, "            return RetCode.InsufficientHistory;");
     let _ = writeln!(o, "         }}");
     // Identity state: params captured, everything else deterministic defaults
-    // (1-slot buffers keep the transition's cap-0 guard well-defined).
+    // (a 1-slot buffer keeps any read in bounds).
     for (name, _, default) in fields {
         if name.starts_with("cur_") {
             continue;
@@ -2254,7 +2342,11 @@ fn emit_capture(
             let _ = writeln!(o, "      }}");
         } else {
             let _ = writeln!(o, "      int cap_{v} = {c} - {v};");
-            let _ = writeln!(o, "      if( cap_{v} < 0 || cap_{v} > historyLen ) {{");
+            let _ = writeln!(
+                o,
+                "      if( cap_{v} < {min} || cap_{v} > historyLen ) {{",
+                min = i32::from(ring.lag_ge1)
+            );
             let _ = writeln!(o, "         return RetCode.InternalError;");
             let _ = writeln!(o, "      }}");
         }
@@ -2470,19 +2562,27 @@ fn emit_cur_capture(o: &mut String, func: &FuncDef, outputs: &[String], source: 
 
 /// The reject-conversion tail shared by `OpenInternal` / `OpenAndFill`.
 ///
-/// One `throw StreamFailure(...)` per site rather than Java's four-line ladder:
-/// the mapping (typed insufficient-history, `InvalidOperationException` for a
-/// capture invariant, `ArgumentException` for everything else) is single-sourced
-/// in `Core.StreamFailure`, which is also what makes the message prefix
-/// `"<NAME> open: "` the gate greps for impossible to drift per function.
-///
-/// Deliberately not `Core.Failure`: that maps `OutOfRangeEndIndex` to
-/// `ArgumentOutOfRangeException("endIdx")`, meaningless for a caller with no
-/// `endIdx` parameter.
-fn emit_reject_conversion(o: &mut String, func: &FuncDef, what: &str) {
+/// Rule S7 is answered with its counts; every other code goes through
+/// `Core.StreamFailure`, which single-sources the `"<NAME> <verb>: "` prefix the
+/// stream gate greps. `anchor` is the seam's `startIdx`, or `None` at a public
+/// frame (anchor 0).
+fn emit_reject_conversion(o: &mut String, func: &FuncDef, what: &str, anchor: Option<&str>) {
     let n = func.name.to_uppercase();
+    let history = &streaming::input_array_names(func)[0];
+    let lookback = format!(
+        "{}Lookback({})",
+        pascal_words(&base_name(func)),
+        func.optional_inputs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")
+    );
+    let anchor = anchor.unwrap_or("0");
     let _ = writeln!(o, "      if( retCode == RetCode.Success ) {{");
     let _ = writeln!(o, "         return sp;");
+    let _ = writeln!(o, "      }}");
+    let _ = writeln!(o, "      if( retCode == RetCode.InsufficientHistory ) {{");
+    let _ = writeln!(
+        o,
+        "         throw InsufficientHistory(\"{n}\", \"{what}\", nameof({history}), {history}.Length, {anchor}, {lookback});"
+    );
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      throw StreamFailure(\"{n}\", \"{what}\", retCode);");
 }
@@ -2554,7 +2654,7 @@ fn emit_open_and_fill_internal_wrapper(o: &mut String, func: &FuncDef, merged: b
     // composed sub-handle is opened through (issue #241).
     let _ = writeln!(o, "      sp.outRangeBegIdx = outBegIdx;");
     let _ = writeln!(o, "      sp.outRangeCount = outNBElement;");
-    emit_reject_conversion(o, func, "openAndFill");
+    emit_reject_conversion(o, func, "openAndFill", Some("startIdx"));
     let _ = writeln!(o, "   }}");
 }
 
@@ -2578,7 +2678,7 @@ fn public_open_empty_guards(n: &str, verb: &str, inputs: &[String]) -> String {
     );
     let _ = writeln!(
         s,
-        "      if( {first}.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof({first}), \"{n} {verb}: history is longer than MaxIndex + 1\", RetCode.OutOfRangeEndIndex);"
+        "      if( {first}.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof({first}), \"{n} {verb}: history is longer than IndexMax + 1\", RetCode.OutOfRangeEndIndex);"
     );
     for input in &inputs[1..] {
         let _ = writeln!(
@@ -2754,7 +2854,7 @@ fn emit_open_wrappers(
             in_fwd.join(", ")
         );
     }
-    emit_reject_conversion(o, func, "open");
+    emit_reject_conversion(o, func, "open", Some("startIdx"));
     let _ = writeln!(o, "   }}");
 
     // --- public Open ---------------------------------------------------------
@@ -2809,7 +2909,7 @@ fn emit_open_wrappers(
     d.exception(
         "System.ArgumentOutOfRangeException",
         "The history is empty — which is what a null array becomes, since a span cannot be \
-         null — or it is longer than <see cref=\"Core.MaxIndex\"/> + 1, the two index \
+         null — or it is longer than <see cref=\"Core.IndexMax\"/> + 1, the two index \
          faults an opener can have (rules S1 and S2).",
     );
     o.push('\n');
@@ -2908,7 +3008,7 @@ fn emit_open_wrappers(
     d.exception(
         "System.ArgumentOutOfRangeException",
         "The history is empty — which is what a null array becomes, since a span cannot be \
-         null — or it is longer than <see cref=\"Core.MaxIndex\"/> + 1, the two index \
+         null — or it is longer than <see cref=\"Core.IndexMax\"/> + 1, the two index \
          faults an opener can have (rules S1 and S2).",
     );
     o.push('\n');
@@ -2954,7 +3054,7 @@ fn emit_open_wrappers(
         );
         let _ = writeln!(o, "      sp.outRangeBegIdx = outBegIdx;");
         let _ = writeln!(o, "      sp.outRangeCount = outNBElement;");
-        emit_reject_conversion(o, func, "openAndFill");
+        emit_reject_conversion(o, func, "openAndFill", None);
     }
     let _ = writeln!(o, "   }}");
 }
@@ -3112,9 +3212,15 @@ fn emit_dual_mode(
     let pred_sp = params_on_state(func, &dmp.predicate);
     let pred_sp = render_predicate(&pred_sp, &ctx, registry, helpers);
     let _ = writeln!(o, "      if( {pred_sp} ) {{");
-    emit_step_body(o, func, ma, &step_settings, stream_fma, enums, registry, helpers, counter, 9);
+    emit_step_body(
+        o, func, ma, &CsStreamNames, &step_settings, stream_fma, enums, registry, helpers, counter,
+        9,
+    );
     let _ = writeln!(o, "      }} else {{");
-    emit_step_body(o, func, mb, &step_settings, stream_fma, enums, registry, helpers, counter, 9);
+    emit_step_body(
+        o, func, mb, &CsStreamNames, &step_settings, stream_fma, enums, registry, helpers, counter,
+        9,
+    );
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "   }}");
 
@@ -3232,6 +3338,53 @@ fn dispatch_store_sub(
     }
 }
 
+/// A dispatch step's switch: each arm's committed value, from `call` (given the
+/// callee's handle class), routed into the handle's outputs.
+fn emit_dispatch_step_switch(
+    o: &mut String,
+    dp: &streaming::DispatchPlan,
+    arms: &[&streaming::DispatchArm],
+    outputs: &[String],
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    call: &dyn Fn(&str, &streaming::DispatchArm) -> String,
+) {
+    let _ = writeln!(o, "      switch( sp.{} )", dp.param);
+    let _ = writeln!(o, "      {{");
+    for arm in arms {
+        let label = render_csharp_switch_label(&arm.label, enums);
+        let cls = callee_stream_class(registry, &arm.callee);
+        let _ = writeln!(o, "      case {label}: {{");
+        // Route callee output slots through the arm's OutSlot map: Forward(k)
+        // lands in the dispatch func's output k, Discard drops the slot (the
+        // nullable FAMA when MA routes only the MAMA line, #125).
+        if arm.out_map.len() == 1 {
+            let streaming::OutSlot::Forward(k) = arm.out_map[0] else {
+                panic!("single-output arm cannot discard its only slot");
+            };
+            let _ = writeln!(o, "         sp.cur_{} = {};", outputs[k], call(&cls, arm));
+        } else {
+            let vt = callee_value_type(registry, &arm.callee);
+            let _ = writeln!(o, "         {vt} subValue = {};", call(&cls, arm));
+            for (i, slot) in arm.out_map.iter().enumerate() {
+                if let streaming::OutSlot::Forward(k) = slot {
+                    let _ = writeln!(
+                        o,
+                        "         sp.cur_{} = subValue.{};",
+                        outputs[*k],
+                        callee_value_member(registry, &arm.callee, i)
+                    );
+                }
+            }
+        }
+        let _ = writeln!(o, "         break;");
+        let _ = writeln!(o, "      }}");
+    }
+    let _ = writeln!(o, "      default:");
+    let _ = writeln!(o, "         break; /* unreachable: open rejects arms without a sub-stream */");
+    let _ = writeln!(o, "      }}");
+}
+
 #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
 fn emit_dispatch(
     o: &mut String,
@@ -3315,47 +3468,10 @@ fn emit_dispatch(
         let _ = writeln!(o, "         return;");
         let _ = writeln!(o, "      }}");
     }
-    let _ = writeln!(o, "      switch( sp.{} )", dp.param);
-    let _ = writeln!(o, "      {{");
-    for arm in dp.arms.iter().filter(|a| a.supported) {
-        let label = render_csharp_switch_label(&arm.label, enums);
-        let cls = callee_stream_class(registry, &arm.callee);
-        let _ = writeln!(o, "      case {label}: {{");
-        // Route callee output slots through the arm's OutSlot map: Forward(k)
-        // lands in the dispatch func's output k, Discard drops the slot (the
-        // nullable FAMA when MA routes only the MAMA line, #125).
-        if arm.out_map.len() == 1 {
-            let streaming::OutSlot::Forward(k) = arm.out_map[0] else {
-                panic!("single-output arm cannot discard its only slot");
-            };
-            let _ = writeln!(
-                o,
-                "         sp.cur_{} = (({cls}) sp.sub!).Update({bar_args});",
-                outputs[k]
-            );
-        } else {
-            let vt = callee_value_type(registry, &arm.callee);
-            let _ = writeln!(
-                o,
-                "         {vt} subValue = (({cls}) sp.sub!).Update({bar_args});"
-            );
-            for (i, slot) in arm.out_map.iter().enumerate() {
-                if let streaming::OutSlot::Forward(k) = slot {
-                    let _ = writeln!(
-                        o,
-                        "         sp.cur_{} = subValue.{};",
-                        outputs[*k],
-                        callee_value_member(registry, &arm.callee, i)
-                    );
-                }
-            }
-        }
-        let _ = writeln!(o, "         break;");
-        let _ = writeln!(o, "      }}");
-    }
-    let _ = writeln!(o, "      default:");
-    let _ = writeln!(o, "         break; /* unreachable: open rejects arms without a sub-stream */");
-    let _ = writeln!(o, "      }}");
+    let arms: Vec<&streaming::DispatchArm> = dp.arms.iter().filter(|a| a.supported).collect();
+    emit_dispatch_step_switch(o, dp, &arms, &outputs, enums, registry, &|cls, _| {
+        format!("(({cls}) sp.sub!).Update({bar_args})")
+    });
     let _ = writeln!(o, "   }}");
 
     // --- open bodies (Scalar delegates to OpenInternal; Fill to OpenAndFill) -
@@ -3530,6 +3646,249 @@ fn emit_dispatch(
 }
 
 // ---------------------------------------------------------------------------
+// Tape frames (#445): the entries a period bank steps its slots through.
+// ---------------------------------------------------------------------------
+
+/// The tape frame's parameters, after the handle. Read-only: a peek must not
+/// store the bar it previews, and the bank writes each committed bar itself.
+const TAPE_PARAMS: &str = "ReadOnlySpan<double> tape, int tapeBase, int tapeMask";
+
+/// The one input a tape-set function's history is kept for.
+fn tape_input(func: &FuncDef) -> String {
+    let inputs = streaming::input_array_names(func);
+    assert!(
+        inputs.len() == 1,
+        "{}: a tape frame needs exactly one input, found {}",
+        func.name,
+        inputs.len()
+    );
+    inputs[0].clone()
+}
+
+/// `<N>StepTape` / `<N>PeekTape` / `<N>TapeDetach` of a Loop or DualMode
+/// function a period bank steps. The step does none of `Update`'s checks, which
+/// the bank has already made. A function none of whose models keeps history of
+/// the input delegates to its ordinary step and peek.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn emit_tape_entries(
+    o: &mut String,
+    func: &FuncDef,
+    models: &[&StreamModel],
+    dual: Option<&streaming::DualModePlan>,
+    stream_fma: &FmaVarSets,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) {
+    let base = pascal_words(&base_name(func));
+    let class = stream_class_name(func);
+    let vt = value_surface_type(func);
+    let (sig_bars, fwd_bars) = bar_params(func);
+    let input = tape_input(func);
+    let tape = CsTapeNames(streaming::TapeNames::new(&input));
+    let mut detach: Vec<String> = Vec::new();
+    for m in models {
+        streaming::check_tape_eligible(m, &input).unwrap_or_else(|e| panic!("{e}"));
+        for r in streaming::tape_covered_rings(m, &input) {
+            let buf = streaming::NameMap::ring_buf(&CsStreamNames, &r.var, &input);
+            let cap = streaming::NameMap::ring_cap(&CsStreamNames, &r.var);
+            detach.push(format!("      {buf} = [];"));
+            detach.push(format!("      if( {cap} > reach ) {{\n         reach = {cap};\n      }}"));
+        }
+        for w in streaming::tape_covered_windows(m, &input) {
+            let buf = streaming::NameMap::win_buf(&CsStreamNames, &w.var, &input);
+            let cap = streaming::NameMap::win_cap(&CsStreamNames, &w.var);
+            detach.push(format!("      {buf} = [];"));
+            detach.push(format!(
+                "      if( {cap} - 1 > reach ) {{\n         reach = {cap} - 1;\n      }}"
+            ));
+        }
+    }
+    let mut seen = BTreeSet::new();
+    detach.retain(|l| seen.insert(l.clone()));
+
+    let mut step_settings = BTreeSet::new();
+    for m in models {
+        step_settings.extend(detect_candle_settings(&m.steady_stmts));
+    }
+    let fields = match dual {
+        Some(dmp) => {
+            let scalars = dual_scalar_union(func, &dmp.mode_a, &dmp.mode_b);
+            dual_union_fields(
+                func,
+                &state_fields_from(func, &dmp.mode_a, &scalars, &step_settings),
+                &state_fields_from(func, &dmp.mode_b, &scalars, &step_settings),
+            )
+        }
+        None => state_fields(func, models[0], &step_settings),
+    };
+    let empty = HashSet::new();
+    let ctx = stream_ctx(&empty, counter, stream_fma);
+    let pred = dual.map(|dmp| {
+        render_predicate(&params_on_state(func, &dmp.predicate), &ctx, registry, helpers)
+    });
+    let answer = fresh_value_expr(func, "");
+
+    // --- StepTape -----------------------------------------------------------
+    let _ = writeln!(
+        o,
+        "\n   private {vt} {base}StepTape( {class} sp, {TAPE_PARAMS}, {sig_bars} )\n   {{"
+    );
+    if detach.is_empty() {
+        let _ = writeln!(o, "      {base}StepImpl(sp, {fwd_bars});");
+    } else if let Some(pred) = &pred {
+        let _ = writeln!(o, "      if( {pred} ) {{");
+        for (k, m) in models.iter().enumerate() {
+            if k == 1 {
+                let _ = writeln!(o, "      }} else {{");
+            }
+            emit_step_body(
+                o, func, m, &tape, &step_settings, stream_fma, enums, registry, helpers, counter,
+                9,
+            );
+        }
+        let _ = writeln!(o, "      }}");
+    } else {
+        emit_step_body(
+            o, func, models[0], &tape, &step_settings, stream_fma, enums, registry, helpers,
+            counter, 6,
+        );
+    }
+    let _ = writeln!(o, "      sp.outRangeCount++;");
+    let _ = writeln!(o, "      return {};\n   }}", fresh_value_expr(func, "sp"));
+
+    // --- PeekTape -----------------------------------------------------------
+    let _ = writeln!(
+        o,
+        "\n   private {vt} {base}PeekTape( {class} sp, {TAPE_PARAMS}, {sig_bars} )\n   {{"
+    );
+    let frame = |m: &StreamModel, indent: usize, predeclared: &BTreeSet<String>| {
+        peek_frame_arm_named(
+            func, m, &tape, &fields, &step_settings, stream_fma, enums, registry, helpers, counter,
+            indent, predeclared,
+        )
+        .unwrap_or_else(|| panic!("{}: no tape peek frame", func.name))
+    };
+    if detach.is_empty() {
+        let _ = writeln!(o, "      return sp.Peek({fwd_bars});\n   }}");
+    } else if let Some(pred) = &pred {
+        let outs: BTreeSet<String> =
+            func.outputs.iter().map(|x| format!("cur_{}", x.name)).collect();
+        for out in &func.outputs {
+            let cty = out_cs_type(func, &out.name);
+            let zero = if cty == "int" { "0" } else { "0.0" };
+            let _ = writeln!(o, "      {cty} cur_{} = {zero};", out.name);
+        }
+        let _ = writeln!(o, "      if( {pred} ) {{");
+        o.push_str(&frame(models[0], 9, &outs));
+        let _ = writeln!(o, "      }} else {{");
+        o.push_str(&frame(models[1], 9, &outs));
+        let _ = writeln!(o, "      }}");
+        let _ = writeln!(o, "      return {answer};\n   }}");
+    } else {
+        o.push_str(&frame(models[0], 6, &BTreeSet::new()));
+        let _ = writeln!(o, "      return {answer};\n   }}");
+    }
+
+    // --- TapeDetach ---------------------------------------------------------
+    let _ = writeln!(o, "\n   private int {base}TapeDetach( {class} sp )\n   {{");
+    if detach.is_empty() {
+        let _ = writeln!(o, "      return 0;\n   }}");
+    } else {
+        let _ = writeln!(o, "      int reach = 0;");
+        for l in &detach {
+            let _ = writeln!(o, "{l}");
+        }
+        let _ = writeln!(o, "      return reach;\n   }}");
+    }
+}
+
+/// A dispatcher's tape entries (#445): route each to the arm's own, and answer
+/// the identity path here, which is why the arms' tape frames drop theirs.
+#[allow(clippy::too_many_arguments)]
+fn emit_dispatch_tape(
+    o: &mut String,
+    func: &FuncDef,
+    dp: &streaming::DispatchPlan,
+    stream_fma: &FmaVarSets,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) {
+    let base = pascal_words(&base_name(func));
+    let class = stream_class_name(func);
+    let vt = value_surface_type(func);
+    let (sig_bars, bar_args) = bar_params(func);
+    let outputs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
+    let empty = HashSet::new();
+    let mut ctx = stream_ctx(&empty, counter, stream_fma);
+    ctx.matype_map = build_matype_map(enums);
+    let arms: Vec<&streaming::DispatchArm> =
+        dp.arms.iter().filter(|a| a.supported && !a.callee.is_empty()).collect();
+    let identity = dp.identity.as_ref().map(|idp| {
+        let cond = render_predicate(&params_on_state(func, &idp.condition), &ctx, registry, helpers);
+        (cond, &idp.pairs)
+    });
+    let callee_base = |arm: &streaming::DispatchArm| pascal_words(&registry.name_of(&arm.callee));
+
+    // --- StepTape -----------------------------------------------------------
+    let _ = writeln!(
+        o,
+        "\n   private {vt} {base}StepTape( {class} sp, {TAPE_PARAMS}, {sig_bars} )\n   {{"
+    );
+    let ret = fresh_value_expr(func, "sp");
+    if let Some((cond, pairs)) = &identity {
+        let _ = writeln!(o, "      if( {cond} ) {{");
+        for (out, inp) in *pairs {
+            let _ = writeln!(o, "         sp.cur_{out} = {inp};");
+        }
+        let _ = writeln!(o, "         sp.outRangeCount++;");
+        let _ = writeln!(o, "         return {ret};");
+        let _ = writeln!(o, "      }}");
+    }
+    emit_dispatch_step_switch(o, dp, &arms, &outputs, enums, registry, &|cls, arm| {
+        format!(
+            "{}StepTape(({cls}) sp.sub!, tape, tapeBase, tapeMask, {bar_args})",
+            callee_base(arm)
+        )
+    });
+    let _ = writeln!(o, "      sp.outRangeCount++;");
+    let _ = writeln!(o, "      return {ret};\n   }}");
+
+    // --- PeekTape -----------------------------------------------------------
+    let _ = writeln!(
+        o,
+        "\n   private {vt} {base}PeekTape( {class} sp, {TAPE_PARAMS}, {sig_bars} )\n   {{"
+    );
+    o.push_str(&dispatch_peek_frame_with(
+        func, dp, &arms, &outputs, &ctx, enums, registry, helpers, 6,
+        &|cls: &str, arm: &streaming::DispatchArm| {
+            format!(
+                "{}PeekTape(({cls}) sp.sub!, tape, tapeBase, tapeMask, {bar_args})",
+                callee_base(arm)
+            )
+        },
+    ));
+    let _ = writeln!(o, "      return {};\n   }}", fresh_value_expr(func, ""));
+
+    // --- TapeDetach ---------------------------------------------------------
+    let _ = writeln!(o, "\n   private int {base}TapeDetach( {class} sp )\n   {{");
+    if let Some((cond, _)) = &identity {
+        let _ = writeln!(o, "      if( {cond} ) {{\n         return 0;\n      }}");
+    }
+    let _ = writeln!(o, "      switch( sp.{} )\n      {{", dp.param);
+    for arm in &arms {
+        let label = render_csharp_switch_label(&arm.label, enums);
+        let cls = callee_stream_class(registry, &arm.callee);
+        let _ = writeln!(o, "      case {label}:");
+        let _ = writeln!(o, "         return {}TapeDetach(({cls}) sp.sub!);", callee_base(arm));
+    }
+    let _ = writeln!(o, "      default:\n         return 0;\n      }}\n   }}");
+}
+
+// ---------------------------------------------------------------------------
 // Period-bank tier (MAVP): a bank of sub-MA streams advanced in lockstep,
 // selected per bar by the clamped variable period.
 // ---------------------------------------------------------------------------
@@ -3545,6 +3904,7 @@ fn emit_period_bank(
 ) {
     let _ = helpers;
     let callee = plan.callee.as_str();
+    let base = pascal_words(&base_name(func));
     let callee_pascal = pascal_words(&registry.name_of(callee));
     let subty = callee_stream_class(registry, callee);
     let callee_out0 = registry.callee_outputs(callee)[0].clone();
@@ -3569,10 +3929,70 @@ fn emit_period_bank(
     let lb_args = opts_of(max);
     let open_opts = opts_of(&format!("{min} + bankIdx"));
 
+    // MATypes whose value is the callee's batch over the tape tail keep no
+    // bank: see streaming::window_evaluable.
+    let window_labels = registry.window_labels(&func.name.to_lowercase());
+    let windowed = !window_labels.is_empty();
+    let callee_args = |per: &str, ty: &str| -> String {
+        plan.callee_opts
+            .iter()
+            .map(|a| match a {
+                streaming::PeriodBankArg::Period => per.to_string(),
+                streaming::PeriodBankArg::MAType => ty.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let matype = plan.matype_param.as_str();
+    let clamp_into = |o: &mut String, pad: &str, var: &str, x: &str, h: &str| {
+        let _ = writeln!(o, "{pad}int {var} = (int){x};");
+        let _ = writeln!(o, "{pad}if( {var} < {h}{min} ) {{");
+        let _ = writeln!(o, "{pad}   {var} = {h}{min};");
+        let _ = writeln!(o, "{pad}}} else if( {var} > {h}{max} ) {{");
+        let _ = writeln!(o, "{pad}   {var} = {h}{max};");
+        let _ = writeln!(o, "{pad}}}");
+    };
+    // Locals carry a `w` prefix: C# rejects a nested local that shadows one the
+    // enclosing eager body declares later. A window-mode Open starts from
+    // Lookback(max) like the bank does, so every selected period's window must
+    // fit inside it; a band where one does not falls back to the bank.
+    let window_gate = |o: &mut String| {
+        let _ = writeln!(o, "      bool window = {base}WindowMode({matype});");
+        let _ = writeln!(o, "      if( {max} - {min} + 1 < {} ) window = false;", crate::streaming::WINDOW_MIN_BAND);
+        let _ = writeln!(o, "      if( window ) {{");
+        let _ = writeln!(o, "         for( int wk = 0; wk < {max} - {min} + 1; wk++ ) {{");
+        let _ = writeln!(
+            o,
+            "            if( {callee_pascal}Lookback({}) > lookbackTotal ) {{",
+            callee_args(&format!("{min} + wk"), matype)
+        );
+        let _ = writeln!(o, "               window = false;\n               break;\n            }}");
+        let _ = writeln!(o, "         }}\n      }}");
+    };
+
+    let push_bar = |o: &mut String, pad: &str, bar: &str| {
+        let _ = writeln!(o, "{pad}sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;");
+        let _ = writeln!(o, "{pad}sp.tape[sp.tapePos] = {bar};");
+        let _ = writeln!(o, "{pad}int tapeBase = sp.tapePos + sp.tapeMask + 1;");
+    };
+    let step_tape = |bar: &str| {
+        format!("{callee_pascal}StepTape(bank[bankIdx], sp.tape, tapeBase, sp.tapeMask, {bar})")
+    };
+    let track_reach = |o: &mut String, pad: &str, slot: &str| {
+        let _ = writeln!(o, "{pad}int slotReach = {callee_pascal}TapeDetach({slot});");
+        let _ = writeln!(o, "{pad}if( slotReach > reach ) {{");
+        let _ = writeln!(o, "{pad}   reach = slotReach;");
+        let _ = writeln!(o, "{pad}}}");
+    };
+
     // --- handle class -------------------------------------------------------
-    let fields = base_fields(func);
+    let mut fields = base_fields(func);
+    fields.push(("tapeMask".into(), "int".into(), "0".into()));
+    fields.push(("tapePos".into(), "int".into(), "0".into()));
+    fields.push(("tape".into(), "double[]".into(), "[]".into()));
     let extra_members = format!(
-        "      // One sub-{} stream per period in [{min}, {max}], advanced in lockstep.\n      internal {subty}[] bank = [];\n",
+        "      // {}ne sub-{} stream per period in [{min}, {max}], advanced in lockstep.\n      internal {subty}[] bank = [];\n",
+        if windowed { "Empty in window mode; otherwise o" } else { "O" },
         callee.to_uppercase()
     );
     // An array copy is SHALLOW whatever spelling it uses: the bank must copy
@@ -3596,7 +4016,17 @@ fn emit_period_bank(
     let _ = writeln!(bank_frame, "            cp = sp.{max};");
     let _ = writeln!(bank_frame, "         }}");
     let _ = writeln!(bank_frame, "         int slot = cp - sp.{min};");
-    let _ = writeln!(bank_frame, "         double cur_{out} = sp.bank[slot].Peek({price});");
+    let peek_tape = format!(
+        "sp.core.{callee_pascal}PeekTape(sp.bank[slot], sp.tape, ((sp.tapePos + 1) & sp.tapeMask) + sp.tapeMask + 1, sp.tapeMask, {price})"
+    );
+    if windowed {
+        let _ = writeln!(
+            bank_frame,
+            "         double cur_{out} = sp.bank.Length == 0 ? sp.core.{base}EvalWindow(sp, {price}, cp) : {peek_tape};"
+        );
+    } else {
+        let _ = writeln!(bank_frame, "         double cur_{out} = {peek_tape};");
+    }
     emit_handle_class_with_members(o, func, &fields, &subs, &extra_members, Some(&bank_frame));
 
     // --- step: advance ALL slots, output the clamped-period slot ------------
@@ -3607,22 +4037,92 @@ fn emit_period_bank(
     let _ = writeln!(o, "      }} else if( cp > sp.{max} ) {{");
     let _ = writeln!(o, "         cp = sp.{max};");
     let _ = writeln!(o, "      }}");
+    if windowed {
+        // The tape takes the bar only once the value exists: a throw changes nothing.
+        let _ = writeln!(o, "      if( sp.bank.Length == 0 ) {{");
+        let _ = writeln!(o, "         double v = {base}EvalWindow(sp, {price}, cp);");
+        let _ = writeln!(o, "         sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;");
+        let _ = writeln!(o, "         sp.tape[sp.tapePos] = {price};");
+        let _ = writeln!(o, "         sp.cur_{out} = v;");
+        let _ = writeln!(o, "         return;\n      }}");
+    }
     let _ = writeln!(o, "      int slot = cp - sp.{min};");
+    push_bar(o, "      ", price);
     // The one array hoist this emitter does. There is no general hoisting pass
     // (measured noise, 3.35–3.48 against 3.39–3.47 ns/bar); a COUNTED loop
     // bound is the exception, where it genuinely drops a bounds check per bar.
     let _ = writeln!(o, "      {subty}[] bank = sp.bank;");
     let _ = writeln!(o, "      for( int bankIdx = 0; bankIdx < bank.Length; bankIdx++ ) {{");
-    let _ = writeln!(o, "         double subValue = bank[bankIdx].Update({price});");
+    let _ = writeln!(o, "         double subValue = {};", step_tape(price));
     let _ = writeln!(o, "         if( bankIdx == slot ) {{");
     let _ = writeln!(o, "            sp.cur_{out} = subValue;");
     let _ = writeln!(o, "         }}");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "   }}");
 
+    // --- TapeOpen -----------------------------------------------------------
+    let class = stream_class_name(func);
+    let _ = writeln!(
+        o,
+        "\n   private static void {base}TapeOpen( {class} sp, ReadOnlySpan<double> {price}, int reach )\n   {{"
+    );
+    // Strictly above: at size == reach the deepest read lands on the current
+    // bar's slot and returns the wrong bar with no other symptom.
+    let _ = writeln!(o, "      int size = 1;");
+    let _ = writeln!(o, "      while( size <= reach ) {{\n         size <<= 1;\n      }}");
+    let _ = writeln!(o, "      int historyLen = {price}.Length;");
+    let _ = writeln!(o, "      sp.tape = new double[size];");
+    let _ = writeln!(o, "      sp.tapeMask = size - 1;");
+    let _ = writeln!(
+        o,
+        "      for( int b = (historyLen > size)? historyLen - size : 0; b < historyLen; b++ ) {{"
+    );
+    let _ = writeln!(o, "         sp.tape[b & sp.tapeMask] = {price}[b];");
+    let _ = writeln!(o, "      }}");
+    let _ = writeln!(o, "      sp.tapePos = (historyLen - 1) & sp.tapeMask;");
+    let _ = writeln!(o, "   }}");
+
+    if windowed {
+        let _ = writeln!(o, "\n   private static bool {base}WindowMode( MAType maType )\n   {{");
+        let _ = writeln!(o, "      switch( maType )\n      {{");
+        if window_labels.iter().any(|l| l == "*") {
+            let _ = writeln!(o, "      default:\n         return true;");
+        } else {
+            for label in window_labels {
+                let _ = writeln!(o, "      case {}:", render_csharp_switch_label(label, enums));
+            }
+            let _ = writeln!(o, "         return true;\n      default:\n         return false;");
+        }
+        let _ = writeln!(o, "      }}\n   }}");
+
+        // The window is the `lb` committed bars before the incoming one, read
+        // from the tape, then that bar: the same values, in the same order, as
+        // the batch reads for it.
+        let _ = writeln!(o, "\n   internal double {base}EvalWindow( {class} sp, double {price}, int cp )\n   {{");
+        let _ = writeln!(
+            o,
+            "      int lb = {callee_pascal}Lookback({});",
+            callee_args("cp", &format!("sp.{matype}"))
+        );
+        let _ = writeln!(
+            o,
+            "      Span<double> win = lb + 1 <= 128 ? stackalloc double[lb + 1] : new double[lb + 1];"
+        );
+        let _ = writeln!(o, "      for( int i = 0; i < lb; i++ ) {{");
+        let _ = writeln!(o, "         win[i] = sp.tape[(sp.tapePos + sp.tapeMask + 2 - lb + i) & sp.tapeMask];");
+        let _ = writeln!(o, "      }}");
+        let _ = writeln!(o, "      win[lb] = {price};");
+        let _ = writeln!(o, "      Span<double> wOut = stackalloc double[1];");
+        let _ = writeln!(
+            o,
+            "      {callee_pascal}(lb, lb, win, {}, wOut);",
+            callee_args("cp", &format!("sp.{matype}"))
+        );
+        let _ = writeln!(o, "      return wOut[0];\n   }}");
+    }
+
     // --- open body (Scalar) -------------------------------------------------
     let own_lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
-    let base = pascal_words(&base_name(func));
     let own_lb_call = format!("{base}Lookback({})", own_lb_args.join(", "));
     emit_open_body_sig(o, func, OutMode::Scalar);
     let _ = writeln!(o, "      int historyLen = {price}.Length;");
@@ -3652,10 +4152,32 @@ fn emit_period_bank(
     let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      int nBank = {max} - {min} + 1;");
+    if windowed {
+        window_gate(o);
+        let _ = writeln!(o, "      if( window ) {{");
+        let _ = writeln!(o, "         {base}TapeOpen(sp, {price}, lookbackTotal);");
+        clamp_into(o, "         ", "wcp", &format!("{period}[historyLen - 1]"), "");
+        let _ = writeln!(o, "         Span<double> wOut = stackalloc double[1];");
+        let _ = writeln!(
+            o,
+            "         {callee_pascal}(historyLen - 1, historyLen - 1, {price}, {}, wOut);",
+            callee_args("wcp", matype)
+        );
+        for p in &func.optional_inputs {
+            let _ = writeln!(o, "         sp.{0} = {0};", p.name);
+        }
+        let _ = writeln!(o, "         sp.cur_{out} = wOut[0];");
+        let _ = writeln!(o, "         sp.outRangeBegIdx = subStart;");
+        let _ = writeln!(o, "         sp.outRangeCount = historyLen - subStart;");
+        let _ = writeln!(o, "         return RetCode.Success;\n      }}");
+    }
     let _ = writeln!(o, "      {subty}[] bank = new {subty}[nBank];");
+    let _ = writeln!(o, "      int reach = 0;");
     let _ = writeln!(o, "      for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {{");
     let _ = writeln!(o, "         bank[bankIdx] = {callee_pascal}OpenInternal({price}, subStart, {open_opts});");
+    track_reach(o, "         ", "bank[bankIdx]");
     let _ = writeln!(o, "      }}");
+    let _ = writeln!(o, "      {base}TapeOpen(sp, {price}, reach);");
     let _ = writeln!(o, "      int cp = (int){period}[historyLen - 1];");
     let _ = writeln!(o, "      if( cp < {min} ) {{");
     let _ = writeln!(o, "         cp = {min};");
@@ -3691,16 +4213,44 @@ fn emit_period_bank(
     let _ = writeln!(o, "         return RetCode.InsufficientHistory;");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      int nBank = {max} - {min} + 1;");
+    if windowed {
+        // One batch call per run of equal clamped periods.
+        window_gate(o);
+        let _ = writeln!(o, "      if( window ) {{");
+        let _ = writeln!(o, "         for( int wt = lookbackTotal, wt1; wt < historyLen; wt = wt1 + 1 ) {{");
+        clamp_into(o, "            ", "wcp", &format!("{period}[wt]"), "");
+        let _ = writeln!(o, "            for( wt1 = wt; wt1 + 1 < historyLen; wt1++ ) {{");
+        clamp_into(o, "               ", "wcp2", &format!("{period}[wt1 + 1]"), "");
+        let _ = writeln!(o, "               if( wcp2 != wcp ) {{\n                  break;\n               }}");
+        let _ = writeln!(o, "            }}");
+        let _ = writeln!(
+            o,
+            "            {callee_pascal}(wt, wt1, {price}, {}, {out}.Slice(wt - lookbackTotal, wt1 - wt + 1));",
+            callee_args("wcp", matype)
+        );
+        let _ = writeln!(o, "         }}");
+        let _ = writeln!(o, "         {base}TapeOpen(sp, {price}, lookbackTotal);");
+        let _ = writeln!(o, "         outBegIdx = lookbackTotal;");
+        let _ = writeln!(o, "         outNBElement = historyLen - lookbackTotal;");
+        for p in &func.optional_inputs {
+            let _ = writeln!(o, "         sp.{0} = {0};", p.name);
+        }
+        let _ = writeln!(o, "         sp.cur_{out} = {out}[outNBElement - 1];");
+        let _ = writeln!(o, "         return RetCode.Success;\n      }}");
+    }
     let _ = writeln!(o, "      /* Seed each sub at the first output bar (lookbackTotal), NOT the last. */");
     let _ = writeln!(o, "      {subty}[] bank = new {subty}[nBank];");
     let _ = writeln!(o, "      double[] scratch = new double[nBank];");
     let _ = writeln!(o, "      double[] seedPrefix = new double[lookbackTotal + 1];");
     let _ = writeln!(o, "      {price}.Slice(0, lookbackTotal + 1).CopyTo(seedPrefix);");
+    let _ = writeln!(o, "      int reach = 0;");
     let _ = writeln!(o, "      for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {{");
     let _ = writeln!(o, "         {subty} sub = {callee_pascal}OpenInternal(seedPrefix, lookbackTotal, {open_opts});");
     let _ = writeln!(o, "         bank[bankIdx] = sub;");
     let _ = writeln!(o, "         scratch[bankIdx] = sub.cur_{callee_out0};");
+    track_reach(o, "         ", "sub");
     let _ = writeln!(o, "      }}");
+    let _ = writeln!(o, "      {base}TapeOpen(sp, seedPrefix, reach);");
     let _ = writeln!(o, "      /* First output bar (lookbackTotal), then replay the remaining history. */");
     let _ = writeln!(o, "      int cp = (int){period}[lookbackTotal];");
     let _ = writeln!(o, "      if( cp < {min} ) {{");
@@ -3710,8 +4260,9 @@ fn emit_period_bank(
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      {out}[0] = scratch[cp - {min}];");
     let _ = writeln!(o, "      for( int t = lookbackTotal + 1; t < historyLen; t++ ) {{");
+    push_bar(o, "         ", &format!("{price}[t]"));
     let _ = writeln!(o, "         for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {{");
-    let _ = writeln!(o, "            scratch[bankIdx] = bank[bankIdx].Update({price}[t]);");
+    let _ = writeln!(o, "            scratch[bankIdx] = {};", step_tape(&format!("{price}[t]")));
     let _ = writeln!(o, "         }}");
     let _ = writeln!(o, "         cp = (int){period}[t];");
     let _ = writeln!(o, "         if( cp < {min} ) {{");
@@ -4011,6 +4562,7 @@ fn emit_composed_step(
                 .chain(aliased.iter())
                 .map(|n| format!("cur_{n}"))
                 .chain(cp.map_temps.iter().map(|(n, _)| n.clone()))
+                .chain(cp.map_state.iter().map(|st| st.name.clone()))
                 .collect();
             o.push_str(&peek_frame_arm_named(
                 func, model, &names, fields, step_settings, stream_fma, enums, registry, helpers,
@@ -4039,6 +4591,8 @@ fn emit_composed_step(
     let verb = if frame { "Peek" } else { "Update" };
     let _ = writeln!(o, "{pad}/* Pipeline the new bar through the sub-streams (batch tail order). */");
     let params: BTreeSet<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+    // Loaded after the sub-calls, so nothing holds it across them.
+    let mut state_loaded = false;
     for step in &cp.steps {
         match step {
             streaming::UpdateStep::Sub { sub_idx } => {
@@ -4075,6 +4629,12 @@ fn emit_composed_step(
                 cur.insert(dst.clone(), alias);
             }
             streaming::UpdateStep::Map { tail_idx } => {
+                if !std::mem::replace(&mut state_loaded, true) {
+                    for st in &cp.map_state {
+                        let (cty, _) = field_type_and_default(&st.ty);
+                        let _ = writeln!(o, "{pad}{cty} {0} = sp.{0};", st.name);
+                    }
+                }
                 for out in streaming::map_output_writes(&cp.tail[*tail_idx], outputs) {
                     cur.entry(out.clone()).or_insert_with(|| format!("cur_{out}"));
                 }
@@ -4096,6 +4656,9 @@ fn emit_composed_step(
                 o,
                 "{pad}sp.lagRingPos_{sn} = (sp.lagRingPos_{sn} + 1) % sp.lagRingCap_{sn};"
             );
+        }
+        for st in cp.map_state.iter().filter(|st| st.carried) {
+            let _ = writeln!(o, "{pad}sp.{0} = {0};", st.name);
         }
     }
     let target = if frame { "" } else { "sp." };
@@ -4252,6 +4815,7 @@ fn emit_composed_open(
         inline_counter: counter,
         fma: Some(stream_fma),
         matype_map: HashMap::new(),
+        plain_selects: Cell::new(false),
     };
     let region_len = region_stmts.len();
     // Own inputs are exactly `historyLen` long — `emit_open_validation` above
@@ -4434,6 +4998,9 @@ fn emit_composed_open(
         let _ = writeln!(extra, "      sp.lagRingCap_{sr} = lagCap_{sr};");
         let _ = writeln!(extra, "      sp.lagRing_{sr} = lagRing_{sr};");
     }
+    for st in &cp.map_state {
+        let _ = writeln!(extra, "      sp.{0} = {0};", st.name);
+    }
     if let Some(model) = &cp.producer {
         // The producer's own "output" is the intermediate series, so its cur
         // seeding is suppressed; the real outputs seed from `sc_` below.
@@ -4501,6 +5068,10 @@ fn emit_composed(
         fields.push((format!("lagRingPos_{sr}"), "int".into(), "0".into()));
         fields.push((format!("lagRingCap_{sr}"), "int".into(), "1".into()));
         fields.push((format!("lagRing_{sr}"), "double[]".into(), "new double[1]".into()));
+    }
+    for st in &cp.map_state {
+        let (cty, default) = field_type_and_default(&st.ty);
+        fields.push((st.name.clone(), cty, default));
     }
     let mut extra_members = String::new();
     let mut copy_extra = String::new();

@@ -89,9 +89,9 @@ TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
    int outIdx;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -235,9 +235,9 @@ TA_RetCode TA_S_EFI( int    startIdx,
    int outIdx;
    int lookbackTotal;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -327,12 +327,14 @@ struct TA_EFI_Stream {
    double cur_outReal;
    int optInTimePeriod;
    double prevClose;
+   double pad_0;
    double optInK_1;
+   double pad_1;
    double prevMA;
 };
 
 /* Private function, not in public API. */
-static void TA_EFI_StepImpl( struct TA_EFI_Stream *sp, double inClose, double inVolume, double *outReal )
+static TA_FMA_STEP_INLINE void TA_EFI_StepImpl( struct TA_EFI_Stream *sp, double inClose, double inVolume, double *outReal )
 {
    if( sp->optInTimePeriod == 1 )
    {
@@ -363,7 +365,7 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 13;
@@ -605,7 +607,7 @@ TA_LIB_API TA_RetCode TA_EFI_Open( TA_EFI_Stream **stream, const double inClose[
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_EFI_OpenInternal( stream, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -615,7 +617,7 @@ TA_LIB_API TA_RetCode TA_EFI_OpenAndFill( TA_EFI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inClose || !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    return TA_EFI_OpenAndFillInternal( stream, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -627,10 +629,11 @@ TA_RetCode TA_EFI_OpenAndFillInternal( struct TA_EFI_Stream **stream, const doub
    return TA_EFI_OpenImpl( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_EFI_Update( TA_EFI_Stream *stream, double inClose, double inVolume, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
@@ -696,7 +699,7 @@ TA_LIB_API TA_RetCode TA_EFI_OutRange( const TA_EFI_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_EFI_Advance( TA_EFI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

@@ -11,6 +11,7 @@ $W_t = \operatorname{sort}(x_{t-N+1}, \dots, x_t)$; $k = \left\lceil \frac{P \cd
 ## Notes
 
 - The nearest-rank method is one of several incompatible percentile conventions. The linear-interpolation family (Hyndman & Fan type 7, the default of most statistical packages, and TradingView's `ta.percentile_linear_interpolation`) reports a weighted blend of two neighbouring order statistics and can emit a value that never occurred. That is a different indicator, not a mode of this one: PERCENTILE's parameter list is fixed at a window and a percentage, and a method selector cannot be appended to it later without changing the function's arity.
+- A tail percentile rests on the few values beyond it: at N = 30, P = 95 is the second-largest value in the window. For a stable estimate keep about ten values beyond the percentile, N ≥ 1000 / min(P, 100 − P): 100 bars at P = 10 or 90, 200 at P = 5 or 95.
 - Every input value in the window must be finite. A NaN makes every comparison against it false, which breaks the ordering the rank index is read from.
 
 ## Inputs
@@ -26,21 +27,9 @@ $W_t = \operatorname{sort}(x_{t-N+1}, \dots, x_t)$; $k = \left\lceil \frac{P \cd
 - `optInTimePeriod` — Number of bars in the trailing window
 - `optInPercentile` — Percentage position within the sorted window
 
-## Implementation
-
-TA-Lib Definition: [`percentile.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/percentile/percentile.c) · [`percentile.yaml`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/input/percentile/percentile.yaml)
-
-| Native | File |
-|--------|------|
-| C | [`ta_PERCENTILE.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_PERCENTILE.c) |
-| Rust | [`percentile.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/percentile.rs) |
-| Java | [`Core_PERCENTILE.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_PERCENTILE.java) |
-
-TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
-
 ## Aliases
 
-Percentile Nearest Rank, Rolling Percentile, Rolling Quantile, Rolling Median
+Percentile Nearest Rank, Rolling Percentile, Rolling Quantile
 
 ## See Also
 

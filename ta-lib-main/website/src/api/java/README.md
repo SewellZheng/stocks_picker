@@ -124,7 +124,7 @@ int lookback = Core.DEFAULT.smaLookback(30);    // 29 for a 30-period SMA
 
 Each TA method has a matching `<name>Lookback` method, taking the same optional parameters as the method itself. The lookback is how many inputs are consumed before the first output.
 
-**Too little data is a success, not an error.** A valid range shorter than the lookback simply produces no values: `count()` is 0 and `isEmpty()` is true. No exception is thrown — this matches the C library's `TA_SUCCESS` with `outNBElement == 0`. Nothing is written, so the output array's length is not checked on such a call — it may even be zero-length. The input is still checked, though: an `endIdx` past the end of the series you passed is a mistake worth hearing about in any range, and an empty range would otherwise hide it behind a "no data yet" result.
+**Too little data is a success, not an error.** A valid range that ends before the lookback simply produces no values: `count()` is 0 and `isEmpty()` is true. No exception is thrown — this matches the C library's `TA_SUCCESS` with `outNBElement == 0`. Nothing is written, so the output array's length is not checked on such a call — it may even be zero-length. The input is still checked, though: an `endIdx` past the end of the series you passed is a mistake worth hearing about in any range, and an empty range would otherwise hide it behind a "no data yet" result.
 
 ### 3.3 Errors {#retcode}
 
@@ -132,7 +132,7 @@ Misuse throws rather than returning a return code:
 
 | Mistake | Exception |
 |---|---|
-| `startIdx`/`endIdx` negative, above `Core.MAX_INDEX`, or `endIdx < startIdx` | `TALibIndexException` |
+| `startIdx`/`endIdx` negative, above `Core.INDEX_MAX`, or `endIdx < startIdx` | `TALibIndexException` |
 | Optional parameter outside its documented range | `TALibArgumentException` |
 | Two outputs sharing one array | `TALibArgumentException` |
 | An array too short for the range requested, including an `endIdx` past the end of the input | `TALibArgumentException` |
@@ -143,6 +143,8 @@ Each extends the platform type you would reach for — `TALibIndexException` an
 either shape works, and every one carries its `RetCode`.
 
 Array lengths are checked before anything is written, so a rejected call leaves every buffer untouched. An input must reach `endIdx`; an output must hold the values actually produced, `endIdx - max(startIdx, lookback) + 1`. The message names the array and both sizes — `SMA: outReal has length 3, needs 191`.
+
+A `NaN` or `±Inf` inside an input series is not detected, and nothing is promised about the output: a running sum or a recursion carries it into every later value, not only the bars whose window holds it. Clean or split the series before calling.
 
 ## 4.0 Advanced Features {#advanced}
 
@@ -177,7 +179,7 @@ OutRange r = f.newCall()
     .call(0, close.length - 1);
 ```
 
-Everything is validated against the `FuncInfo` row: an index out of bounds, a type that does not match the declared parameter, or an unset parameter at `call()` time throws `IllegalArgumentException`. The call itself then behaves exactly like the typed method, including throwing on misuse and returning an empty `OutRange` when the range is shorter than the lookback. A `ParamHolder` is not thread-safe: confine one to one thread, or build one per call.
+Everything is validated against the `FuncInfo` row: an index out of bounds, a type that does not match the declared parameter, or an unset parameter at `call()` time throws `IllegalArgumentException`. The call itself then behaves exactly like the typed method, including throwing on misuse and returning an empty `OutRange` when the range ends before the lookback. A `ParamHolder` is not thread-safe: confine one to one thread, or build one per call.
 
 Streamable functions carry the `FuncFlags.STREAMING` bit in `FuncInfo#flags()` — check it with `f.hasFlags(FuncFlags.STREAMING)`.
 
@@ -185,7 +187,7 @@ Streamable functions carry the `FuncFlags.STREAMING` bit in `FuncInfo#flags()` �
 
 Your value changed when you fed the same bar more history? That is by design: recursive functions converge as history accumulates. See [Unstable Period](/api/unstable-period/) for how to mitigate that.
 
-Rounding is a separate axis: floating-point error accumulates over a very long series, which is one reason a call is capped at [`Core.MAX_INDEX`](#index_range).
+Rounding is a separate axis: floating-point error accumulates over a very long series, which is one reason a call is capped at [`Core.INDEX_MAX`](#index_range).
 
 Every function documentation page carries a [numerical-stability property](/functions/stability): how much the value at a given bar depends on where the series you passed in begins.
 
@@ -213,7 +215,7 @@ Because the two overloads differ only in the input array type, a bare `null` arg
 
 ### 4.5 Index Range {#index_range}
 
-`Core.MAX_INDEX` is the largest value `startIdx` or `endIdx` may take: **100,000,000**. It's a sanity bound. Past it, a call is more likely a caller bug than a real need, and it's also untested territory for overflow and rounding error.
+`Core.INDEX_MAX` is the largest value `startIdx` or `endIdx` may take: **100,000,000**. It's a sanity bound. Past it, a call is more likely a caller bug than a real need, and it's also untested territory for overflow and rounding error.
 
 ### 4.6 Threading {#multithreading}
 
@@ -223,4 +225,4 @@ Use `Core.DEFAULT` for the all-defaults instance. There are no setters: to chang
 
 ## 5.0 Documentation {#docs}
 
-Every function's Javadoc is rendered from the same canonical description as every other backend's docs. Browse it on javadoc.io once published, or build it with `./mvnw clean javadoc:javadoc` in `ta_codegen/output/java/library`.
+Every function's Javadoc is rendered from the same canonical description as every other backend's docs. It is published to Maven Central as the artifact's `javadoc` jar, which an IDE fetches alongside the library; build it locally with `./mvnw clean javadoc:javadoc` in `ta_codegen/output/java/library`.

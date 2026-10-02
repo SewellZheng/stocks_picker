@@ -19,7 +19,7 @@ The first period is applied first, to the raw change; the second smooths its res
 
 ## Notes
 
-- An input whose every change is exactly zero leaves both the numerator and the denominator at zero. Rather than divide, TSI emits 0 there — the same convention as CCI and IMI. Some implementations divide unguarded and return a non-finite value.
+- An input whose every change is exactly zero leaves both the numerator and the denominator at zero. Rather than divide, TSI emits 0 there, its neutral value, as CCI and IMI emit theirs. Some implementations divide unguarded and return a non-finite value.
 - Each exponential average is seeded with a simple average of its own first inputs, the same seeding TA-Lib's EMA uses, so the first published values converge toward an unlimited-history result rather than reproducing it exactly. `TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)` discards more of that warm-up. Implementations seeding from a single first sample — trading-signals among them — differ over the transient and agree once it decays.
 - The parameters are named by the order they are applied in, not fast and slow. Blau's published pair applies the longer average first, the inverse of the differenced fast/slow pairs elsewhere in the library, so swapping them silently returns a different indicator with the same lookback.
 
@@ -63,6 +63,7 @@ TA-Lib Definition: [`tsi.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codeg
 | C | [`ta_TSI.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_TSI.c) |
 | Rust | [`tsi.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/tsi.rs) |
 | Java | [`Core_TSI.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_TSI.java) |
+| C# | [`Core_TSI.cs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/csharp/library/src/Core_TSI.cs) |
 
 TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 

@@ -85,10 +85,10 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.cdlxsidegap3methods_lookback().unwrap_or(usize::MAX);
@@ -116,6 +116,8 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inOpen = &inOpen[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         // Do the calculation using tight loops.
         // Add-up the initial period, except for the last value.
         i = startIdx;
@@ -130,18 +132,18 @@ impl Core {
         // function does not consider it
         outIdx = 0;
         loop {
-            if (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) && // 1st and 2nd of same color
-               (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) == 0 - (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) && // 3rd opposite color
-               inOpen[i] < (inClose[i - 1]).max(inOpen[i - 1]) &&                 // 3rd opens within 2nd rb
-               inOpen[i] > (inClose[i - 1]).min(inOpen[i - 1]) &&
-               inClose[i] < (inClose[i - 2]).max(inOpen[i - 2]) &&                // 3rd closes within 1st rb
-               inClose[i] > (inClose[i - 2]).min(inOpen[i - 2]) &&
-               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && // when 1st is white
-                 ((if (inOpen[i - 1]).min(inClose[i - 1]) > (inOpen[i - 2]).max(inClose[i - 2]) { 1 } else { 0 }) != 0) || // upside gap
-                (((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // when 1st is black
-                 ((if (inOpen[i - 1]).max(inClose[i - 1]) < (inOpen[i - 2]).min(inClose[i - 2]) { 1 } else { 0 }) != 0)) // downside gap
+            if (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) && // 1st and 2nd of same color
+               (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) == -(if inClose[i] >= inOpen[i] { 1 } else { -1 }) && // 3rd opposite color
+               inOpen[i] < c_max(inClose[i - 1], inOpen[i - 1]) &&              // 3rd opens within 2nd rb
+               inOpen[i] > c_min(inClose[i - 1], inOpen[i - 1]) &&
+               inClose[i] < c_max(inClose[i - 2], inOpen[i - 2]) &&             // 3rd closes within 1st rb
+               inClose[i] > c_min(inClose[i - 2], inOpen[i - 2]) &&
+               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == 1 &&  // when 1st is white
+                 ((if c_min(inOpen[i - 1], inClose[i - 1]) > c_max(inOpen[i - 2], inClose[i - 2]) { 1 } else { 0 }) != 0) || // upside gap
+                (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == -1 && // when 1st is black
+                 ((if c_max(inOpen[i - 1], inClose[i - 1]) < c_min(inOpen[i - 2], inClose[i - 2]) { 1 } else { 0 }) != 0)) // downside gap
             {
-                outInteger[outIdx] = ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) * 100) as i32;
+                outInteger[outIdx] = ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) * 100) as i32;
                 outIdx += 1;
             } else {
                 outInteger[outIdx] = 0;
@@ -179,14 +181,14 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
-    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// [`Core::INDEX_MAX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range that ends before the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -240,10 +242,10 @@ impl Core {
         inClose: &[f64],
         outInteger: &mut [i32],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.cdlxsidegap3methods_lookback()?;
@@ -317,18 +319,18 @@ struct Cdlxsidegap3methodsStreamState {
 #[allow(unused_parens)]
 impl Core {
     fn cdlxsidegap3methods_step_impl(sp: &mut Cdlxsidegap3methodsStreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
-        if (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) && // 1st and 2nd of same color
-           (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) == 0 - (if inClose >= inOpen { 1 } else { 0 - 1 }) && // 3rd opposite color
-           inOpen < (sp.lag1_inClose).max(sp.lag1_inOpen) &&                    // 3rd opens within 2nd rb
-           inOpen > (sp.lag1_inClose).min(sp.lag1_inOpen) &&
-           inClose < (sp.lag2_inClose).max(sp.lag2_inOpen) &&                   // 3rd closes within 1st rb
-           inClose > (sp.lag2_inClose).min(sp.lag2_inOpen) &&
-           ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == 1 && // when 1st is white
-             ((if (sp.lag1_inOpen).min(sp.lag1_inClose) > (sp.lag2_inOpen).max(sp.lag2_inClose) { 1 } else { 0 }) != 0) || // upside gap
-            (((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // when 1st is black
-             ((if (sp.lag1_inOpen).max(sp.lag1_inClose) < (sp.lag2_inOpen).min(sp.lag2_inClose) { 1 } else { 0 }) != 0)) // downside gap
+        if (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) && // 1st and 2nd of same color
+           (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) == -(if inClose >= inOpen { 1 } else { -1 }) && // 3rd opposite color
+           inOpen < c_max(sp.lag1_inClose, sp.lag1_inOpen) &&                 // 3rd opens within 2nd rb
+           inOpen > c_min(sp.lag1_inClose, sp.lag1_inOpen) &&
+           inClose < c_max(sp.lag2_inClose, sp.lag2_inOpen) &&                // 3rd closes within 1st rb
+           inClose > c_min(sp.lag2_inClose, sp.lag2_inOpen) &&
+           ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == 1 &&  // when 1st is white
+             ((if c_min(sp.lag1_inOpen, sp.lag1_inClose) > c_max(sp.lag2_inOpen, sp.lag2_inClose) { 1 } else { 0 }) != 0) || // upside gap
+            (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == -1 && // when 1st is black
+             ((if c_max(sp.lag1_inOpen, sp.lag1_inClose) < c_min(sp.lag2_inOpen, sp.lag2_inClose) { 1 } else { 0 }) != 0)) // downside gap
         {
-            (*outInteger) = ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) * 100) as i32;
+            (*outInteger) = ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) * 100) as i32;
         } else {
             (*outInteger) = 0;
         }
@@ -349,7 +351,7 @@ impl Core {
         if inOpen.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inOpen.len() > Self::MAX_INDEX + 1 {
+        if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
@@ -396,18 +398,18 @@ impl Core {
         // function does not consider it
         outIdx = 0;
         loop {
-            if (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) && // 1st and 2nd of same color
-               (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) == 0 - (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) && // 3rd opposite color
-               inOpen[i] < (inClose[i - 1]).max(inOpen[i - 1]) &&                 // 3rd opens within 2nd rb
-               inOpen[i] > (inClose[i - 1]).min(inOpen[i - 1]) &&
-               inClose[i] < (inClose[i - 2]).max(inOpen[i - 2]) &&                // 3rd closes within 1st rb
-               inClose[i] > (inClose[i - 2]).min(inOpen[i - 2]) &&
-               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == 1 && // when 1st is white
-                 ((if (inOpen[i - 1]).min(inClose[i - 1]) > (inOpen[i - 2]).max(inClose[i - 2]) { 1 } else { 0 }) != 0) || // upside gap
-                (((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // when 1st is black
-                 ((if (inOpen[i - 1]).max(inClose[i - 1]) < (inOpen[i - 2]).min(inClose[i - 2]) { 1 } else { 0 }) != 0)) // downside gap
+            if (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) && // 1st and 2nd of same color
+               (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) == -(if inClose[i] >= inOpen[i] { 1 } else { -1 }) && // 3rd opposite color
+               inOpen[i] < c_max(inClose[i - 1], inOpen[i - 1]) &&              // 3rd opens within 2nd rb
+               inOpen[i] > c_min(inClose[i - 1], inOpen[i - 1]) &&
+               inClose[i] < c_max(inClose[i - 2], inOpen[i - 2]) &&             // 3rd closes within 1st rb
+               inClose[i] > c_min(inClose[i - 2], inOpen[i - 2]) &&
+               ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == 1 &&  // when 1st is white
+                 ((if c_min(inOpen[i - 1], inClose[i - 1]) > c_max(inOpen[i - 2], inClose[i - 2]) { 1 } else { 0 }) != 0) || // upside gap
+                (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == -1 && // when 1st is black
+                 ((if c_max(inOpen[i - 1], inClose[i - 1]) < c_min(inOpen[i - 2], inClose[i - 2]) { 1 } else { 0 }) != 0)) // downside gap
             {
-                outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) * 100) as i32;
+                outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = ((if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) * 100) as i32;
             } else {
                 outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0;
             }
@@ -521,7 +523,7 @@ impl Core {
         if inOpen.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inOpen.len() > Self::MAX_INDEX + 1 {
+        if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.cdlxsidegap3methods_lookback()?;
@@ -554,7 +556,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Cdlxsidegap3methodsStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -572,11 +574,11 @@ impl Cdlxsidegap3methodsStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_CDLXSIDEGAP3METHODS_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -591,16 +593,15 @@ impl Cdlxsidegap3methodsStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_CDLXSIDEGAP3METHODS_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -610,18 +611,18 @@ impl Cdlxsidegap3methodsStream {
         {
             let sp = &self.state;
             let outInteger = &mut outInteger;
-            if (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) && // 1st and 2nd of same color
-               (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) == 0 - (if inClose >= inOpen { 1 } else { 0 - 1 }) && // 3rd opposite color
-               inOpen < (sp.lag1_inClose).max(sp.lag1_inOpen) &&                    // 3rd opens within 2nd rb
-               inOpen > (sp.lag1_inClose).min(sp.lag1_inOpen) &&
-               inClose < (sp.lag2_inClose).max(sp.lag2_inOpen) &&                   // 3rd closes within 1st rb
-               inClose > (sp.lag2_inClose).min(sp.lag2_inOpen) &&
-               ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == 1 && // when 1st is white
-                 ((if (sp.lag1_inOpen).min(sp.lag1_inClose) > (sp.lag2_inOpen).max(sp.lag2_inClose) { 1 } else { 0 }) != 0) || // upside gap
-                (((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // when 1st is black
-                 ((if (sp.lag1_inOpen).max(sp.lag1_inClose) < (sp.lag2_inOpen).min(sp.lag2_inClose) { 1 } else { 0 }) != 0)) // downside gap
+            if (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) && // 1st and 2nd of same color
+               (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) == -(if inClose >= inOpen { 1 } else { -1 }) && // 3rd opposite color
+               inOpen < c_max(sp.lag1_inClose, sp.lag1_inOpen) &&                 // 3rd opens within 2nd rb
+               inOpen > c_min(sp.lag1_inClose, sp.lag1_inOpen) &&
+               inClose < c_max(sp.lag2_inClose, sp.lag2_inOpen) &&                // 3rd closes within 1st rb
+               inClose > c_min(sp.lag2_inClose, sp.lag2_inOpen) &&
+               ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == 1 &&  // when 1st is white
+                 ((if c_min(sp.lag1_inOpen, sp.lag1_inClose) > c_max(sp.lag2_inOpen, sp.lag2_inClose) { 1 } else { 0 }) != 0) || // upside gap
+                (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == -1 && // when 1st is black
+                 ((if c_max(sp.lag1_inOpen, sp.lag1_inClose) < c_min(sp.lag2_inOpen, sp.lag2_inClose) { 1 } else { 0 }) != 0)) // downside gap
             {
-                (*outInteger) = ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) * 100) as i32;
+                (*outInteger) = ((if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) * 100) as i32;
             } else {
                 (*outInteger) = 0;
             }
@@ -652,7 +653,7 @@ impl Cdlxsidegap3methodsStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_CDLXSIDEGAP3METHODS_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -670,11 +671,11 @@ impl Cdlxsidegap3methodsStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_CDLXSIDEGAP3METHODS_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

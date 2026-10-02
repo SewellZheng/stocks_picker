@@ -52,6 +52,7 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  090526 MF,CC  First version (issue #366).
+ *  092226 MF,CC  #434 the three variance steps follow var.c.
  */
 
 // Import types from parent module
@@ -139,10 +140,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -166,6 +167,7 @@ impl Core {
         let mut periodTotal2: f64 = 0.0_f64;
         let mut meanValue1: f64 = 0.0_f64;
         let mut variance: f64 = 0.0_f64;
+        let mut peakTotal2: f64 = 0.0_f64;
         let mut invPeriod: f64 = 0.0_f64;
         let mut sigma: f64 = 0.0_f64;
         let mut delta: f64 = 0.0_f64;
@@ -198,6 +200,7 @@ impl Core {
         if startIdx > endIdx {
             return RetCode::Success;
         }
+        let inReal = &inReal[..=endIdx];
         // wAlpha is derived FROM wBeta, never the reverse (rma.c): only that order
         // makes the pair sum to exactly 1, and TA_RMA over this function's two legs
         // has to be bit for bit what the fused step below computes.
@@ -226,6 +229,7 @@ impl Core {
             j += 1;
         }
         barsSinceReseed = (32 * optInStdDevPeriod) as usize;
+        peakTotal2 = periodTotal2;
         // Seed both legs with the simple average of the first 'optInTimePeriod'
         // volatilities, as rma.c seeds. optInStdDevPeriod >= 2 is what keeps the
         // inReal[today-1] below in bounds on the very first bar.
@@ -238,6 +242,7 @@ impl Core {
             periodTotal1 += tempReal;
             tempReal *= tempReal;
             periodTotal2 += tempReal;
+            peakTotal2 = (if periodTotal2 > peakTotal2 { periodTotal2 } else { peakTotal2 });
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             tempReal = inReal[trailingIdx] - shift;
@@ -246,7 +251,7 @@ impl Core {
             periodTotal2 -= tempReal;
             trailingIdx += 1;
             barsSinceReseed -= 1;
-            if variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 {
+            if variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * optInStdDevPeriod) as usize;
                 windowStart = today - nbInitialElementNeeded;
                 tempReal = 0.0;
@@ -266,6 +271,21 @@ impl Core {
                 j = (today as usize) + 1;
                 meanValue1 = periodTotal1 * invPeriod;
                 variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                if variance < 0.000001 * (periodTotal2 * invPeriod) {
+                    shift = inReal[today];
+                    periodTotal1 = 0.0;
+                    periodTotal2 = 0.0;
+                    for j in (windowStart as usize)..(today as usize) + 1 {
+                        tempReal = inReal[j] - shift;
+                        periodTotal1 += tempReal;
+                        tempReal *= tempReal;
+                        periodTotal2 += tempReal;
+                    }
+                    j = (today as usize) + 1;
+                    meanValue1 = periodTotal1 * invPeriod;
+                    variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                }
+                peakTotal2 = periodTotal2;
                 if variance < 0.000000000001 * (periodTotal2 * invPeriod) {
                     variance = 0.0;
                 }
@@ -293,6 +313,7 @@ impl Core {
             periodTotal1 += tempReal;
             tempReal *= tempReal;
             periodTotal2 += tempReal;
+            peakTotal2 = (if periodTotal2 > peakTotal2 { periodTotal2 } else { peakTotal2 });
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             tempReal = inReal[trailingIdx] - shift;
@@ -301,7 +322,7 @@ impl Core {
             periodTotal2 -= tempReal;
             trailingIdx += 1;
             barsSinceReseed -= 1;
-            if variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 {
+            if variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * optInStdDevPeriod) as usize;
                 windowStart = today - nbInitialElementNeeded;
                 tempReal = 0.0;
@@ -321,6 +342,21 @@ impl Core {
                 j = (today as usize) + 1;
                 meanValue1 = periodTotal1 * invPeriod;
                 variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                if variance < 0.000001 * (periodTotal2 * invPeriod) {
+                    shift = inReal[today];
+                    periodTotal1 = 0.0;
+                    periodTotal2 = 0.0;
+                    for j in (windowStart as usize)..(today as usize) + 1 {
+                        tempReal = inReal[j] - shift;
+                        periodTotal1 += tempReal;
+                        tempReal *= tempReal;
+                        periodTotal2 += tempReal;
+                    }
+                    j = (today as usize) + 1;
+                    meanValue1 = periodTotal1 * invPeriod;
+                    variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                }
+                peakTotal2 = periodTotal2;
                 if variance < 0.000000000001 * (periodTotal2 * invPeriod) {
                     variance = 0.0;
                 }
@@ -355,6 +391,7 @@ impl Core {
             periodTotal1 += tempReal;
             tempReal *= tempReal;
             periodTotal2 += tempReal;
+            peakTotal2 = (if periodTotal2 > peakTotal2 { periodTotal2 } else { peakTotal2 });
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             tempReal = inReal[trailingIdx] - shift;
@@ -363,7 +400,7 @@ impl Core {
             periodTotal2 -= tempReal;
             trailingIdx += 1;
             barsSinceReseed -= 1;
-            if variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 {
+            if variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * optInStdDevPeriod) as usize;
                 windowStart = today - nbInitialElementNeeded;
                 tempReal = 0.0;
@@ -383,6 +420,21 @@ impl Core {
                 j = (today as usize) + 1;
                 meanValue1 = periodTotal1 * invPeriod;
                 variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                if variance < 0.000001 * (periodTotal2 * invPeriod) {
+                    shift = inReal[today];
+                    periodTotal1 = 0.0;
+                    periodTotal2 = 0.0;
+                    for j in (windowStart as usize)..(today as usize) + 1 {
+                        tempReal = inReal[j] - shift;
+                        periodTotal1 += tempReal;
+                        tempReal *= tempReal;
+                        periodTotal2 += tempReal;
+                    }
+                    j = (today as usize) + 1;
+                    meanValue1 = periodTotal1 * invPeriod;
+                    variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                }
+                peakTotal2 = periodTotal2;
                 if variance < 0.000000000001 * (periodTotal2 * invPeriod) {
                     variance = 0.0;
                 }
@@ -437,15 +489,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -494,10 +546,10 @@ impl Core {
         optInStdDevPeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.rvi_lookback(optInTimePeriod, optInStdDevPeriod)?;
@@ -552,6 +604,7 @@ struct RviStreamState {
     shift: f64,
     periodTotal1: f64,
     periodTotal2: f64,
+    peakTotal2: f64,
     invPeriod: f64,
     prevUp: f64,
     prevDn: f64,
@@ -589,6 +642,7 @@ impl Core {
         sp.periodTotal1 += tempReal;
         tempReal *= tempReal;
         sp.periodTotal2 += tempReal;
+        sp.peakTotal2 = (if sp.periodTotal2 > sp.peakTotal2 { sp.periodTotal2 } else { sp.peakTotal2 });
         meanValue1 = sp.periodTotal1 * sp.invPeriod;
         variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
         tempReal = sp.x_inReal[(sp.trailingIdx & sp.xMask) as usize] - sp.shift;
@@ -597,7 +651,7 @@ impl Core {
         sp.periodTotal2 -= tempReal;
         sp.trailingIdx += 1;
         sp.barsSinceReseed -= 1;
-        if variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * sp.periodTotal2 || sp.barsSinceReseed <= 0 {
+        if variance < 0.000001 * (sp.peakTotal2 * sp.invPeriod) || sp.barsSinceReseed <= 0 {
             sp.barsSinceReseed = (32 * sp.optInStdDevPeriod) as usize;
             sp.windowStart = sp.today - ((sp.nbInitialElementNeeded) as i32);
             tempReal = 0.0;
@@ -621,6 +675,23 @@ impl Core {
             }
             meanValue1 = sp.periodTotal1 * sp.invPeriod;
             variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+            if variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) {
+                sp.shift = sp.x_inReal[(sp.today & sp.xMask) as usize];
+                sp.periodTotal1 = 0.0;
+                sp.periodTotal2 = 0.0;
+                // for( sp.j = sp.windowStart; sp.j <= sp.today; sp.j += 1 )
+                sp.j = sp.windowStart;
+                while sp.j <= sp.today {
+                    tempReal = sp.x_inReal[(sp.j & sp.xMask) as usize] - sp.shift;
+                    sp.periodTotal1 += tempReal;
+                    tempReal *= tempReal;
+                    sp.periodTotal2 += tempReal;
+                    sp.j += 1;
+                }
+                meanValue1 = sp.periodTotal1 * sp.invPeriod;
+                variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+            }
+            sp.peakTotal2 = sp.periodTotal2;
             if variance < 0.000000000001 * (sp.periodTotal2 * sp.invPeriod) {
                 variance = 0.0;
             }
@@ -655,7 +726,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -684,6 +755,7 @@ impl Core {
         let mut periodTotal2: f64 = 0.0_f64;
         let mut meanValue1: f64 = 0.0_f64;
         let mut variance: f64 = 0.0_f64;
+        let mut peakTotal2: f64 = 0.0_f64;
         let mut invPeriod: f64 = 0.0_f64;
         let mut sigma: f64 = 0.0_f64;
         let mut delta: f64 = 0.0_f64;
@@ -744,6 +816,7 @@ impl Core {
             j += 1;
         }
         barsSinceReseed = (32 * optInStdDevPeriod) as usize;
+        peakTotal2 = periodTotal2;
         // Seed both legs with the simple average of the first 'optInTimePeriod'
         // volatilities, as rma.c seeds. optInStdDevPeriod >= 2 is what keeps the
         // inReal[today-1] below in bounds on the very first bar.
@@ -756,6 +829,7 @@ impl Core {
             periodTotal1 += tempReal;
             tempReal *= tempReal;
             periodTotal2 += tempReal;
+            peakTotal2 = (if periodTotal2 > peakTotal2 { periodTotal2 } else { peakTotal2 });
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             tempReal = inReal[trailingIdx] - shift;
@@ -764,7 +838,7 @@ impl Core {
             periodTotal2 -= tempReal;
             trailingIdx += 1;
             barsSinceReseed -= 1;
-            if variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 {
+            if variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * optInStdDevPeriod) as usize;
                 windowStart = today - nbInitialElementNeeded;
                 tempReal = 0.0;
@@ -784,6 +858,21 @@ impl Core {
                 j = (today as usize) + 1;
                 meanValue1 = periodTotal1 * invPeriod;
                 variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                if variance < 0.000001 * (periodTotal2 * invPeriod) {
+                    shift = inReal[today];
+                    periodTotal1 = 0.0;
+                    periodTotal2 = 0.0;
+                    for j in (windowStart as usize)..(today as usize) + 1 {
+                        tempReal = inReal[j] - shift;
+                        periodTotal1 += tempReal;
+                        tempReal *= tempReal;
+                        periodTotal2 += tempReal;
+                    }
+                    j = (today as usize) + 1;
+                    meanValue1 = periodTotal1 * invPeriod;
+                    variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                }
+                peakTotal2 = periodTotal2;
                 if variance < 0.000000000001 * (periodTotal2 * invPeriod) {
                     variance = 0.0;
                 }
@@ -811,6 +900,7 @@ impl Core {
             periodTotal1 += tempReal;
             tempReal *= tempReal;
             periodTotal2 += tempReal;
+            peakTotal2 = (if periodTotal2 > peakTotal2 { periodTotal2 } else { peakTotal2 });
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             tempReal = inReal[trailingIdx] - shift;
@@ -819,7 +909,7 @@ impl Core {
             periodTotal2 -= tempReal;
             trailingIdx += 1;
             barsSinceReseed -= 1;
-            if variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 {
+            if variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * optInStdDevPeriod) as usize;
                 windowStart = today - nbInitialElementNeeded;
                 tempReal = 0.0;
@@ -839,6 +929,21 @@ impl Core {
                 j = (today as usize) + 1;
                 meanValue1 = periodTotal1 * invPeriod;
                 variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                if variance < 0.000001 * (periodTotal2 * invPeriod) {
+                    shift = inReal[today];
+                    periodTotal1 = 0.0;
+                    periodTotal2 = 0.0;
+                    for j in (windowStart as usize)..(today as usize) + 1 {
+                        tempReal = inReal[j] - shift;
+                        periodTotal1 += tempReal;
+                        tempReal *= tempReal;
+                        periodTotal2 += tempReal;
+                    }
+                    j = (today as usize) + 1;
+                    meanValue1 = periodTotal1 * invPeriod;
+                    variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                }
+                peakTotal2 = periodTotal2;
                 if variance < 0.000000000001 * (periodTotal2 * invPeriod) {
                     variance = 0.0;
                 }
@@ -873,6 +978,7 @@ impl Core {
             periodTotal1 += tempReal;
             tempReal *= tempReal;
             periodTotal2 += tempReal;
+            peakTotal2 = (if periodTotal2 > peakTotal2 { periodTotal2 } else { peakTotal2 });
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
             tempReal = inReal[trailingIdx] - shift;
@@ -881,7 +987,7 @@ impl Core {
             periodTotal2 -= tempReal;
             trailingIdx += 1;
             barsSinceReseed -= 1;
-            if variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 {
+            if variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * optInStdDevPeriod) as usize;
                 windowStart = today - nbInitialElementNeeded;
                 tempReal = 0.0;
@@ -901,6 +1007,21 @@ impl Core {
                 j = (today as usize) + 1;
                 meanValue1 = periodTotal1 * invPeriod;
                 variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                if variance < 0.000001 * (periodTotal2 * invPeriod) {
+                    shift = inReal[today];
+                    periodTotal1 = 0.0;
+                    periodTotal2 = 0.0;
+                    for j in (windowStart as usize)..(today as usize) + 1 {
+                        tempReal = inReal[j] - shift;
+                        periodTotal1 += tempReal;
+                        tempReal *= tempReal;
+                        periodTotal2 += tempReal;
+                    }
+                    j = (today as usize) + 1;
+                    meanValue1 = periodTotal1 * invPeriod;
+                    variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+                }
+                peakTotal2 = periodTotal2;
                 if variance < 0.000000000001 * (periodTotal2 * invPeriod) {
                     variance = 0.0;
                 }
@@ -950,6 +1071,7 @@ impl Core {
             shift,
             periodTotal1,
             periodTotal2,
+            peakTotal2,
             invPeriod,
             prevUp,
             prevDn,
@@ -1046,7 +1168,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.rvi_lookback(optInTimePeriod, optInStdDevPeriod)?;
@@ -1076,7 +1198,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl RviStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -1094,11 +1216,11 @@ impl RviStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_RVI_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() {
@@ -1113,16 +1235,15 @@ impl RviStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_RVI_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -1142,6 +1263,7 @@ impl RviStream {
             let mut total: f64 = 0.0_f64;
             let mut barsSinceReseed = sp.barsSinceReseed;
             let mut j = sp.j;
+            let mut peakTotal2 = sp.peakTotal2;
             let mut periodTotal1 = sp.periodTotal1;
             let mut periodTotal2 = sp.periodTotal2;
             let mut prevDn = sp.prevDn;
@@ -1157,6 +1279,7 @@ impl RviStream {
             periodTotal1 += tempReal;
             tempReal *= tempReal;
             periodTotal2 += tempReal;
+            peakTotal2 = (if periodTotal2 > peakTotal2 { periodTotal2 } else { peakTotal2 });
             meanValue1 = periodTotal1 * sp.invPeriod;
             variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
             tempReal = (if ((trailingIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(trailingIdx & sp.xMask) as usize] } else { pkVal0 }) - shift;
@@ -1165,7 +1288,7 @@ impl RviStream {
             periodTotal2 -= tempReal;
             trailingIdx += 1;
             barsSinceReseed -= 1;
-            if variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 {
+            if variance < 0.000001 * (peakTotal2 * sp.invPeriod) || barsSinceReseed <= 0 {
                 barsSinceReseed = (32 * sp.optInStdDevPeriod) as usize;
                 windowStart = sp.today - ((sp.nbInitialElementNeeded) as i32);
                 tempReal = 0.0;
@@ -1189,6 +1312,23 @@ impl RviStream {
                 }
                 meanValue1 = periodTotal1 * sp.invPeriod;
                 variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+                if variance < 0.000001 * (periodTotal2 * sp.invPeriod) {
+                    shift = (if ((sp.today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(sp.today & sp.xMask) as usize] } else { pkVal0 });
+                    periodTotal1 = 0.0;
+                    periodTotal2 = 0.0;
+                    // for( j = windowStart; j <= sp.today; j += 1 )
+                    j = windowStart;
+                    while j <= sp.today {
+                        tempReal = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(j & sp.xMask) as usize] } else { pkVal0 }) - shift;
+                        periodTotal1 += tempReal;
+                        tempReal *= tempReal;
+                        periodTotal2 += tempReal;
+                        j += 1;
+                    }
+                    meanValue1 = periodTotal1 * sp.invPeriod;
+                    variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+                }
+                peakTotal2 = periodTotal2;
                 if variance < 0.000000000001 * (periodTotal2 * sp.invPeriod) {
                     variance = 0.0;
                 }
@@ -1237,7 +1377,7 @@ impl RviStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_RVI_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1255,11 +1395,11 @@ impl RviStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_RVI_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

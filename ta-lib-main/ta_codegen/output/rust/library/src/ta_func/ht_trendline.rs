@@ -129,10 +129,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.ht_trendline_lookback().unwrap_or(usize::MAX);
@@ -230,6 +230,7 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inReal = &inReal[..=endIdx];
         (*outBegIdx) = startIdx;
         // Initialize the price smoother, which is simply a weighted
         // moving average of the price.
@@ -343,7 +344,7 @@ impl Core {
             if today % 2 == 0 {
                 // Do the Hilbert Transforms for even price bar
                 hilbertTempReal = a * smoothedValue;
-                detrender = 0_f64 - detrender_Even[hilbertIdx];
+                detrender = -detrender_Even[hilbertIdx];
                 detrender_Even[hilbertIdx] = hilbertTempReal;
                 detrender += hilbertTempReal;
                 detrender -= prev_detrender_Even;
@@ -352,7 +353,7 @@ impl Core {
                 prev_detrender_input_Even = smoothedValue;
                 detrender *= adjustedPrevPeriod;
                 hilbertTempReal = a * detrender;
-                Q1 = 0_f64 - Q1_Even[hilbertIdx];
+                Q1 = -Q1_Even[hilbertIdx];
                 Q1_Even[hilbertIdx] = hilbertTempReal;
                 Q1 += hilbertTempReal;
                 Q1 -= prev_Q1_Even;
@@ -361,7 +362,7 @@ impl Core {
                 prev_Q1_input_Even = detrender;
                 Q1 *= adjustedPrevPeriod;
                 hilbertTempReal = a * I1ForEvenPrev3;
-                jI = 0_f64 - jI_Even[hilbertIdx];
+                jI = -jI_Even[hilbertIdx];
                 jI_Even[hilbertIdx] = hilbertTempReal;
                 jI += hilbertTempReal;
                 jI -= prev_jI_Even;
@@ -370,7 +371,7 @@ impl Core {
                 prev_jI_input_Even = I1ForEvenPrev3;
                 jI *= adjustedPrevPeriod;
                 hilbertTempReal = a * Q1;
-                jQ = 0_f64 - jQ_Even[hilbertIdx];
+                jQ = -jQ_Even[hilbertIdx];
                 jQ_Even[hilbertIdx] = hilbertTempReal;
                 jQ += hilbertTempReal;
                 jQ -= prev_jQ_Even;
@@ -393,7 +394,7 @@ impl Core {
             } else {
                 // Do the Hilbert Transforms for odd price bar
                 hilbertTempReal = a * smoothedValue;
-                detrender = 0_f64 - detrender_Odd[hilbertIdx];
+                detrender = -detrender_Odd[hilbertIdx];
                 detrender_Odd[hilbertIdx] = hilbertTempReal;
                 detrender += hilbertTempReal;
                 detrender -= prev_detrender_Odd;
@@ -402,7 +403,7 @@ impl Core {
                 prev_detrender_input_Odd = smoothedValue;
                 detrender *= adjustedPrevPeriod;
                 hilbertTempReal = a * detrender;
-                Q1 = 0_f64 - Q1_Odd[hilbertIdx];
+                Q1 = -Q1_Odd[hilbertIdx];
                 Q1_Odd[hilbertIdx] = hilbertTempReal;
                 Q1 += hilbertTempReal;
                 Q1 -= prev_Q1_Odd;
@@ -411,7 +412,7 @@ impl Core {
                 prev_Q1_input_Odd = detrender;
                 Q1 *= adjustedPrevPeriod;
                 hilbertTempReal = a * I1ForOddPrev3;
-                jI = 0_f64 - jI_Odd[hilbertIdx];
+                jI = -jI_Odd[hilbertIdx];
                 jI_Odd[hilbertIdx] = hilbertTempReal;
                 jI += hilbertTempReal;
                 jI -= prev_jI_Odd;
@@ -420,7 +421,7 @@ impl Core {
                 prev_jI_input_Odd = I1ForOddPrev3;
                 jI *= adjustedPrevPeriod;
                 hilbertTempReal = a * Q1;
-                jQ = 0_f64 - jQ_Odd[hilbertIdx];
+                jQ = -jQ_Odd[hilbertIdx];
                 jQ_Odd[hilbertIdx] = hilbertTempReal;
                 jQ += hilbertTempReal;
                 jQ -= prev_jQ_Odd;
@@ -486,6 +487,8 @@ impl Core {
             }
             if DCPeriodInt > 0 {
                 tempReal = tempReal / (DCPeriodInt as f64);
+            } else {
+                cold_arm();
             }
             tempReal2 = ((2.0 as f64).mul_add(iTrend2, (4.0 as f64).mul_add(tempReal, 3.0 * iTrend1)) + iTrend3) / 10.0;
             iTrend3 = iTrend2;
@@ -518,14 +521,14 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
-    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// [`Core::INDEX_MAX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range that ends before the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -567,10 +570,10 @@ impl Core {
         inReal: &[f64],
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.ht_trendline_lookback()?;
@@ -694,9 +697,7 @@ impl Core {
         let mut todayValue: f64 = 0.0_f64;
         let mut DCPeriodInt: i32 = 0_i32;
         let mut DCPeriod: f64 = 0.0_f64;
-        if sp.ringCap_trailingWMAIdx == 0 {
-            sp.ring_trailingWMAIdx_inReal[0] = inReal;
-        }
+        let mut ringCapL_trailingWMAIdx: usize = 0_usize;
         sp.win_i_inReal[sp.winPos_i] = inReal;
         adjustedPrevPeriod = (0.075 as f64).mul_add(sp.period, 0.54);
         todayValue = inReal;
@@ -709,7 +710,7 @@ impl Core {
         if sp.streamParity == 0 {
             // Do the Hilbert Transforms for even price bar
             hilbertTempReal = sp.a * smoothedValue;
-            detrender = 0_f64 - sp.detrender_Even[sp.hilbertIdx];
+            detrender = -sp.detrender_Even[sp.hilbertIdx];
             sp.detrender_Even[sp.hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= sp.prev_detrender_Even;
@@ -718,7 +719,7 @@ impl Core {
             sp.prev_detrender_input_Even = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * detrender;
-            Q1 = 0_f64 - sp.Q1_Even[sp.hilbertIdx];
+            Q1 = -sp.Q1_Even[sp.hilbertIdx];
             sp.Q1_Even[sp.hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= sp.prev_Q1_Even;
@@ -727,7 +728,7 @@ impl Core {
             sp.prev_Q1_input_Even = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
-            jI = 0_f64 - sp.jI_Even[sp.hilbertIdx];
+            jI = -sp.jI_Even[sp.hilbertIdx];
             sp.jI_Even[sp.hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= sp.prev_jI_Even;
@@ -736,7 +737,7 @@ impl Core {
             sp.prev_jI_input_Even = sp.I1ForEvenPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * Q1;
-            jQ = 0_f64 - sp.jQ_Even[sp.hilbertIdx];
+            jQ = -sp.jQ_Even[sp.hilbertIdx];
             sp.jQ_Even[sp.hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= sp.prev_jQ_Even;
@@ -759,7 +760,7 @@ impl Core {
         } else {
             // Do the Hilbert Transforms for odd price bar
             hilbertTempReal = sp.a * smoothedValue;
-            detrender = 0_f64 - sp.detrender_Odd[sp.hilbertIdx];
+            detrender = -sp.detrender_Odd[sp.hilbertIdx];
             sp.detrender_Odd[sp.hilbertIdx] = hilbertTempReal;
             detrender += hilbertTempReal;
             detrender -= sp.prev_detrender_Odd;
@@ -768,7 +769,7 @@ impl Core {
             sp.prev_detrender_input_Odd = smoothedValue;
             detrender *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * detrender;
-            Q1 = 0_f64 - sp.Q1_Odd[sp.hilbertIdx];
+            Q1 = -sp.Q1_Odd[sp.hilbertIdx];
             sp.Q1_Odd[sp.hilbertIdx] = hilbertTempReal;
             Q1 += hilbertTempReal;
             Q1 -= sp.prev_Q1_Odd;
@@ -777,7 +778,7 @@ impl Core {
             sp.prev_Q1_input_Odd = detrender;
             Q1 *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * sp.I1ForOddPrev3;
-            jI = 0_f64 - sp.jI_Odd[sp.hilbertIdx];
+            jI = -sp.jI_Odd[sp.hilbertIdx];
             sp.jI_Odd[sp.hilbertIdx] = hilbertTempReal;
             jI += hilbertTempReal;
             jI -= sp.prev_jI_Odd;
@@ -786,7 +787,7 @@ impl Core {
             sp.prev_jI_input_Odd = sp.I1ForOddPrev3;
             jI *= adjustedPrevPeriod;
             hilbertTempReal = sp.a * Q1;
-            jQ = 0_f64 - sp.jQ_Odd[sp.hilbertIdx];
+            jQ = -sp.jQ_Odd[sp.hilbertIdx];
             sp.jQ_Odd[sp.hilbertIdx] = hilbertTempReal;
             jQ += hilbertTempReal;
             jQ -= sp.prev_jQ_Odd;
@@ -852,6 +853,8 @@ impl Core {
         }
         if DCPeriodInt > 0 {
             tempReal = tempReal / (DCPeriodInt as f64);
+        } else {
+            cold_arm();
         }
         tempReal2 = ((2.0 as f64).mul_add(sp.iTrend2, (4.0 as f64).mul_add(tempReal, 3.0 * sp.iTrend1)) + sp.iTrend3) / 10.0;
         sp.iTrend3 = sp.iTrend2;
@@ -860,9 +863,10 @@ impl Core {
         (*outReal) = tempReal2;
         // Ooof... let's do the next price bar now!
         sp.cur_outReal = (*outReal);
+        ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
         sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
         sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-        if sp.ringPos_trailingWMAIdx >= sp.ringCap_trailingWMAIdx {
+        if sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx {
             sp.ringPos_trailingWMAIdx = 0;
         }
         sp.winPos_i = sp.winPos_i + 1;
@@ -880,7 +884,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let historyLen: usize = inReal.len();
@@ -1096,7 +1100,7 @@ impl Core {
             if today % 2 == 0 {
                 // Do the Hilbert Transforms for even price bar
                 hilbertTempReal = a * smoothedValue;
-                detrender = 0_f64 - detrender_Even[hilbertIdx];
+                detrender = -detrender_Even[hilbertIdx];
                 detrender_Even[hilbertIdx] = hilbertTempReal;
                 detrender += hilbertTempReal;
                 detrender -= prev_detrender_Even;
@@ -1105,7 +1109,7 @@ impl Core {
                 prev_detrender_input_Even = smoothedValue;
                 detrender *= adjustedPrevPeriod;
                 hilbertTempReal = a * detrender;
-                Q1 = 0_f64 - Q1_Even[hilbertIdx];
+                Q1 = -Q1_Even[hilbertIdx];
                 Q1_Even[hilbertIdx] = hilbertTempReal;
                 Q1 += hilbertTempReal;
                 Q1 -= prev_Q1_Even;
@@ -1114,7 +1118,7 @@ impl Core {
                 prev_Q1_input_Even = detrender;
                 Q1 *= adjustedPrevPeriod;
                 hilbertTempReal = a * I1ForEvenPrev3;
-                jI = 0_f64 - jI_Even[hilbertIdx];
+                jI = -jI_Even[hilbertIdx];
                 jI_Even[hilbertIdx] = hilbertTempReal;
                 jI += hilbertTempReal;
                 jI -= prev_jI_Even;
@@ -1123,7 +1127,7 @@ impl Core {
                 prev_jI_input_Even = I1ForEvenPrev3;
                 jI *= adjustedPrevPeriod;
                 hilbertTempReal = a * Q1;
-                jQ = 0_f64 - jQ_Even[hilbertIdx];
+                jQ = -jQ_Even[hilbertIdx];
                 jQ_Even[hilbertIdx] = hilbertTempReal;
                 jQ += hilbertTempReal;
                 jQ -= prev_jQ_Even;
@@ -1146,7 +1150,7 @@ impl Core {
             } else {
                 // Do the Hilbert Transforms for odd price bar
                 hilbertTempReal = a * smoothedValue;
-                detrender = 0_f64 - detrender_Odd[hilbertIdx];
+                detrender = -detrender_Odd[hilbertIdx];
                 detrender_Odd[hilbertIdx] = hilbertTempReal;
                 detrender += hilbertTempReal;
                 detrender -= prev_detrender_Odd;
@@ -1155,7 +1159,7 @@ impl Core {
                 prev_detrender_input_Odd = smoothedValue;
                 detrender *= adjustedPrevPeriod;
                 hilbertTempReal = a * detrender;
-                Q1 = 0_f64 - Q1_Odd[hilbertIdx];
+                Q1 = -Q1_Odd[hilbertIdx];
                 Q1_Odd[hilbertIdx] = hilbertTempReal;
                 Q1 += hilbertTempReal;
                 Q1 -= prev_Q1_Odd;
@@ -1164,7 +1168,7 @@ impl Core {
                 prev_Q1_input_Odd = detrender;
                 Q1 *= adjustedPrevPeriod;
                 hilbertTempReal = a * I1ForOddPrev3;
-                jI = 0_f64 - jI_Odd[hilbertIdx];
+                jI = -jI_Odd[hilbertIdx];
                 jI_Odd[hilbertIdx] = hilbertTempReal;
                 jI += hilbertTempReal;
                 jI -= prev_jI_Odd;
@@ -1173,7 +1177,7 @@ impl Core {
                 prev_jI_input_Odd = I1ForOddPrev3;
                 jI *= adjustedPrevPeriod;
                 hilbertTempReal = a * Q1;
-                jQ = 0_f64 - jQ_Odd[hilbertIdx];
+                jQ = -jQ_Odd[hilbertIdx];
                 jQ_Odd[hilbertIdx] = hilbertTempReal;
                 jQ += hilbertTempReal;
                 jQ -= prev_jQ_Odd;
@@ -1239,6 +1243,8 @@ impl Core {
             }
             if DCPeriodInt > 0 {
                 tempReal = tempReal / (DCPeriodInt as f64);
+            } else {
+                cold_arm();
             }
             tempReal2 = ((2.0 as f64).mul_add(iTrend2, (4.0 as f64).mul_add(tempReal, 3.0 * iTrend1)) + iTrend3) / 10.0;
             iTrend3 = iTrend2;
@@ -1254,7 +1260,7 @@ impl Core {
 
         // Capture the live batch state into the handle.
         let cap_trailingWMAIdx: i64 = (today as i64) - (trailingWMAIdx as i64);
-        if cap_trailingWMAIdx < 0 || cap_trailingWMAIdx > historyLen as i64 {
+        if cap_trailingWMAIdx < 1 || cap_trailingWMAIdx > historyLen as i64 {
             return Err(RetCode::InternalError);
         }
         let allocN_trailingWMAIdx: usize = if cap_trailingWMAIdx > 0 { cap_trailingWMAIdx as usize } else { 1 };
@@ -1401,7 +1407,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.ht_trendline_lookback()?;
@@ -1431,7 +1437,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl HtTrendlineStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -1449,11 +1455,11 @@ impl HtTrendlineStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_HT_TRENDLINE_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() {
@@ -1468,16 +1474,15 @@ impl HtTrendlineStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_HT_TRENDLINE_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -1537,26 +1542,20 @@ impl HtTrendlineStream {
             let mut trailingWMAValue = sp.trailingWMAValue;
             let mut pkSlot0: usize = usize::MAX;
             let mut pkVal0: f64 = 0.0_f64;
-            let mut pkSlot1: usize = usize::MAX;
-            let mut pkVal1: f64 = 0.0_f64;
-            if sp.ringCap_trailingWMAIdx == 0 {
-                pkSlot0 = 0;
-                pkVal0 = inReal;
-            }
-            pkSlot1 = sp.winPos_i as usize;
-            pkVal1 = inReal;
+            pkSlot0 = sp.winPos_i as usize;
+            pkVal0 = inReal;
             adjustedPrevPeriod = (0.075 as f64).mul_add(period, 0.54);
             todayValue = inReal;
             periodWMASub += todayValue;
             periodWMASub -= trailingWMAValue;
             periodWMASum += todayValue * 4.0;
-            trailingWMAValue = (if (sp.ringPos_trailingWMAIdx as usize) != pkSlot0 { sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] } else { pkVal0 });
+            trailingWMAValue = sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx];
             smoothedValue = periodWMASum * 0.1;
             periodWMASum -= periodWMASub;
             if sp.streamParity == 0 {
                 // Do the Hilbert Transforms for even price bar
                 hilbertTempReal = sp.a * smoothedValue;
-                detrender = 0_f64 - sp.detrender_Even[hilbertIdx];
+                detrender = -sp.detrender_Even[hilbertIdx];
                 detrender += hilbertTempReal;
                 detrender -= prev_detrender_Even;
                 prev_detrender_Even = sp.b * prev_detrender_input_Even;
@@ -1564,7 +1563,7 @@ impl HtTrendlineStream {
                 prev_detrender_input_Even = smoothedValue;
                 detrender *= adjustedPrevPeriod;
                 hilbertTempReal = sp.a * detrender;
-                Q1 = 0_f64 - sp.Q1_Even[hilbertIdx];
+                Q1 = -sp.Q1_Even[hilbertIdx];
                 Q1 += hilbertTempReal;
                 Q1 -= prev_Q1_Even;
                 prev_Q1_Even = sp.b * prev_Q1_input_Even;
@@ -1572,7 +1571,7 @@ impl HtTrendlineStream {
                 prev_Q1_input_Even = detrender;
                 Q1 *= adjustedPrevPeriod;
                 hilbertTempReal = sp.a * I1ForEvenPrev3;
-                jI = 0_f64 - sp.jI_Even[hilbertIdx];
+                jI = -sp.jI_Even[hilbertIdx];
                 jI += hilbertTempReal;
                 jI -= prev_jI_Even;
                 prev_jI_Even = sp.b * prev_jI_input_Even;
@@ -1580,7 +1579,7 @@ impl HtTrendlineStream {
                 prev_jI_input_Even = I1ForEvenPrev3;
                 jI *= adjustedPrevPeriod;
                 hilbertTempReal = sp.a * Q1;
-                jQ = 0_f64 - sp.jQ_Even[hilbertIdx];
+                jQ = -sp.jQ_Even[hilbertIdx];
                 jQ += hilbertTempReal;
                 jQ -= prev_jQ_Even;
                 prev_jQ_Even = sp.b * prev_jQ_input_Even;
@@ -1602,7 +1601,7 @@ impl HtTrendlineStream {
             } else {
                 // Do the Hilbert Transforms for odd price bar
                 hilbertTempReal = sp.a * smoothedValue;
-                detrender = 0_f64 - sp.detrender_Odd[hilbertIdx];
+                detrender = -sp.detrender_Odd[hilbertIdx];
                 detrender += hilbertTempReal;
                 detrender -= prev_detrender_Odd;
                 prev_detrender_Odd = sp.b * prev_detrender_input_Odd;
@@ -1610,7 +1609,7 @@ impl HtTrendlineStream {
                 prev_detrender_input_Odd = smoothedValue;
                 detrender *= adjustedPrevPeriod;
                 hilbertTempReal = sp.a * detrender;
-                Q1 = 0_f64 - sp.Q1_Odd[hilbertIdx];
+                Q1 = -sp.Q1_Odd[hilbertIdx];
                 Q1 += hilbertTempReal;
                 Q1 -= prev_Q1_Odd;
                 prev_Q1_Odd = sp.b * prev_Q1_input_Odd;
@@ -1618,7 +1617,7 @@ impl HtTrendlineStream {
                 prev_Q1_input_Odd = detrender;
                 Q1 *= adjustedPrevPeriod;
                 hilbertTempReal = sp.a * I1ForOddPrev3;
-                jI = 0_f64 - sp.jI_Odd[hilbertIdx];
+                jI = -sp.jI_Odd[hilbertIdx];
                 jI += hilbertTempReal;
                 jI -= prev_jI_Odd;
                 prev_jI_Odd = sp.b * prev_jI_input_Odd;
@@ -1626,7 +1625,7 @@ impl HtTrendlineStream {
                 prev_jI_input_Odd = I1ForOddPrev3;
                 jI *= adjustedPrevPeriod;
                 hilbertTempReal = sp.a * Q1;
-                jQ = 0_f64 - sp.jQ_Odd[hilbertIdx];
+                jQ = -sp.jQ_Odd[hilbertIdx];
                 jQ += hilbertTempReal;
                 jQ -= prev_jQ_Odd;
                 prev_jQ_Odd = sp.b * prev_jQ_input_Odd;
@@ -1685,12 +1684,14 @@ impl HtTrendlineStream {
             i = 0;
             while i < 50 {
                 if ((i) as i32) < DCPeriodInt {
-                    tempReal += (if ((if sp.winPos_i + sp.winCap_i - i >= sp.winCap_i { sp.winPos_i + sp.winCap_i - i - sp.winCap_i } else { sp.winPos_i + sp.winCap_i - i }) as usize) != pkSlot1 { sp.win_i_inReal[((if sp.winPos_i + sp.winCap_i - i >= sp.winCap_i { sp.winPos_i + sp.winCap_i - i - sp.winCap_i } else { sp.winPos_i + sp.winCap_i - i })) as usize] } else { pkVal1 });
+                    tempReal += (if ((if sp.winPos_i + sp.winCap_i - i >= sp.winCap_i { sp.winPos_i + sp.winCap_i - i - sp.winCap_i } else { sp.winPos_i + sp.winCap_i - i }) as usize) != pkSlot0 { sp.win_i_inReal[((if sp.winPos_i + sp.winCap_i - i >= sp.winCap_i { sp.winPos_i + sp.winCap_i - i - sp.winCap_i } else { sp.winPos_i + sp.winCap_i - i })) as usize] } else { pkVal0 });
                 }
                 i += 1;
             }
             if DCPeriodInt > 0 {
                 tempReal = tempReal / (DCPeriodInt as f64);
+            } else {
+                cold_arm();
             }
             tempReal2 = ((2.0 as f64).mul_add(iTrend2, (4.0 as f64).mul_add(tempReal, 3.0 * iTrend1)) + iTrend3) / 10.0;
             iTrend3 = iTrend2;
@@ -1724,7 +1725,7 @@ impl HtTrendlineStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_HT_TRENDLINE_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1742,11 +1743,11 @@ impl HtTrendlineStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_HT_TRENDLINE_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

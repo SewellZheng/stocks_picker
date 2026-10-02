@@ -101,9 +101,9 @@ TA_LIB_API TA_RetCode TA_SAR( int    startIdx,
    double sar;
    double ep_temp[1];
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( optInAcceleration == TA_REAL_DEFAULT )
@@ -395,9 +395,9 @@ TA_RetCode TA_S_SAR( int    startIdx,
    double sar;
    double ep_temp[1];
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( optInAcceleration == TA_REAL_DEFAULT )
@@ -577,6 +577,7 @@ struct TA_SAR_Stream {
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_SAR_Value). */
    double cur_outReal;
+   double pad_0;
    double optInAcceleration;
    double optInMaximum;
    int isLong;
@@ -588,7 +589,7 @@ struct TA_SAR_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_SAR_StepImpl( struct TA_SAR_Stream *sp, double inHigh, double inLow, double *outReal )
+static TA_FMA_STEP_INLINE void TA_SAR_StepImpl( struct TA_SAR_Stream *sp, double inHigh, double inLow, double *outReal )
 {
    double prevHigh;
    double prevLow;
@@ -747,7 +748,7 @@ static TA_RetCode TA_SAR_OpenImpl( struct TA_SAR_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( optInAcceleration == TA_REAL_DEFAULT )
       optInAcceleration = 0.02;
@@ -1065,7 +1066,7 @@ TA_LIB_API TA_RetCode TA_SAR_Open( TA_SAR_Stream **stream, const double inHigh[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_SAR_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInAcceleration, optInMaximum, outReal );
 }
@@ -1075,7 +1076,7 @@ TA_LIB_API TA_RetCode TA_SAR_OpenAndFill( TA_SAR_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_SAR_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal );
@@ -1087,10 +1088,11 @@ TA_RetCode TA_SAR_OpenAndFillInternal( struct TA_SAR_Stream **stream, const doub
    return TA_SAR_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_SAR_Update( TA_SAR_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
@@ -1281,7 +1283,7 @@ TA_LIB_API TA_RetCode TA_SAR_OutRange( const TA_SAR_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_SAR_Advance( TA_SAR_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

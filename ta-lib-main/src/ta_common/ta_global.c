@@ -125,6 +125,12 @@ TA_RetCode TA_Shutdown( void )
    return TA_SUCCESS;
 }
 
+/* A setting at 12 or above means candleSettings[] reaches past index 11,
+ * which TA_AllCandleSettings keeps: every loop over the table, and every
+ * table of per-setting rows, must then skip index 11 before this can go. */
+typedef char TA_CandleSettingsStopBeforeTheSelector
+   [ (TA_NB_CANDLE_SETTING <= (int)TA_AllCandleSettings) ? 1 : -1 ];
+
 TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
                                  TA_RangeType rangeType,
                                  int avgPeriod,
@@ -134,11 +140,12 @@ TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
 
     /* Unsigned compares, as in TA_SetUnstablePeriod (#144), so a negative value
      * cannot index behind candleSettings[] where the compiler gives the enum a
-     * signed underlying type. TA_AllCandleSettings is the count as well as the
-     * "all" selector of TA_RestoreCandleDefaultSettings, so it is not a target
-     * here; an out-of-domain rangeType would reach TA_CANDLERANGE's
-     * fall-through arm and measure every range as zero. */
-    if( (unsigned int)settingType >= (unsigned int)TA_AllCandleSettings )
+     * signed underlying type. TA_AllCandleSettings selects "all" only for
+     * TA_RestoreCandleDefaultSettings, so it is not a target here; an
+     * out-of-domain rangeType would reach TA_CANDLERANGE's fall-through arm
+     * and measure every range as zero. */
+    if( settingType == TA_AllCandleSettings
+        || (unsigned int)settingType >= (unsigned int)TA_NB_CANDLE_SETTING )
         return TA_BAD_PARAM;
     if( (unsigned int)rangeType > (unsigned int)TA_RangeType_Shadows )
         return TA_BAD_PARAM;
@@ -147,12 +154,12 @@ TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
      * it is bounded like one (#185). A negative one starts the main loop that
      * many bars late while *outBegIdx still reports startIdx -- every value
      * shifted under a correct-looking index, and a lookback reporting negative
-     * while the call returns TA_SUCCESS. TA_MAX_INDEX is the ceiling
+     * while the call returns TA_SUCCESS. TA_INDEX_MAX is the ceiling
      * TA_SetUnstablePeriod already uses for the same reason: above it the
      * `max(...)+N` lookbacks overflow signed-negative into that same state, and
      * a warm-up longer than the largest addressable series could never produce
      * output. */
-    if( avgPeriod < 0 || avgPeriod > TA_MAX_INDEX )
+    if( avgPeriod < 0 || avgPeriod > TA_INDEX_MAX )
         return TA_BAD_PARAM;
 
     /* factor scales a threshold, never an index, so any finite value is legal.
@@ -206,22 +213,18 @@ TA_RetCode TA_RestoreCandleDefaultSettings( TA_CandleSettingType settingType )
 
     int i;
 
-    /* One row per setting, or the indexing below reads past the end:
-     * TA_AllCandleSettings is the member count as well as the "all" selector.
-     * Constant-folded away when it holds; a setting appended to the enum
-     * without a row here becomes a clean error instead of an over-read.
-     * The enum itself is pinned by testEnumValueContract (ta_regtest). */
+    /* One row per setting, or the indexing below reads past the end.
+     * Constant-folded away when it holds; a setting added without a row here
+     * becomes a clean error instead of an over-read. */
     if( sizeof(TA_CandleDefaultSettings)/sizeof(TA_CandleDefaultSettings[0])
-        != (size_t)TA_AllCandleSettings )
+        != (size_t)TA_NB_CANDLE_SETTING )
         return TA_INTERNAL_ERROR;
 
-    /* Unsigned compare as above -- except that here TA_AllCandleSettings IS a
-     * valid argument (it selects "all"), so the bound is the count itself. */
-    if( (unsigned int)settingType > (unsigned int)TA_AllCandleSettings )
-        return TA_BAD_PARAM;
     if( settingType == TA_AllCandleSettings )
-        for( i = 0; i < TA_AllCandleSettings; ++i )
+        for( i = 0; i < TA_NB_CANDLE_SETTING; ++i )
             TA_Globals->candleSettings[i] = TA_CandleDefaultSettings[i];
+    else if( (unsigned int)settingType >= (unsigned int)TA_NB_CANDLE_SETTING )
+        return TA_BAD_PARAM;
     else
         TA_Globals->candleSettings[settingType] = TA_CandleDefaultSettings[settingType];
     return TA_SUCCESS;

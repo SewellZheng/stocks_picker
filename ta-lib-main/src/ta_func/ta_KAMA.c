@@ -109,9 +109,9 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
    int nullRun;
    double trailingValue;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -390,9 +390,9 @@ TA_RetCode TA_S_KAMA( int    startIdx,
    int nullRun;
    double trailingValue;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -568,6 +568,7 @@ struct TA_KAMA_Stream {
    int optInTimePeriod;
    double constMax;
    double constDiff;
+   double pad_0;
    double sumROC1;
    double prevKAMA;
    int nullRun;
@@ -587,21 +588,18 @@ static void TA_KAMA_ReleaseImpl( struct TA_KAMA_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_KAMA_StepImpl( struct TA_KAMA_Stream *sp, double inReal, double *outReal )
+static TA_FMA_STEP_INLINE void TA_KAMA_StepImpl( struct TA_KAMA_Stream *sp, double inReal, double *outReal )
 {
    double tempReal;
    double tempReal2;
    double periodROC;
+   int ringCapL_trailingIdx;
 
    if( sp->optInTimePeriod == 1 )
    {
       *outReal= inReal;
       sp->cur_outReal = *outReal;
       return;
-   }
-   if( sp->ringCap_trailingIdx == 0 )
-   {
-      sp->ring_trailingIdx_inReal[0] = inReal;
    }
    tempReal = inReal;
    tempReal2 = sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx];
@@ -656,9 +654,10 @@ static void TA_KAMA_StepImpl( struct TA_KAMA_Stream *sp, double inReal, double *
    *outReal= sp->prevKAMA;
    sp->cur_outReal = *outReal;
    sp->lag1_inReal = inReal;
+   ringCapL_trailingIdx = sp->ringCap_trailingIdx;
    sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx] = inReal;
    sp->ringPos_trailingIdx = sp->ringPos_trailingIdx + 1;
-   if( sp->ringPos_trailingIdx >= sp->ringCap_trailingIdx )
+   if( sp->ringPos_trailingIdx >= ringCapL_trailingIdx )
    {
       sp->ringPos_trailingIdx = 0;
    }
@@ -672,7 +671,7 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -970,7 +969,7 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
       sp->nullRun = nullRun;
       sp->trailingValue = trailingValue;
       sp->ringCap_trailingIdx = (int)(today - trailingIdx);
-      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_KAMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(338); }
+      if( sp->ringCap_trailingIdx < 1 || sp->ringCap_trailingIdx > historyLen ) { TA_KAMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(338); }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
         sp->ring_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingIdx_inReal ) { TA_KAMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -1006,7 +1005,7 @@ TA_LIB_API TA_RetCode TA_KAMA_Open( TA_KAMA_Stream **stream, const double inReal
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_KAMA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -1016,7 +1015,7 @@ TA_LIB_API TA_RetCode TA_KAMA_OpenAndFill( TA_KAMA_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_KAMA_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -1028,10 +1027,11 @@ TA_RetCode TA_KAMA_OpenAndFillInternal( struct TA_KAMA_Stream **stream, const do
    return TA_KAMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_KAMA_Update( TA_KAMA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -1052,8 +1052,6 @@ TA_LIB_API TA_RetCode TA_KAMA_Peek( const TA_KAMA_Stream *stream, double inReal,
    double sumROC1;
    double trailingValue;
    double *ring_trailingIdx_inReal;
-   int pkSlot0 = -1;
-   double pkVal0 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -1067,13 +1065,8 @@ TA_LIB_API TA_RetCode TA_KAMA_Peek( const TA_KAMA_Stream *stream, double inReal,
       *outReal= inReal;
       return TA_SUCCESS;
    }
-   if( sp->ringCap_trailingIdx == 0 )
-   {
-      pkSlot0 = 0;
-      pkVal0 = inReal;
-   }
    tempReal = inReal;
-   tempReal2 = (sp->ringPos_trailingIdx != pkSlot0) ? ring_trailingIdx_inReal[sp->ringPos_trailingIdx] : pkVal0;
+   tempReal2 = ring_trailingIdx_inReal[sp->ringPos_trailingIdx];
    periodROC = tempReal - tempReal2;
    /* Adjust sumROC1:
     *  - Remove trailing ROC1
@@ -1132,6 +1125,146 @@ TA_LIB_API TA_RetCode TA_KAMA_Close( TA_KAMA_Stream *stream )
    return TA_SUCCESS;
 }
 
+/* Private function, not in public API. */
+void TA_KAMA_StepTape( struct TA_KAMA_Stream *sp, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   double tempReal;
+   double tempReal2;
+   double periodROC;
+
+   tempReal = inReal;
+   tempReal2 = tape[(tapeBase - sp->ringCap_trailingIdx) & tapeMask];
+   periodROC = tempReal - tempReal2;
+   /* Adjust sumROC1:
+    *  - Remove trailing ROC1
+    *  - Add new ROC1
+    */
+   sp->sumROC1 -= fabs(sp->trailingValue - tempReal2);
+   sp->sumROC1 += fabs(tempReal - sp->lag1_inReal);
+   /* Once a whole window of flat bars has gone by, every 1-day change it
+    * spans is exactly zero, so the sum is known to be exactly zero and the
+    * residue can be dropped. That is what lets the efficiency ratio be
+    * decided by `sumROC1 <= periodROC` alone: a window that flat has
+    * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+    */
+   if( tempReal - sp->lag1_inReal == 0.0 )
+   {
+      sp->nullRun += 1;
+   } else 
+   {
+      sp->nullRun = 0;
+   }
+   if( sp->nullRun >= sp->optInTimePeriod )
+   {
+      sp->nullRun = sp->optInTimePeriod;
+      sp->sumROC1 = 0.0;
+   }
+   /* Save the trailing value. Do this because inReal
+    * and outReal can be pointers to the same buffer.
+    */
+   sp->trailingValue = tempReal2;
+   /* Calculate the efficiency ratio */
+   if( sp->sumROC1 <= 0.0 || sp->sumROC1 <= periodROC )
+   {
+      tempReal = 1.0;
+   } else 
+   {
+      tempReal = fabs(periodROC / sp->sumROC1);
+      if( tempReal > 1.0 )
+      {
+         tempReal = 1.0;
+      }
+   }
+   /* Calculate the smoothing constant */
+   tempReal = fma(tempReal, sp->constDiff, sp->constMax);
+   tempReal *= tempReal;
+   /* Calculate the KAMA like an EMA, using the
+    * smoothing constant as the adaptive factor.
+    */
+   sp->prevKAMA = fma(inReal - sp->prevKAMA, tempReal, sp->prevKAMA);
+   *outReal= sp->prevKAMA;
+   sp->cur_outReal = *outReal;
+   sp->lag1_inReal = inReal;
+   sp->outRangeCount++;
+}
+
+/* Private function, not in public API. */
+void TA_KAMA_PeekTape( const struct TA_KAMA_Stream *sp, const double tape[], int tapeBase, int tapeMask, double inReal, double *outReal )
+{
+   double tempReal;
+   double tempReal2;
+   double periodROC;
+   int nullRun;
+   double prevKAMA;
+   double sumROC1;
+   double trailingValue;
+
+   nullRun = sp->nullRun;
+   prevKAMA = sp->prevKAMA;
+   sumROC1 = sp->sumROC1;
+   trailingValue = sp->trailingValue;
+   tempReal = inReal;
+   tempReal2 = tape[(tapeBase - sp->ringCap_trailingIdx) & tapeMask];
+   periodROC = tempReal - tempReal2;
+   /* Adjust sumROC1:
+    *  - Remove trailing ROC1
+    *  - Add new ROC1
+    */
+   sumROC1 -= fabs(trailingValue - tempReal2);
+   sumROC1 += fabs(tempReal - sp->lag1_inReal);
+   /* Once a whole window of flat bars has gone by, every 1-day change it
+    * spans is exactly zero, so the sum is known to be exactly zero and the
+    * residue can be dropped. That is what lets the efficiency ratio be
+    * decided by `sumROC1 <= periodROC` alone: a window that flat has
+    * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+    */
+   if( tempReal - sp->lag1_inReal == 0.0 )
+   {
+      nullRun += 1;
+   } else 
+   {
+      nullRun = 0;
+   }
+   if( nullRun >= sp->optInTimePeriod )
+   {
+      nullRun = sp->optInTimePeriod;
+      sumROC1 = 0.0;
+   }
+   /* Save the trailing value. Do this because inReal
+    * and outReal can be pointers to the same buffer.
+    */
+   trailingValue = tempReal2;
+   /* Calculate the efficiency ratio */
+   if( sumROC1 <= 0.0 || sumROC1 <= periodROC )
+   {
+      tempReal = 1.0;
+   } else 
+   {
+      tempReal = fabs(periodROC / sumROC1);
+      if( tempReal > 1.0 )
+      {
+         tempReal = 1.0;
+      }
+   }
+   /* Calculate the smoothing constant */
+   tempReal = fma(tempReal, sp->constDiff, sp->constMax);
+   tempReal *= tempReal;
+   /* Calculate the KAMA like an EMA, using the
+    * smoothing constant as the adaptive factor.
+    */
+   prevKAMA = fma(inReal - prevKAMA, tempReal, prevKAMA);
+   *outReal= prevKAMA;
+}
+
+/* Private function, not in public API. */
+int TA_KAMA_TapeDetach( struct TA_KAMA_Stream *sp )
+{
+   int reach = 0;
+   if( sp->ring_trailingIdx_inReal ) { TA_Free( sp->ring_trailingIdx_inReal ); sp->ring_trailingIdx_inReal = NULL; }
+   if( sp->ringCap_trailingIdx > reach ) reach = sp->ringCap_trailingIdx;
+   return reach;
+}
+
 TA_LIB_API TA_RetCode TA_KAMA_Value( const TA_KAMA_Stream *stream, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
@@ -1150,7 +1283,7 @@ TA_LIB_API TA_RetCode TA_KAMA_OutRange( const TA_KAMA_Stream *stream, int *outBe
 TA_LIB_API TA_RetCode TA_KAMA_Advance( TA_KAMA_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

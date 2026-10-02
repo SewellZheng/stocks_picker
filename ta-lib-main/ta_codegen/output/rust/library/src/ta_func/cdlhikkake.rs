@@ -91,10 +91,10 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.cdlhikkake_lookback().unwrap_or(usize::MAX);
@@ -130,6 +130,9 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inHigh = &inHigh[..=endIdx];
+        let inLow = &inLow[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         // Do the calculation using tight loops.
         // Add-up the initial period, except for the last value.
         cd = 0;
@@ -144,7 +147,7 @@ impl Core {
                 inHigh[i] > inHigh[i - 1] &&
                  inLow[i] > inLow[i - 1])       // (bear) 3rd: higher high and higher low
             {
-                patternResult = 100 * (if inHigh[i] < inHigh[i - 1] { 1 } else { 0 - 1 });
+                patternResult = 100 * (if inHigh[i] < inHigh[i - 1] { 1 } else { -1 });
                 savedHigh = inHigh[i - 1];
                 savedLow = inLow[i - 1];
                 cd = 4;
@@ -181,7 +184,7 @@ impl Core {
                 inHigh[i] > inHigh[i - 1] &&
                  inLow[i] > inLow[i - 1])       // (bear) 3rd: higher high and higher low
             {
-                patternResult = 100 * (if inHigh[i] < inHigh[i - 1] { 1 } else { 0 - 1 });
+                patternResult = 100 * (if inHigh[i] < inHigh[i - 1] { 1 } else { -1 });
                 savedHigh = inHigh[i - 1];
                 savedLow = inLow[i - 1];
                 cd = 4;
@@ -193,7 +196,7 @@ impl Core {
                 patternResult < 0 &&
                  inClose[i] < savedLow)    // close lower than the low of 2nd
             {
-                outInteger[outIdx] = (patternResult + ((100 * (if patternResult > 0 { 1 } else { 0 - 1 })) as i32)) as i32;
+                outInteger[outIdx] = (patternResult + ((100 * (if patternResult > 0 { 1 } else { -1 })) as i32)) as i32;
                 outIdx += 1;
                 cd = 0;
             } else {
@@ -233,14 +236,14 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
-    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// [`Core::INDEX_MAX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range that ends before the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -289,10 +292,10 @@ impl Core {
         inClose: &[f64],
         outInteger: &mut [i32],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.cdlhikkake_lookback()?;
@@ -377,7 +380,7 @@ impl Core {
             inHigh > sp.lag1_inHigh &&
              inLow > sp.lag1_inLow)           // (bear) 3rd: higher high and higher low
         {
-            sp.patternResult = 100 * (if inHigh < sp.lag1_inHigh { 1 } else { 0 - 1 });
+            sp.patternResult = 100 * (if inHigh < sp.lag1_inHigh { 1 } else { -1 });
             sp.savedHigh = sp.lag1_inHigh;
             sp.savedLow = sp.lag1_inLow;
             sp.cd = 4;
@@ -388,7 +391,7 @@ impl Core {
             sp.patternResult < 0 &&
              inClose < sp.savedLow)    // close lower than the low of 2nd
         {
-            (*outInteger) = (sp.patternResult + ((100 * (if sp.patternResult > 0 { 1 } else { 0 - 1 })) as i32)) as i32;
+            (*outInteger) = (sp.patternResult + ((100 * (if sp.patternResult > 0 { 1 } else { -1 })) as i32)) as i32;
             sp.cd = 0;
         } else {
             (*outInteger) = 0;
@@ -411,7 +414,7 @@ impl Core {
         if inOpen.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inOpen.len() > Self::MAX_INDEX + 1 {
+        if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
@@ -466,7 +469,7 @@ impl Core {
                 inHigh[i] > inHigh[i - 1] &&
                  inLow[i] > inLow[i - 1])       // (bear) 3rd: higher high and higher low
             {
-                patternResult = 100 * (if inHigh[i] < inHigh[i - 1] { 1 } else { 0 - 1 });
+                patternResult = 100 * (if inHigh[i] < inHigh[i - 1] { 1 } else { -1 });
                 savedHigh = inHigh[i - 1];
                 savedLow = inLow[i - 1];
                 cd = 4;
@@ -503,7 +506,7 @@ impl Core {
                 inHigh[i] > inHigh[i - 1] &&
                  inLow[i] > inLow[i - 1])       // (bear) 3rd: higher high and higher low
             {
-                patternResult = 100 * (if inHigh[i] < inHigh[i - 1] { 1 } else { 0 - 1 });
+                patternResult = 100 * (if inHigh[i] < inHigh[i - 1] { 1 } else { -1 });
                 savedHigh = inHigh[i - 1];
                 savedLow = inLow[i - 1];
                 cd = 4;
@@ -514,7 +517,7 @@ impl Core {
                 patternResult < 0 &&
                  inClose[i] < savedLow)    // close lower than the low of 2nd
             {
-                outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (patternResult + ((100 * (if patternResult > 0 { 1 } else { 0 - 1 })) as i32)) as i32;
+                outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (patternResult + ((100 * (if patternResult > 0 { 1 } else { -1 })) as i32)) as i32;
                 cd = 0;
             } else {
                 outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0;
@@ -634,7 +637,7 @@ impl Core {
         if inOpen.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inOpen.len() > Self::MAX_INDEX + 1 {
+        if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.cdlhikkake_lookback()?;
@@ -667,7 +670,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl CdlhikkakeStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -685,11 +688,11 @@ impl CdlhikkakeStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_CDLHIKKAKE_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -704,16 +707,15 @@ impl CdlhikkakeStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_CDLHIKKAKE_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -734,7 +736,7 @@ impl CdlhikkakeStream {
                 inHigh > sp.lag1_inHigh &&
                  inLow > sp.lag1_inLow)           // (bear) 3rd: higher high and higher low
             {
-                patternResult = 100 * (if inHigh < sp.lag1_inHigh { 1 } else { 0 - 1 });
+                patternResult = 100 * (if inHigh < sp.lag1_inHigh { 1 } else { -1 });
                 savedHigh = sp.lag1_inHigh;
                 savedLow = sp.lag1_inLow;
                 cd = 4;
@@ -745,7 +747,7 @@ impl CdlhikkakeStream {
                 patternResult < 0 &&
                  inClose < savedLow)    // close lower than the low of 2nd
             {
-                (*outInteger) = (patternResult + ((100 * (if patternResult > 0 { 1 } else { 0 - 1 })) as i32)) as i32;
+                (*outInteger) = (patternResult + ((100 * (if patternResult > 0 { 1 } else { -1 })) as i32)) as i32;
                 cd = 0;
             } else {
                 (*outInteger) = 0;
@@ -777,7 +779,7 @@ impl CdlhikkakeStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_CDLHIKKAKE_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -795,11 +797,11 @@ impl CdlhikkakeStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_CDLHIKKAKE_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

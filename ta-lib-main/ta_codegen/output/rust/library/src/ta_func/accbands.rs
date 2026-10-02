@@ -115,10 +115,10 @@ impl Core {
         outRealMiddleBand: &mut [f64],
         outRealLowerBand: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -163,6 +163,9 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inHigh = &inHigh[..=endIdx];
+        let inLow = &inLow[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         // Each band is a simple moving average maintained as a running sum over a
         // shared trailing window (all three share optInTimePeriod, so one trailing
         // index walks all three windows in lockstep):
@@ -269,15 +272,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -326,10 +329,10 @@ impl Core {
         outRealMiddleBand: &mut [f64],
         outRealLowerBand: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.accbands_lookback(optInTimePeriod)?;
@@ -419,11 +422,7 @@ impl Core {
         let mut tempMiddle: f64 = 0.0_f64;
         let mut tempLower: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
-        if sp.ringCap_trailingIdx == 0 {
-            sp.ring_trailingIdx_inHigh[0] = inHigh;
-            sp.ring_trailingIdx_inLow[0] = inLow;
-            sp.ring_trailingIdx_inClose[0] = inClose;
-        }
+        let mut ringCapL_trailingIdx: usize = 0_usize;
         // Add the incoming bar to each running sum.
         tempReal = inHigh + inLow;
         if !(((tempReal).abs() <= 1e-14 * ((inHigh).abs() + (inLow).abs()))) {
@@ -457,11 +456,12 @@ impl Core {
         sp.cur_outRealUpperBand = (*outRealUpperBand);
         sp.cur_outRealMiddleBand = (*outRealMiddleBand);
         sp.cur_outRealLowerBand = (*outRealLowerBand);
+        ringCapL_trailingIdx = sp.ringCap_trailingIdx;
         sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] = inHigh;
         sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] = inLow;
         sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] = inClose;
         sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-        if sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx {
+        if sp.ringPos_trailingIdx >= ringCapL_trailingIdx {
             sp.ringPos_trailingIdx = 0;
         }
     }
@@ -474,7 +474,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -603,7 +603,7 @@ impl Core {
 
         // Capture the live batch state into the handle.
         let cap_trailingIdx: i64 = (i as i64) - (trailingIdx as i64);
-        if cap_trailingIdx < 0 || cap_trailingIdx > historyLen as i64 {
+        if cap_trailingIdx < 1 || cap_trailingIdx > historyLen as i64 {
             return Err(RetCode::InternalError);
         }
         let allocN_trailingIdx: usize = if cap_trailingIdx > 0 { cap_trailingIdx as usize } else { 1 };
@@ -730,7 +730,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.accbands_lookback(optInTimePeriod)?;
@@ -769,7 +769,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl AccbandsStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -787,11 +787,11 @@ impl AccbandsStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_ACCBANDS_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64, f64), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -808,16 +808,15 @@ impl AccbandsStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_ACCBANDS_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -838,20 +837,6 @@ impl AccbandsStream {
             let mut periodTotalLower = sp.periodTotalLower;
             let mut periodTotalMiddle = sp.periodTotalMiddle;
             let mut periodTotalUpper = sp.periodTotalUpper;
-            let mut pkSlot0: usize = usize::MAX;
-            let mut pkVal0: f64 = 0.0_f64;
-            let mut pkSlot1: usize = usize::MAX;
-            let mut pkVal1: f64 = 0.0_f64;
-            let mut pkSlot2: usize = usize::MAX;
-            let mut pkVal2: f64 = 0.0_f64;
-            if sp.ringCap_trailingIdx == 0 {
-                pkSlot0 = 0;
-                pkVal0 = inHigh;
-                pkSlot1 = 0;
-                pkVal1 = inLow;
-                pkSlot2 = 0;
-                pkVal2 = inClose;
-            }
             // Add the incoming bar to each running sum.
             tempReal = inHigh + inLow;
             if !(((tempReal).abs() <= 1e-14 * ((inHigh).abs() + (inLow).abs()))) {
@@ -868,16 +853,16 @@ impl AccbandsStream {
             tempMiddle = periodTotalMiddle;
             tempLower = periodTotalLower;
             // Remove the trailing bar from each running sum.
-            tempReal = (if (sp.ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] } else { pkVal0 }) + (if (sp.ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] } else { pkVal1 });
-            if !(((tempReal).abs() <= 1e-14 * (((if (sp.ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] } else { pkVal0 })).abs() + ((if (sp.ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] } else { pkVal1 })).abs()))) {
-                tempReal = 4_f64 * ((if (sp.ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] } else { pkVal0 }) - (if (sp.ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] } else { pkVal1 })) / tempReal;
-                periodTotalUpper -= (if (sp.ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] } else { pkVal0 }) * (1_f64 + tempReal);
-                periodTotalLower -= (if (sp.ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] } else { pkVal1 }) * (1_f64 - tempReal);
+            tempReal = sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] + sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx];
+            if !(((tempReal).abs() <= 1e-14 * ((sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx]).abs() + (sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]).abs()))) {
+                tempReal = 4_f64 * (sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] - sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]) / tempReal;
+                periodTotalUpper -= sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] * (1_f64 + tempReal);
+                periodTotalLower -= sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] * (1_f64 - tempReal);
             } else {
-                periodTotalUpper -= (if (sp.ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] } else { pkVal0 });
-                periodTotalLower -= (if (sp.ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] } else { pkVal1 });
+                periodTotalUpper -= sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx];
+                periodTotalLower -= sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx];
             }
-            periodTotalMiddle -= (if (sp.ringPos_trailingIdx as usize) != pkSlot2 { sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] } else { pkVal2 });
+            periodTotalMiddle -= sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx];
             // Write the three bands.
             (*outRealUpperBand) = tempUpper / (sp.optInTimePeriod as f64);
             (*outRealMiddleBand) = tempMiddle / (sp.optInTimePeriod as f64);
@@ -909,7 +894,7 @@ impl AccbandsStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_ACCBANDS_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -927,11 +912,11 @@ impl AccbandsStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_ACCBANDS_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

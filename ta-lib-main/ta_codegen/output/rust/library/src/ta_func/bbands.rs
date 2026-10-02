@@ -73,6 +73,7 @@
  *  082326 MF,CC  #243 the SMA path's TA_EPSILON test on the variance is replaced
  *                by var.c's scale-relative reseed floor; the square root is
  *                unconditional. Bands no longer collapse on a fine tick.
+ *  092226 MF,CC  #434 the SMA path's variance step follows var.c.
  */
 
 // Import types from parent module
@@ -96,7 +97,7 @@ impl Core {
     /// * `optInNbDevDn` — Standard-deviation multiplier for the lower band (default 2)
     /// * `optInMAType` — Moving-average type for the middle band (default 0 = SMA, values: 0=SMA,
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, `MAType::DEFAULT` selects the default)
+    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
     ///
     /// # Errors
     ///
@@ -199,10 +200,10 @@ impl Core {
         outRealMiddleBand: &mut [f64],
         outRealLowerBand: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -253,8 +254,7 @@ impl Core {
             // directly in the caller's slices:
             //   C's `tempBuffer1` is `outRealMiddleBand`
             //   C's `tempBuffer2` is `outRealUpperBand`
-            // This function therefore allocates nothing, exactly as the C does.
-            // The aliasing arms, the input-alias guard and the copy-back are all
+            // C's aliasing arms and any guard or copy-back they need are
             // unreachable here: `&[T]` and `&mut [T]` parameters can never
             // overlap, and neither can two `&mut [T]`. See issue #146.
             // One pass with two independent recurrences: the SMA running sum (maTotal,
@@ -270,6 +270,7 @@ impl Core {
             let mut variance: f64 = 0.0_f64;
             let mut _invPeriod: f64 = 0.0_f64;
             let mut _tempReal: f64 = 0.0_f64;
+            let mut _peakTotal2: f64 = 0.0_f64;
             let mut _i: usize = 0_usize;
             let mut _j: usize = 0_usize;
             let mut _outIdx: usize = 0_usize;
@@ -292,25 +293,30 @@ impl Core {
             maTotal = 0.0;
             varTotal1 = 0.0;
             varTotal2 = 0.0;
-            // for( _j = _trailingIdx; _j < startIdx; _j += 1 )
             _j = _trailingIdx;
-            while _j < startIdx {
-                maTotal += inReal[_j];
-                _tempReal = inReal[_j] - shift;
-                varTotal1 += _tempReal;
-                _tempReal *= _tempReal;
-                varTotal2 += _tempReal;
-                _j += 1;
+            if _j < startIdx {
+                let _wn: usize = startIdx - _j;
+                let _w0 = &inReal[_j..][.._wn];
+                for _wk in 0.._wn {
+                    maTotal += _w0[_wk];
+                    _tempReal = _w0[_wk] - shift;
+                    varTotal1 += _tempReal;
+                    _tempReal *= _tempReal;
+                    varTotal2 += _tempReal;
+                    _j += 1;
+                }
             }
             _i = startIdx;
             _outIdx = 0;
             _barsSinceReseed = (32 * optInTimePeriod) as usize;
+            _peakTotal2 = varTotal2;
             loop {
                 maTotal += inReal[_i];
                 _tempReal = inReal[_i] - shift;
                 varTotal1 += _tempReal;
                 _tempReal *= _tempReal;
                 varTotal2 += _tempReal;
+                _peakTotal2 = (if varTotal2 > _peakTotal2 { varTotal2 } else { _peakTotal2 });
                 meanValue1 = varTotal1 * _invPeriod;
                 variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
                 outRealMiddleBand[_outIdx] = maTotal / ((optInTimePeriod) as f64);
@@ -321,28 +327,58 @@ impl Core {
                 varTotal2 -= _tempReal;
                 _trailingIdx += 1;
                 _barsSinceReseed -= 1;
-                if variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 {
+                if variance < 0.000001 * (_peakTotal2 * _invPeriod) || _barsSinceReseed <= 0 {
                     _barsSinceReseed = (32 * optInTimePeriod) as usize;
                     _windowStart = _i - _lookbackTotal;
                     _tempReal = 0.0;
-                    for _j in (_windowStart as usize)..(_i as usize) + 1 {
-                        _tempReal += inReal[_j];
+                    _j = _windowStart;
+                    if _j <= _i {
+                        let _wn: usize = _i - _j + 1;
+                        let _w0 = &inReal[_j..][.._wn];
+                        for _wk in 0.._wn {
+                            _tempReal += _w0[_wk];
+                            _j += 1;
+                        }
                     }
-                    _j = (_i as usize) + 1;
                     shift = _tempReal * _invPeriod;
                     varTotal1 = 0.0;
                     varTotal2 = 0.0;
-                    for _j in (_windowStart as usize)..(_i as usize) + 1 {
-                        _tempReal = inReal[_j] - shift;
-                        varTotal1 += _tempReal;
-                        _tempReal *= _tempReal;
-                        varTotal2 += _tempReal;
+                    _j = _windowStart;
+                    if _j <= _i {
+                        let _wn: usize = _i - _j + 1;
+                        let _w0 = &inReal[_j..][.._wn];
+                        for _wk in 0.._wn {
+                            _tempReal = _w0[_wk] - shift;
+                            varTotal1 += _tempReal;
+                            _tempReal *= _tempReal;
+                            varTotal2 += _tempReal;
+                            _j += 1;
+                        }
                     }
-                    _j = (_i as usize) + 1;
                     meanValue1 = varTotal1 * _invPeriod;
                     variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
-                    // The floor from var.c, verbatim: it owns both the sign and the
-                    // dead-zone, so the square root below can be unconditional.
+                    if variance < 0.000001 * (varTotal2 * _invPeriod) {
+                        shift = inReal[_i];
+                        varTotal1 = 0.0;
+                        varTotal2 = 0.0;
+                        _j = _windowStart;
+                        if _j <= _i {
+                            let _wn: usize = _i - _j + 1;
+                            let _w0 = &inReal[_j..][.._wn];
+                            for _wk in 0.._wn {
+                                _tempReal = _w0[_wk] - shift;
+                                varTotal1 += _tempReal;
+                                _tempReal *= _tempReal;
+                                varTotal2 += _tempReal;
+                                _j += 1;
+                            }
+                        }
+                        meanValue1 = varTotal1 * _invPeriod;
+                        variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+                    }
+                    _peakTotal2 = varTotal2;
+                    // The floor from var.c, verbatim: it owns the sign, so the
+                    // square root below can be unconditional.
                     if variance < 0.000000000001 * (varTotal2 * _invPeriod) {
                         variance = 0.0;
                     }
@@ -355,7 +391,7 @@ impl Core {
                 // quantity to a fixed 1e-14 and flattened all three bands onto each
                 // other for any finely quoted series (#243). What replaces it skips
                 // the root ONLY where the answer is already known, because the
-                // reseed floor above has made it exactly 0 -- worth doing because
+                // rebuild above has made it exactly 0 -- worth doing because
                 // this root, unlike stddev.c's, sits in the fused loop with a
                 // carried dependency and cannot vectorize, so running it on flat
                 // input cost 1.59x.
@@ -376,24 +412,34 @@ impl Core {
             (*outBegIdx) = startIdx;
             // Now do a tight loop to calculate the upper/lower band at the same time.
             if optInNbDevUp == optInNbDevDn {
-                // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
                 i = 0;
-                while i < ((((*outNBElement) as usize)) as usize) {
-                    tempReal = outRealUpperBand[i] * optInNbDevUp;
-                    tempReal2 = outRealMiddleBand[i];
-                    outRealUpperBand[i] = tempReal2 + tempReal;
-                    outRealLowerBand[i] = tempReal2 - tempReal;
-                    i += 1;
+                if i < ((((*outNBElement) as usize)) as usize) {
+                    let _wn: usize = ((((*outNBElement) as usize)) as usize) - i;
+                    let _w0 = &mut outRealLowerBand[i..][.._wn];
+                    let _w1 = &outRealMiddleBand[i..][.._wn];
+                    let _w2 = &mut outRealUpperBand[i..][.._wn];
+                    for _wk in 0.._wn {
+                        tempReal = _w2[_wk] * optInNbDevUp;
+                        tempReal2 = _w1[_wk];
+                        _w2[_wk] = tempReal2 + tempReal;
+                        _w0[_wk] = tempReal2 - tempReal;
+                        i += 1;
+                    }
                 }
             } else {
-                // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
                 i = 0;
-                while i < ((((*outNBElement) as usize)) as usize) {
-                    tempReal = outRealUpperBand[i];
-                    tempReal2 = outRealMiddleBand[i];
-                    outRealUpperBand[i] = (tempReal as f64).mul_add(optInNbDevUp, tempReal2);
-                    outRealLowerBand[i] = tempReal2 - tempReal * optInNbDevDn;
-                    i += 1;
+                if i < ((((*outNBElement) as usize)) as usize) {
+                    let _wn: usize = ((((*outNBElement) as usize)) as usize) - i;
+                    let _w0 = &mut outRealLowerBand[i..][.._wn];
+                    let _w1 = &outRealMiddleBand[i..][.._wn];
+                    let _w2 = &mut outRealUpperBand[i..][.._wn];
+                    for _wk in 0.._wn {
+                        tempReal = _w2[_wk];
+                        tempReal2 = _w1[_wk];
+                        _w2[_wk] = (tempReal as f64).mul_add(optInNbDevUp, tempReal2);
+                        _w0[_wk] = tempReal2 - tempReal * optInNbDevDn;
+                        i += 1;
+                    }
                 }
             }
             return RetCode::Success;
@@ -402,7 +448,7 @@ impl Core {
         // average and the deviation is the standard deviation of the input, combined
         // at the same bar. Two intermediate buffers are allocated so the input may
         // safely alias an output (it is only read here).
-        // Nothing to produce: the range is shorter than the lookback. Return before
+        // Nothing to produce: the range ends before the lookback. Return before
         // touching anything.
         //
         // Without this the moving average below runs first, and for the MA types whose
@@ -410,7 +456,7 @@ impl Core {
         // TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
         // computes a middle band the empty standard deviation then discards.
         // Observably identical (the empty deviation already yields 0,0 here), but it
-        // is the difference between "a range shorter than the lookback reads nothing"
+        // is the difference between "a range that ends before the lookback reads nothing"
         // being true of this function and being false: with a caller-supplied inReal
         // that stops short of endIdx, that discarded work is an out-of-bounds read.
         // The SMA fast path above needs no such guard - its own lookback IS the
@@ -460,23 +506,35 @@ impl Core {
         };
         // Now do a tight loop to calculate the upper/lower band at the same time.
         if optInNbDevUp == optInNbDevDn {
-            // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
             i = 0;
-            while i < ((((*outNBElement) as usize)) as usize) {
-                tempReal = tempBuffer2[i] * optInNbDevUp;
-                tempReal2 = outRealMiddleBand[i];
-                outRealUpperBand[i] = tempReal2 + tempReal;
-                outRealLowerBand[i] = tempReal2 - tempReal;
-                i += 1;
+            if i < ((((*outNBElement) as usize)) as usize) {
+                let _wn: usize = ((((*outNBElement) as usize)) as usize) - i;
+                let _w0 = &mut outRealLowerBand[i..][.._wn];
+                let _w1 = &outRealMiddleBand[i..][.._wn];
+                let _w2 = &mut outRealUpperBand[i..][.._wn];
+                let _w3 = &tempBuffer2[i..][.._wn];
+                for _wk in 0.._wn {
+                    tempReal = _w3[_wk] * optInNbDevUp;
+                    tempReal2 = _w1[_wk];
+                    _w2[_wk] = tempReal2 + tempReal;
+                    _w0[_wk] = tempReal2 - tempReal;
+                    i += 1;
+                }
             }
         } else {
-            // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
             i = 0;
-            while i < ((((*outNBElement) as usize)) as usize) {
-                tempReal2 = outRealMiddleBand[i];
-                outRealUpperBand[i] = (((tempBuffer2[i] as f64).mul_add(optInNbDevUp, tempReal2)) as f64);
-                outRealLowerBand[i] = ((tempReal2 - tempBuffer2[i] * optInNbDevDn) as f64);
-                i += 1;
+            if i < ((((*outNBElement) as usize)) as usize) {
+                let _wn: usize = ((((*outNBElement) as usize)) as usize) - i;
+                let _w0 = &mut outRealLowerBand[i..][.._wn];
+                let _w1 = &outRealMiddleBand[i..][.._wn];
+                let _w2 = &mut outRealUpperBand[i..][.._wn];
+                let _w3 = &tempBuffer2[i..][.._wn];
+                for _wk in 0.._wn {
+                    tempReal2 = _w1[_wk];
+                    _w2[_wk] = (((_w3[_wk] as f64).mul_add(optInNbDevUp, tempReal2)) as f64);
+                    _w0[_wk] = ((tempReal2 - _w3[_wk] * optInNbDevDn) as f64);
+                    i += 1;
+                }
             }
         }
         return RetCode::Success;
@@ -497,7 +555,7 @@ impl Core {
     /// * `optInNbDevDn` — Standard-deviation multiplier for the lower band (default 2)
     /// * `optInMAType` — Moving-average type for the middle band (default 0 = SMA, values: 0=SMA,
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, `MAType::DEFAULT` selects the default)
+    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
     /// * `outRealUpperBand` — Middle band plus nbDevUp standard deviations.
     /// * `outRealMiddleBand` — The moving average.
     /// * `outRealLowerBand` — Middle band minus nbDevDn standard deviations.
@@ -508,15 +566,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -566,10 +624,10 @@ impl Core {
         outRealMiddleBand: &mut [f64],
         outRealLowerBand: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.bbands_lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)?;
@@ -682,7 +740,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -737,7 +795,7 @@ impl Core {
         // average and the deviation is the standard deviation of the input, combined
         // at the same bar. Two intermediate buffers are allocated so the input may
         // safely alias an output (it is only read here).
-        // Nothing to produce: the range is shorter than the lookback. Return before
+        // Nothing to produce: the range ends before the lookback. Return before
         // touching anything.
         //
         // Without this the moving average below runs first, and for the MA types whose
@@ -745,7 +803,7 @@ impl Core {
         // TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
         // computes a middle band the empty standard deviation then discards.
         // Observably identical (the empty deviation already yields 0,0 here), but it
-        // is the difference between "a range shorter than the lookback reads nothing"
+        // is the difference between "a range that ends before the lookback reads nothing"
         // being true of this function and being false: with a caller-supplied inReal
         // that stops short of endIdx, that discarded work is an out-of-bounds read.
         // The SMA fast path above needs no such guard - its own lookback IS the
@@ -937,7 +995,7 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.bbands_lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)?;
@@ -973,7 +1031,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl BbandsStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -991,11 +1049,11 @@ impl BbandsStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_BBANDS_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<(f64, f64, f64), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() {
@@ -1015,16 +1073,15 @@ impl BbandsStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_BBANDS_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<(f64, f64, f64), RetCode> {
         if !inReal.is_finite() {
@@ -1089,7 +1146,7 @@ impl BbandsStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_BBANDS_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1107,11 +1164,11 @@ impl BbandsStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_BBANDS_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

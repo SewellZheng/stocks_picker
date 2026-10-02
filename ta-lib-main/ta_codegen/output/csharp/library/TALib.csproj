@@ -11,13 +11,9 @@
        version has, and a software FMA substitute would break bit-parity —
        the one thing this port must not do.
 
-       net8.0 was dropped rather than multi-targeted. The date that matters is
-       PUBLICATION, not today: landing on main is not a release (Java and Rust
-       sit on main unpublished too), and by the time this is on NuGet .NET 8
-       will be roughly a year past its 10 Nov 2026 end of support. Nothing here
-       needs an API newer than .NET Core 3.0, so an older TFM would have bought
-       reach and nothing else — and a TFM no gate executes is a promise nobody
-       checked. Re-adding one is a one-line change if a real consumer asks.
+       The API floor is net8.0 (FrozenDictionary). Adding that TFM means
+       adding a .NET 8 runtime to every CI job that runs the suites: a TFM with
+       no runtime is reported SKIPPED and the job still passes.
 
        TreatWarningsAsErrors + GenerateDocumentationFile makes CS1591 (missing
        XML doc on a public member) an error — the C# analog of the Java
@@ -25,7 +21,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
     <RootNamespace>TALib</RootNamespace>
     <AssemblyName>TALib</AssemblyName>
@@ -36,10 +32,41 @@
          rather than a claim: IL2026/IL3050 (trim/AOT-unsafe) become warnings
          here, and TreatWarningsAsErrors turns them into build failures. -->
     <IsAotCompatible>true</IsAotCompatible>
-    <!-- NuGet packaging (PackageId, Version, license, readme) arrives with the
-         release milestone; until then `dotnet pack` must not produce a
-         placeholder package. -->
-    <IsPackable>false</IsPackable>
+    <!-- PublicAPI.Shipped.txt is the surface of the last publish: removing a
+         member listed there, or changing its signature, fails the build
+         (RS0017), and deleting its line is how a break is accepted. Not seen: a
+         changed base type, interface list, enum underlying type or sealedness,
+         and a member added to an interface. Additions pass and join the file at
+         the next publish, through scripts/csharp_public_api.py. -->
+    <NoWarn Condition="'$(TalibApiRefresh)' != 'true'">$(NoWarn);RS0016</NoWarn>
+    <IsPackable>true</IsPackable>
+    <!-- Written by scripts/sync.py from the VERSION file, like the pom and the
+         Cargo manifests. Never hand-edit it. -->
+    <Version>0.8.2</Version>
+    <Authors>Mario Fortier</Authors>
+    <!-- Claims a floor, not a count: a published version is immutable, and
+         scripts/pre-release-checks.py verifies the corpus still meets it. -->
+    <Description>Technical analysis library: 200+ indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, Stochastic, candlestick patterns) - the official .NET port of TA-Lib, verified against the C reference.</Description>
+    <PackageTags>ta-lib technical-analysis finance trading indicators candlestick</PackageTags>
+    <PackageProjectUrl>https://ta-lib.org</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/TA-Lib/ta-lib</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!-- Maps the build path to /_/, so the DLL embeds no local path; Debug keeps
+         local paths for the debugger. An exported tree or a fork's clone packs
+         without a warning, with the local path in the DLL or SourceLink
+         pointing at the fork. -->
+    <ContinuousIntegrationBuild Condition="'$(Configuration)' == 'Release'">true</ContinuousIntegrationBuild>
+    <!-- The file, not the SPDX expression: BSD-3 clause 2 requires the text to
+         travel with a binary redistribution, and an expression ships none. -->
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <!-- No PackageId yet. The default is AssemblyName, an id the project does
+         not own, and pushing to an id someone else owns answers 403 with text
+         that blames the API key. -->
     <!-- test/ is a SIBLING project (test/TALib.Test.csproj) that compiles these
          same library sources itself. Without this exclusion the SDK's default
          **/*.cs glob pulls the suites — and their obj/ AssemblyInfo — into the
@@ -47,5 +74,18 @@
          would ship test code inside TALib.dll. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);test/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The repo root LICENSE in place, the way the pom reads it for the jar.
+         PackagePath empty puts it at the archive root, where
+         PackageLicenseFile resolves it. -->
+    <None Include="../../../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="../../../../website/src/.vuepress/public/android-chrome-512x512.png" Pack="true" PackagePath="icon.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="5.6.0" PrivateAssets="all" />
+  </ItemGroup>
 
 </Project>

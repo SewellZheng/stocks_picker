@@ -84,10 +84,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.pvt_lookback().unwrap_or(usize::MAX);
@@ -101,6 +101,8 @@ impl Core {
         let mut prevPVT: f64 = 0.0_f64;
         let mut prevClose: f64 = 0.0_f64;
         let mut tempClose: f64 = 0.0_f64;
+        let inClose = &inClose[..=endIdx];
+        let inVolume = &inVolume[..=endIdx];
         prevPVT = 0.0;
         prevClose = inClose[startIdx];
         outIdx = 0;
@@ -111,6 +113,8 @@ impl Core {
             // A zero previous close contributes nothing rather than Inf/NaN (#112).
             if prevClose != 0.0 {
                 prevPVT += (tempClose - prevClose) / prevClose * inVolume[i];
+            } else {
+                cold_arm();
             }
             outReal[outIdx] = prevPVT;
             outIdx += 1;
@@ -142,14 +146,14 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
-    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// [`Core::INDEX_MAX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range that ends before the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -200,10 +204,10 @@ impl Core {
         inVolume: &[f64],
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.pvt_lookback()?;
@@ -274,6 +278,8 @@ impl Core {
         // A zero previous close contributes nothing rather than Inf/NaN (#112).
         if sp.prevClose != 0.0 {
             sp.prevPVT += (tempClose - sp.prevClose) / sp.prevClose * inVolume;
+        } else {
+            cold_arm();
         }
         (*outReal) = sp.prevPVT;
         sp.prevClose = tempClose;
@@ -288,7 +294,7 @@ impl Core {
         if inClose.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inClose.len() > Self::MAX_INDEX + 1 {
+        if inClose.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if inVolume.len() != inClose.len() {
@@ -319,6 +325,8 @@ impl Core {
             // A zero previous close contributes nothing rather than Inf/NaN (#112).
             if prevClose != 0.0 {
                 prevPVT += (tempClose - prevClose) / prevClose * inVolume[i];
+            } else {
+                cold_arm();
             }
             outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = prevPVT;
             prevClose = tempClose;
@@ -423,7 +431,7 @@ impl Core {
         if inClose.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inClose.len() > Self::MAX_INDEX + 1 {
+        if inClose.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.pvt_lookback()?;
@@ -456,7 +464,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl PvtStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -474,11 +482,11 @@ impl PvtStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_PVT_Update")]
     pub fn update(&mut self, inClose: f64, inVolume: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inClose.is_finite() || !inVolume.is_finite() {
@@ -493,16 +501,15 @@ impl PvtStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_PVT_Peek")]
     pub fn peek(&self, inClose: f64, inVolume: f64) -> Result<f64, RetCode> {
         if !inClose.is_finite() || !inVolume.is_finite() {
@@ -520,6 +527,8 @@ impl PvtStream {
             // A zero previous close contributes nothing rather than Inf/NaN (#112).
             if sp.prevClose != 0.0 {
                 prevPVT += (tempClose - sp.prevClose) / sp.prevClose * inVolume;
+            } else {
+                cold_arm();
             }
             (*outReal) = prevPVT;
         }
@@ -549,7 +558,7 @@ impl PvtStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_PVT_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -567,11 +576,11 @@ impl PvtStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_PVT_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

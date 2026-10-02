@@ -83,9 +83,9 @@ TA_LIB_API TA_RetCode TA_CDLBELTHOLD( int    startIdx,
    int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -148,12 +148,12 @@ TA_LIB_API TA_RetCode TA_CDLBELTHOLD( int    startIdx,
    do
    {
       if( fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal,i) && /* long body */
-          ((((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&     /* white body and very short lower shadow */
+          ((((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&  /* white body and very short lower shadow */
             (((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i)) ||
-           (((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 0 - 1 && /* black body and very short upper shadow */
+           (((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 && /* black body and very short upper shadow */
             (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i))) )
       {
-         outInteger[outIdx++] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
+         outInteger[outIdx++] = ((inClose[i] >= inOpen[i]) ? 1 : -1) * 100;
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -193,9 +193,9 @@ TA_RetCode TA_S_CDLBELTHOLD( int    startIdx,
    int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inOpen )
@@ -241,9 +241,9 @@ TA_RetCode TA_S_CDLBELTHOLD( int    startIdx,
    outIdx = 0;
    do
    {
-      if( fabs((double)inClose[i] - (double)inOpen[i]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal,i) && (((((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) == 1 && ((((double)inClose[i] >= (double)inOpen[i]) ? (double)inOpen[i] : (double)inClose[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i)) || ((((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) == 0 - 1 && ((double)inHigh[i] - (((double)inClose[i] >= (double)inOpen[i]) ? (double)inClose[i] : (double)inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i))) )
+      if( fabs((double)inClose[i] - (double)inOpen[i]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal,i) && (((((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) == 1 && ((((double)inClose[i] >= (double)inOpen[i]) ? (double)inOpen[i] : (double)inClose[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i)) || ((((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) == -1 && ((double)inHigh[i] - (((double)inClose[i] >= (double)inOpen[i]) ? (double)inClose[i] : (double)inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i))) )
       {
-         outInteger[outIdx++] = (((double)inClose[i] >= (double)inOpen[i]) ? 1 : 0 - 1) * 100;
+         outInteger[outIdx++] = (((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) * 100;
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -298,12 +298,12 @@ static void TA_CDLBELTHOLD_StepImpl( struct TA_CDLBELTHOLD_Stream *sp, double in
       sp->ring_ShadowVeryShortTrailingIdx_derived[0] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen,inHigh,inLow,inClose);
    }
    if( fabs(inClose - inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal,inOpen,inHigh,inLow,inClose) && /* long body */
-       ((((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&     /* white body and very short lower shadow */
+       ((((inClose >= inOpen) ? 1 : -1) == 1 &&  /* white body and very short lower shadow */
          (((inClose >= inOpen) ? inOpen : inClose) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal,inOpen,inHigh,inLow,inClose)) ||
-        (((inClose >= inOpen) ? 1 : 0 - 1) == 0 - 1 && /* black body and very short upper shadow */
+        (((inClose >= inOpen) ? 1 : -1) == -1 && /* black body and very short upper shadow */
          (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal,inOpen,inHigh,inLow,inClose))) )
    {
-      *outInteger= ((inClose >= inOpen) ? 1 : 0 - 1) * 100;
+      *outInteger= ((inClose >= inOpen) ? 1 : -1) * 100;
    } else 
    {
       *outInteger= 0;
@@ -336,7 +336,7 @@ static TA_RetCode TA_CDLBELTHOLD_OpenImpl( struct TA_CDLBELTHOLD_Stream **stream
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
@@ -404,12 +404,12 @@ static TA_RetCode TA_CDLBELTHOLD_OpenImpl( struct TA_CDLBELTHOLD_Stream **stream
       do
       {
          if( fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal,i) && /* long body */
-             ((((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 1 &&     /* white body and very short lower shadow */
+             ((((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 &&  /* white body and very short lower shadow */
                (((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i)) ||
-              (((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) == 0 - 1 && /* black body and very short upper shadow */
+              (((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 && /* black body and very short upper shadow */
                (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal,i))) )
          {
-            outInteger[outIdx++ * outStride] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
+            outInteger[outIdx++ * outStride] = ((inClose[i] >= inOpen[i]) ? 1 : -1) * 100;
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -483,7 +483,7 @@ TA_LIB_API TA_RetCode TA_CDLBELTHOLD_Open( TA_CDLBELTHOLD_Stream **stream, const
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLBELTHOLD_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
@@ -493,7 +493,7 @@ TA_LIB_API TA_RetCode TA_CDLBELTHOLD_OpenAndFill( TA_CDLBELTHOLD_Stream **stream
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLBELTHOLD_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
@@ -508,7 +508,7 @@ TA_RetCode TA_CDLBELTHOLD_OpenAndFillInternal( struct TA_CDLBELTHOLD_Stream **st
 TA_LIB_API TA_RetCode TA_CDLBELTHOLD_Update( TA_CDLBELTHOLD_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -524,12 +524,12 @@ TA_LIB_API TA_RetCode TA_CDLBELTHOLD_Peek( const TA_CDLBELTHOLD_Stream *stream, 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    if( fabs(inClose - inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal,inOpen,inHigh,inLow,inClose) && /* long body */
-       ((((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&     /* white body and very short lower shadow */
+       ((((inClose >= inOpen) ? 1 : -1) == 1 &&  /* white body and very short lower shadow */
          (((inClose >= inOpen) ? inOpen : inClose) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal,inOpen,inHigh,inLow,inClose)) ||
-        (((inClose >= inOpen) ? 1 : 0 - 1) == 0 - 1 && /* black body and very short upper shadow */
+        (((inClose >= inOpen) ? 1 : -1) == -1 && /* black body and very short upper shadow */
          (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal,inOpen,inHigh,inLow,inClose))) )
    {
-      *outInteger= ((inClose >= inOpen) ? 1 : 0 - 1) * 100;
+      *outInteger= ((inClose >= inOpen) ? 1 : -1) * 100;
    } else 
    {
       *outInteger= 0;
@@ -561,7 +561,7 @@ TA_LIB_API TA_RetCode TA_CDLBELTHOLD_OutRange( const TA_CDLBELTHOLD_Stream *stre
 TA_LIB_API TA_RetCode TA_CDLBELTHOLD_Advance( TA_CDLBELTHOLD_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

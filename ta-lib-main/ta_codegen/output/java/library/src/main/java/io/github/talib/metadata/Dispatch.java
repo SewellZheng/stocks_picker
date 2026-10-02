@@ -83,6 +83,9 @@ final class Dispatch {
          case "ADXR":
             return core.adxr(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOutput(0));
+         case "ALMA":
+            return core.alma(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOpt(2), h.realOutput(0));
          case "AO":
             return core.ao(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.intOpt(1), h.realOutput(0));
@@ -95,6 +98,9 @@ final class Dispatch {
          case "AROONOSC":
             return core.aroonosc(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.realOutput(0));
+         case "ASI":
+            return core.asi(
+               startIdx, endIdx, h.price(0, 0), h.price(0, 1), h.price(0, 2), h.price(0, 3), h.realOpt(0), h.realOutput(0));
          case "ASIN":
             return core.asin(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
@@ -113,6 +119,9 @@ final class Dispatch {
          case "BBANDS":
             return core.bbands(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3), h.realOutput(0), h.realOutput(1), h.realOutput(2));
+         case "BBW":
+            return core.bbw(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3), h.realOutput(0));
          case "BETA":
             return core.beta(
                startIdx, endIdx, h.realInput(0), h.realInput(1), h.intOpt(0), h.realOutput(0));
@@ -308,6 +317,18 @@ final class Dispatch {
          case "CEIL":
             return core.ceil(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
+         case "CG":
+            return core.cg(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
+         case "CHOP":
+            return core.chop(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOutput(0));
+         case "CHOPTR":
+            return core.choptr(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOutput(0));
+         case "CKSP":
+            return core.cksp(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOpt(1), h.intOpt(2), h.realOutput(0), h.realOutput(1));
          case "CMF":
             return core.cmf(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.price(0, 4), h.intOpt(0), h.realOutput(0));
@@ -329,6 +350,12 @@ final class Dispatch {
          case "COSH":
             return core.cosh(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
+         case "CRSI":
+            return core.crsi(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0));
+         case "CTI":
+            return core.cti(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
          case "CUMSUM":
             return core.cumsum(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
@@ -356,6 +383,9 @@ final class Dispatch {
          case "EMA":
             return core.ema(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
+         case "EMV":
+            return core.emv(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 4), h.intOpt(0), h.realOpt(1), h.realOutput(0));
          case "ER":
             return core.er(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
@@ -374,6 +404,9 @@ final class Dispatch {
          case "FRACTAL":
             return core.fractal(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.intOpt(1), h.intOutput(0), h.intOutput(1));
+         case "FRAMA":
+            return core.frama(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.realOutput(0));
          case "HA":
             return core.ha(
                startIdx, endIdx, h.price(0, 0), h.price(0, 1), h.price(0, 2), h.price(0, 3), h.realOutput(0), h.realOutput(1), h.realOutput(2), h.realOutput(3));
@@ -398,6 +431,9 @@ final class Dispatch {
          case "HT_TRENDMODE":
             return core.htTrendmode(
                startIdx, endIdx, h.realInput(0), h.intOutput(0));
+         case "IBS":
+            return core.ibs(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.realOutput(0));
          case "IMI":
             return core.imi(
                startIdx, endIdx, h.price(0, 0), h.price(0, 3), h.intOpt(0), h.realOutput(0));
@@ -410,6 +446,15 @@ final class Dispatch {
          case "KDJ":
             return core.kdj(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.intOpt(1), h.maTypeOpt(2), h.intOpt(3), h.maTypeOpt(4), h.realOutput(0), h.realOutput(1), h.realOutput(2));
+         case "KST":
+            return core.kst(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5), h.intOpt(6), h.intOpt(7), h.intOpt(8), h.realOutput(0), h.realOutput(1));
+         case "KSTEXT":
+            return core.kstext(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5), h.intOpt(6), h.intOpt(7), h.intOpt(8), h.maTypeOpt(9), h.maTypeOpt(10), h.realOutput(0), h.realOutput(1));
+         case "KURTOSIS":
+            return core.kurtosis(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
          case "LINEARREG":
             return core.linearreg(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
@@ -458,6 +503,12 @@ final class Dispatch {
          case "MAXINDEX":
             return core.maxindex(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOutput(0));
+         case "MCGD":
+            return core.mcgd(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
+         case "MEDIAN":
+            return core.median(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
          case "MEDPRICE":
             return core.medprice(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.realOutput(0));
@@ -503,6 +554,9 @@ final class Dispatch {
          case "OBV":
             return core.obv(
                startIdx, endIdx, h.realInput(0), h.price(1, 4), h.realOutput(0));
+         case "PERCENTB":
+            return core.percentb(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3), h.realOutput(0));
          case "PERCENTILE":
             return core.percentile(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOutput(0));
@@ -551,6 +605,9 @@ final class Dispatch {
          case "RVI":
             return core.rvi(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.realOutput(0));
+         case "RVIR":
+            return core.rvir(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.intOpt(1), h.realOutput(0));
          case "RVOL":
             return core.rvol(
                startIdx, endIdx, h.price(0, 4), h.intOpt(0), h.realOutput(0));
@@ -560,6 +617,9 @@ final class Dispatch {
          case "SAREXT":
             return core.sarext(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.realOpt(0), h.realOpt(1), h.realOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), h.realOpt(6), h.realOpt(7), h.realOutput(0));
+         case "SI":
+            return core.si(
+               startIdx, endIdx, h.price(0, 0), h.price(0, 1), h.price(0, 2), h.price(0, 3), h.realOpt(0), h.realOutput(0));
          case "SIN":
             return core.sin(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
@@ -575,6 +635,9 @@ final class Dispatch {
          case "SQRT":
             return core.sqrt(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
+         case "STC":
+            return core.stc(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0));
          case "STDDEV":
             return core.stddev(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOutput(0));
@@ -635,6 +698,9 @@ final class Dispatch {
          case "VHF":
             return core.vhf(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
+         case "VIDYA":
+            return core.vidya(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.realOutput(0));
          case "VORTEX":
             return core.vortex(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOutput(0), h.realOutput(1));
@@ -688,6 +754,8 @@ final class Dispatch {
             return core.adxLookback(h.intOpt(0));
          case "ADXR":
             return core.adxrLookback(h.intOpt(0));
+         case "ALMA":
+            return core.almaLookback(h.intOpt(0), h.realOpt(1), h.realOpt(2));
          case "AO":
             return core.aoLookback(h.intOpt(0), h.intOpt(1));
          case "APO":
@@ -696,6 +764,8 @@ final class Dispatch {
             return core.aroonLookback(h.intOpt(0));
          case "AROONOSC":
             return core.aroonoscLookback(h.intOpt(0));
+         case "ASI":
+            return core.asiLookback(h.realOpt(0));
          case "ASIN":
             return core.asinLookback();
          case "ATAN":
@@ -708,6 +778,8 @@ final class Dispatch {
             return core.avgpriceLookback();
          case "BBANDS":
             return core.bbandsLookback(h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3));
+         case "BBW":
+            return core.bbwLookback(h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3));
          case "BETA":
             return core.betaLookback(h.intOpt(0));
          case "BOP":
@@ -838,6 +910,14 @@ final class Dispatch {
             return core.cdlxsidegap3methodsLookback();
          case "CEIL":
             return core.ceilLookback();
+         case "CG":
+            return core.cgLookback(h.intOpt(0));
+         case "CHOP":
+            return core.chopLookback(h.intOpt(0));
+         case "CHOPTR":
+            return core.choptrLookback(h.intOpt(0));
+         case "CKSP":
+            return core.ckspLookback(h.intOpt(0), h.realOpt(1), h.intOpt(2));
          case "CMF":
             return core.cmfLookback(h.intOpt(0));
          case "CMO":
@@ -852,6 +932,10 @@ final class Dispatch {
             return core.cosLookback();
          case "COSH":
             return core.coshLookback();
+         case "CRSI":
+            return core.crsiLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
+         case "CTI":
+            return core.ctiLookback(h.intOpt(0));
          case "CUMSUM":
             return core.cumsumLookback();
          case "CVI":
@@ -870,6 +954,8 @@ final class Dispatch {
             return core.efiLookback(h.intOpt(0));
          case "EMA":
             return core.emaLookback(h.intOpt(0));
+         case "EMV":
+            return core.emvLookback(h.intOpt(0), h.realOpt(1));
          case "ER":
             return core.erLookback(h.intOpt(0));
          case "ERI":
@@ -882,6 +968,8 @@ final class Dispatch {
             return core.foscLookback(h.intOpt(0));
          case "FRACTAL":
             return core.fractalLookback(h.intOpt(0), h.intOpt(1));
+         case "FRAMA":
+            return core.framaLookback(h.intOpt(0));
          case "HA":
             return core.haLookback();
          case "HMA":
@@ -898,6 +986,8 @@ final class Dispatch {
             return core.htTrendlineLookback();
          case "HT_TRENDMODE":
             return core.htTrendmodeLookback();
+         case "IBS":
+            return core.ibsLookback();
          case "IMI":
             return core.imiLookback(h.intOpt(0));
          case "KAMA":
@@ -906,6 +996,12 @@ final class Dispatch {
             return core.kcLookback(h.intOpt(0), h.intOpt(1), h.realOpt(2));
          case "KDJ":
             return core.kdjLookback(h.intOpt(0), h.intOpt(1), h.maTypeOpt(2), h.intOpt(3), h.maTypeOpt(4));
+         case "KST":
+            return core.kstLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5), h.intOpt(6), h.intOpt(7), h.intOpt(8));
+         case "KSTEXT":
+            return core.kstextLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5), h.intOpt(6), h.intOpt(7), h.intOpt(8), h.maTypeOpt(9), h.maTypeOpt(10));
+         case "KURTOSIS":
+            return core.kurtosisLookback(h.intOpt(0));
          case "LINEARREG":
             return core.linearregLookback(h.intOpt(0));
          case "LINEARREG_ANGLE":
@@ -938,6 +1034,10 @@ final class Dispatch {
             return core.maxLookback(h.intOpt(0));
          case "MAXINDEX":
             return core.maxindexLookback(h.intOpt(0));
+         case "MCGD":
+            return core.mcgdLookback(h.intOpt(0));
+         case "MEDIAN":
+            return core.medianLookback(h.intOpt(0));
          case "MEDPRICE":
             return core.medpriceLookback();
          case "MFI":
@@ -968,6 +1068,8 @@ final class Dispatch {
             return core.nviLookback();
          case "OBV":
             return core.obvLookback();
+         case "PERCENTB":
+            return core.percentbLookback(h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3));
          case "PERCENTILE":
             return core.percentileLookback(h.intOpt(0), h.realOpt(1));
          case "PERCENTRANK":
@@ -1000,12 +1102,16 @@ final class Dispatch {
             return core.rsiLookback(h.intOpt(0));
          case "RVI":
             return core.rviLookback(h.intOpt(0), h.intOpt(1));
+         case "RVIR":
+            return core.rvirLookback(h.intOpt(0), h.intOpt(1));
          case "RVOL":
             return core.rvolLookback(h.intOpt(0));
          case "SAR":
             return core.sarLookback(h.realOpt(0), h.realOpt(1));
          case "SAREXT":
             return core.sarextLookback(h.realOpt(0), h.realOpt(1), h.realOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), h.realOpt(6), h.realOpt(7));
+         case "SI":
+            return core.siLookback(h.realOpt(0));
          case "SIN":
             return core.sinLookback();
          case "SINH":
@@ -1016,6 +1122,8 @@ final class Dispatch {
             return core.smiLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3));
          case "SQRT":
             return core.sqrtLookback();
+         case "STC":
+            return core.stcLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
          case "STDDEV":
             return core.stddevLookback(h.intOpt(0), h.realOpt(1));
          case "STOCH":
@@ -1056,6 +1164,8 @@ final class Dispatch {
             return core.varLookback(h.intOpt(0), h.realOpt(1));
          case "VHF":
             return core.vhfLookback(h.intOpt(0));
+         case "VIDYA":
+            return core.vidyaLookback(h.intOpt(0), h.intOpt(1));
          case "VORTEX":
             return core.vortexLookback(h.intOpt(0));
          case "VWAP":

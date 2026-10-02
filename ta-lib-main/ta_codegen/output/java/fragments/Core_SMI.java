@@ -111,10 +111,10 @@
       int nBar = 0;
       int nFast = 0;
       int nSignal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -182,8 +182,8 @@
       sumSignal = 0.0;
       highest = 0.0;
       lowest = 0.0;
-      highestIdx = 0 - 1;
-      lowestIdx = 0 - 1;
+      highestIdx = -1;
+      lowestIdx = -1;
       /* The first bar carrying a full high/low window. */
       trailingIdx = startIdx - lookbackTotal;
       today = trailingIdx + (optInTimePeriod - 1);
@@ -406,10 +406,10 @@
       int nBar = 0;
       int nFast = 0;
       int nSignal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -463,8 +463,8 @@
       sumSignal = 0.0;
       highest = 0.0;
       lowest = 0.0;
-      highestIdx = 0 - 1;
-      lowestIdx = 0 - 1;
+      highestIdx = -1;
+      lowestIdx = -1;
       trailingIdx = startIdx - lookbackTotal;
       today = trailingIdx + (optInTimePeriod - 1);
       nBar = 0;
@@ -622,15 +622,15 @@
     * href="https://ta-lib.org/functions/smi">ta-lib.org/functions/smi</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>A window whose bars are all flat (every high equal to its low) leaves both the numerator and the denominator at zero. Rather than divide, SMI emits 0 there — the same convention as CCI and IMI. Some implementations divide unguarded and return a non-finite value.</li>
+    * <li>A window whose bars are all flat (every high equal to its low) leaves both the numerator and the denominator at zero. Rather than divide, SMI emits 0 there, its neutral value, as CCI and IMI emit theirs. Some implementations divide unguarded and return a non-finite value.</li>
     * <li>Each exponential average is seeded with a simple average of its own first inputs, the same seeding TA-Lib's EMA uses, so the first published values converge toward an unlimited-history result rather than reproducing it exactly. {@code TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)} discards more of that warm-up. Implementations seeding from a single first sample — Tulip and TradingView among them — differ over the transient and agree once it decays.</li>
     * <li>One output range covers both outputs, so the SMI values consumed by the signal line's own warm-up are not published.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#smiLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#smiLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -648,13 +648,15 @@
     * @param optInSignalPeriod Smoothing period of the signal line (default 9;
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outSMI Stochastic Momentum Index, -100 to +100. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, smiLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @param outSMISignal Exponential average of the SMI line. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, smiLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -714,7 +716,7 @@
     * href="https://ta-lib.org/functions/smi">ta-lib.org/functions/smi</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>A window whose bars are all flat (every high equal to its low) leaves both the numerator and the denominator at zero. Rather than divide, SMI emits 0 there — the same convention as CCI and IMI. Some implementations divide unguarded and return a non-finite value.</li>
+    * <li>A window whose bars are all flat (every high equal to its low) leaves both the numerator and the denominator at zero. Rather than divide, SMI emits 0 there, its neutral value, as CCI and IMI emit theirs. Some implementations divide unguarded and return a non-finite value.</li>
     * <li>Each exponential average is seeded with a simple average of its own first inputs, the same seeding TA-Lib's EMA uses, so the first published values converge toward an unlimited-history result rather than reproducing it exactly. {@code TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)} discards more of that warm-up. Implementations seeding from a single first sample — Tulip and TradingView among them — differ over the transient and agree once it decays.</li>
     * <li>One output range covers both outputs, so the SMI values consumed by the signal line's own warm-up are not published.</li>
     * </ul>
@@ -724,8 +726,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#smiLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#smiLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -743,13 +745,15 @@
     * @param optInSignalPeriod Smoothing period of the signal line (default 9;
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outSMI Stochastic Momentum Index, -100 to +100. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, smiLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @param outSMISignal Exponential average of the SMI line. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, smiLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -852,7 +856,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -866,12 +870,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("SMI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -921,16 +925,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public void update( double inHigh, double inLow, double inClose, SmiOut out ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("SMI update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("SMI update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("SMI update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("SMI update", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          core.smiStepImpl(this, inHigh, inLow, inClose);
          this.outRangeCount++;
          out.smi = this.cur_outSMI;
@@ -941,16 +945,14 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, double inClose, SmiOut out ) {
          requireArgument("SMI peek", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("SMI peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("SMI peek", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          SmiStream sp = this;
          double tmp = 0.0;
          double num = 0.0;
@@ -1207,7 +1209,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
@@ -1280,8 +1282,8 @@
       sumSignal = 0.0;
       highest = 0.0;
       lowest = 0.0;
-      highestIdx = 0 - 1;
-      lowestIdx = 0 - 1;
+      highestIdx = -1;
+      lowestIdx = -1;
       /* The first bar carrying a full high/low window. */
       trailingIdx = startIdx - lookbackTotal;
       today = trailingIdx + (optInTimePeriod - 1);
@@ -1511,12 +1513,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("SMI openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("SMI openAndFill", inHigh.length, startIdx, smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("SMI openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("SMI openAndFill: " + retCode, retCode);
+      throw streamFailure("SMI openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind smiOpen (composition seam). */
    SmiStream smiOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
@@ -1533,12 +1532,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("SMI open: history shorter than lookback + 1");
+         throw insufficientHistory("SMI open", inHigh.length, startIdx, smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("SMI open: internal error", retCode);
-      }
-      throw new TALibArgumentException("SMI open: " + retCode, retCode);
+      throw streamFailure("SMI open", retCode);
    }
    /**
     * Open a live SMI stream over the warm-up history; the handle's
@@ -1586,7 +1582,7 @@
       requireLength("SMI openAndFill", "outSMI", outSMI, guardOutLen);
       requireLength("SMI openAndFill", "outSMISignal", outSMISignal, guardOutLen);
       if( (Object)outSMI == (Object)inHigh || (Object)outSMI == (Object)inLow || (Object)outSMI == (Object)inClose || (Object)outSMISignal == (Object)inHigh || (Object)outSMISignal == (Object)inLow || (Object)outSMISignal == (Object)inClose || (Object)outSMI == (Object)outSMISignal ) {
-         throw new TALibArgumentException("SMI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("SMI openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

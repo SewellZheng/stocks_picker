@@ -109,9 +109,9 @@ TA_LIB_API TA_RetCode TA_NATR( int    startIdx,
    double tempLT;
    double tempHT;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -171,7 +171,7 @@ TA_LIB_API TA_RetCode TA_NATR( int    startIdx,
     * wAlpha + wBeta exactly 1 (Sterbenz -- wBeta lands in [0.5, 1)), and it
     * measures closer to the exact recursion than the 1/period-first spelling
     * at nearly every period. The order is a gated contract, not a preference:
-    * swapping it reddens the frozen v0.6.4 comparison.
+    * swapping it reddens the frozen-release comparison.
     */
    wBeta = (double)(optInTimePeriod - 1) / (double)optInTimePeriod;
    wAlpha = 1.0 - wBeta;
@@ -349,9 +349,9 @@ TA_RetCode TA_S_NATR( int    startIdx,
    double tempLT;
    double tempHT;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -491,13 +491,15 @@ struct TA_NATR_Stream {
    double cur_outReal;
    int optInTimePeriod;
    double prevATR;
+   double pad_0;
    double wAlpha;
    double wBeta;
+   double pad_1;
    double lag1_inClose;
 };
 
 /* Private function, not in public API. */
-static void TA_NATR_StepImpl( struct TA_NATR_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
+static TA_FMA_STEP_INLINE void TA_NATR_StepImpl( struct TA_NATR_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
 {
    double tempValue;
    double val2;
@@ -550,7 +552,7 @@ static TA_RetCode TA_NATR_OpenImpl( struct TA_NATR_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
@@ -624,7 +626,7 @@ static TA_RetCode TA_NATR_OpenImpl( struct TA_NATR_Stream **stream, const double
        * wAlpha + wBeta exactly 1 (Sterbenz -- wBeta lands in [0.5, 1)), and it
        * measures closer to the exact recursion than the 1/period-first spelling
        * at nearly every period. The order is a gated contract, not a preference:
-       * swapping it reddens the frozen v0.6.4 comparison.
+       * swapping it reddens the frozen-release comparison.
        */
       wBeta = (double)(optInTimePeriod - 1) / (double)optInTimePeriod;
       wAlpha = 1.0 - wBeta;
@@ -809,7 +811,7 @@ TA_LIB_API TA_RetCode TA_NATR_Open( TA_NATR_Stream **stream, const double inHigh
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_NATR_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -819,7 +821,7 @@ TA_LIB_API TA_RetCode TA_NATR_OpenAndFill( TA_NATR_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_NATR_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -831,10 +833,11 @@ TA_RetCode TA_NATR_OpenAndFillInternal( struct TA_NATR_Stream **stream, const do
    return TA_NATR_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_NATR_Update( TA_NATR_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
@@ -917,7 +920,7 @@ TA_LIB_API TA_RetCode TA_NATR_OutRange( const TA_NATR_Stream *stream, int *outBe
 TA_LIB_API TA_RetCode TA_NATR_Advance( TA_NATR_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

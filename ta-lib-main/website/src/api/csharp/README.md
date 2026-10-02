@@ -47,11 +47,11 @@ The **Core API** provides:
 
 To process a live feed one bar at a time instead, see the companion [C# Streaming API](/api/csharp/stream/).
 
-There is no initialization step and nothing to shut down. Where C requires `TA_Initialize` before any call and `TA_Shutdown` at exit, C# has `new Core()` (or a configured `Core.Builder()...Build()`) ready immediately; a `Core` owns only managed state, so an unreferenced one is simply garbage-collected.
+There is no initialization step and nothing to shut down. Where C requires `TA_Initialize` before any call and `TA_Shutdown` at exit, C# has `Core.Default` (or a configured `Core.Builder()...Build()`) ready immediately; a `Core` owns only managed state, so an unreferenced one is simply garbage-collected.
 
 ## 2.0 Add it to your project {#build}
 
-NuGet packaging (`PackageId`, versioning) lands with the release milestone — until then, `dotnet pack` deliberately produces nothing. Reference the `TALib` project directly:
+The package is not on NuGet yet. Until it is, reference the `TALib` project directly:
 
 ```xml
 <ItemGroup>
@@ -95,9 +95,9 @@ For example, here is how to calculate a 30-day simple moving average (SMA) of da
 
 <pre>using TALib;
 
-var core = new Core();
+var core = Core.Default;
 
-double[] close = /* ...your closing prices... */;
+double[] close = [ /* ...your closing prices... */ ];
 var outReal = new double[close.Length];
 
 OutRange r = core.Sma(
@@ -115,11 +115,11 @@ for (int i = 0; i &lt; r.Count; i++)
 
 After the call, read `r` to learn what was produced. Even though we requested the whole range (`0` to `close.Length - 1`), a 30-day average is not defined until the 30th day. Consequently `r.BegIdx` will be 29 (zero-based) and `r.Count` will be `close.Length - 29`. In other words, only that many elements of `outReal` are written, corresponding to input elements 29 through the end.
 
-Arrays convert to spans implicitly, so the call above and a call passed a slice of a larger buffer (`close.AsSpan(start, count)`) are both ordinary code — no copy either way. A span is never null, so passing `null` arrives as an empty span and is rejected by the length check as one (`ArgumentException` naming the parameter). Every input an indicator declares is checked, including the OHLC series a few candlestick patterns never read.
+Arrays convert to spans implicitly, so the call above and a call passed a slice of a larger buffer (`close.AsSpan(start, count)`) are both ordinary code — no copy either way. `startIdx` and `endIdx` index the span you pass, not the array it came from: a slice holds no bars before its first element, so `Sma(0, n - 1, close.AsSpan(100, n), ...)` takes its lookback from inside the slice and produces fewer, possibly different, values than `Sma(100, 100 + n - 1, close, ...)`. Both calls succeed. A span is never null, so passing `null` arrives as an empty span and is rejected by the length check as one (`ArgumentException` naming the parameter). Every input an indicator declares is checked, including the OHLC series a few candlestick patterns never read.
 
-If you do not provide enough data to calculate even one value, the call still succeeds and `r.Count` is 0 (`r.IsEmpty`).
+If the range ends before the lookback, so no value can be calculated, the call still succeeds and `r.Count` is 0 (`r.IsEmpty`).
 
-`OutRange` is a readonly struct with two components — `BegIdx` and `Count` — plus the conveniences `IsEmpty` and `Empty`. The component names match the C, Rust and Java surfaces (`outBegIdx` / `outNBElement`), so the same concept reads the same way in every backend.
+`OutRange` is a `readonly record struct` with two components — `BegIdx` and `Count` — plus the conveniences `IsEmpty` and `Empty`. They are C's `outBegIdx` / `outNBElement`, Java's `begIdx` / `count` and Rust's `beg_idx` / `count`.
 
 Every indicator also has a `ReadOnlySpan<float>` overload — see [4.4](#input_type).
 
@@ -131,7 +131,7 @@ An indicator consumes a number of leading bars — its **lookback** — before i
 int lookback = core.SmaLookback(30);   // 29
 ```
 
-Output is written only where the indicator is defined: `outReal[0]` corresponds to input bar `r.BegIdx`, and nothing outside `0 .. r.Count - 1` is touched. The library never pads with `NaN`. A range shorter than the lookback is a **success with no values** (`r.Count == 0`), not an error.
+Output is written only where the indicator is defined: `outReal[0]` corresponds to input bar `r.BegIdx`, and nothing outside `0 .. r.Count - 1` is touched. The library never pads with `NaN`. A range that ends before the lookback is a **success with no values** (`r.Count == 0`), not an error.
 
 ### 3.3 Errors {#retcode}
 
@@ -139,15 +139,21 @@ The public methods throw rather than return a status code:
 
 | Condition | Exception |
 |---|---|
-| `startIdx`/`endIdx` negative, above `Core.MaxIndex`, or `endIdx < startIdx` | `TALibArgumentOutOfRangeException` |
+| `startIdx`/`endIdx` negative, above `Core.IndexMax`, or `endIdx < startIdx` | `TALibArgumentOutOfRangeException` |
 | An optional parameter outside its documented range | `TALibArgumentException` |
+| An input span that does not reach `endIdx`, or an output span shorter than the values produced | `TALibArgumentException` naming the span |
 | Two outputs overlapping, or an output *partially* overlapping an input | `TALibArgumentException` |
+| An inconsistency in the library's own state: a bug, please report it | `TALibInvalidOperationException` carrying `RetCode.InternalError` |
 
 Each extends the framework type you would reach for and implements
 `ITALibFailure`, so `catch (ArgumentException)` still works and the `RetCode` is
 there when you want it.
 
 Computing wholly in place is allowed and stays supported — passing the same buffer as both an input and an output is how several indicators are meant to be used. What is rejected is *partial* overlap, which only spans can express: two views of the same memory at different offsets make a body write through what it is still reading, and the result would be silently wrong rather than merely surprising.
+
+A `NaN` or `±Inf` inside an input series is not detected, and nothing is promised about the output: a running sum or a recursion carries it into every later value, not only the bars whose window holds it. Clean or split the series before calling.
+
+A batch call may allocate managed scratch, sized by a period (MFI, ULTOSC) or, for some functions built from other functions such as STOCHRSI, by the range. An allocation of 85,000 bytes or more (about 10,600 doubles) lands on the large object heap.
 
 ## 4.0 Advanced Features {#advanced}
 
@@ -156,6 +162,7 @@ Computing wholly in place is allowed and stays supported — passing the same bu
 `TALib.Metadata.FunctionCatalog` describes every function at run time and calls it without naming it at compile time — the C# equivalent of C's [abstraction layer](/api/#abstract). It exists because a span cannot be boxed: the API cannot be invoked through `MethodInfo.Invoke`, so calling a function chosen at run time needs a typed path instead of reflection — which is also faster.
 
 ```csharp
+using TALib;
 using TALib.Metadata;
 
 foreach (var f in Core.Functions.Where(f => f.Flags.HasFlag(FuncFlags.Candlestick)))
@@ -183,7 +190,7 @@ An index out of range, a type that does not match the declared parameter, or an 
 
 Your value changed when you fed the same bar more history? That is by design: recursive functions converge as history accumulates. See [Unstable Period](/api/unstable-period/) for how to mitigate that.
 
-Rounding is a separate axis: floating-point error accumulates over a very long series, which is one reason a call is capped at [`Core.MaxIndex`](#index_range).
+Rounding is a separate axis: floating-point error accumulates over a very long series, which is one reason a call is capped at [`Core.IndexMax`](#index_range).
 
 Every function documentation page carries a [numerical-stability property](/functions/stability): how much the value at a given bar depends on where the series you passed in begins.
 
@@ -205,11 +212,11 @@ Every indicator also has a `ReadOnlySpan<float>` overload (`float[]` converts im
 
 ### 4.5 Index Range {#index_range}
 
-`Core.MaxIndex` is the largest value `startIdx` or `endIdx` may take: **100,000,000**. It's a sanity bound. Past it, a call is more likely a caller bug than a real need, and it's also untested territory for overflow and rounding error.
+`Core.IndexMax` is the largest value `startIdx` or `endIdx` may take: **100,000,000**. It's a sanity bound. Past it, a call is more likely a caller bug than a real need, and it's also untested territory for overflow and rounding error.
 
 ### 4.6 Threading {#multithreading}
 
-A `Core` is immutable once built, so it is safe to share read-only across threads and call any indicator concurrently — no locking, and no setup ordering to respect. To change a setting, build another `Core` with `Core.Builder()`.
+A `Core` is immutable once built, so it is safe to share read-only across threads and call any indicator concurrently — no locking, and no setup ordering to respect. `Core.Default` is the all-defaults instance. To change a setting, build another `Core` with `Core.Builder()`.
 
 ### 4.7 Trimming and NativeAOT {#aot}
 

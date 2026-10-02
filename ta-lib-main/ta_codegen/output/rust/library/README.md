@@ -46,7 +46,7 @@ start (`beg_idx`, in the input series' coordinates) and how many there are
 (`count`); `*_lookback` methods return how many leading values an indicator
 consumes before the first one exists.
 
-A range shorter than the lookback is a **success with no values** (`count == 0`),
+A range that ends before the lookback is a **success with no values** (`count == 0`),
 not an error — the same contract as C, Java and C#.
 
 ## Configuration
@@ -80,8 +80,8 @@ indicator calls) without locking. To change a setting, build a new `Core`.
 The calls above take a whole series at once. For a feed that arrives one bar at
 a time, each indicator also has a **streaming** form: an `*_open` method warms a
 handle up on the history you already have, and from then on one bar in gives
-that bar's value out — no re-scan of the series, no allocation per bar, and
-bit-identical to what the batch call reports for the same bar.
+that bar's value out, bit-identical to what the batch call reports for the
+same bar.
 
 ```rust
 use ta_lib::{Core, RetCode};

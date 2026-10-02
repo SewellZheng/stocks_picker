@@ -54,6 +54,11 @@ public partial class Core
     *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
     *  071626 MF,CC  Initial version (#119).
+    *  092726 MF,CC  0 on a slow window of zero bars for the windowed MA types (#454).
+    *  092826 MF,CC  #459 fuse the fast and slow SMA into one pass over the input:
+    *                two running sums, no intermediate buffer, no allocation.
+    *                Bit-identical.
+    *  092826 MF,CC  Fuse the fast and slow EMA into one pass (#459).
     */
    /// <summary>
    /// Number of leading input bars <c>Pvo</c> consumes before it can produce its
@@ -70,8 +75,9 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving average type used for both MAs (default 1 = EMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int PvoLookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
@@ -91,7 +97,7 @@ public partial class Core
          return -1;
       }
       /* Lookback is driven by the slowest MA. */
-      return MaLookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
+      return MaLookback(MaxGt(optInSlowPeriod, optInFastPeriod), optInMAType) ;
 
    }
    internal RetCode PvoImpl( int startIdx,
@@ -113,11 +119,14 @@ public partial class Core
       int fastBeg = 0;
       int fastNb = 0;
       int offset = 0;
+      int slowLookback = 0;
+      int windowed = 0;
+      int zeroRun = 0;
       int i = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInFastPeriod == int.MinValue ) {
@@ -138,21 +147,204 @@ public partial class Core
       if( (outReal.Overlaps(inVolume) && outReal != inVolume) ) {
          return RetCode.BadParam ;
       }
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the fast MA below runs first, and its lookback is SMALLER
        * than pvo's own — so it reads the whole range and computes a result the
        * empty slow MA then discards. Observably identical (the slow MA's own early
        * return already yields 0,0 here), but it is the difference between "a range
-       * shorter than the lookback reads nothing" being true of this function and
+       * that ends before the lookback reads nothing" being true of this function and
        * being false: with a caller-supplied inVolume that stops short of endIdx, that
        * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
        * probe over every guarded core.
        */
-      if( MaLookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+      if( MaLookback(MaxGt(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx = 0;
          outNBElement = 0;
+         return RetCode.Success ;
+      }
+      if( optInMAType == MAType.SMA ) {
+         /* SMA fast path: the fast window is the newest optInFastPeriod bars of the
+          * slow one, so ONE pass over the input serves both moving averages - two
+          * running sums, no intermediate buffer and no allocation, where the general
+          * path below makes two passes and allocates the fast MA in full.
+          *
+          * Bit-identical to that path. Each sum sees exactly the add/subtract
+          * sequence TA_SMA gives it at its own period, starting from its own first
+          * output bar - which is why the fast sum is walked alone over the bars the
+          * slow MA does not reach (its running total is path-dependent, so arriving
+          * at the first output bar by a shorter route would change the low bits) -
+          * and each quotient is formed as sma.c forms it: the total AFTER adding the
+          * new bar and BEFORE dropping the trailing one, divided by the period.
+          *
+          * SMA is one of the windowed types, so the dead-window rule of #454 applies
+          * here too: _zeroRun is the same counter the general path keeps, warmed over
+          * the same bars (which are the bars the slow sum is seeded from) and held at
+          * the slow lookback once the window is dead.
+          *
+          * inVolume may alias outReal, as it may in the general path. outReal[_outIdx]
+          * is written at bar _i with _outIdx <= _i-optInSlowPeriod+1 <= both trailing
+          * indices, and every read of bar _i happens before that write, so no bar is
+          * overwritten before its last read.
+          *
+          * Every read is inside [0, endIdx]: the guard above leaves the slow
+          * lookback no greater than endIdx, and the public tier rejects
+          * endIdx < startIdx, so _slowStart <= endIdx and the seeding loops stop
+          * one bar below it. There is nothing left for an empty-output arm to
+          * catch, which is why this path has none.
+          */
+         double _fastTotal;
+         double _slowTotal;
+         double _fastValue;
+         double _slowValue;
+         double _slowMA;
+         int _i;
+         int _j;
+         int _outIdx;
+         int _fastStart;
+         int _slowStart;
+         int _fastTrailing;
+         int _slowTrailing;
+         int _slowLookback;
+         int _zeroRun;
+         /* Make sure slow is really slower than the fast period! if not, swap... */
+         if( optInSlowPeriod < optInFastPeriod ) {
+            tempInteger = optInSlowPeriod;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = tempInteger;
+         }
+         _fastStart = optInFastPeriod - 1;
+         if( _fastStart < startIdx ) {
+            _fastStart = startIdx;
+         }
+         _slowStart = optInSlowPeriod - 1;
+         if( _slowStart < startIdx ) {
+            _slowStart = startIdx;
+         }
+         _fastTrailing = _fastStart - (optInFastPeriod - 1);
+         _fastTotal = 0.0;
+         for( _j = _fastTrailing; _j < _fastStart; _j += 1 ) {
+            _fastTotal += inVolume[_j];
+         }
+         /* One loop seeds the slow sum and warms the dead-window counter: the bars
+          * it walks, [_slowStart-_slowLookback, _slowStart), are exactly the ones
+          * the general path warms _zeroRun over.
+          */
+         _slowLookback = optInSlowPeriod - 1;
+         _zeroRun = 0;
+         _slowTrailing = _slowStart - _slowLookback;
+         _slowTotal = 0.0;
+         for( _j = _slowTrailing; _j < _slowStart; _j += 1 ) {
+            _slowTotal += inVolume[_j];
+            _zeroRun = (Math.Abs(inVolume[_j]) <= 0.0) ? _zeroRun + 1 : 0;
+         }
+         /* The bars the fast MA has and the slow one does not: advance the fast sum
+          * alone. No output, but the sum must arrive at _slowStart along the same
+          * path TA_SMA would have taken.
+          */
+         for( _i = _fastStart; _i < _slowStart; _i += 1 ) {
+            _fastTotal += inVolume[_i];
+            _fastTotal -= inVolume[_fastTrailing];
+            _fastTrailing += 1;
+         }
+         _outIdx = 0;
+         for( _i = _slowStart; _i <= endIdx; _i += 1 ) {
+            _zeroRun = (Math.Abs(inVolume[_i]) <= 0.0) ? _zeroRun + 1 : 0;
+            _fastTotal += inVolume[_i];
+            _fastValue = _fastTotal;
+            _fastTotal -= inVolume[_fastTrailing];
+            _fastTrailing += 1;
+            _slowTotal += inVolume[_i];
+            _slowValue = _slowTotal;
+            _slowTotal -= inVolume[_slowTrailing];
+            _slowTrailing += 1;
+            _slowMA = _slowValue / (double)optInSlowPeriod;
+            if( _zeroRun > _slowLookback ) {
+               _zeroRun = _slowLookback;
+               outReal[_outIdx] = 0.0;
+            } else if( !((-0.00000000000001 < _slowMA) && (_slowMA < 0.00000000000001)) ) {
+               outReal[_outIdx] = (_fastValue / (double)optInFastPeriod - _slowMA) / _slowMA * 100.0;
+            } else {
+               outReal[_outIdx] = 0.0;
+            }
+            _outIdx += 1;
+         }
+         outBegIdx = _slowStart;
+         outNBElement = _outIdx;
+         return RetCode.Success ;
+      }
+      if( optInMAType == MAType.EMA ) {
+         /* EMA fast path: both recursions in one loop, no buffer. Bit-identical to
+          * the general path only while each EMA is seeded at its OWN lookback and
+          * keeps ema.c's recursion spelling: the fast EMA starts earlier than the
+          * slow one, and a shared seed bar would change every output.
+          */
+         double _eFastK;
+         double _eSlowK;
+         double _eFast;
+         double _eSlow;
+         double _eX;
+         int _eN;
+         int _eToday;
+         int _eFastToday;
+         int _eSlowToday;
+         int _eSlowStart;
+         int _eOutIdx;
+         if( optInSlowPeriod < optInFastPeriod ) {
+            tempInteger = optInSlowPeriod;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = tempInteger;
+         }
+         _eFastK = 2.0 / (double)(optInFastPeriod + 1);
+         _eSlowK = 2.0 / (double)(optInSlowPeriod + 1);
+         _eFastToday = EmaLookback(optInFastPeriod);
+         if( _eFastToday < startIdx ) {
+            _eFastToday = startIdx;
+         }
+         _eFastToday -= EmaLookback(optInFastPeriod);
+         _eSlowStart = EmaLookback(optInSlowPeriod);
+         if( _eSlowStart < startIdx ) {
+            _eSlowStart = startIdx;
+         }
+         _eSlowToday = _eSlowStart - EmaLookback(optInSlowPeriod);
+         _eFast = 0.0;
+         for( _eN = 0; _eN < optInFastPeriod; _eN += 1 ) {
+            _eFast += inVolume[_eFastToday++];
+         }
+         _eFast = _eFast / optInFastPeriod;
+         while( _eFastToday <= _eSlowStart ) {
+            _eFast = Math.FusedMultiplyAdd(inVolume[_eFastToday++] - _eFast, _eFastK, _eFast);
+         }
+         _eSlow = 0.0;
+         for( _eN = 0; _eN < optInSlowPeriod; _eN += 1 ) {
+            _eSlow += inVolume[_eSlowToday++];
+         }
+         _eSlow = _eSlow / optInSlowPeriod;
+         while( _eSlowToday <= _eSlowStart ) {
+            _eSlow = Math.FusedMultiplyAdd(inVolume[_eSlowToday++] - _eSlow, _eSlowK, _eSlow);
+         }
+         _eOutIdx = 0;
+         if( !((-0.00000000000001 < _eSlow) && (_eSlow < 0.00000000000001)) ) {
+            outReal[_eOutIdx] = (_eFast - _eSlow) / _eSlow * 100.0;
+         } else {
+            outReal[_eOutIdx] = 0.0;
+         }
+         _eOutIdx += 1;
+         _eToday = _eSlowStart + 1;
+         while( _eToday <= endIdx ) {
+            _eX = inVolume[_eToday++];
+            _eFast = Math.FusedMultiplyAdd(_eX - _eFast, _eFastK, _eFast);
+            _eSlow = Math.FusedMultiplyAdd(_eX - _eSlow, _eSlowK, _eSlow);
+            if( !((-0.00000000000001 < _eSlow) && (_eSlow < 0.00000000000001)) ) {
+               outReal[_eOutIdx] = (_eFast - _eSlow) / _eSlow * 100.0;
+            } else {
+               outReal[_eOutIdx] = 0.0;
+            }
+            _eOutIdx += 1;
+         }
+         outBegIdx = _eSlowStart;
+         outNBElement = _eOutIdx;
          return RetCode.Success ;
       }
       /* Allocate an intermediate buffer. */
@@ -181,13 +373,41 @@ public partial class Core
        * outReal[i], with a non-negative index. An empty slow MA skips the loop.
        */
       offset = fastNb - outNBElement;
-      /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
-      for( i = 0; i < (int)outNBElement; i += 1 ) {
-         tempReal = outReal[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-            outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
-         } else {
-            outReal[i] = 0.0;
+      /* A windowed slow MA (SMA, WMA, TRIMA, HMA) over bars that are all exactly
+       * zero is exactly zero, but its running sums leave residue there that
+       * TA_IS_ZERO does not catch, and residue over residue is noise where 0 is
+       * documented. zeroRun counts the trailing zero bars, held at slowLookback once
+       * the window is dead. The recursive MA types really are nonzero on such a
+       * window, so they keep the plain loop.
+       */
+      slowLookback = MaLookback(optInSlowPeriod, optInMAType);
+      windowed = (optInMAType == MAType.SMA || optInMAType == MAType.WMA || optInMAType == MAType.TRIMA || optInMAType == MAType.HMA) ? 1 : 0;
+      zeroRun = 0;
+      for( i = outBegIdx - slowLookback; i < outBegIdx; i += 1 ) {
+         zeroRun = (Math.Abs(inVolume[i]) <= 0.0) ? zeroRun + 1 : 0;
+      }
+      if( windowed != 0 ) {
+         for( i = 0; i < (int)outNBElement; i += 1 ) {
+            zeroRun = (Math.Abs(inVolume[outBegIdx + i]) <= 0.0) ? zeroRun + 1 : 0;
+            tempReal = outReal[i];
+            if( zeroRun > slowLookback ) {
+               zeroRun = slowLookback;
+               outReal[i] = 0.0;
+            } else if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+               outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+            } else {
+               outReal[i] = 0.0;
+            }
+         }
+      } else {
+         /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
+         for( i = 0; i < (int)outNBElement; i += 1 ) {
+            tempReal = outReal[i];
+            if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+               outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+            } else {
+               outReal[i] = 0.0;
+            }
          }
       }
       return RetCode.Success ;
@@ -211,11 +431,14 @@ public partial class Core
       int fastBeg = 0;
       int fastNb = 0;
       int offset = 0;
+      int slowLookback = 0;
+      int windowed = 0;
+      int zeroRun = 0;
       int i = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInFastPeriod == int.MinValue ) {
@@ -236,9 +459,149 @@ public partial class Core
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inVolume)) ) {
          return RetCode.BadParam ;
       }
-      if( MaLookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+      if( MaLookback(MaxGt(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx = 0;
          outNBElement = 0;
+         return RetCode.Success ;
+      }
+      if( optInMAType == MAType.SMA ) {
+         double _fastTotal;
+         double _slowTotal;
+         double _fastValue;
+         double _slowValue;
+         double _slowMA;
+         int _i;
+         int _j;
+         int _outIdx;
+         int _fastStart;
+         int _slowStart;
+         int _fastTrailing;
+         int _slowTrailing;
+         int _slowLookback;
+         int _zeroRun;
+         if( optInSlowPeriod < optInFastPeriod ) {
+            tempInteger = optInSlowPeriod;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = tempInteger;
+         }
+         _fastStart = optInFastPeriod - 1;
+         if( _fastStart < startIdx ) {
+            _fastStart = startIdx;
+         }
+         _slowStart = optInSlowPeriod - 1;
+         if( _slowStart < startIdx ) {
+            _slowStart = startIdx;
+         }
+         _fastTrailing = _fastStart - (optInFastPeriod - 1);
+         _fastTotal = 0.0;
+         for( _j = _fastTrailing; _j < _fastStart; _j += 1 ) {
+            _fastTotal += (double)inVolume[_j];
+         }
+         _slowLookback = optInSlowPeriod - 1;
+         _zeroRun = 0;
+         _slowTrailing = _slowStart - _slowLookback;
+         _slowTotal = 0.0;
+         for( _j = _slowTrailing; _j < _slowStart; _j += 1 ) {
+            _slowTotal += (double)inVolume[_j];
+            _zeroRun = (Math.Abs((double)inVolume[_j]) <= 0.0) ? _zeroRun + 1 : 0;
+         }
+         for( _i = _fastStart; _i < _slowStart; _i += 1 ) {
+            _fastTotal += (double)inVolume[_i];
+            _fastTotal -= (double)inVolume[_fastTrailing];
+            _fastTrailing += 1;
+         }
+         _outIdx = 0;
+         for( _i = _slowStart; _i <= endIdx; _i += 1 ) {
+            _zeroRun = (Math.Abs((double)inVolume[_i]) <= 0.0) ? _zeroRun + 1 : 0;
+            _fastTotal += (double)inVolume[_i];
+            _fastValue = _fastTotal;
+            _fastTotal -= (double)inVolume[_fastTrailing];
+            _fastTrailing += 1;
+            _slowTotal += (double)inVolume[_i];
+            _slowValue = _slowTotal;
+            _slowTotal -= (double)inVolume[_slowTrailing];
+            _slowTrailing += 1;
+            _slowMA = _slowValue / (double)optInSlowPeriod;
+            if( _zeroRun > _slowLookback ) {
+               _zeroRun = _slowLookback;
+               outReal[_outIdx] = 0.0;
+            } else if( !((-0.00000000000001 < _slowMA) && (_slowMA < 0.00000000000001)) ) {
+               outReal[_outIdx] = (_fastValue / (double)optInFastPeriod - _slowMA) / _slowMA * 100.0;
+            } else {
+               outReal[_outIdx] = 0.0;
+            }
+            _outIdx += 1;
+         }
+         outBegIdx = _slowStart;
+         outNBElement = _outIdx;
+         return RetCode.Success ;
+      }
+      if( optInMAType == MAType.EMA ) {
+         double _eFastK;
+         double _eSlowK;
+         double _eFast;
+         double _eSlow;
+         double _eX;
+         int _eN;
+         int _eToday;
+         int _eFastToday;
+         int _eSlowToday;
+         int _eSlowStart;
+         int _eOutIdx;
+         if( optInSlowPeriod < optInFastPeriod ) {
+            tempInteger = optInSlowPeriod;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = tempInteger;
+         }
+         _eFastK = 2.0 / (double)(optInFastPeriod + 1);
+         _eSlowK = 2.0 / (double)(optInSlowPeriod + 1);
+         _eFastToday = EmaLookback(optInFastPeriod);
+         if( _eFastToday < startIdx ) {
+            _eFastToday = startIdx;
+         }
+         _eFastToday -= EmaLookback(optInFastPeriod);
+         _eSlowStart = EmaLookback(optInSlowPeriod);
+         if( _eSlowStart < startIdx ) {
+            _eSlowStart = startIdx;
+         }
+         _eSlowToday = _eSlowStart - EmaLookback(optInSlowPeriod);
+         _eFast = 0.0;
+         for( _eN = 0; _eN < optInFastPeriod; _eN += 1 ) {
+            _eFast += (double)inVolume[_eFastToday++];
+         }
+         _eFast = _eFast / optInFastPeriod;
+         while( _eFastToday <= _eSlowStart ) {
+            _eFast = Math.FusedMultiplyAdd((double)inVolume[_eFastToday++] - _eFast, _eFastK, _eFast);
+         }
+         _eSlow = 0.0;
+         for( _eN = 0; _eN < optInSlowPeriod; _eN += 1 ) {
+            _eSlow += (double)inVolume[_eSlowToday++];
+         }
+         _eSlow = _eSlow / optInSlowPeriod;
+         while( _eSlowToday <= _eSlowStart ) {
+            _eSlow = Math.FusedMultiplyAdd((double)inVolume[_eSlowToday++] - _eSlow, _eSlowK, _eSlow);
+         }
+         _eOutIdx = 0;
+         if( !((-0.00000000000001 < _eSlow) && (_eSlow < 0.00000000000001)) ) {
+            outReal[_eOutIdx] = (_eFast - _eSlow) / _eSlow * 100.0;
+         } else {
+            outReal[_eOutIdx] = 0.0;
+         }
+         _eOutIdx += 1;
+         _eToday = _eSlowStart + 1;
+         while( _eToday <= endIdx ) {
+            _eX = (double)inVolume[_eToday++];
+            _eFast = Math.FusedMultiplyAdd(_eX - _eFast, _eFastK, _eFast);
+            _eSlow = Math.FusedMultiplyAdd(_eX - _eSlow, _eSlowK, _eSlow);
+            if( !((-0.00000000000001 < _eSlow) && (_eSlow < 0.00000000000001)) ) {
+               outReal[_eOutIdx] = (_eFast - _eSlow) / _eSlow * 100.0;
+            } else {
+               outReal[_eOutIdx] = 0.0;
+            }
+            _eOutIdx += 1;
+         }
+         outBegIdx = _eSlowStart;
+         outNBElement = _eOutIdx;
          return RetCode.Success ;
       }
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
@@ -256,12 +619,33 @@ public partial class Core
       outNBElement = _xr1.Count;
       retCode = RetCode.Success;
       offset = fastNb - outNBElement;
-      for( i = 0; i < (int)outNBElement; i += 1 ) {
-         tempReal = outReal[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-            outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
-         } else {
-            outReal[i] = 0.0;
+      slowLookback = MaLookback(optInSlowPeriod, optInMAType);
+      windowed = (optInMAType == MAType.SMA || optInMAType == MAType.WMA || optInMAType == MAType.TRIMA || optInMAType == MAType.HMA) ? 1 : 0;
+      zeroRun = 0;
+      for( i = outBegIdx - slowLookback; i < outBegIdx; i += 1 ) {
+         zeroRun = (Math.Abs((double)inVolume[i]) <= 0.0) ? zeroRun + 1 : 0;
+      }
+      if( windowed != 0 ) {
+         for( i = 0; i < (int)outNBElement; i += 1 ) {
+            zeroRun = (Math.Abs((double)inVolume[outBegIdx + i]) <= 0.0) ? zeroRun + 1 : 0;
+            tempReal = outReal[i];
+            if( zeroRun > slowLookback ) {
+               zeroRun = slowLookback;
+               outReal[i] = 0.0;
+            } else if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+               outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+            } else {
+               outReal[i] = 0.0;
+            }
+         }
+      } else {
+         for( i = 0; i < (int)outNBElement; i += 1 ) {
+            tempReal = outReal[i];
+            if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+               outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+            } else {
+               outReal[i] = 0.0;
+            }
          }
       }
       return RetCode.Success ;
@@ -288,8 +672,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>PvoLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>PvoLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -301,28 +690,37 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving average type used for both MAs (default 1 = EMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
-   /// <param name="outReal">PVO value in percent. Must hold at least <c>endIdx - startIdx + 1</c>
-   /// values.</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
+   /// <param name="outReal">PVO value in percent. Must hold at least <c>endIdx - max(startIdx,
+   /// PvoLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Ppo(int, int, ReadOnlySpan{double}, int, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Obv(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Macd(int, int, ReadOnlySpan{double}, int, int, int, Span{double}, Span{double}, Span{double})"/>
    public OutRange Pvo( int startIdx,
                         int endIdx,
                         ReadOnlySpan<double> inVolume,
@@ -370,8 +768,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>PvoLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>PvoLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -383,30 +786,39 @@ public partial class Core
    /// selects the default).</param>
    /// <param name="optInMAType">Moving average type used for both MAs (default 1 = EMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
-   /// <param name="outReal">PVO value in percent. Must hold at least <c>endIdx - startIdx + 1</c>
-   /// values.</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
+   /// <param name="outReal">PVO value in percent. Must hold at least <c>endIdx - max(startIdx,
+   /// PvoLookback(...)) + 1</c> values, the count the call produces (none when
+   /// that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Ppo(int, int, ReadOnlySpan{double}, int, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Obv(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Macd(int, int, ReadOnlySpan{double}, int, int, int, Span{double}, Span{double}, Span{double})"/>
    public OutRange Pvo( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inVolume,
@@ -451,6 +863,9 @@ public partial class Core
       internal int optInSlowPeriod;
       internal MAType optInMAType;
       internal double cur_outReal;
+      internal int slowLookback;
+      internal int windowed;
+      internal int zeroRun;
       internal MaStream sub0 = null!;
       internal MaStream sub1 = null!;
       internal int outRangeBegIdx;
@@ -467,7 +882,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -480,13 +895,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("PVO", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -498,6 +913,9 @@ public partial class Core
          this.optInSlowPeriod = other.optInSlowPeriod;
          this.optInMAType = other.optInMAType;
          this.cur_outReal = other.cur_outReal;
+         this.slowLookback = other.slowLookback;
+         this.windowed = other.windowed;
+         this.zeroRun = other.zeroRun;
          this.sub0 = new MaStream(other.sub0);
          this.sub1 = new MaStream(other.sub1);
          this.outRangeBegIdx = other.outRangeBegIdx;
@@ -506,7 +924,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -517,7 +934,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -525,9 +942,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inVolume )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("PVO", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inVolume) ) throw Core.StreamFailure("PVO", "update", RetCode.BadParam);
+         if( !double.IsFinite(inVolume) ) throw Core.NonFiniteBar("PVO", "update", nameof(inVolume));
          core.PvoStepImpl(this, inVolume);
          outRangeCount++;
          return cur_outReal;
@@ -539,16 +956,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inVolume">This bar's volume.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public double Peek( double inVolume )
       {
-         if( !double.IsFinite(inVolume) ) throw Core.StreamFailure("PVO", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inVolume) ) throw Core.NonFiniteBar("PVO", "peek", nameof(inVolume));
          PvoStream sp = this;
          double tempReal = 0.0;
          double cur_tempBuffer = 0.0;
@@ -556,12 +972,29 @@ public partial class Core
          /* Pipeline the new bar through the sub-streams (batch tail order). */
          cur_tempBuffer = sp.sub0.Peek(inVolume);
          cur_outReal = sp.sub1.Peek(inVolume);
+         int slowLookback = sp.slowLookback;
+         int windowed = sp.windowed;
+         int zeroRun = sp.zeroRun;
          /* Combine map (batch tail, per bar). */
-         tempReal = cur_outReal;
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-            cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+         if( windowed != 0 ) {
+            zeroRun = (Math.Abs(inVolume) <= 0.0) ? zeroRun + 1 : 0;
+            tempReal = cur_outReal;
+            if( zeroRun > slowLookback ) {
+               zeroRun = slowLookback;
+               cur_outReal = 0.0;
+            } else if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+               cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+            } else {
+               cur_outReal = 0.0;
+            }
          } else {
-            cur_outReal = 0.0;
+            /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
+            tempReal = cur_outReal;
+            if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+               cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+            } else {
+               cur_outReal = 0.0;
+            }
          }
          return cur_outReal;
       }
@@ -583,7 +1016,7 @@ public partial class Core
       }
    }
 
-   internal void PvoStepImpl( PvoStream sp, double inVolume )
+   private void PvoStepImpl( PvoStream sp, double inVolume )
    {
       double tempReal = 0.0;
       double cur_tempBuffer = 0.0;
@@ -591,13 +1024,31 @@ public partial class Core
       /* Pipeline the new bar through the sub-streams (batch tail order). */
       cur_tempBuffer = sp.sub0.Update(inVolume);
       cur_outReal = sp.sub1.Update(inVolume);
+      int slowLookback = sp.slowLookback;
+      int windowed = sp.windowed;
+      int zeroRun = sp.zeroRun;
       /* Combine map (batch tail, per bar). */
-      tempReal = cur_outReal;
-      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-         cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+      if( windowed != 0 ) {
+         zeroRun = (Math.Abs(inVolume) <= 0.0) ? zeroRun + 1 : 0;
+         tempReal = cur_outReal;
+         if( zeroRun > slowLookback ) {
+            zeroRun = slowLookback;
+            cur_outReal = 0.0;
+         } else if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+            cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+         } else {
+            cur_outReal = 0.0;
+         }
       } else {
-         cur_outReal = 0.0;
+         /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
+         tempReal = cur_outReal;
+         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+            cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+         } else {
+            cur_outReal = 0.0;
+         }
       }
+      sp.zeroRun = zeroRun;
       sp.cur_outReal = cur_outReal;
    }
 
@@ -612,13 +1063,16 @@ public partial class Core
       int fastBeg = 0;
       int fastNb = 0;
       int offset = 0;
+      int slowLookback = 0;
+      int windowed = 0;
+      int zeroRun = 0;
       int i = 0;
       int historyLen = inVolume.Length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInFastPeriod == int.MinValue ) {
@@ -645,19 +1099,19 @@ public partial class Core
          return RetCode.InsufficientHistory;
       }
       Span<double> sc_outReal = outStride == 1 ? outReal : new double[historyLen];
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the fast MA below runs first, and its lookback is SMALLER
        * than pvo's own — so it reads the whole range and computes a result the
        * empty slow MA then discards. Observably identical (the slow MA's own early
        * return already yields 0,0 here), but it is the difference between "a range
-       * shorter than the lookback reads nothing" being true of this function and
+       * that ends before the lookback reads nothing" being true of this function and
        * being false: with a caller-supplied inVolume that stops short of endIdx, that
        * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
        * probe over every guarded core.
        */
-      if( MaLookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+      if( MaLookback(MaxGt(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx = 0;
          outNBElement = 0;
          return RetCode.InsufficientHistory ;
@@ -688,13 +1142,41 @@ public partial class Core
        * outReal[i], with a non-negative index. An empty slow MA skips the loop.
        */
       offset = fastNb - outNBElement;
-      /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
-      for( i = 0; i < (int)outNBElement; i += 1 ) {
-         tempReal = sc_outReal[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
-            sc_outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
-         } else {
-            sc_outReal[i] = 0.0;
+      /* A windowed slow MA (SMA, WMA, TRIMA, HMA) over bars that are all exactly
+       * zero is exactly zero, but its running sums leave residue there that
+       * TA_IS_ZERO does not catch, and residue over residue is noise where 0 is
+       * documented. zeroRun counts the trailing zero bars, held at slowLookback once
+       * the window is dead. The recursive MA types really are nonzero on such a
+       * window, so they keep the plain loop.
+       */
+      slowLookback = MaLookback(optInSlowPeriod, optInMAType);
+      windowed = (optInMAType == MAType.SMA || optInMAType == MAType.WMA || optInMAType == MAType.TRIMA || optInMAType == MAType.HMA) ? 1 : 0;
+      zeroRun = 0;
+      for( i = outBegIdx - slowLookback; i < outBegIdx; i += 1 ) {
+         zeroRun = (Math.Abs(inVolume[i]) <= 0.0) ? zeroRun + 1 : 0;
+      }
+      if( windowed != 0 ) {
+         for( i = 0; i < (int)outNBElement; i += 1 ) {
+            zeroRun = (Math.Abs(inVolume[outBegIdx + i]) <= 0.0) ? zeroRun + 1 : 0;
+            tempReal = sc_outReal[i];
+            if( zeroRun > slowLookback ) {
+               zeroRun = slowLookback;
+               sc_outReal[i] = 0.0;
+            } else if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+               sc_outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+            } else {
+               sc_outReal[i] = 0.0;
+            }
+         }
+      } else {
+         /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
+         for( i = 0; i < (int)outNBElement; i += 1 ) {
+            tempReal = sc_outReal[i];
+            if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+               sc_outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+            } else {
+               sc_outReal[i] = 0.0;
+            }
          }
       }
       /* Capture the live producer state + sub handles. */
@@ -706,6 +1188,9 @@ public partial class Core
       sp.optInMAType = optInMAType;
       sp.sub0 = sub0;
       sp.sub1 = sub1;
+      sp.slowLookback = slowLookback;
+      sp.windowed = windowed;
+      sp.zeroRun = zeroRun;
       sp.cur_outReal = sc_outReal[outNBElement - 1];
       return RetCode.Success;
    }
@@ -720,6 +1205,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("PVO", "openAndFill", nameof(inVolume), inVolume.Length, startIdx, PvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      }
       throw StreamFailure("PVO", "openAndFill", retCode);
    }
 
@@ -733,6 +1221,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("PVO", "open", nameof(inVolume), inVolume.Length, startIdx, PvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       }
       throw StreamFailure("PVO", "open", retCode);
    }
@@ -756,12 +1247,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>PvoLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public PvoStream PvoOpen( ReadOnlySpan<double> inVolume, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
       if( inVolume.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inVolume.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inVolume.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return PvoOpenInternal(inVolume, 0, optInFastPeriod, optInSlowPeriod, optInMAType);
    }
 
@@ -794,12 +1285,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public PvoStream PvoOpenAndFill( ReadOnlySpan<double> inVolume, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, Span<double> outReal )
    {
       if( inVolume.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inVolume.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inVolume.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("PVO", "openAndFill", inVolume.Length, PvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       RequireFillLength("PVO", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inVolume) ) {

@@ -25,6 +25,7 @@
  *  082326 MF,CC Fix #244. Detect an empty window by counting bars, not by
  *               testing the money-flow sum against a literal 1.0; classify
  *               branchlessly; clamp the emitted ratio into [0,100].
+ *  092526 MF,CC #442. Allocate the money-flow ring only when there is output.
  */
 
    /**
@@ -78,10 +79,10 @@
       double[] mflow_negative;
       int mflow_Idx = 0;
       int maxIdx_mflow = (50)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -90,11 +91,6 @@
          return RetCode.BAD_PARAM;
       }
       /* Id, Type, Static Size */
-      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
-      mflow_positive = new double[optInTimePeriod];
-      mflow_negative = new double[optInTimePeriod];
-      maxIdx_mflow = (optInTimePeriod)-1;
-      mflow_Idx = 0;
       outBegIdx.value = 0;
       outNBElement.value = 0;
       /* Adjust startIdx to account for the lookback period. */
@@ -106,6 +102,11 @@
       if( startIdx > endIdx ) {
          return RetCode.SUCCESS ;
       }
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
+      mflow_positive = new double[optInTimePeriod];
+      mflow_negative = new double[optInTimePeriod];
+      maxIdx_mflow = (optInTimePeriod)-1;
+      mflow_Idx = 0;
       outIdx = 0;
       /* Index into the output. */
       /* Accumulate the positive and negative money flow
@@ -263,10 +264,10 @@
       double[] mflow_negative;
       int mflow_Idx = 0;
       int maxIdx_mflow = (50)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -274,11 +275,6 @@
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BAD_PARAM;
       }
-      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
-      mflow_positive = new double[optInTimePeriod];
-      mflow_negative = new double[optInTimePeriod];
-      maxIdx_mflow = (optInTimePeriod)-1;
-      mflow_Idx = 0;
       outBegIdx.value = 0;
       outNBElement.value = 0;
       lookbackTotal = optInTimePeriod;
@@ -288,6 +284,11 @@
       if( startIdx > endIdx ) {
          return RetCode.SUCCESS ;
       }
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
+      mflow_positive = new double[optInTimePeriod];
+      mflow_negative = new double[optInTimePeriod];
+      maxIdx_mflow = (optInTimePeriod)-1;
+      mflow_Idx = 0;
       outIdx = 0;
       today = startIdx - lookbackTotal;
       prevValue = ((double)inHigh[today] + (double)inLow[today] + (double)inClose[today]) / 3.0;
@@ -373,8 +374,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#mfiLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#mfiLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -385,11 +386,12 @@
     * @param optInTimePeriod Lookback window for summing money flow (default 14;
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Money Flow Index. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, mfiLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -447,8 +449,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#mfiLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#mfiLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -459,11 +461,12 @@
     * @param optInTimePeriod Lookback window for summing money flow (default 14;
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Money Flow Index. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, mfiLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -548,7 +551,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -562,12 +565,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MFI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -603,15 +606,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inHigh, double inLow, double inClose, double inVolume ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("MFI update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TALibArgumentException("MFI update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MFI update", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : !Double.isFinite(inClose) ? "inClose" : "inVolume");
          core.mfiStepImpl(this, inHigh, inLow, inClose, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -621,15 +624,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow, double inClose, double inVolume ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
-            throw new TALibArgumentException("MFI peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("MFI peek", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : !Double.isFinite(inClose) ? "inClose" : "inVolume");
          MfiStream sp = this;
          double tempValue1 = 0.0;
          double tempValue2 = 0.0;
@@ -770,7 +771,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
@@ -787,11 +788,6 @@
          return RetCode.INSUFFICIENT_HISTORY;
       }
       /* Id, Type, Static Size */
-      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
-      mflow_positive = new double[optInTimePeriod];
-      mflow_negative = new double[optInTimePeriod];
-      maxIdx_mflow = (optInTimePeriod)-1;
-      mflow_Idx = 0;
       outBegIdx.value = 0;
       outNBElement.value = 0;
       /* Adjust startIdx to account for the lookback period. */
@@ -803,6 +799,11 @@
       if( startIdx > endIdx ) {
          return RetCode.INSUFFICIENT_HISTORY ;
       }
+      if( optInTimePeriod < 1 ) return RetCode.INTERNAL_ERROR;
+      mflow_positive = new double[optInTimePeriod];
+      mflow_negative = new double[optInTimePeriod];
+      maxIdx_mflow = (optInTimePeriod)-1;
+      mflow_Idx = 0;
       outIdx = 0;
       /* Index into the output. */
       /* Accumulate the positive and negative money flow
@@ -957,12 +958,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MFI openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("MFI openAndFill", inHigh.length, startIdx, mfiLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MFI openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("MFI openAndFill: " + retCode, retCode);
+      throw streamFailure("MFI openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind mfiOpen (composition seam). */
    MfiStream mfiOpenInternal( double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx, int optInTimePeriod )
@@ -978,12 +976,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("MFI open: history shorter than lookback + 1");
+         throw insufficientHistory("MFI open", inHigh.length, startIdx, mfiLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("MFI open: internal error", retCode);
-      }
-      throw new TALibArgumentException("MFI open: " + retCode, retCode);
+      throw streamFailure("MFI open", retCode);
    }
    /**
     * Open a live MFI stream over the warm-up history; the handle's
@@ -1034,7 +1029,7 @@
       requireHistoryLength("MFI openAndFill", "inVolume", inVolume.length, inHigh.length);
       requireLength("MFI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
-         throw new TALibArgumentException("MFI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("MFI openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

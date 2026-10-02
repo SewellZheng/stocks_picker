@@ -18,7 +18,7 @@
 # Written by `ta_codegen generate`. Do not renumber by hand -- the number is
 # the only thing a bug report carries, and it has to mean the same guard in the
 # next release as it did in the last.
-next: 429
+next: 482
 sites:
   AC.cbsize.oscBuffer: 184
   AC.circbuf.oscBuffer: 181
@@ -26,6 +26,9 @@ sites:
   AC.ringcap.trailingSlowIdx: 183
   ACCBANDS.ringcap.trailingIdx: 185
   ADR.ringcap.trailingIdx: 407
+  ALMA.cbsize.weights: 461
+  ALMA.circbuf.weights: 459
+  ALMA.wincap.j: 460
   AO.ringcap.trailingFastIdx: 186
   AO.ringcap.trailingSlowIdx: 187
   AROON.extrema: 188
@@ -154,6 +157,18 @@ sites:
   CDLUNIQUE3RIVER.ringcap.BodyShortTrailingIdx: 311
   CDLUPSIDEGAP2CROWS.ringcap.BodyLongTrailingIdx: 312
   CDLUPSIDEGAP2CROWS.ringcap.BodyShortTrailingIdx: 313
+  CG.ringcap.trailingIdx: 436
+  CG.wincap.j: 437
+  CHOP.wincap.i: 456
+  CHOPTR.wincap.i: 457
+  CKSP.cbsize.hhBuf: 478
+  CKSP.cbsize.hsBuf: 480
+  CKSP.cbsize.llBuf: 479
+  CKSP.cbsize.lsBuf: 481
+  CKSP.circbuf.hhBuf: 474
+  CKSP.circbuf.hsBuf: 476
+  CKSP.circbuf.llBuf: 475
+  CKSP.circbuf.lsBuf: 477
   CMF.cbsize.mfv: 315
   CMF.circbuf.mfv: 314
   CMOU.ringcap.trailingIdx: 316
@@ -162,16 +177,21 @@ sites:
   COPPOCK.ringcap.roc1Idx: 421
   COPPOCK.ringcap.roc2Idx: 422
   CORREL.extrema: 317
+  CTI.extrema: 429
   CVI.cbsize.emaRing: 417
   CVI.circbuf.emaRing: 416
   DONCHIAN.extrema: 403
   DPO.ringcap.dispIdx: 409
   DPO.ringcap.trailingIdx: 410
   EFI.dualmode: 318
+  EMV.cbsize.rawBuffer: 441
+  EMV.circbuf.rawBuffer: 440
   ER.ringcap.trailingIdx: 426
   ERI.dualmode: 425
   FOSC.extrema: 406
   FRACTAL.wincap.i: 427
+  FRAMA.cbsize.slot: 439
+  FRAMA.circbuf.slot: 438
   HMA.cbsize.dRing: 324
   HMA.circbuf.dRing: 319
   HMA.dualmode: 325
@@ -192,6 +212,21 @@ sites:
   HT_TRENDMODE.wincap.j: 335
   IMI.wincap.i: 337
   KAMA.ringcap.trailingIdx: 338
+  KST.cbsize.ring1: 451
+  KST.cbsize.ring2: 452
+  KST.cbsize.ring3: 453
+  KST.cbsize.ring4: 454
+  KST.cbsize.sigRing: 455
+  KST.circbuf.ring1: 442
+  KST.circbuf.ring2: 443
+  KST.circbuf.ring3: 444
+  KST.circbuf.ring4: 445
+  KST.circbuf.sigRing: 446
+  KST.ringcap.den1: 447
+  KST.ringcap.den2: 448
+  KST.ringcap.den3: 449
+  KST.ringcap.den4: 450
+  KURTOSIS.extrema: 430
   LINEARREG.extrema: 339
   LINEARREG_ANGLE.extrema: 340
   LINEARREG_INTERCEPT.extrema: 341
@@ -205,6 +240,10 @@ sites:
   MAX.circbuf.sufHighest: 347
   MAX.extrema: 349
   MAXINDEX.extrema: 350
+  MEDIAN.cbsize.ring: 433
+  MEDIAN.cbsize.sorted: 434
+  MEDIAN.circbuf.ring: 431
+  MEDIAN.circbuf.sorted: 432
   MFI.cbsize.mflow: 352
   MFI.circbuf.mflow: 351
   MIDPOINT.circbuf.preHighest: 354
@@ -246,6 +285,18 @@ sites:
   RVOL.ringcap.trailingIdx: 408
   SMA.ringcap.trailingIdx: 383
   SMI.extrema: 384
+  STC.cbsize.lineRing: 468
+  STC.cbsize.lineSufHi: 469
+  STC.cbsize.lineSufLo: 470
+  STC.cbsize.pfRing: 471
+  STC.cbsize.pfSufHi: 472
+  STC.cbsize.pfSufLo: 473
+  STC.circbuf.lineRing: 462
+  STC.circbuf.lineSufHi: 463
+  STC.circbuf.lineSufLo: 464
+  STC.circbuf.pfRing: 465
+  STC.circbuf.pfSufHi: 466
+  STC.circbuf.pfSufLo: 467
   STOCH.extrema: 385
   STOCHF.extrema: 386
   SUM.ringcap.trailingIdx: 387
@@ -257,6 +308,7 @@ sites:
   ULTOSC.circbuf.term: 392
   VAR.extrema: 394
   VHF.wincap.i: 405
+  VIDYA.ringcap.trailingIdx: 458
   VORTEX.ringlag.trailingIdx: 424
   VWMA.ringcap.trailingIdx: 395
   WILLR.circbuf.preHighest: 397

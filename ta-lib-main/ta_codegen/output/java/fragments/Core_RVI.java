@@ -10,6 +10,7 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  090526 MF,CC  First version (issue #366).
+ *  092226 MF,CC  #434 the three variance steps follow var.c.
  */
 
    /**
@@ -60,6 +61,7 @@
       double periodTotal2 = 0;
       double meanValue1 = 0;
       double variance = 0;
+      double peakTotal2 = 0;
       double invPeriod = 0;
       double sigma = 0;
       double delta = 0;
@@ -82,10 +84,10 @@
       int barsSinceReseed = 0;
       int nbInitialElementNeeded = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -135,6 +137,7 @@
          periodTotal2 += tempReal;
       }
       barsSinceReseed = 32 * optInStdDevPeriod;
+      peakTotal2 = periodTotal2;
       /* Seed both legs with the simple average of the first 'optInTimePeriod'
        * volatilities, as rma.c seeds. optInStdDevPeriod >= 2 is what keeps the
        * inReal[today-1] below in bounds on the very first bar.
@@ -146,6 +149,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = inReal[trailingIdx] - shift;
@@ -154,7 +158,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -172,6 +176,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -198,6 +216,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = inReal[trailingIdx] - shift;
@@ -206,7 +225,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -224,6 +243,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -259,6 +292,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = inReal[trailingIdx] - shift;
@@ -267,7 +301,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -285,6 +319,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -327,6 +375,7 @@
       double periodTotal2 = 0;
       double meanValue1 = 0;
       double variance = 0;
+      double peakTotal2 = 0;
       double invPeriod = 0;
       double sigma = 0;
       double delta = 0;
@@ -349,10 +398,10 @@
       int barsSinceReseed = 0;
       int nbInitialElementNeeded = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -391,6 +440,7 @@
          periodTotal2 += tempReal;
       }
       barsSinceReseed = 32 * optInStdDevPeriod;
+      peakTotal2 = periodTotal2;
       upTotal = 0.0;
       dnTotal = 0.0;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
@@ -398,6 +448,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = (double)inReal[trailingIdx] - shift;
@@ -406,7 +457,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -424,6 +475,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = (double)inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = (double)inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -449,6 +514,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = (double)inReal[trailingIdx] - shift;
@@ -457,7 +523,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -475,6 +541,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = (double)inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = (double)inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -505,6 +585,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = (double)inReal[trailingIdx] - shift;
@@ -513,7 +594,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -531,6 +612,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = (double)inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = (double)inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -572,18 +667,15 @@
     * href="https://ta-lib.org/functions/rvi">ta-lib.org/functions/rvi</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>This is Dorsey's 1993 original, which measures the closes alone. His 1995 revision averages the index of the highs with the index of the lows; some vendors reserve the name RVI for that revision and call this one RVIorig. It is not implemented here.</li>
-    * <li>A tie contributes to neither bucket, matching RSI's treatment of an unchanged close. Descriptions that write the denominator as a smoothed {@code S} instead of {@code U + D} are counting ties as down bars, which is a different indicator.</li>
-    * <li>Both smoothed legs can be exactly zero at the same bar, which happens whenever the smoothing carries no memory and the bar is a tie. RVI reports its neutral centre, 50, there rather than a non-finite value.</li>
-    * <li>The standard deviation is the population form. The sample form differs by a constant factor that cancels in the ratio, so it is not a variant.</li>
-    * <li>Sources publishing something else under this name, and how far from this function they land on a 252-bar equity series: a plain exponential smoother instead of Wilder's, up to 11.6 index points; one shared period for both the deviation and the smoothing, up to 15.6; an RSI taken over the standard-deviation series, up to 35.2; a linear-regression residual, up to 36.0. These are different indicators, not errors.</li>
+    * <li>RVI is the 1993 version; <a href="https://ta-lib.org/functions/rvir">{@code RVIR}</a> is the 1995 revision.</li>
+    * <li>A tie contributes to neither bucket, matching RSI's treatment of an unchanged close. Descriptions that write the denominator as a smoothed {@code S} instead of {@code Up + Down} are counting ties as down bars, which is a different indicator.</li>
     * <li>Unrelated to the Relative Vigor Index, which several platforms also abbreviate RVI.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#rviLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#rviLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -595,11 +687,12 @@
     *        spans (default 10; range 2..100000; {@code Integer.MIN_VALUE} selects the
     *        default).
     * @param outReal Relative Volatility Index value. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, rviLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -650,11 +743,8 @@
     * href="https://ta-lib.org/functions/rvi">ta-lib.org/functions/rvi</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>This is Dorsey's 1993 original, which measures the closes alone. His 1995 revision averages the index of the highs with the index of the lows; some vendors reserve the name RVI for that revision and call this one RVIorig. It is not implemented here.</li>
-    * <li>A tie contributes to neither bucket, matching RSI's treatment of an unchanged close. Descriptions that write the denominator as a smoothed {@code S} instead of {@code U + D} are counting ties as down bars, which is a different indicator.</li>
-    * <li>Both smoothed legs can be exactly zero at the same bar, which happens whenever the smoothing carries no memory and the bar is a tie. RVI reports its neutral centre, 50, there rather than a non-finite value.</li>
-    * <li>The standard deviation is the population form. The sample form differs by a constant factor that cancels in the ratio, so it is not a variant.</li>
-    * <li>Sources publishing something else under this name, and how far from this function they land on a 252-bar equity series: a plain exponential smoother instead of Wilder's, up to 11.6 index points; one shared period for both the deviation and the smoothing, up to 15.6; an RSI taken over the standard-deviation series, up to 35.2; a linear-regression residual, up to 36.0. These are different indicators, not errors.</li>
+    * <li>RVI is the 1993 version; <a href="https://ta-lib.org/functions/rvir">{@code RVIR}</a> is the 1995 revision.</li>
+    * <li>A tie contributes to neither bucket, matching RSI's treatment of an unchanged close. Descriptions that write the denominator as a smoothed {@code S} instead of {@code Up + Down} are counting ties as down bars, which is a different indicator.</li>
     * <li>Unrelated to the Relative Vigor Index, which several platforms also abbreviate RVI.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -663,8 +753,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#rviLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#rviLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -676,11 +766,12 @@
     *        spans (default 10; range 2..100000; {@code Integer.MIN_VALUE} selects the
     *        default).
     * @param outReal Relative Volatility Index value. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, rviLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -740,6 +831,7 @@
       private double shift;
       private double periodTotal1;
       private double periodTotal2;
+      private double peakTotal2;
       private double invPeriod;
       private double prevUp;
       private double prevDn;
@@ -770,7 +862,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -784,12 +876,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("RVI advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -801,6 +893,7 @@
          this.shift = other.shift;
          this.periodTotal1 = other.periodTotal1;
          this.periodTotal2 = other.periodTotal2;
+         this.peakTotal2 = other.peakTotal2;
          this.invPeriod = other.invPeriod;
          this.prevUp = other.prevUp;
          this.prevDn = other.prevDn;
@@ -834,15 +927,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("RVI update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("RVI update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("RVI update", "inReal");
          core.rviStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -852,15 +945,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("RVI peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("RVI peek", "inReal");
          RviStream sp = this;
          double tempReal = 0.0;
          double meanValue1 = 0.0;
@@ -873,6 +964,7 @@
          int barsSinceReseed = sp.barsSinceReseed;
          double cur_outReal = 0.0;
          int j = sp.j;
+         double peakTotal2 = sp.peakTotal2;
          double periodTotal1 = sp.periodTotal1;
          double periodTotal2 = sp.periodTotal2;
          double prevDn = sp.prevDn;
@@ -888,6 +980,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * sp.invPeriod;
          variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
          tempReal = (((trailingIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[trailingIdx & sp.xMask] : pkVal0) - shift;
@@ -896,7 +989,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * sp.invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * sp.optInStdDevPeriod;
             windowStart = sp.today - sp.nbInitialElementNeeded;
             tempReal = 0.0;
@@ -914,6 +1007,20 @@
             }
             meanValue1 = periodTotal1 * sp.invPeriod;
             variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) ) {
+               shift = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.today & sp.xMask] : pkVal0;
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= sp.today; j += 1 ) {
+                  tempReal = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0) - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * sp.invPeriod;
+               variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * sp.invPeriod) ) {
                variance = 0.0;
             }
@@ -979,6 +1086,7 @@
       sp.periodTotal1 += tempReal;
       tempReal *= tempReal;
       sp.periodTotal2 += tempReal;
+      sp.peakTotal2 = (sp.periodTotal2 > sp.peakTotal2) ? sp.periodTotal2 : sp.peakTotal2;
       meanValue1 = sp.periodTotal1 * sp.invPeriod;
       variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
       tempReal = sp.x_inReal[sp.trailingIdx & sp.xMask] - sp.shift;
@@ -987,7 +1095,7 @@
       sp.periodTotal2 -= tempReal;
       sp.trailingIdx += 1;
       sp.barsSinceReseed -= 1;
-      if( variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * sp.periodTotal2 || sp.barsSinceReseed <= 0 ) {
+      if( variance < 0.000001 * (sp.peakTotal2 * sp.invPeriod) || sp.barsSinceReseed <= 0 ) {
          sp.barsSinceReseed = 32 * sp.optInStdDevPeriod;
          sp.windowStart = sp.today - sp.nbInitialElementNeeded;
          tempReal = 0.0;
@@ -1005,6 +1113,20 @@
          }
          meanValue1 = sp.periodTotal1 * sp.invPeriod;
          variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+         if( variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) ) {
+            sp.shift = sp.x_inReal[sp.today & sp.xMask];
+            sp.periodTotal1 = 0.0;
+            sp.periodTotal2 = 0.0;
+            for( sp.j = sp.windowStart; sp.j <= sp.today; sp.j += 1 ) {
+               tempReal = sp.x_inReal[sp.j & sp.xMask] - sp.shift;
+               sp.periodTotal1 += tempReal;
+               tempReal *= tempReal;
+               sp.periodTotal2 += tempReal;
+            }
+            meanValue1 = sp.periodTotal1 * sp.invPeriod;
+            variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+         }
+         sp.peakTotal2 = sp.periodTotal2;
          if( variance < 0.000000000001 * (sp.periodTotal2 * sp.invPeriod) ) {
             variance = 0.0;
          }
@@ -1037,6 +1159,7 @@
       double periodTotal2 = 0;
       double meanValue1 = 0;
       double variance = 0;
+      double peakTotal2 = 0;
       double invPeriod = 0;
       double sigma = 0;
       double delta = 0;
@@ -1064,7 +1187,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -1119,6 +1242,7 @@
          periodTotal2 += tempReal;
       }
       barsSinceReseed = 32 * optInStdDevPeriod;
+      peakTotal2 = periodTotal2;
       /* Seed both legs with the simple average of the first 'optInTimePeriod'
        * volatilities, as rma.c seeds. optInStdDevPeriod >= 2 is what keeps the
        * inReal[today-1] below in bounds on the very first bar.
@@ -1130,6 +1254,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = inReal[trailingIdx] - shift;
@@ -1138,7 +1263,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -1156,6 +1281,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -1182,6 +1321,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = inReal[trailingIdx] - shift;
@@ -1190,7 +1330,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -1208,6 +1348,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -1243,6 +1397,7 @@
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
+         peakTotal2 = (periodTotal2 > peakTotal2) ? periodTotal2 : peakTotal2;
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
          tempReal = inReal[trailingIdx] - shift;
@@ -1251,7 +1406,7 @@
          periodTotal2 -= tempReal;
          trailingIdx += 1;
          barsSinceReseed -= 1;
-         if( variance < 0.000001 * (periodTotal2 * invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+         if( variance < 0.000001 * (peakTotal2 * invPeriod) || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * optInStdDevPeriod;
             windowStart = today - nbInitialElementNeeded;
             tempReal = 0.0;
@@ -1269,6 +1424,20 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (periodTotal2 * invPeriod) ) {
+               shift = inReal[today];
+               periodTotal1 = 0.0;
+               periodTotal2 = 0.0;
+               for( j = windowStart; j <= today; j += 1 ) {
+                  tempReal = inReal[j] - shift;
+                  periodTotal1 += tempReal;
+                  tempReal *= tempReal;
+                  periodTotal2 += tempReal;
+               }
+               meanValue1 = periodTotal1 * invPeriod;
+               variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
+            }
+            peakTotal2 = periodTotal2;
             if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
@@ -1312,6 +1481,7 @@
       sp.shift = shift;
       sp.periodTotal1 = periodTotal1;
       sp.periodTotal2 = periodTotal2;
+      sp.peakTotal2 = peakTotal2;
       sp.invPeriod = invPeriod;
       sp.prevUp = prevUp;
       sp.prevDn = prevDn;
@@ -1340,12 +1510,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("RVI openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("RVI openAndFill", inReal.length, startIdx, rviLookback(optInTimePeriod, optInStdDevPeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("RVI openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("RVI openAndFill: " + retCode, retCode);
+      throw streamFailure("RVI openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind rviOpen (composition seam). */
    RviStream rviOpenInternal( double inReal[], int startIdx, int optInTimePeriod, int optInStdDevPeriod )
@@ -1361,12 +1528,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("RVI open: history shorter than lookback + 1");
+         throw insufficientHistory("RVI open", inReal.length, startIdx, rviLookback(optInTimePeriod, optInStdDevPeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("RVI open: internal error", retCode);
-      }
-      throw new TALibArgumentException("RVI open: " + retCode, retCode);
+      throw streamFailure("RVI open", retCode);
    }
    /**
     * Open a live RVI stream over the warm-up history; the handle's
@@ -1405,7 +1569,7 @@
       int guardOutLen = openFillCount("RVI openAndFill", inReal.length, rviLookback(optInTimePeriod, optInStdDevPeriod));
       requireLength("RVI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("RVI openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("RVI openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

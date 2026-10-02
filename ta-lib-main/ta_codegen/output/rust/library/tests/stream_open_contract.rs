@@ -1,9 +1,9 @@
-//! Rule S1 for the Rust streaming openers — `docs/error-handling-spec.md` 2.3,
+//! Rule S1 for the Rust streaming openers (`https://ta-lib.org/spec/streaming/#s1`),
 //! issue #268.
 //!
-//! An opener is a batch call over `[0, historyLen - 1]`, so an empty history is
-//! B1's condition read on that range: the implied `startIdx` of 0 names no bar,
-//! and it answers B1's code rather than the catch-all.
+//! S1 and S2 run first, ahead of every other check, answering
+//! `OutOfRangeStartIndex` and `OutOfRangeEndIndex`, so an empty history answers
+//! `OutOfRangeStartIndex` rather than the catch-all.
 //!
 //! No cross-language gate reaches it. The JSON-RPC servers hand every opener the
 //! full series, so a backend that went back to `BadParam` here stays green in
@@ -14,7 +14,7 @@
 //! the servers hand every opener an output the length of the whole history, so
 //! nothing cross-language reaches a short one.
 //!
-//! Rules S4 (an absent argument) and S2 (a history past `MAX_INDEX`) are not
+//! Rules S4 (an absent argument) and S2 (a history past `INDEX_MAX`) are not
 //! here: a slice cannot be absent, and provoking S2 needs a 100 000 001-element
 //! allocation.
 

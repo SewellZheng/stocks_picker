@@ -75,6 +75,7 @@ public partial class Core
     *  082326 MF,CC  #243 the SMA path's TA_EPSILON test on the variance is replaced
     *                by var.c's scale-relative reseed floor; the square root is
     *                unconditional. Bands no longer collapse on a fine tick.
+    *  092226 MF,CC  #434 the SMA path's variance step follows var.c.
     */
    /// <summary>
    /// Number of leading input bars <c>Bbands</c> consumes before it can produce
@@ -93,8 +94,9 @@ public partial class Core
    /// <see cref="Core.RealDefault"/> selects the default).</param>
    /// <param name="optInMAType">Moving-average type for the middle band (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int BbandsLookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
    {
@@ -160,10 +162,10 @@ public partial class Core
       double tempReal2 = 0;
       Span<double> tempBuffer1;
       Span<double> tempBuffer2;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -234,6 +236,7 @@ public partial class Core
          double variance;
          double _invPeriod;
          double _tempReal;
+         double _peakTotal2;
          int _i;
          int _j;
          int _outIdx;
@@ -266,12 +269,14 @@ public partial class Core
          _i = startIdx;
          _outIdx = 0;
          _barsSinceReseed = 32 * optInTimePeriod;
+         _peakTotal2 = varTotal2;
          do {
             maTotal += inReal[_i];
             _tempReal = inReal[_i] - shift;
             varTotal1 += _tempReal;
             _tempReal *= _tempReal;
             varTotal2 += _tempReal;
+            _peakTotal2 = MaxGt(varTotal2, _peakTotal2);
             meanValue1 = varTotal1 * _invPeriod;
             variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
             tempBuffer1[_outIdx] = maTotal / optInTimePeriod;
@@ -282,7 +287,7 @@ public partial class Core
             varTotal2 -= _tempReal;
             _trailingIdx += 1;
             _barsSinceReseed -= 1;
-            if( variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 ) {
+            if( variance < 0.000001 * (_peakTotal2 * _invPeriod) || _barsSinceReseed <= 0 ) {
                _barsSinceReseed = 32 * optInTimePeriod;
                _windowStart = _i - _lookbackTotal;
                _tempReal = 0.0;
@@ -300,12 +305,24 @@ public partial class Core
                }
                meanValue1 = varTotal1 * _invPeriod;
                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
-               /* The floor from var.c, verbatim: it owns both the sign and the
-                * dead-zone, so the square root below can be unconditional.
-                */
-               if( variance < 0.000000000001 * (varTotal2 * _invPeriod) ) {
-                  variance = 0.0;
+               if( variance < 0.000001 * (varTotal2 * _invPeriod) ) {
+                  shift = inReal[_i];
+                  varTotal1 = 0.0;
+                  varTotal2 = 0.0;
+                  for( _j = _windowStart; _j <= _i; _j += 1 ) {
+                     _tempReal = inReal[_j] - shift;
+                     varTotal1 += _tempReal;
+                     _tempReal *= _tempReal;
+                     varTotal2 += _tempReal;
+                  }
+                  meanValue1 = varTotal1 * _invPeriod;
+                  variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
                }
+               _peakTotal2 = varTotal2;
+               /* The floor from var.c, verbatim: it owns the sign, so the
+                * square root below can be unconditional.
+                */
+               variance = ZeroIfLt(variance, 0.000000000001 * (varTotal2 * _invPeriod), variance);
                _tempReal = inReal[_windowStart] - shift;
                varTotal1 -= _tempReal;
                _tempReal *= _tempReal;
@@ -315,7 +332,7 @@ public partial class Core
              * quantity to a fixed 1e-14 and flattened all three bands onto each
              * other for any finely quoted series (#243). What replaces it skips
              * the root ONLY where the answer is already known, because the
-             * reseed floor above has made it exactly 0 -- worth doing because
+             * rebuild above has made it exactly 0 -- worth doing because
              * this root, unlike stddev.c's, sits in the fused loop with a
              * carried dependency and cannot vectorize, so running it on flat
              * input cost 1.59x.
@@ -363,7 +380,7 @@ public partial class Core
        * at the same bar. Two intermediate buffers are allocated so the input may
        * safely alias an output (it is only read here).
        */
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the moving average below runs first, and for the MA types whose
@@ -371,7 +388,7 @@ public partial class Core
        * TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
        * computes a middle band the empty standard deviation then discards.
        * Observably identical (the empty deviation already yields 0,0 here), but it
-       * is the difference between "a range shorter than the lookback reads nothing"
+       * is the difference between "a range that ends before the lookback reads nothing"
        * being true of this function and being false: with a caller-supplied inReal
        * that stops short of endIdx, that discarded work is an out-of-bounds read.
        * The SMA fast path above needs no such guard - its own lookback IS the
@@ -456,10 +473,10 @@ public partial class Core
       double tempReal2 = 0;
       Span<double> tempBuffer1;
       Span<double> tempBuffer2;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -499,6 +516,7 @@ public partial class Core
          double variance;
          double _invPeriod;
          double _tempReal;
+         double _peakTotal2;
          int _i;
          int _j;
          int _outIdx;
@@ -531,12 +549,14 @@ public partial class Core
          _i = startIdx;
          _outIdx = 0;
          _barsSinceReseed = 32 * optInTimePeriod;
+         _peakTotal2 = varTotal2;
          do {
             maTotal += (double)inReal[_i];
             _tempReal = (double)inReal[_i] - shift;
             varTotal1 += _tempReal;
             _tempReal *= _tempReal;
             varTotal2 += _tempReal;
+            _peakTotal2 = MaxGt(varTotal2, _peakTotal2);
             meanValue1 = varTotal1 * _invPeriod;
             variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
             tempBuffer1[_outIdx] = maTotal / optInTimePeriod;
@@ -547,7 +567,7 @@ public partial class Core
             varTotal2 -= _tempReal;
             _trailingIdx += 1;
             _barsSinceReseed -= 1;
-            if( variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 ) {
+            if( variance < 0.000001 * (_peakTotal2 * _invPeriod) || _barsSinceReseed <= 0 ) {
                _barsSinceReseed = 32 * optInTimePeriod;
                _windowStart = _i - _lookbackTotal;
                _tempReal = 0.0;
@@ -565,9 +585,21 @@ public partial class Core
                }
                meanValue1 = varTotal1 * _invPeriod;
                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
-               if( variance < 0.000000000001 * (varTotal2 * _invPeriod) ) {
-                  variance = 0.0;
+               if( variance < 0.000001 * (varTotal2 * _invPeriod) ) {
+                  shift = (double)inReal[_i];
+                  varTotal1 = 0.0;
+                  varTotal2 = 0.0;
+                  for( _j = _windowStart; _j <= _i; _j += 1 ) {
+                     _tempReal = (double)inReal[_j] - shift;
+                     varTotal1 += _tempReal;
+                     _tempReal *= _tempReal;
+                     varTotal2 += _tempReal;
+                  }
+                  meanValue1 = varTotal1 * _invPeriod;
+                  variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
                }
+               _peakTotal2 = varTotal2;
+               variance = ZeroIfLt(variance, 0.000000000001 * (varTotal2 * _invPeriod), variance);
                _tempReal = (double)inReal[_windowStart] - shift;
                varTotal1 -= _tempReal;
                _tempReal *= _tempReal;
@@ -655,8 +687,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>BbandsLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>BbandsLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -670,32 +707,43 @@ public partial class Core
    /// <see cref="Core.RealDefault"/> selects the default).</param>
    /// <param name="optInMAType">Moving-average type for the middle band (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
    /// <param name="outRealUpperBand">Middle band plus nbDevUp standard deviations. Must hold at least <c>endIdx
-   /// - startIdx + 1</c> values.</param>
-   /// <param name="outRealMiddleBand">The moving average. Must hold at least <c>endIdx - startIdx + 1</c>
-   /// values.</param>
+   /// - max(startIdx, BbandsLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
+   /// <param name="outRealMiddleBand">The moving average. Must hold at least <c>endIdx - max(startIdx,
+   /// BbandsLookback(...)) + 1</c> values, the count the call produces (none
+   /// when that is not positive).</param>
    /// <param name="outRealLowerBand">Middle band minus nbDevDn standard deviations. Must hold at least
-   /// <c>endIdx - startIdx + 1</c> values.</param>
+   /// <c>endIdx - max(startIdx, BbandsLookback(...)) + 1</c> values, the count
+   /// the call produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Stddev(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Bbands( int startIdx,
                            int endIdx,
                            ReadOnlySpan<double> inReal,
@@ -740,8 +788,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>BbandsLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>BbandsLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -755,34 +808,45 @@ public partial class Core
    /// <see cref="Core.RealDefault"/> selects the default).</param>
    /// <param name="optInMAType">Moving-average type for the middle band (default 0 = SMA; values: 0=SMA,
    /// 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
-   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
-   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+   /// <c>MAType.DEFAULT</c> (or <c>(MAType)int.MinValue</c>) selects the
+   /// default).</param>
    /// <param name="outRealUpperBand">Middle band plus nbDevUp standard deviations. Must hold at least <c>endIdx
-   /// - startIdx + 1</c> values.</param>
-   /// <param name="outRealMiddleBand">The moving average. Must hold at least <c>endIdx - startIdx + 1</c>
-   /// values.</param>
+   /// - max(startIdx, BbandsLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
+   /// <param name="outRealMiddleBand">The moving average. Must hold at least <c>endIdx - max(startIdx,
+   /// BbandsLookback(...)) + 1</c> values, the count the call produces (none
+   /// when that is not positive).</param>
    /// <param name="outRealLowerBand">Middle band minus nbDevDn standard deviations. Must hold at least
-   /// <c>endIdx - startIdx + 1</c> values.</param>
+   /// <c>endIdx - max(startIdx, BbandsLookback(...)) + 1</c> values, the count
+   /// the call produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Stddev(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Bbands( int startIdx,
                            int endIdx,
                            ReadOnlySpan<float> inReal,
@@ -865,7 +929,7 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -878,13 +942,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("BBANDS", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -907,7 +971,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -918,7 +981,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -926,9 +989,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public BbandsValue Update( double inReal )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("BBANDS", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("BBANDS", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("BBANDS", "update", nameof(inReal));
          core.BbandsStepImpl(this, inReal);
          outRangeCount++;
          return new BbandsValue(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
@@ -940,16 +1003,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public BbandsValue Peek( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("BBANDS", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("BBANDS", "peek", nameof(inReal));
          BbandsStream sp = this;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
@@ -993,7 +1055,7 @@ public partial class Core
       }
    }
 
-   internal void BbandsStepImpl( BbandsStream sp, double inReal )
+   private void BbandsStepImpl( BbandsStream sp, double inReal )
    {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
@@ -1037,7 +1099,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1076,7 +1138,7 @@ public partial class Core
        * at the same bar. Two intermediate buffers are allocated so the input may
        * safely alias an output (it is only read here).
        */
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the moving average below runs first, and for the MA types whose
@@ -1084,7 +1146,7 @@ public partial class Core
        * TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
        * computes a middle band the empty standard deviation then discards.
        * Observably identical (the empty deviation already yields 0,0 here), but it
-       * is the difference between "a range shorter than the lookback reads nothing"
+       * is the difference between "a range that ends before the lookback reads nothing"
        * being true of this function and being false: with a caller-supplied inReal
        * that stops short of endIdx, that discarded work is an out-of-bounds read.
        * The SMA fast path above needs no such guard - its own lookback IS the
@@ -1170,6 +1232,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("BBANDS", "openAndFill", nameof(inReal), inReal.Length, startIdx, BbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      }
       throw StreamFailure("BBANDS", "openAndFill", retCode);
    }
 
@@ -1185,6 +1250,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("BBANDS", "open", nameof(inReal), inReal.Length, startIdx, BbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
       }
       throw StreamFailure("BBANDS", "open", retCode);
    }
@@ -1210,12 +1278,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>BbandsLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public BbandsStream BbandsOpen( ReadOnlySpan<double> inReal, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "BBANDS open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "BBANDS open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "BBANDS open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return BbandsOpenInternal(inReal, 0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
    }
 
@@ -1254,12 +1322,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public BbandsStream BbandsOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, Span<double> outRealUpperBand, Span<double> outRealMiddleBand, Span<double> outRealLowerBand )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "BBANDS openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "BBANDS openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "BBANDS openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("BBANDS", "openAndFill", inReal.Length, BbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
       RequireFillLength("BBANDS", "openAndFill", "outRealUpperBand", outRealUpperBand.Length, guardOutLen);
       RequireFillLength("BBANDS", "openAndFill", "outRealMiddleBand", outRealMiddleBand.Length, guardOutLen);

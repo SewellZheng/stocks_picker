@@ -56,10 +56,10 @@
    {
       int i = 0;
       RetCode retCode;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -72,12 +72,12 @@
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BAD_PARAM;
       }
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Same shape as the guard in apo and bbands: the variance below runs on the
        * same range and its lookback IS stddev's, so it declines and yields 0,0
-       * without reading. Observably identical, but it makes "a range shorter than
+       * without reading. Observably identical, but it makes "a range that ends before
        * the lookback reads nothing" true of stddev itself rather than only of var.
        * Pinned by the zero-length no-I/O probe over every guarded core.
        */
@@ -96,9 +96,8 @@
        *
        * Multiply also by the ratio specified.
        *
-       * Unconditional. var owns the dead-zone and owns the sign: it returns a
-       * non-negative variance, already floored to exactly 0 on any window whose
-       * re-anchored spread sat under its own rounding noise (var.c). What used to
+       * Unconditional. var owns the sign: it returns a non-negative variance,
+       * exactly 0 on a window of identical values (var.c). What used to
        * stand here instead - zero the output wherever the variance fell under
        * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
        * at a price level rather than a noise floor: a $100.00 instrument quoted in
@@ -128,10 +127,10 @@
    {
       int i = 0;
       RetCode retCode;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -176,8 +175,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#stddevLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#stddevLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -187,11 +186,12 @@
     * @param optInNbDev Multiplier applied to the standard deviation (default 1;
     *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal Standard deviation at each bar, scaled by optInNbDev. Must
-    *        hold at least {@code endIdx - startIdx + 1} values.
+    *        hold at least {@code endIdx - max(startIdx, stddevLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -242,8 +242,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#stddevLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#stddevLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -253,11 +253,12 @@
     * @param optInNbDev Multiplier applied to the standard deviation (default 1;
     *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal Standard deviation at each bar, scaled by optInNbDev. Must
-    *        hold at least {@code endIdx - startIdx + 1} values.
+    *        hold at least {@code endIdx - max(startIdx, stddevLookback(...)) + 1}
+    *        values, the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -330,7 +331,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -344,12 +345,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("STDDEV advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -378,15 +379,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("STDDEV update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("STDDEV update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("STDDEV update", "inReal");
          core.stddevStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -396,15 +397,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("STDDEV peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("STDDEV peek", "inReal");
          StddevStream sp = this;
          double cur_outReal = 0.0;
          /* Pipeline the new bar through the sub-streams (batch tail order). */
@@ -466,7 +465,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -488,12 +487,12 @@
          return RetCode.INSUFFICIENT_HISTORY;
       }
       double[] sc_outReal = outStride == 1 ? outReal : new double[historyLen];
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Same shape as the guard in apo and bbands: the variance below runs on the
        * same range and its lookback IS stddev's, so it declines and yields 0,0
-       * without reading. Observably identical, but it makes "a range shorter than
+       * without reading. Observably identical, but it makes "a range that ends before
        * the lookback reads nothing" true of stddev itself rather than only of var.
        * Pinned by the zero-length no-I/O probe over every guarded core.
        */
@@ -512,9 +511,8 @@
        *
        * Multiply also by the ratio specified.
        *
-       * Unconditional. var owns the dead-zone and owns the sign: it returns a
-       * non-negative variance, already floored to exactly 0 on any window whose
-       * re-anchored spread sat under its own rounding noise (var.c). What used to
+       * Unconditional. var owns the sign: it returns a non-negative variance,
+       * exactly 0 on a window of identical values (var.c). What used to
        * stand here instead - zero the output wherever the variance fell under
        * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
        * at a price level rather than a noise floor: a $100.00 instrument quoted in
@@ -552,12 +550,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("STDDEV openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("STDDEV openAndFill", inReal.length, startIdx, stddevLookback(optInTimePeriod, optInNbDev));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("STDDEV openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("STDDEV openAndFill: " + retCode, retCode);
+      throw streamFailure("STDDEV openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind stddevOpen (composition seam). */
    StddevStream stddevOpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
@@ -573,12 +568,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("STDDEV open: history shorter than lookback + 1");
+         throw insufficientHistory("STDDEV open", inReal.length, startIdx, stddevLookback(optInTimePeriod, optInNbDev));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("STDDEV open: internal error", retCode);
-      }
-      throw new TALibArgumentException("STDDEV open: " + retCode, retCode);
+      throw streamFailure("STDDEV open", retCode);
    }
    /**
     * Open a live STDDEV stream over the warm-up history; the handle's
@@ -617,7 +609,7 @@
       int guardOutLen = openFillCount("STDDEV openAndFill", inReal.length, stddevLookback(optInTimePeriod, optInNbDev));
       requireLength("STDDEV openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("STDDEV openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("STDDEV openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

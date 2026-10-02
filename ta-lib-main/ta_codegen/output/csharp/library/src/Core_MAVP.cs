@@ -60,6 +60,7 @@ public partial class Core
     *  072726 MF,CC  #145. Index the bucket table relative to the smallest period
     *                used, and bound it so an off-contract period cannot overflow.
     *  080326 MF,CC  Split the size temp from the cast-fed period temp (#160).
+    *  092526 MF,CC  #442. Allocate the multi-period buffers on that path only.
     */
    /// <summary>
    /// Number of leading input bars <c>Mavp</c> consumes before it can produce
@@ -70,25 +71,25 @@ public partial class Core
    /// series is requested. Feed at least <c>lookback + 1</c> bars to get any
    /// output.
    /// </remarks>
-   /// <param name="optInMinPeriod">Lower clamp for the per-bar period (default 2; range 1..100000;
+   /// <param name="optInMinPeriod">Lower clamp for the per-bar period (default 2; range 1..10000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="optInMaxPeriod">Upper clamp for the per-bar period (default 30; range 1..100000;
+   /// <param name="optInMaxPeriod">Upper clamp for the per-bar period (default 30; range 1..10000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInMAType">Moving-average type applied (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA,
    /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-   /// 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
+   /// 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA; <c>MAType.DEFAULT</c> (or
    /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int MavpLookback( int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
    {
       if( optInMinPeriod == int.MinValue ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return -1;
       }
       if( optInMaxPeriod == int.MinValue ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return -1;
       }
       if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
@@ -101,7 +102,7 @@ public partial class Core
        * lookback answers a usable number for a call that cannot run.
        */
       if( optInMinPeriod > optInMaxPeriod ) {
-         return 0 - 1 ;
+         return -1 ;
       }
       return MaLookback(optInMaxPeriod, optInMAType) ;
 
@@ -143,20 +144,20 @@ public partial class Core
       int localBegIdx = 0;
       int localNbElement = 0;
       RetCode retCode;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInMinPeriod == int.MinValue ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return RetCode.BadParam;
       }
       if( optInMaxPeriod == int.MinValue ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return RetCode.BadParam;
       }
       if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
@@ -209,11 +210,7 @@ public partial class Core
          return RetCode.Success ;
       }
       outputSize = endIdx - firstOut + 1;
-      /* Allocate intermediate local buffer. */
-      localOutputArray = new double[(int)(outputSize * 1)];
       localPeriodArray = new int[(int)(outputSize * 1)];
-      /* Output indices grouped by clamped period (counting sort below). */
-      sortedIdx = new int[(int)(outputSize * 1)];
       /* In-place defence (issue #130): each ma() pass below re-reads inReal over
        * the full range, so with outReal==inReal the results are staged in a
        * scratch buffer and copied once at the end. A regular call writes
@@ -230,8 +227,8 @@ public partial class Core
        * range of periods actually used so all later work is sized by the data,
        * not by optInMaxPeriod. The floor at 1 (and on minUsed's start value)
        * keeps a period below 1 from indexing the occurrence tables out of range.
-       * mavp.yaml caps both periods at [1, 100000], so it is inert through the
-       * API; it is kept because this file is the source of truth for four
+       * mavp.yaml's period range starts at 1, so it is inert through the API;
+       * it is kept because this file is the source of truth for four
        * backends and it makes the shared source safe by construction rather than
        * by trusting each backend's prologue to be identical.
        */
@@ -276,8 +273,8 @@ public partial class Core
       }
       /* Bound the bucket table before sizing it.
        *
-       * Unreachable through the API: mavp.yaml caps both periods at 100000, so
-       * the widest spread expressible is 99999. It is kept because it protects a
+       * Unreachable through the API: mavp.yaml's period range keeps the spread
+       * below this bound. It is kept because it protects a
        * memory-safety property and this file is the source of truth for four
        * backends — without it the size expression below can overflow (signed
        * overflow in C, a wrapped negative in Java, a usize underflow panic in
@@ -298,13 +295,6 @@ public partial class Core
          outNBElement = 0;
          return RetCode.BadParam ;
       }
-      /* Per-period bucket cursor for the counting sort. Indexed RELATIVE to
-       * minUsed: only [minUsed, maxUsed+1] is ever touched, so sizing from the
-       * largest period used allocated up to 400KB for a band of periods that
-       * may be a handful wide — and allocated it even on the single-period
-       * fast path below.
-       */
-      bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
       if( minUsed == maxUsed ) {
          /* Single distinct period: one MA pass, written straight into the
           * destination buffer. Nothing to group or copy.
@@ -314,6 +304,9 @@ public partial class Core
          localNbElement = _xr0.Count;
          retCode = RetCode.Success;
       } else {
+         localOutputArray = new double[(int)(outputSize * 1)];
+         sortedIdx = new int[(int)(outputSize * 1)];
+         bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
          /* Counting sort: sortedIdx ends up holding the output indices ordered
           * by period, one contiguous ascending slice per distinct period, with
           * bucketOfs[p] the end of period p's slice.
@@ -374,10 +367,6 @@ public partial class Core
             bucketStart = bucketEnd;
          }
       }
-      /* Pointer-inequality guard, not finalIsAllocated: in backends where the
-       * scratch election materializes as a copy (Rust), the copy-back must
-       * always run; in C/Java the non-aliased self-copy is skipped.
-       */
       if( localFinalArray != outReal ) {
          localFinalArray.Slice(0, outputSize * 1).CopyTo(outReal.Slice(0));
       }
@@ -423,20 +412,20 @@ public partial class Core
       int localBegIdx = 0;
       int localNbElement = 0;
       RetCode retCode;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInMinPeriod == int.MinValue ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return RetCode.BadParam;
       }
       if( optInMaxPeriod == int.MinValue ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return RetCode.BadParam;
       }
       if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
@@ -472,9 +461,7 @@ public partial class Core
          return RetCode.Success ;
       }
       outputSize = endIdx - firstOut + 1;
-      localOutputArray = new double[(int)(outputSize * 1)];
       localPeriodArray = new int[(int)(outputSize * 1)];
-      sortedIdx = new int[(int)(outputSize * 1)];
       finalIsAllocated = 0;
       localFinalArray = outReal;
       minUsed = optInMaxPeriod;
@@ -509,13 +496,15 @@ public partial class Core
          outNBElement = 0;
          return RetCode.BadParam ;
       }
-      bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
       if( minUsed == maxUsed ) {
          OutRange _xr0 = Ma(startIdx, endIdx, inReal, minUsed, optInMAType, localFinalArray);
          localBegIdx = _xr0.BegIdx;
          localNbElement = _xr0.Count;
          retCode = RetCode.Success;
       } else {
+         localOutputArray = new double[(int)(outputSize * 1)];
+         sortedIdx = new int[(int)(outputSize * 1)];
+         bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
          for( curPeriod = minUsed; curPeriod <= maxUsed + 1; curPeriod += 1 ) {
             bucketOfs[curPeriod - minUsed] = 0;
          }
@@ -578,42 +567,56 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>MavpLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>MavpLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
    /// <param name="endIdx">Last bar of the requested range (inclusive).</param>
    /// <param name="inReal">series to be averaged.</param>
    /// <param name="inPeriods">per-bar desired MA period.</param>
-   /// <param name="optInMinPeriod">Lower clamp for the per-bar period (default 2; range 1..100000;
+   /// <param name="optInMinPeriod">Lower clamp for the per-bar period (default 2; range 1..10000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="optInMaxPeriod">Upper clamp for the per-bar period (default 30; range 1..100000;
+   /// <param name="optInMaxPeriod">Upper clamp for the per-bar period (default 30; range 1..10000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInMAType">Moving-average type applied (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA,
    /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-   /// 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
+   /// 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA; <c>MAType.DEFAULT</c> (or
    /// <c>(MAType)int.MinValue</c>) selects the default).</param>
-   /// <param name="outReal">variable-period moving average. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">variable-period moving average. Must hold at least <c>endIdx -
+   /// max(startIdx, MavpLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Mama(int, int, ReadOnlySpan{double}, double, double, Span{double}, Span{double})"/>
+   /// <seealso cref="Core.T3(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
    public OutRange Mavp( int startIdx,
                          int endIdx,
                          ReadOnlySpan<double> inReal,
@@ -659,44 +662,58 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>MavpLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>MavpLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
    /// <param name="endIdx">Last bar of the requested range (inclusive).</param>
    /// <param name="inReal">series to be averaged.</param>
    /// <param name="inPeriods">per-bar desired MA period.</param>
-   /// <param name="optInMinPeriod">Lower clamp for the per-bar period (default 2; range 1..100000;
+   /// <param name="optInMinPeriod">Lower clamp for the per-bar period (default 2; range 1..10000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="optInMaxPeriod">Upper clamp for the per-bar period (default 30; range 1..100000;
+   /// <param name="optInMaxPeriod">Upper clamp for the per-bar period (default 30; range 1..10000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInMAType">Moving-average type applied (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA,
    /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
-   /// 11=DEFAULT, 12=ZLEMA, 13=RMA; <c>MAType.DEFAULT</c> (or
+   /// 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA; <c>MAType.DEFAULT</c> (or
    /// <c>(MAType)int.MinValue</c>) selects the default).</param>
-   /// <param name="outReal">variable-period moving average. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">variable-period moving average. Must hold at least <c>endIdx -
+   /// max(startIdx, MavpLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Mama(int, int, ReadOnlySpan{double}, double, double, Span{double}, Span{double})"/>
+   /// <seealso cref="Core.T3(int, int, ReadOnlySpan{double}, int, double, Span{double})"/>
    public OutRange Mavp( int startIdx,
                          int endIdx,
                          ReadOnlySpan<float> inReal,
@@ -743,7 +760,10 @@ public partial class Core
       internal int optInMaxPeriod;
       internal MAType optInMAType;
       internal double cur_outReal;
-      // One sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
+      internal int tapeMask;
+      internal int tapePos;
+      internal double[] tape = [];
+      // Empty in window mode; otherwise one sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
       internal MaStream[] bank = [];
       internal int outRangeBegIdx;
       internal int outRangeCount;
@@ -759,7 +779,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -772,13 +792,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("MAVP", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -790,6 +810,10 @@ public partial class Core
          this.optInMaxPeriod = other.optInMaxPeriod;
          this.optInMAType = other.optInMAType;
          this.cur_outReal = other.cur_outReal;
+         this.tapeMask = other.tapeMask;
+         this.tapePos = other.tapePos;
+         this.tape = new double[other.tape.Length];
+         Array.Copy( other.tape, this.tape, other.tape.Length );
          this.bank = new MaStream[other.bank.Length];
          for( int bankIdx = 0; bankIdx < other.bank.Length; bankIdx++ ) {
             this.bank[bankIdx] = new MaStream(other.bank[bankIdx]);
@@ -800,7 +824,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -811,7 +834,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -820,9 +843,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal, double inPeriods )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("MAVP", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) || !double.IsFinite(inPeriods) ) throw Core.StreamFailure("MAVP", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) || !double.IsFinite(inPeriods) ) throw Core.NonFiniteBar("MAVP", "update", !double.IsFinite(inReal) ? nameof(inReal) : nameof(inPeriods));
          core.MavpStepImpl(this, inReal, inPeriods);
          outRangeCount++;
          return cur_outReal;
@@ -834,9 +857,8 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <param name="inPeriods">The period to use for this bar.</param>
@@ -844,7 +866,7 @@ public partial class Core
       /// it.</returns>
       public double Peek( double inReal, double inPeriods )
       {
-         if( !double.IsFinite(inReal) || !double.IsFinite(inPeriods) ) throw Core.StreamFailure("MAVP", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) || !double.IsFinite(inPeriods) ) throw Core.NonFiniteBar("MAVP", "peek", !double.IsFinite(inReal) ? nameof(inReal) : nameof(inPeriods));
          MavpStream sp = this;
          int cp = (int)inPeriods;
          if( cp < sp.optInMinPeriod ) {
@@ -853,7 +875,7 @@ public partial class Core
             cp = sp.optInMaxPeriod;
          }
          int slot = cp - sp.optInMinPeriod;
-         double cur_outReal = sp.bank[slot].Peek(inReal);
+         double cur_outReal = sp.bank.Length == 0 ? sp.core.MavpEvalWindow(sp, inReal, cp) : sp.core.MaPeekTape(sp.bank[slot], sp.tape, ((sp.tapePos + 1) & sp.tapeMask) + sp.tapeMask + 1, sp.tapeMask, inReal);
          return cur_outReal;
       }
 
@@ -874,7 +896,7 @@ public partial class Core
       }
    }
 
-   internal void MavpStepImpl( MavpStream sp, double inReal, double inPeriods )
+   private void MavpStepImpl( MavpStream sp, double inReal, double inPeriods )
    {
       int cp = (int)inPeriods;
       if( cp < sp.optInMinPeriod ) {
@@ -882,14 +904,64 @@ public partial class Core
       } else if( cp > sp.optInMaxPeriod ) {
          cp = sp.optInMaxPeriod;
       }
+      if( sp.bank.Length == 0 ) {
+         double v = MavpEvalWindow(sp, inReal, cp);
+         sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;
+         sp.tape[sp.tapePos] = inReal;
+         sp.cur_outReal = v;
+         return;
+      }
       int slot = cp - sp.optInMinPeriod;
+      sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;
+      sp.tape[sp.tapePos] = inReal;
+      int tapeBase = sp.tapePos + sp.tapeMask + 1;
       MaStream[] bank = sp.bank;
       for( int bankIdx = 0; bankIdx < bank.Length; bankIdx++ ) {
-         double subValue = bank[bankIdx].Update(inReal);
+         double subValue = MaStepTape(bank[bankIdx], sp.tape, tapeBase, sp.tapeMask, inReal);
          if( bankIdx == slot ) {
             sp.cur_outReal = subValue;
          }
       }
+   }
+
+   private static void MavpTapeOpen( MavpStream sp, ReadOnlySpan<double> inReal, int reach )
+   {
+      int size = 1;
+      while( size <= reach ) {
+         size <<= 1;
+      }
+      int historyLen = inReal.Length;
+      sp.tape = new double[size];
+      sp.tapeMask = size - 1;
+      for( int b = (historyLen > size)? historyLen - size : 0; b < historyLen; b++ ) {
+         sp.tape[b & sp.tapeMask] = inReal[b];
+      }
+      sp.tapePos = (historyLen - 1) & sp.tapeMask;
+   }
+
+   private static bool MavpWindowMode( MAType maType )
+   {
+      switch( maType )
+      {
+      case MAType.ALMA:
+      case MAType.DISABLED:
+         return true;
+      default:
+         return false;
+      }
+   }
+
+   internal double MavpEvalWindow( MavpStream sp, double inReal, int cp )
+   {
+      int lb = MaLookback(cp, sp.optInMAType);
+      Span<double> win = lb + 1 <= 128 ? stackalloc double[lb + 1] : new double[lb + 1];
+      for( int i = 0; i < lb; i++ ) {
+         win[i] = sp.tape[(sp.tapePos + sp.tapeMask + 2 - lb + i) & sp.tapeMask];
+      }
+      win[lb] = inReal;
+      Span<double> wOut = stackalloc double[1];
+      Ma(lb, lb, win, cp, sp.optInMAType, wOut);
+      return wOut[0];
    }
 
    private RetCode MavpOpenImpl( MavpStream sp, ReadOnlySpan<double> inReal, ReadOnlySpan<double> inPeriods, int startIdx, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
@@ -898,7 +970,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inPeriods.Length != inReal.Length ) {
@@ -906,12 +978,12 @@ public partial class Core
       }
       if( optInMinPeriod == int.MinValue ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return RetCode.BadParam;
       }
       if( optInMaxPeriod == int.MinValue ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return RetCode.BadParam;
       }
       if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
@@ -937,10 +1009,44 @@ public partial class Core
          return RetCode.InsufficientHistory;
       }
       int nBank = optInMaxPeriod - optInMinPeriod + 1;
+      bool window = MavpWindowMode(optInMAType);
+      if( optInMaxPeriod - optInMinPeriod + 1 < 12 ) window = false;
+      if( window ) {
+         for( int wk = 0; wk < optInMaxPeriod - optInMinPeriod + 1; wk++ ) {
+            if( MaLookback(optInMinPeriod + wk, optInMAType) > lookbackTotal ) {
+               window = false;
+               break;
+            }
+         }
+      }
+      if( window ) {
+         MavpTapeOpen(sp, inReal, lookbackTotal);
+         int wcp = (int)inPeriods[historyLen - 1];
+         if( wcp < optInMinPeriod ) {
+            wcp = optInMinPeriod;
+         } else if( wcp > optInMaxPeriod ) {
+            wcp = optInMaxPeriod;
+         }
+         Span<double> wOut = stackalloc double[1];
+         Ma(historyLen - 1, historyLen - 1, inReal, wcp, optInMAType, wOut);
+         sp.optInMinPeriod = optInMinPeriod;
+         sp.optInMaxPeriod = optInMaxPeriod;
+         sp.optInMAType = optInMAType;
+         sp.cur_outReal = wOut[0];
+         sp.outRangeBegIdx = subStart;
+         sp.outRangeCount = historyLen - subStart;
+         return RetCode.Success;
+      }
       MaStream[] bank = new MaStream[nBank];
+      int reach = 0;
       for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
          bank[bankIdx] = MaOpenInternal(inReal, subStart, optInMinPeriod + bankIdx, optInMAType);
+         int slotReach = MaTapeDetach(bank[bankIdx]);
+         if( slotReach > reach ) {
+            reach = slotReach;
+         }
       }
+      MavpTapeOpen(sp, inReal, reach);
       int cp = (int)inPeriods[historyLen - 1];
       if( cp < optInMinPeriod ) {
          cp = optInMinPeriod;
@@ -965,7 +1071,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inPeriods.Length != inReal.Length ) {
@@ -973,12 +1079,12 @@ public partial class Core
       }
       if( optInMinPeriod == int.MinValue ) {
          optInMinPeriod = 2;
-      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
          return RetCode.BadParam;
       }
       if( optInMaxPeriod == int.MinValue ) {
          optInMaxPeriod = 30;
-      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 10000 ) {
          return RetCode.BadParam;
       }
       if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
@@ -998,16 +1104,62 @@ public partial class Core
          return RetCode.InsufficientHistory;
       }
       int nBank = optInMaxPeriod - optInMinPeriod + 1;
+      bool window = MavpWindowMode(optInMAType);
+      if( optInMaxPeriod - optInMinPeriod + 1 < 12 ) window = false;
+      if( window ) {
+         for( int wk = 0; wk < optInMaxPeriod - optInMinPeriod + 1; wk++ ) {
+            if( MaLookback(optInMinPeriod + wk, optInMAType) > lookbackTotal ) {
+               window = false;
+               break;
+            }
+         }
+      }
+      if( window ) {
+         for( int wt = lookbackTotal, wt1; wt < historyLen; wt = wt1 + 1 ) {
+            int wcp = (int)inPeriods[wt];
+            if( wcp < optInMinPeriod ) {
+               wcp = optInMinPeriod;
+            } else if( wcp > optInMaxPeriod ) {
+               wcp = optInMaxPeriod;
+            }
+            for( wt1 = wt; wt1 + 1 < historyLen; wt1++ ) {
+               int wcp2 = (int)inPeriods[wt1 + 1];
+               if( wcp2 < optInMinPeriod ) {
+                  wcp2 = optInMinPeriod;
+               } else if( wcp2 > optInMaxPeriod ) {
+                  wcp2 = optInMaxPeriod;
+               }
+               if( wcp2 != wcp ) {
+                  break;
+               }
+            }
+            Ma(wt, wt1, inReal, wcp, optInMAType, outReal.Slice(wt - lookbackTotal, wt1 - wt + 1));
+         }
+         MavpTapeOpen(sp, inReal, lookbackTotal);
+         outBegIdx = lookbackTotal;
+         outNBElement = historyLen - lookbackTotal;
+         sp.optInMinPeriod = optInMinPeriod;
+         sp.optInMaxPeriod = optInMaxPeriod;
+         sp.optInMAType = optInMAType;
+         sp.cur_outReal = outReal[outNBElement - 1];
+         return RetCode.Success;
+      }
       /* Seed each sub at the first output bar (lookbackTotal), NOT the last. */
       MaStream[] bank = new MaStream[nBank];
       double[] scratch = new double[nBank];
       double[] seedPrefix = new double[lookbackTotal + 1];
       inReal.Slice(0, lookbackTotal + 1).CopyTo(seedPrefix);
+      int reach = 0;
       for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
          MaStream sub = MaOpenInternal(seedPrefix, lookbackTotal, optInMinPeriod + bankIdx, optInMAType);
          bank[bankIdx] = sub;
          scratch[bankIdx] = sub.cur_outReal;
+         int slotReach = MaTapeDetach(sub);
+         if( slotReach > reach ) {
+            reach = slotReach;
+         }
       }
+      MavpTapeOpen(sp, seedPrefix, reach);
       /* First output bar (lookbackTotal), then replay the remaining history. */
       int cp = (int)inPeriods[lookbackTotal];
       if( cp < optInMinPeriod ) {
@@ -1017,8 +1169,11 @@ public partial class Core
       }
       outReal[0] = scratch[cp - optInMinPeriod];
       for( int t = lookbackTotal + 1; t < historyLen; t++ ) {
+         sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;
+         sp.tape[sp.tapePos] = inReal[t];
+         int tapeBase = sp.tapePos + sp.tapeMask + 1;
          for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
-            scratch[bankIdx] = bank[bankIdx].Update(inReal[t]);
+            scratch[bankIdx] = MaStepTape(bank[bankIdx], sp.tape, tapeBase, sp.tapeMask, inReal[t]);
          }
          cp = (int)inPeriods[t];
          if( cp < optInMinPeriod ) {
@@ -1046,6 +1201,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("MAVP", "open", nameof(inReal), inReal.Length, startIdx, MavpLookback(optInMinPeriod, optInMaxPeriod, optInMAType));
+      }
       throw StreamFailure("MAVP", "open", retCode);
    }
 
@@ -1070,12 +1228,12 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public MavpStream MavpOpen( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inPeriods, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MAVP open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MAVP open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MAVP open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inPeriods.IsEmpty ) throw new TALibArgumentException("MAVP open: inPeriods is empty", nameof(inPeriods), RetCode.BadParam);
       RequireHistoryLength("MAVP", "open", "inPeriods", inPeriods.Length, inReal.Length);
       return MavpOpenInternal(inReal, inPeriods, 0, optInMinPeriod, optInMaxPeriod, optInMAType);
@@ -1111,12 +1269,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public MavpStream MavpOpenAndFill( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inPeriods, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MAVP openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MAVP openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MAVP openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inPeriods.IsEmpty ) throw new TALibArgumentException("MAVP openAndFill: inPeriods is empty", nameof(inPeriods), RetCode.BadParam);
       int guardOutLen = OpenFillCount("MAVP", "openAndFill", inReal.Length, MavpLookback(optInMinPeriod, optInMaxPeriod, optInMAType));
       RequireHistoryLength("MAVP", "openAndFill", "inPeriods", inPeriods.Length, inReal.Length);
@@ -1127,6 +1285,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("MAVP", "openAndFill", nameof(inReal), inReal.Length, 0, MavpLookback(optInMinPeriod, optInMaxPeriod, optInMAType));
       }
       throw StreamFailure("MAVP", "openAndFill", retCode);
    }

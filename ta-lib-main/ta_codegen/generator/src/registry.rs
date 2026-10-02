@@ -27,6 +27,16 @@ pub struct Registry {
     /// `mama` -> `["outMAMA", "outFAMA"]`) — the Java stream emitter routes
     /// dispatch OutSlots through named `cur_*` fields / `Value` members.
     callee_out_names: HashMap<String, Vec<String>>,
+    /// Each indicator's YAML-level definition (no body), for renderers that
+    /// need another function's signature, such as a C# `<seealso cref>`.
+    defs: HashMap<String, crate::ir::FuncDef>,
+    /// The functions a period bank steps through a tape frame (#445), by dir-name;
+    /// see [`crate::streaming::tape_set`].
+    tape_set: crate::streaming::TapeSet,
+    /// The input tree the definitions came from.
+    base_dir: std::path::PathBuf,
+    /// Lookbacks parsed on first request, by dir-name.
+    lookbacks: std::sync::Mutex<HashMap<String, Option<crate::streaming::CalleeLookback>>>,
 }
 
 impl Registry {
@@ -36,6 +46,7 @@ impl Registry {
         let mut names = HashMap::new();
         let mut callee_sigs = HashMap::new();
         let mut callee_out_names = HashMap::new();
+        let mut defs = HashMap::new();
 
         if let Ok(entries) = std::fs::read_dir(base_dir) {
             for entry in entries.filter_map(std::result::Result::ok) {
@@ -62,6 +73,7 @@ impl Registry {
                         dir_name.clone(),
                         fd.outputs.iter().map(|o| o.name.clone()).collect(),
                     );
+                    defs.insert(dir_name.clone(), fd);
                     indicators.push(dir_name);
                 }
             }
@@ -70,7 +82,35 @@ impl Registry {
         // Sort by descending length so longest-match wins (e.g. "stochrsi" before "stoch")
         indicators.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
 
-        Registry { indicators, names, callee_sigs, callee_out_names }
+        let mut registry = Registry {
+            indicators,
+            names,
+            callee_sigs,
+            callee_out_names,
+            defs,
+            tape_set: crate::streaming::TapeSet::default(),
+            base_dir: base_dir.to_path_buf(),
+            lookbacks: std::sync::Mutex::new(HashMap::new()),
+        };
+        registry.tape_set =
+            crate::streaming::tape_set(base_dir, &registry.indicators, &registry);
+        registry
+    }
+
+    /// Whether a period bank steps `key` (a dir-name) through a tape frame.
+    pub fn in_tape_set(&self, key: &str) -> bool {
+        self.tape_set.members.contains(key)
+    }
+
+    /// The MAType labels the period bank `bank_dir` evaluates in window mode;
+    /// see [`crate::streaming::window_evaluable`].
+    pub fn window_labels(&self, bank_dir: &str) -> &[String] {
+        self.tape_set.window_labels.get(bank_dir).map_or(&[], Vec::as_slice)
+    }
+
+    /// The YAML-level definition of an indicator dir-name, if known.
+    pub(crate) fn def(&self, key: &str) -> Option<&crate::ir::FuncDef> {
+        self.defs.get(key)
     }
 
     /// The output names of an indicator in signature order (empty if unknown).
@@ -178,6 +218,21 @@ impl Registry {
 impl crate::streaming::CalleeLookup for Registry {
     fn callee(&self, name: &str) -> Option<crate::streaming::CalleeSig> {
         self.callee_sigs.get(name).cloned()
+    }
+    fn lookback(&self, name: &str) -> Option<crate::streaming::CalleeLookback> {
+        let key = name.to_ascii_lowercase();
+        if let Some(hit) = self.lookbacks.lock().expect("lookbacks").get(&key) {
+            return hit.clone();
+        }
+        let src = self.base_dir.join(&key).join(format!("{key}.c"));
+        let found = self.defs.get(&key).filter(|_| src.is_file()).map(|def| {
+            crate::streaming::CalleeLookback {
+                params: def.optional_inputs.clone(),
+                body: crate::parser::c_source::parse_c_source(&src).lookback_body,
+            }
+        });
+        self.lookbacks.lock().expect("lookbacks").insert(key, found.clone());
+        found
     }
 }
 

@@ -9,6 +9,55 @@ import sys
 import tempfile
 import time
 
+# Past this, a full `build.py servers` gets no faster: the Rust server's own
+# compile is its critical path.
+BUILD_JOBS_CAP = 16
+
+
+def default_build_jobs() -> int:
+    """The floor at half the cap is load-bearing: the load average lags by a
+    minute, so a script's own previous step would otherwise throttle the next
+    one to a single job."""
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except AttributeError:
+        cpus = os.cpu_count() or 4
+    try:
+        load = os.getloadavg()[0]
+    except (AttributeError, OSError):
+        load = 0.0
+    cap = min(BUILD_JOBS_CAP, cpus - 1 if cpus >= 4 else cpus)
+    return max((cap + 1) // 2, min(cap, int(cpus - load)))
+
+
+class JobServer:
+    """One GNU make jobserver of `jobs` slots shared by cargo, every rustc and
+    make, so concurrent builds stay within `jobs` together. POSIX only;
+    elsewhere cargo gets CARGO_BUILD_JOBS and make gets -j.
+
+    A child joins only if it gets both the env and the fds: run it through
+    `run()`, since subprocess closes inherited fds by default. gcc must not
+    join: its LTO stage deadlocks on a pipe jobserver."""
+
+    def __init__(self, jobs: int):
+        self.jobs = jobs
+        self.env = dict(os.environ, TA_BUILD_JOBS=str(jobs),
+                        CARGO_BUILD_JOBS=str(jobs))
+        self.fds = ()
+        for k in ('MAKEFLAGS', 'MFLAGS', 'CARGO_MAKEFLAGS'):
+            self.env.pop(k, None)
+        self.active = os.name == 'posix'
+        if self.active:
+            r, w = os.pipe()
+            os.write(w, b'+' * (jobs - 1))
+            flags = f'-j{jobs} --jobserver-auth={r},{w}'
+            self.env.update(MAKEFLAGS=flags, CARGO_MAKEFLAGS=flags)
+            self.fds = (r, w)
+
+    def run(self, cmd, **kwargs):
+        return subprocess.run(cmd, env=self.env, pass_fds=self.fds, **kwargs)
+
+
 # Various bool functions to help identify the host environment
 def is_redhat_based() -> bool:
     return os.path.exists('/etc/redhat-release')
@@ -66,9 +115,11 @@ def is_dpkg_installed() -> bool:
     return True
 
 def is_dotnet_installed() -> bool:
+    # Not `--version`: inside the checkout that answers for the SDK global.json
+    # selects, and fails when the pin cannot be met although an SDK is installed.
     try:
-        subprocess.run(['dotnet', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return True
+        out = subprocess.run(['dotnet', '--list-sdks'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return bool(out.stdout.strip())
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 

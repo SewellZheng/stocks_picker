@@ -390,9 +390,8 @@ static ErrorNumber testStreamShortHistory( void )
                 TA_SMA_Close( st ) );
    }
 
-   /* Rule S1, the LOWER half of the history bound: the implied `startIdx` of 0
-    * has to name a bar, so an empty history is TA_OUT_OF_RANGE_START_INDEX --
-    * B1's code, because an opener is a batch call over `[0, historyLen - 1]`.
+   /* Rule S1, the LOWER half of the history bound: an empty history is
+    * TA_OUT_OF_RANGE_START_INDEX (https://ta-lib.org/spec/streaming/#s1).
     *
     * What is worth the probe is the ORDER, not the code alone. The pair is
     * evaluated ahead of every presence check, so a call that is BOTH an absent
@@ -473,7 +472,7 @@ static ErrorNumber testStreamShortHistory( void )
    }
 
    /* Rule S2, the other half of the history bound: `historyLen - 1` is the
-    * implied `endIdx`, so a history longer than MAX_INDEX + 1 leaves the index
+    * implied `endIdx`, so a history longer than INDEX_MAX + 1 leaves the index
     * domain. Only C can be probed cheaply -- it takes `historyLen` as a bare
     * `int`, so the rejection answers before a bar is read; the other three
     * derive it from the array and would need a 100 000 001-element one. The
@@ -486,10 +485,10 @@ static ErrorNumber testStreamShortHistory( void )
       TA_RetCode rc;
       struct { const char *name; TA_RetCode rc; } cases[3];
 
-      cases[0].name = "TA_SMA_Open(historyLen=MAX_INDEX+2)";
-      cases[0].rc   = TA_SMA_Open( &st, bars, TA_MAX_INDEX + 2, 30, &v );
-      cases[1].name = "TA_SMA_OpenAndFill(historyLen=MAX_INDEX+2)";
-      cases[1].rc   = TA_SMA_OpenAndFill( &st, bars, TA_MAX_INDEX + 2, 30, &beg, &nb, out );
+      cases[0].name = "TA_SMA_Open(historyLen=INDEX_MAX+2)";
+      cases[0].rc   = TA_SMA_Open( &st, bars, TA_INDEX_MAX + 2, 30, &v );
+      cases[1].name = "TA_SMA_OpenAndFill(historyLen=INDEX_MAX+2)";
+      cases[1].rc   = TA_SMA_OpenAndFill( &st, bars, TA_INDEX_MAX + 2, 30, &beg, &nb, out );
       cases[2].name = "TA_SMA_Open(historyLen=INT_MAX)";
       cases[2].rc   = TA_SMA_Open( &st, bars, 2147483647, 30, &v );
 
@@ -683,9 +682,9 @@ static ErrorNumber testBatchArgumentContract( void )
    /* A price leg the algorithm never INDEXES is a required argument all the
     * same (#260). CDL3OUTSIDE reads open and close only, CDLHIKKAKE everything
     * but open; C has always rejected a NULL there, and Rust, Java and C# used
-    * to accept it. Without these the worked example in
-    * docs/error-handling-spec.md 2.2 is asserted from the source and executed
-    * nowhere. */
+    * to accept it. Without these, B4 on a leg the algorithm never reads
+    * (https://ta-lib.org/spec/errors/#b4) is asserted from the source and
+    * executed nowhere. */
    BAC_ACCEPT( "TA_CDL3OUTSIDE",
                TA_CDL3OUTSIDE( 0, 251, bars, bars, bars, bars, &beg, &nb, outI ) );
    BAC_REJECT( "TA_CDL3OUTSIDE(inHigh=NULL)",
@@ -1109,6 +1108,27 @@ static ErrorNumber testBatchArgumentContract( void )
    return freeLib();
 }
 
+/* No default: gcc and clang then refuse to build this file until a new
+ * TA_CandleSettingType member is named here, which leads to its pin row. */
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic error "-Wswitch"
+#endif
+static void candleSettingsAreAllPinned( TA_CandleSettingType t )
+{
+   switch( t )
+   {
+   case TA_BodyLong: case TA_BodyVeryLong: case TA_BodyShort: case TA_BodyDoji:
+   case TA_ShadowLong: case TA_ShadowVeryLong: case TA_ShadowShort:
+   case TA_ShadowVeryShort: case TA_Near: case TA_Far: case TA_Equal:
+   case TA_AllCandleSettings:
+      break;
+   }
+}
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
 /* The published value of every enumerator that has ever shipped, pinned.
  *
  * TA_MAType and TA_FuncUnstId are ABI: wrappers record these numbers and pass
@@ -1127,11 +1147,7 @@ static ErrorNumber testBatchArgumentContract( void )
  * generated from the same enums.yaml that generates this header, and the
  * generator already fails if the hand-maintained Rust copy drifts from it.
  *
- * TA_RetCode is NOT in enums.yaml and nothing generates its Rust, Java or C#
- * copies -- each is hand-written, and the number a backend puts on the wire is
- * carried by the member there (Rust `as_c_int`, Java `asCInt`, C#'s explicit
- * discriminants). So for TA_RetCode this file pins the C numbering only, and
- * cross-language agreement is what the ta_regtest server comparison tests.
+ * TA_RetCode is NOT in enums.yaml; this file pins its C numbering only.
  */
 static ErrorNumber testEnumValueContract( void )
 {
@@ -1166,6 +1182,10 @@ static ErrorNumber testEnumValueContract( void )
       { "TA_FUNC_UNST_RMA",          24, TA_FUNC_UNST_RMA },
       { "TA_FUNC_UNST_HA",           25, TA_FUNC_UNST_HA },
       { "TA_FUNC_UNST_RVI",          26, TA_FUNC_UNST_RVI },
+      { "TA_FUNC_UNST_FRAMA",        27, TA_FUNC_UNST_FRAMA },
+      { "TA_FUNC_UNST_MCGD",         28, TA_FUNC_UNST_MCGD },
+      { "TA_FUNC_UNST_VIDYA",        29, TA_FUNC_UNST_VIDYA },
+      { "TA_FUNC_UNST_STC",          30, TA_FUNC_UNST_STC },
       /* Pinned so adding an indicator can never move it (#144). */
       { "TA_FUNC_UNST_ALL",       65535, TA_FUNC_UNST_ALL }
    };
@@ -1184,7 +1204,9 @@ static ErrorNumber testEnumValueContract( void )
       { "TA_MAType_DISABLED", 10, TA_MAType_DISABLED },
       { "TA_MAType_DEFAULT",  11, TA_MAType_DEFAULT },
       { "TA_MAType_ZLEMA",    12, TA_MAType_ZLEMA },
-      { "TA_MAType_RMA",      13, TA_MAType_RMA }
+      { "TA_MAType_RMA",      13, TA_MAType_RMA },
+      { "TA_MAType_VIDYA",    14, TA_MAType_VIDYA },
+      { "TA_MAType_ALMA",     15, TA_MAType_ALMA }
    };
 
    /* Returned to every caller and mapped by name in the wrappers (ta-lib-python
@@ -1214,9 +1236,8 @@ static ErrorNumber testEnumValueContract( void )
    };
 
    /* TA_SetCandleSettings takes both of these from the caller, so they are ABI
-    * on the same terms. TA_AllCandleSettings is the count as well as the "all"
-    * selector -- it sizes TA_Globals->candleSettings[] -- so it is pinned last
-    * and excluded from the member count below, like TA_FUNC_UNST_ALL. */
+    * on the same terms. TA_AllCandleSettings is a selector, not a setting: it is
+    * pinned, and excluded from the setting count below like TA_FUNC_UNST_ALL. */
    static const EnumPin candlePins[] = {
       { "TA_BodyLong",           0, TA_BodyLong },
       { "TA_BodyVeryLong",       1, TA_BodyVeryLong },
@@ -1347,16 +1368,15 @@ static ErrorNumber testEnumValueContract( void )
       }
    }
 
-   /* Same completeness rule as the unstable ids: TA_AllCandleSettings doubles as
-    * the member count, so a new setting that does not gain a row here would sit
-    * unpinned. It also sizes the defaults table in ta_global.c -- see the guard
-    * there, which turns the same mistake into a clean error rather than a read
-    * past the end. */
-   if( (int)TA_AllCandleSettings != nbCandleTypes )
+   /* Same completeness rule as the unstable ids. */
+   candleSettingsAreAllPinned( TA_BodyLong );
+   if( TA_NB_CANDLE_SETTING != nbCandleTypes )
    {
-      printf( "\nFailed: TA_AllCandleSettings is %d but %d setting(s) are pinned. Add\n"
-              "        the new setting's row to candlePins[] (append only).\n",
-              (int)TA_AllCandleSettings, nbCandleTypes );
+      printf( "\nFailed: TA_NB_CANDLE_SETTING is %d but %d setting(s) are pinned. A new\n"
+              "        setting takes 12 (TA_AllCandleSettings stays 11): give it a row in\n"
+              "        candlePins[] and a case in candleSettingsAreAllPinned(), raise\n"
+              "        TA_NB_CANDLE_SETTING, and follow the check in ta_global.c on index 11.\n",
+              TA_NB_CANDLE_SETTING, nbCandleTypes );
       return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
    }
 
@@ -1520,10 +1540,10 @@ static ErrorNumber testUnstablePeriodBounds( void )
    /* The VALUE dimension. The id has been bounded since #144; the period never
     * was, and it is added to a lookback that is then used as an index -- so a
     * huge one overflows the lookback NEGATIVE and the call indexes ~2^31 bars
-    * forward. TA_MAX_INDEX is the ceiling the index space already uses, and a
+    * forward. TA_INDEX_MAX is the ceiling the index space already uses, and a
     * warm-up beyond it could never produce output anyway.
     */
-   if( TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_MAX_INDEX + 1 ) != TA_BAD_PARAM ||
+   if( TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX + 1 ) != TA_BAD_PARAM ||
        TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 2147483647u ) != TA_BAD_PARAM ||
        TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 4294967295u ) != TA_BAD_PARAM ||
        TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 2147483647u ) != TA_BAD_PARAM )
@@ -1542,10 +1562,10 @@ static ErrorNumber testUnstablePeriodBounds( void )
    }
 
    /* The ceiling itself is accepted: the guard is a bound, not an off-by-one. */
-   if( TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_MAX_INDEX ) != TA_SUCCESS ||
-       TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != (unsigned int)TA_MAX_INDEX )
+   if( TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX ) != TA_SUCCESS ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != (unsigned int)TA_INDEX_MAX )
    {
-      printf( "\nFailed: TA_SetUnstablePeriod rejected the TA_MAX_INDEX ceiling\n" );
+      printf( "\nFailed: TA_SetUnstablePeriod rejected the TA_INDEX_MAX ceiling\n" );
       return TA_INTERNAL_UNST_VALUE_FAIL;
    }
    TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 7 );
@@ -1710,7 +1730,7 @@ static int checkDoji( const double *inOpen, const double *inHigh,
  * TA_SetCandleSettings validated `settingType` and nothing else, so a negative
  * `avgPeriod` reached all 61 CDL* bodies: CDLDOJI's lookback returned -1 while
  * TA_CDLDOJI returned TA_SUCCESS with every value shifted under an *outBegIdx
- * still reporting startIdx. Above TA_MAX_INDEX is the mirror image -- the
+ * still reporting startIdx. Above TA_INDEX_MAX is the mirror image -- the
  * `max(...)+N` lookbacks overflow signed-negative into that same state
  * (-2147483647 out of CDLEVENINGDOJISTAR in practice).
  *
@@ -1769,11 +1789,11 @@ static ErrorNumber testCandleSettingsBounds( void )
    }
 
    /* The other end: an avgPeriod above the index space overflows the
-    * `max(...)+N` lookbacks. TA_MAX_INDEX is the ceiling TA_SetUnstablePeriod
+    * `max(...)+N` lookbacks. TA_INDEX_MAX is the ceiling TA_SetUnstablePeriod
     * already uses for the same reason -- a warm-up longer than the largest
     * addressable series can never produce output.
     */
-   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, TA_MAX_INDEX+1, 0.1 ) != TA_BAD_PARAM ||
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, TA_INDEX_MAX+1, 0.1 ) != TA_BAD_PARAM ||
        TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, INT_MAX, 0.1 ) != TA_BAD_PARAM )
    {
       printf( "\nFailed: TA_SetCandleSettings accepted an avgPeriod that overflows the lookback\n" );
@@ -1838,7 +1858,9 @@ static ErrorNumber testCandleSettingsBounds( void )
    if( TA_SetCandleSettings( TA_AllCandleSettings, TA_RangeType_HighLow, 10, 0.1 ) != TA_BAD_PARAM ||
        TA_SetCandleSettings( (TA_CandleSettingType)-1, TA_RangeType_HighLow, 10, 0.1 ) != TA_BAD_PARAM ||
        TA_SetCandleSettings( (TA_CandleSettingType)-1000000, TA_RangeType_HighLow, 10, 0.1 ) != TA_BAD_PARAM ||
-       TA_RestoreCandleDefaultSettings( (TA_CandleSettingType)-1 ) != TA_BAD_PARAM )
+       TA_SetCandleSettings( (TA_CandleSettingType)TA_NB_CANDLE_SETTING, TA_RangeType_HighLow, 10, 0.1 ) != TA_BAD_PARAM ||
+       TA_RestoreCandleDefaultSettings( (TA_CandleSettingType)-1 ) != TA_BAD_PARAM ||
+       TA_RestoreCandleDefaultSettings( (TA_CandleSettingType)(TA_NB_CANDLE_SETTING + 1) ) != TA_BAD_PARAM )
    {
       printf( "\nFailed: TA_SetCandleSettings accepted an out-of-domain settingType\n" );
       return TA_INTERNAL_CANDLE_BOUND_FAIL_3;
@@ -1855,23 +1877,23 @@ static ErrorNumber testCandleSettingsBounds( void )
 
    /* The valid domain still works, bounds included -- the guards are bounds,
     * not off-by-ones. avgPeriod 0 is the "compare with the current candle"
-    * mode the defaults use for ShadowLong/ShadowVeryLong, and TA_MAX_INDEX is
+    * mode the defaults use for ShadowLong/ShadowVeryLong, and TA_INDEX_MAX is
     * the ceiling itself.
     */
    if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_RealBody, 0, 0.1 ) != TA_SUCCESS ||
-       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_Shadows, TA_MAX_INDEX, 0.1 ) != TA_SUCCESS ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_Shadows, TA_INDEX_MAX, 0.1 ) != TA_SUCCESS ||
        TA_SetCandleSettings( TA_Equal, TA_RangeType_HighLow, 5, 0.05 ) != TA_SUCCESS )
    {
       printf( "\nFailed: TA_SetCandleSettings rejected a valid setting\n" );
       return TA_INTERNAL_CANDLE_BOUND_FAIL_4;
    }
 
-   /* At TA_MAX_INDEX the lookback swallows the whole series, so the tiers must
+   /* At TA_INDEX_MAX the lookback swallows the whole series, so the tiers must
     * still agree on an empty result rather than the call inventing one.
     */
    if( checkDoji( inOpen, inHigh, inLow, inClose ) != 0 )
    {
-      printf( "\nFailed: TA_CDLDOJI produced output at an avgPeriod of TA_MAX_INDEX\n" );
+      printf( "\nFailed: TA_CDLDOJI produced output at an avgPeriod of TA_INDEX_MAX\n" );
       return TA_INTERNAL_CANDLE_BOUND_FAIL_4;
    }
 

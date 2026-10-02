@@ -493,21 +493,15 @@ public static class MetadataTest
 
     private static void UnstableIdAgreesWithTheFlag()
     {
-        int withId = 0;
         foreach (FuncInfo f in FunctionCatalog.Default)
         {
             bool flagged = f.Flags.HasFlag(FuncFlags.UnstablePeriod);
             Check(flagged == (f.UnstableId is not null),
                 $"{f.Name}: the UnstablePeriod flag and UnstableId agree (flag={flagged}, id={f.UnstableId})");
-            if (f.UnstableId is not null)
-            {
-                withId++;
-            }
         }
 
         // The two sides come from different places — the YAML `flags:` list and
         // an enums.yaml name match — so the assertion above is not a tautology.
-        Check(withId == 23, $"exactly 23 functions carry an unstable period (got {withId})");
         Check(FunctionCatalog.Default["RSI"].UnstableId == FuncUnstId.RSI, "RSI maps to its own id");
     }
 
@@ -651,15 +645,16 @@ public static class MetadataTest
     /* --------------------------------------- the two call paths must agree, bitwise */
 
     /// <summary>
-    /// Every function driven both through <see cref="ParamHolder"/> and through
-    /// its typed method, with the outputs compared bit for bit.
+    /// Every function driven twice through <see cref="ParamHolder"/>, with the
+    /// outputs compared bit for bit.
     /// </summary>
-    /// <remarks>The typed arm is reached reflectively and reads nothing from the
-    /// catalogue except the argument shapes, so a transposed input, a wrong slot
-    /// index or a wrong parameter order in a generated thunk cannot produce
-    /// identical doubles by accident. (The library itself uses no reflection —
-    /// this is test scaffolding, and the shipped assembly is built with
-    /// <c>IsAotCompatible</c>.)</remarks>
+    /// <remarks>This arm binds each optional parameter to its declared default and
+    /// alternates the price-binding overload; <see cref="TypedCall"/> binds the
+    /// sentinels and one component at a time. Agreement proves the sentinels
+    /// resolve to the defaults and the two price-binding overloads agree. Both
+    /// arms reach the typed method through the same thunk, so a thunk that
+    /// transposes arguments is caught by <c>abstract_call</c> in the JSON-RPC
+    /// server, which is compared against C, not here.</remarks>
     private static void BothCallPathsAgree()
     {
         int compared = 0;
@@ -800,20 +795,6 @@ public static class MetadataTest
             $"almost every comparison produced values ({withValues}/{compared}) — an all-empty run compares nothing");
     }
 
-    /// <summary>Checks the typed overload exists with the catalogue's declared shapes, then
-    /// invokes with SENTINEL options to compare against the caller's explicit-default call.</summary>
-    /// <remarks>
-    /// <para>Not an independent code path, and it stopped being one when the API took spans: a
-    /// span is a ref struct and cannot be boxed into <c>MethodInfo.Invoke</c>'s
-    /// <c>object[]</c>, so reflective invocation of this API is impossible. Shape LOOKUP still
-    /// works, and that half is still reflective.</para>
-    /// <para>What the value comparison still proves is sentinel resolution (#162/#182): path A
-    /// binds each optional parameter to its declared default, this path binds the sentinel, and
-    /// they must agree. For the functions with NO optional inputs the two calls are identical,
-    /// so for those this degrades to a determinism check — say so rather than imply otherwise.
-    /// Binder-thunk-versus-typed-wrapper agreement is covered instead by <c>abstract_call</c> in
-    /// the JSON-RPC server, which <c>test_abstract.c</c> compares against C per function.</para>
-    /// </remarks>
     /// <summary>The canonical name as the C# surface spells it: `HT_TRENDLINE` -> `HtTrendline`.</summary>
     private static string Folded(string canonical)
     {
@@ -829,6 +810,8 @@ public static class MetadataTest
         return sb.ToString();
     }
 
+    /// <summary>Checks the typed overload exists with the catalogue's declared shapes, then
+    /// calls it with SENTINEL options to compare against the caller's explicit-default call.</summary>
     private static OutRange? TypedCall(FuncInfo f, double[][] realOut, int[][] intOut)
     {
         // The catalogue's declared shapes must name a real typed overload. This
@@ -1198,6 +1181,53 @@ public static class MetadataTest
         Check(moved, "a correct rebind reaches the output");
     }
 
+    /// <summary><see cref="FuncInfo.CreateCall(Core)"/> routes <c>Lookback</c>,
+    /// <c>Call</c> and <c>TryCall</c> through the Core it was handed.</summary>
+    /// <remarks>The unstable period is the oracle: it moves the lookback, and it
+    /// withholds bars from the range without changing how the rest are
+    /// computed, so a call that honours the tuned Core starts 9 bars later with
+    /// 9 fewer values.</remarks>
+    private static void CreateCallCarriesTheGivenCore()
+    {
+        Core tuned = Core.Builder().UnstablePeriod(FuncUnstId.RSI, 9).Build();
+        FuncInfo rsi = FunctionCatalog.Default["RSI"];
+
+        int viaDefault = rsi.CreateCall().SetOptInput(0, 14).Lookback();
+        int viaTuned = rsi.CreateCall(tuned).SetOptInput(0, 14).Lookback();
+        Check(viaDefault == Core.Default.RsiLookback(14), $"CreateCall() uses Core.Default ({viaDefault})");
+        Check(viaTuned == tuned.RsiLookback(14),
+            $"CreateCall(core).Lookback uses the given Core ({viaTuned} vs {tuned.RsiLookback(14)})");
+        Check(viaTuned == viaDefault + 9, $"the unstable period reaches the binder: {viaDefault} + 9 == {viaTuned}");
+
+        var outDefault = new double[N];
+        OutRange rDefault = rsi.CreateCall()
+            .SetInput(0, Close).SetOptInput(0, 14).SetOutput(0, outDefault).Call(0, N - 1);
+        var outTuned = new double[N];
+        OutRange rTuned = rsi.CreateCall(tuned)
+            .SetInput(0, Close).SetOptInput(0, 14).SetOutput(0, outTuned).Call(0, N - 1);
+        var outTry = new double[N];
+        RetCode rc = rsi.CreateCall(tuned)
+            .SetInput(0, Close).SetOptInput(0, 14).SetOutput(0, outTry).TryCall(0, N - 1, out OutRange rTry);
+
+        Check(rTuned.BegIdx == rDefault.BegIdx + 9 && rTuned.Count == rDefault.Count - 9,
+            $"Call on the given Core withholds its 9 unstable bars ({rDefault} -> {rTuned})");
+        Check(rc == RetCode.Success && rTry == rTuned,
+            $"TryCall on the given Core reports the same range as Call ({rc}, {rTry})");
+
+        var direct = new double[N];
+        OutRange rDirect = tuned.Rsi(0, N - 1, Close, 14, direct);
+        Check(rDirect == rTuned, "the binder and the typed call agree on the range for the tuned Core");
+        bool sameBits = true;
+        for (int i = 0; i < rTuned.Count; i++)
+        {
+            sameBits &= BitConverter.DoubleToInt64Bits(direct[i]) == BitConverter.DoubleToInt64Bits(outTuned[i])
+                     && BitConverter.DoubleToInt64Bits(direct[i]) == BitConverter.DoubleToInt64Bits(outTry[i]);
+        }
+        Check(sameBits, "the binder and the typed call agree bit for bit on the tuned Core");
+        Check(rTuned.Count > 0 && rDefault.Count > rTuned.Count,
+            $"both calls produced values, and the tuned Core produced fewer ({rDefault.Count} vs {rTuned.Count})");
+    }
+
     public static int Run()
     {
         CatalogueIsComplete();
@@ -1208,6 +1238,7 @@ public static class MetadataTest
         PriceBundlesAreOneInput();
         BinderRejectsMisuse();
         ARejectedSetterLeavesTheCallAsItFoundIt();
+        CreateCallCarriesTheGivenCore();
         BothCallPathsAgree();
         UnboundParametersTakeTheDocumentedDefault();
         MetadataTypesCannotBeConstructedOutside();

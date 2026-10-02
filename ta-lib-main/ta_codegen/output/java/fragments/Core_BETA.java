@@ -82,10 +82,10 @@
       int outIdx = 0;
       int trailingIdx = 0;
       int nbInitialElementNeeded = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -198,14 +198,14 @@
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -223,14 +223,14 @@
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -240,8 +240,8 @@
          S_y += y;
          denom_scale = n * S_xx;
          denom = denom_scale - S_x * S_x;
-         /* Re-anchor and rebuild when the shift has gone stale. The same three
-          * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+         /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+          * the denominator has shrunk below 1e-6 of the scale
           * it is extracted from; OR the return that just left sat so far from the
           * shift that its squared term dwarfs what remains; OR at least every 32
           * windows.
@@ -274,10 +274,10 @@
           * both from the start; this brings BETA level. S_yy exists only to scale
           * this test -- nothing else reads it.
           *
-          * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-          * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-          * into S_xx, so the ratio when that term leaves lands an order or two
-          * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+          * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+          * return amplifies: a tick multiplying the price by k puts k-1 into the
+          * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+          * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
           * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
           * Pinned by test_beta_outlier_transit.
           *
@@ -323,13 +323,13 @@
                if( prev_x != 0.0 ) {
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = inReal0[j];
                if( prev_y != 0.0 ) {
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = inReal1[j];
                S_xx += x * x;
@@ -359,7 +359,7 @@
          if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
@@ -367,7 +367,7 @@
          if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          /* Write the output.
@@ -434,10 +434,10 @@
       int outIdx = 0;
       int trailingIdx = 0;
       int nbInitialElementNeeded = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -490,14 +490,14 @@
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = (double)inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -514,14 +514,14 @@
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = (double)inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -562,13 +562,13 @@
                if( prev_x != 0.0 ) {
                   x = ((double)inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = (double)inReal0[j];
                if( prev_y != 0.0 ) {
                   y = ((double)inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = (double)inReal1[j];
                S_xx += x * x;
@@ -587,7 +587,7 @@
          if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = (double)inReal1[trailingIdx];
@@ -595,7 +595,7 @@
          if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          if( denom > 0.00000000000001 * denom_scale ) {
@@ -626,8 +626,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#betaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#betaLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -637,11 +637,13 @@
     *        regression sums (default 5; range 1..100000; {@code Integer.MIN_VALUE}
     *        selects the default).
     * @param outReal Beta: regression slope of inReal1-returns on
-    *        inReal0-returns. Must hold at least {@code endIdx - startIdx + 1} values.
+    *        inReal0-returns. Must hold at least
+    *        {@code endIdx - max(startIdx, betaLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -693,8 +695,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#betaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#betaLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -704,11 +706,13 @@
     *        regression sums (default 5; range 1..100000; {@code Integer.MIN_VALUE}
     *        selects the default).
     * @param outReal Beta: regression slope of inReal1-returns on
-    *        inReal0-returns. Must hold at least {@code endIdx - startIdx + 1} values.
+    *        inReal0-returns. Must hold at least
+    *        {@code endIdx - max(startIdx, betaLookback(...)) + 1} values, the count
+    *        the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -802,7 +806,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -816,12 +820,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("BETA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -869,15 +873,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal0, double inReal1 ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("BETA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
-            throw new TALibArgumentException("BETA update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("BETA update", !Double.isFinite(inReal0) ? "inReal0" : "inReal1");
          core.betaStepImpl(this, inReal0, inReal1);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -887,15 +891,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal0, double inReal1 ) {
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
-            throw new TALibArgumentException("BETA peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("BETA peek", !Double.isFinite(inReal0) ? "inReal0" : "inReal1");
          BetaStream sp = this;
          double tmp_real = 0.0;
          double denom = 0.0;
@@ -934,7 +936,7 @@
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          pkIdx0 = i++ & sp.xMask;
@@ -942,7 +944,7 @@
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -952,8 +954,8 @@
          S_y += y;
          denom_scale = sp.n * S_xx;
          denom = denom_scale - S_x * S_x;
-         /* Re-anchor and rebuild when the shift has gone stale. The same three
-          * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+         /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+          * the denominator has shrunk below 1e-6 of the scale
           * it is extracted from; OR the return that just left sat so far from the
           * shift that its squared term dwarfs what remains; OR at least every 32
           * windows.
@@ -986,10 +988,10 @@
           * both from the start; this brings BETA level. S_yy exists only to scale
           * this test -- nothing else reads it.
           *
-          * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-          * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-          * into S_xx, so the ratio when that term leaves lands an order or two
-          * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+          * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+          * return amplifies: a tick multiplying the price by k puts k-1 into the
+          * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+          * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
           * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
           * Pinned by test_beta_outlier_transit.
           *
@@ -1035,13 +1037,13 @@
                if( prev_x != 0.0 ) {
                   x = ((((j & sp.xMask) != pkSlot0) ? sp.x_inReal0[j & sp.xMask] : pkVal0) - prev_x) / prev_x - shift_x;
                } else {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = ((j & sp.xMask) != pkSlot0) ? sp.x_inReal0[j & sp.xMask] : pkVal0;
                if( prev_y != 0.0 ) {
                   y = ((((j & sp.xMask) != pkSlot1) ? sp.x_inReal1[j & sp.xMask] : pkVal1) - prev_y) / prev_y - shift_y;
                } else {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = ((j & sp.xMask) != pkSlot1) ? sp.x_inReal1[j & sp.xMask] : pkVal1;
                S_xx += x * x;
@@ -1071,7 +1073,7 @@
          if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = ((trailingIdx & sp.xMask) != pkSlot1) ? sp.x_inReal1[trailingIdx & sp.xMask] : pkVal1;
@@ -1079,7 +1081,7 @@
          if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          /* Write the output.
@@ -1140,14 +1142,14 @@
       if( sp.last_price_x != 0.0 ) {
          x = (tmp_real - sp.last_price_x) / sp.last_price_x - sp.shift_x;
       } else {
-         x = 0 - sp.shift_x;
+         x = -sp.shift_x;
       }
       sp.last_price_x = tmp_real;
       tmp_real = sp.x_inReal1[sp.i++ & sp.xMask];
       if( sp.last_price_y != 0.0 ) {
          y = (tmp_real - sp.last_price_y) / sp.last_price_y - sp.shift_y;
       } else {
-         y = 0 - sp.shift_y;
+         y = -sp.shift_y;
       }
       sp.last_price_y = tmp_real;
       sp.S_xx += x * x;
@@ -1157,8 +1159,8 @@
       sp.S_y += y;
       denom_scale = sp.n * sp.S_xx;
       denom = denom_scale - sp.S_x * sp.S_x;
-      /* Re-anchor and rebuild when the shift has gone stale. The same three
-       * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+      /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+       * the denominator has shrunk below 1e-6 of the scale
        * it is extracted from; OR the return that just left sat so far from the
        * shift that its squared term dwarfs what remains; OR at least every 32
        * windows.
@@ -1191,10 +1193,10 @@
        * both from the start; this brings BETA level. S_yy exists only to scale
        * this test -- nothing else reads it.
        *
-       * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-       * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-       * into S_xx, so the ratio when that term leaves lands an order or two
-       * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+       * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+       * return amplifies: a tick multiplying the price by k puts k-1 into the
+       * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+       * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
        * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
        * Pinned by test_beta_outlier_transit.
        *
@@ -1240,13 +1242,13 @@
             if( prev_x != 0.0 ) {
                x = (sp.x_inReal0[sp.j & sp.xMask] - prev_x) / prev_x - sp.shift_x;
             } else {
-               x = 0 - sp.shift_x;
+               x = -sp.shift_x;
             }
             prev_x = sp.x_inReal0[sp.j & sp.xMask];
             if( prev_y != 0.0 ) {
                y = (sp.x_inReal1[sp.j & sp.xMask] - prev_y) / prev_y - sp.shift_y;
             } else {
-               y = 0 - sp.shift_y;
+               y = -sp.shift_y;
             }
             prev_y = sp.x_inReal1[sp.j & sp.xMask];
             sp.S_xx += x * x;
@@ -1276,7 +1278,7 @@
       if( sp.trailing_last_price_x != 0.0 ) {
          x = (tmp_real - sp.trailing_last_price_x) / sp.trailing_last_price_x - sp.shift_x;
       } else {
-         x = 0 - sp.shift_x;
+         x = -sp.shift_x;
       }
       sp.trailing_last_price_x = tmp_real;
       tmp_real = sp.x_inReal1[sp.trailingIdx & sp.xMask];
@@ -1284,7 +1286,7 @@
       if( sp.trailing_last_price_y != 0.0 ) {
          y = (tmp_real - sp.trailing_last_price_y) / sp.trailing_last_price_y - sp.shift_y;
       } else {
-         y = 0 - sp.shift_y;
+         y = -sp.shift_y;
       }
       sp.trailing_last_price_y = tmp_real;
       /* Write the output.
@@ -1344,7 +1346,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inReal1.length != inReal0.length ) {
@@ -1465,14 +1467,14 @@
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -1490,14 +1492,14 @@
          if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
@@ -1507,8 +1509,8 @@
          S_y += y;
          denom_scale = n * S_xx;
          denom = denom_scale - S_x * S_x;
-         /* Re-anchor and rebuild when the shift has gone stale. The same three
-          * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+         /* Re-anchor and rebuild when the shift has gone stale. Three triggers:
+          * the denominator has shrunk below 1e-6 of the scale
           * it is extracted from; OR the return that just left sat so far from the
           * shift that its squared term dwarfs what remains; OR at least every 32
           * windows.
@@ -1541,10 +1543,10 @@
           * both from the start; this brings BETA level. S_yy exists only to scale
           * this test -- nothing else reads it.
           *
-          * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
-          * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
-          * into S_xx, so the ratio when that term leaves lands an order or two
-          * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+          * The threshold is 1e3, not the 1e6 a price-scale series takes, because a
+          * return amplifies: a tick multiplying the price by k puts k-1 into the
+          * return and (k-1)^2 into S_xx, so the ratio when that term leaves lands
+          * an order or two below the value-scale case. At 1e6 a 1e5 tick slips
           * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
           * Pinned by test_beta_outlier_transit.
           *
@@ -1590,13 +1592,13 @@
                if( prev_x != 0.0 ) {
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
-                  x = 0 - shift_x;
+                  x = -shift_x;
                }
                prev_x = inReal0[j];
                if( prev_y != 0.0 ) {
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
-                  y = 0 - shift_y;
+                  y = -shift_y;
                }
                prev_y = inReal1[j];
                S_xx += x * x;
@@ -1626,7 +1628,7 @@
          if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
-            x = 0 - shift_x;
+            x = -shift_x;
          }
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
@@ -1634,7 +1636,7 @@
          if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
-            y = 0 - shift_y;
+            y = -shift_y;
          }
          trailing_last_price_y = tmp_real;
          /* Write the output.
@@ -1713,12 +1715,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("BETA openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("BETA openAndFill", inReal0.length, startIdx, betaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("BETA openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("BETA openAndFill: " + retCode, retCode);
+      throw streamFailure("BETA openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind betaOpen (composition seam). */
    BetaStream betaOpenInternal( double inReal0[], double inReal1[], int startIdx, int optInTimePeriod )
@@ -1734,12 +1733,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("BETA open: history shorter than lookback + 1");
+         throw insufficientHistory("BETA open", inReal0.length, startIdx, betaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("BETA open: internal error", retCode);
-      }
-      throw new TALibArgumentException("BETA open: " + retCode, retCode);
+      throw streamFailure("BETA open", retCode);
    }
    /**
     * Open a live BETA stream over the warm-up history; the handle's
@@ -1782,7 +1778,7 @@
       requireHistoryLength("BETA openAndFill", "inReal1", inReal1.length, inReal0.length);
       requireLength("BETA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
-         throw new TALibArgumentException("BETA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("BETA openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

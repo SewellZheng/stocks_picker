@@ -101,9 +101,9 @@ TA_LIB_API TA_RetCode TA_TSF( int    startIdx,
    double weightedTrailing;
    double sumAbs;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -206,9 +206,8 @@ TA_LIB_API TA_RetCode TA_TSF( int    startIdx,
        *     after it is gone (measured 31x at period 5), and this rebuilds on
        *     the bar it leaves instead.
        *
-       * The threshold compares two DEGREE-1 quantities, which is why it is 100
-       * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
-       * against a sum of squares. On ordinary prices the ratio is ~1 and this
+       * The threshold compares two DEGREE-1 quantities, so it is 100 rather
+       * than the 1e6 a degree-2 ratio would take. On ordinary prices it is ~1 and this
        * never fires; it is a compare, not work. The constant is 100 rather than
        * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
        * measured accuracy gain.
@@ -309,9 +308,9 @@ TA_RetCode TA_S_TSF( int    startIdx,
    double weightedTrailing;
    double sumAbs;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -407,8 +406,10 @@ struct TA_TSF_Stream {
    int lookbackTotal;
    int trailingIdx;
    double SumX;
+   double pad_0;
    double SumXY;
    double SumY;
+   double pad_1;
    double Divisor;
    int barsSinceReseed;
    double trailingValue;
@@ -430,7 +431,7 @@ static void TA_TSF_ReleaseImpl( struct TA_TSF_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_TSF_StepImpl( struct TA_TSF_Stream *sp, double inReal, double *outReal )
+static TA_FMA_STEP_INLINE void TA_TSF_StepImpl( struct TA_TSF_Stream *sp, double inReal, double *outReal )
 {
    double m;
    double b;
@@ -460,9 +461,8 @@ static void TA_TSF_StepImpl( struct TA_TSF_Stream *sp, double inReal, double *ou
     *     after it is gone (measured 31x at period 5), and this rebuilds on
     *     the bar it leaves instead.
     *
-    * The threshold compares two DEGREE-1 quantities, which is why it is 100
-    * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
-    * against a sum of squares. On ordinary prices the ratio is ~1 and this
+    * The threshold compares two DEGREE-1 quantities, so it is 100 rather
+    * than the 1e6 a degree-2 ratio would take. On ordinary prices it is ~1 and this
     * never fires; it is a compare, not work. The constant is 100 rather than
     * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
     * measured accuracy gain.
@@ -538,7 +538,7 @@ static TA_RetCode TA_TSF_OpenImpl( struct TA_TSF_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
@@ -663,9 +663,8 @@ static TA_RetCode TA_TSF_OpenImpl( struct TA_TSF_Stream **stream, const double i
           *     after it is gone (measured 31x at period 5), and this rebuilds on
           *     the bar it leaves instead.
           *
-          * The threshold compares two DEGREE-1 quantities, which is why it is 100
-          * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
-          * against a sum of squares. On ordinary prices the ratio is ~1 and this
+          * The threshold compares two DEGREE-1 quantities, so it is 100 rather
+          * than the 1e6 a degree-2 ratio would take. On ordinary prices it is ~1 and this
           * never fires; it is a compare, not work. The constant is 100 rather than
           * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
           * measured accuracy gain.
@@ -791,7 +790,7 @@ TA_LIB_API TA_RetCode TA_TSF_Open( TA_TSF_Stream **stream, const double inReal[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_TSF_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -801,7 +800,7 @@ TA_LIB_API TA_RetCode TA_TSF_OpenAndFill( TA_TSF_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_TSF_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -813,10 +812,11 @@ TA_RetCode TA_TSF_OpenAndFillInternal( struct TA_TSF_Stream **stream, const doub
    return TA_TSF_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_TSF_Update( TA_TSF_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -878,9 +878,8 @@ TA_LIB_API TA_RetCode TA_TSF_Peek( const TA_TSF_Stream *stream, double inReal, d
     *     after it is gone (measured 31x at period 5), and this rebuilds on
     *     the bar it leaves instead.
     *
-    * The threshold compares two DEGREE-1 quantities, which is why it is 100
-    * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
-    * against a sum of squares. On ordinary prices the ratio is ~1 and this
+    * The threshold compares two DEGREE-1 quantities, so it is 100 rather
+    * than the 1e6 a degree-2 ratio would take. On ordinary prices it is ~1 and this
     * never fires; it is a compare, not work. The constant is 100 rather than
     * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
     * measured accuracy gain.
@@ -971,7 +970,7 @@ TA_LIB_API TA_RetCode TA_TSF_OutRange( const TA_TSF_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_TSF_Advance( TA_TSF_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

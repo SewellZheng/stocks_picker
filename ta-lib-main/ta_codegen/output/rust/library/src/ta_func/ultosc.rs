@@ -126,10 +126,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod1) as i32) == (i32::MIN) {
@@ -188,7 +188,6 @@ impl Core {
         let mut heap_term_trueRange: Vec<f64> = Vec::new();
         let mut term_trueRange: &mut [f64] = &mut [];
         let mut term_Idx: usize = 0;
-        let mut maxIdx_term: usize = 31;
         // The two per-bar terms the three moving sums are built from. Both are a
         // pure function of the bar, so each bar is evaluated once on entry and read
         // back when it leaves each of the three windows.
@@ -235,17 +234,19 @@ impl Core {
         if startIdx > endIdx {
             return RetCode::Success;
         }
+        let inHigh = &inHigh[..=endIdx];
+        let inLow = &inLow[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         if optInTimePeriod3 < 1 { return RetCode::InternalError; }
         if (optInTimePeriod3) as usize <= 32usize {
-            term_closeMinusTrueLow = &mut local_term_closeMinusTrueLow;
-            term_trueRange = &mut local_term_trueRange;
+            term_closeMinusTrueLow = &mut local_term_closeMinusTrueLow[..(optInTimePeriod3) as usize];
+            term_trueRange = &mut local_term_trueRange[..(optInTimePeriod3) as usize];
         } else {
             heap_term_closeMinusTrueLow = vec![0.0_f64; (optInTimePeriod3) as usize];
             term_closeMinusTrueLow = &mut heap_term_closeMinusTrueLow;
             heap_term_trueRange = vec![0.0_f64; (optInTimePeriod3) as usize];
             term_trueRange = &mut heap_term_trueRange;
         }
-        maxIdx_term = ((optInTimePeriod3) as usize) - 1;
         term_Idx = 0;
         // Prime running totals used in moving averages.
         //
@@ -279,21 +280,17 @@ impl Core {
             tempLT = inLow[i];
             tempHT = inHigh[i];
             tempCY = inClose[i - 1];
-            trueLow = (tempLT).min(tempCY);
+            trueLow = c_min(tempLT, tempCY);
             closeMinusTrueLow = inClose[i] - trueLow;
             trueRange = tempHT - tempLT;
             tempDouble = (tempCY - tempHT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             tempDouble = (tempCY - tempLT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
             term_trueRange[term_Idx] = trueRange;
             term_Idx += 1;
-            if term_Idx > maxIdx_term { term_Idx = 0; }
+            if term_Idx >= term_closeMinusTrueLow.len() { term_Idx = 0; }
             if trueRange == 0.0 && closeMinusTrueLow == 0.0 {
                 nullRun += 1;
             } else {
@@ -330,17 +327,13 @@ impl Core {
             tempLT = inLow[today];
             tempHT = inHigh[today];
             tempCY = inClose[today - 1];
-            trueLow = (tempLT).min(tempCY);
+            trueLow = c_min(tempLT, tempCY);
             closeMinusTrueLow = inClose[today] - trueLow;
             trueRange = tempHT - tempLT;
             tempDouble = (tempCY - tempHT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             tempDouble = (tempCY - tempLT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
             term_trueRange[term_Idx] = trueRange;
             a1Total += closeMinusTrueLow;
@@ -378,12 +371,18 @@ impl Core {
             output = 0.0;
             if b1Total > 0.0 {
                 output += 4.0 * (a1Total / b1Total);
+            } else {
+                cold_arm();
             }
             if b2Total > 0.0 {
                 output += 2.0 * (a2Total / b2Total);
+            } else {
+                cold_arm();
             }
             if b3Total > 0.0 {
                 output += a3Total / b3Total;
+            } else {
+                cold_arm();
             }
             // Remove the trailing terms to prepare for next day. Each was evaluated
             // once, when its bar entered the ring.
@@ -400,7 +399,7 @@ impl Core {
                 trailingPos2 = 0;
             }
             term_Idx += 1;
-            if term_Idx > maxIdx_term { term_Idx = 0; }
+            if term_Idx >= term_closeMinusTrueLow.len() { term_Idx = 0; }
             a3Total -= term_closeMinusTrueLow[term_Idx];
             b3Total -= term_trueRange[term_Idx];
             // Last operation is to write the output. Must
@@ -442,15 +441,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -500,10 +499,10 @@ impl Core {
         optInTimePeriod3: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.ultosc_lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3)?;
@@ -602,17 +601,13 @@ impl Core {
         tempLT = inLow;
         tempHT = inHigh;
         tempCY = sp.lag1_inClose;
-        trueLow = (tempLT).min(tempCY);
+        trueLow = c_min(tempLT, tempCY);
         closeMinusTrueLow = inClose - trueLow;
         trueRange = tempHT - tempLT;
         tempDouble = (tempCY - tempHT).abs();
-        if tempDouble > trueRange {
-            trueRange = tempDouble;
-        }
+        trueRange = c_max(tempDouble, trueRange);
         tempDouble = (tempCY - tempLT).abs();
-        if tempDouble > trueRange {
-            trueRange = tempDouble;
-        }
+        trueRange = c_max(tempDouble, trueRange);
         sp.cb_term_closeMinusTrueLow[sp.term_Idx] = closeMinusTrueLow;
         sp.cb_term_trueRange[sp.term_Idx] = trueRange;
         sp.a1Total += closeMinusTrueLow;
@@ -650,12 +645,18 @@ impl Core {
         output = 0.0;
         if sp.b1Total > 0.0 {
             output += 4.0 * (sp.a1Total / sp.b1Total);
+        } else {
+            cold_arm();
         }
         if sp.b2Total > 0.0 {
             output += 2.0 * (sp.a2Total / sp.b2Total);
+        } else {
+            cold_arm();
         }
         if sp.b3Total > 0.0 {
             output += sp.a3Total / sp.b3Total;
+        } else {
+            cold_arm();
         }
         // Remove the trailing terms to prepare for next day. Each was evaluated
         // once, when its bar entered the ring.
@@ -696,7 +697,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod1) as i32) == (i32::MIN) {
@@ -841,17 +842,13 @@ impl Core {
             tempLT = inLow[i];
             tempHT = inHigh[i];
             tempCY = inClose[i - 1];
-            trueLow = (tempLT).min(tempCY);
+            trueLow = c_min(tempLT, tempCY);
             closeMinusTrueLow = inClose[i] - trueLow;
             trueRange = tempHT - tempLT;
             tempDouble = (tempCY - tempHT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             tempDouble = (tempCY - tempLT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
             term_trueRange[term_Idx] = trueRange;
             term_Idx += 1;
@@ -892,17 +889,13 @@ impl Core {
             tempLT = inLow[today];
             tempHT = inHigh[today];
             tempCY = inClose[today - 1];
-            trueLow = (tempLT).min(tempCY);
+            trueLow = c_min(tempLT, tempCY);
             closeMinusTrueLow = inClose[today] - trueLow;
             trueRange = tempHT - tempLT;
             tempDouble = (tempCY - tempHT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             tempDouble = (tempCY - tempLT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
             term_trueRange[term_Idx] = trueRange;
             a1Total += closeMinusTrueLow;
@@ -940,12 +933,18 @@ impl Core {
             output = 0.0;
             if b1Total > 0.0 {
                 output += 4.0 * (a1Total / b1Total);
+            } else {
+                cold_arm();
             }
             if b2Total > 0.0 {
                 output += 2.0 * (a2Total / b2Total);
+            } else {
+                cold_arm();
             }
             if b3Total > 0.0 {
                 output += a3Total / b3Total;
+            } else {
+                cold_arm();
             }
             // Remove the trailing terms to prepare for next day. Each was evaluated
             // once, when its bar entered the ring.
@@ -1093,7 +1092,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.ultosc_lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3)?;
@@ -1126,7 +1125,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl UltoscStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -1144,11 +1143,11 @@ impl UltoscStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_ULTOSC_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -1163,16 +1162,15 @@ impl UltoscStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_ULTOSC_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -1208,17 +1206,13 @@ impl UltoscStream {
             tempLT = inLow;
             tempHT = inHigh;
             tempCY = sp.lag1_inClose;
-            trueLow = (tempLT).min(tempCY);
+            trueLow = c_min(tempLT, tempCY);
             closeMinusTrueLow = inClose - trueLow;
             trueRange = tempHT - tempLT;
             tempDouble = (tempCY - tempHT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             tempDouble = (tempCY - tempLT).abs();
-            if tempDouble > trueRange {
-                trueRange = tempDouble;
-            }
+            trueRange = c_max(tempDouble, trueRange);
             pkSlot0 = term_Idx as usize;
             pkVal0 = closeMinusTrueLow;
             pkSlot1 = term_Idx as usize;
@@ -1258,12 +1252,18 @@ impl UltoscStream {
             output = 0.0;
             if b1Total > 0.0 {
                 output += 4.0 * (a1Total / b1Total);
+            } else {
+                cold_arm();
             }
             if b2Total > 0.0 {
                 output += 2.0 * (a2Total / b2Total);
+            } else {
+                cold_arm();
             }
             if b3Total > 0.0 {
                 output += a3Total / b3Total;
+            } else {
+                cold_arm();
             }
             // Remove the trailing terms to prepare for next day. Each was evaluated
             // once, when its bar entered the ring.
@@ -1318,7 +1318,7 @@ impl UltoscStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_ULTOSC_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1336,11 +1336,11 @@ impl UltoscStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_ULTOSC_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

@@ -31,11 +31,16 @@ SHA-256-verified Apache distribution itself. `ta_codegen build-libraries
 --backend=java` runs `./mvnw clean package` and tests *that jar*, so nothing
 tests a class directory and every machine builds with the same Maven. No
 credentials are involved (signing and the Central upload sit behind the pom's `release` profile);
-only the wrapper's first run needs the network.
+only the wrapper's first run needs the network. C# builds with the .NET SDK the
+root `global.json` pins, or a later patch of its band when the pin is not
+installed. Keep `rollForward` at `patch`: every other value but `disable`
+prefers a newer installed SDK over the pin, so CI would build with whichever
+newer SDK the runner has, and a different compiler can change the DLL.
 
-The correctness baseline every backend is verified against is the frozen
-pre-cutover reference (tag `reference-pre-cutover`, served as `ta_ref_serve`)
-plus the hardcoded `ta_regtest` expected values.
+Correctness is verified against three baselines: the in-process C library, which
+`ta_regtest --codegen` and `--xlang-hash` diff every language server against; the
+frozen releases in `ta_ref/` (`scripts/build.py ref`); and the hardcoded
+`ta_regtest` expected values.
 
 See `ta_codegen/generator/CLAUDE.md` for generator internals,
 `src/tools/ta_regtest/CLAUDE.md` for the test-runner spec, and
@@ -68,8 +73,8 @@ Do not hand-edit **generated** files under `ta_codegen/output/` — they are
 overwritten on the next `generate`. The converse trap: some hand-written source
 lives under `output/` too (the Java shared types, `Core.java` outside the GENCODE
 markers, the test suites, the C# `TALib.csproj`, `pom.xml`); the generator
-preserves those and never overwrites them. Of `pom.xml` only the `<version>` is
-written for you, by `scripts/sync.py`.
+preserves those and never overwrites them. Of `pom.xml` and `TALib.csproj` only
+the version is written for you, by `scripts/sync.py`.
 
 ### API tiers and entry points
 
@@ -193,15 +198,13 @@ scripts/build.py libraries      # Build the publishable Java jars + C# library f
 scripts/build.py regen-check    # The PR gate: regenerating must change nothing
                                 # (cargo + Python only; the same command CI runs)
 scripts/build.py test           # C reference tests only (quick)
-scripts/build.py ta_ref_serve   # The frozen pre-cutover oracle, from the pinned-tag worktree
+scripts/build.py ref            # C vs each frozen release in ta_ref/ (C-only);
+                                # --versions=X_Y_Z[,...] narrows it
 scripts/build.py ta_bench_icount # Instruction-count bench (dev-nightly's icount job)
 scripts/bench_icount.py         # Run it under callgrind and compare against the
                                 # committed baseline (needs valgrind; the script
                                 # header says what a count cannot see)
 scripts/build.py regtest        # Servers (cargo) + C tests + cross-language verification.
-                                # Needs bin/ta_ref_serve to already exist; build it with the
-                                # target above. Building the oracle is build.py's job -- nothing
-                                # on a test path repairs what it is about to measure.
 
 # ta_codegen (run from ta_codegen/generator/)
 cargo run -- generate                            # Generate everything, all backends
@@ -269,11 +272,11 @@ changed. It stops if public API that shipped was removed or changed: put it back
 or run `scripts/sync.py --accept-break` when the break is intended, and the soname
 changes at the next release.
 
-## Two build flags that must stay in step
+## Build flags that must stay in step
 
-The generator's flags live in one place (`COMMON_GCC_FLAGS`, `main.rs`); two are
-set by all three build systems (CMake, autotools, the generator) and must stay in
-step:
+The generator's flags live in one place (`COMMON_GCC_FLAGS` and `X86_GCC_FLAGS`,
+`main.rs`); four are set by all three build systems (CMake, autotools, the
+generator) and must stay in step:
 
 - `-ffp-contract=off` — load-bearing for the FMA contract, **not** a performance
   knob.
@@ -284,6 +287,13 @@ step:
   vectorize and raise `FE_INVALID` on lanes the scalar guard skipped (values
   unaffected). That, and why clamping the radicand does not fix it, are in
   `CMakeLists.txt` next to the flag.
+- `-falign-functions=64 -falign-loops=64`, x86 only — performance knobs that
+  change no value. Every function, and every hot loop gcc enters by falling
+  through, starts a 64-byte line, so a function's code layout depends only on
+  its own code after inlining, and a relink no longer moves it. That makes a
+  link-shift sweep a no-op: to separate layout from an algorithm change, shift
+  function entries instead (`-fpatchable-function-entry=K,K`), which models an
+  edit at the top of every function.
 
 ## Benchmarking
 
@@ -291,3 +301,23 @@ The `ta-bench` skill covers it: `ta_bench`, `ta_bench_direct`, `ta_bench_stream`
 and `scripts/stream_ab.py`; what each ratio actually compares (the same source
 builds six different binaries); streaming vs batch; and the `--shape=` input
 corpus.
+
+When several sessions share a machine, one session's build skews another's
+timing run without any error. Run anything that measures time as
+`scripts/quiet.py measure <session> <secs> --queue=<max> -- <cmd>`: it waits its
+turn, first come first served, for at most `<max>` seconds (900 at most), and
+exits 75 if the window stays taken. Without `--queue` it exits 75 at once.
+Either way, do other work and retry rather than wait in a loop of your own.
+It also refuses while other work keeps the machine busy, whoever started it
+(`status` shows the load; `TA_QUIET_MAX_LOAD=<cores>` sets the limit).
+Run heavy jobs (`generate`, `build.py` targets, raw cargo/cmake builds) as
+`scripts/quiet.py noisy <session> --defer=60 -- <cmd>` so measurers back off:
+`--defer` first waits, at most that long (60 at most), while a measurement runs
+or is queued, because back-to-back heavy jobs otherwise starve a queued measurer.
+A deferred job starts after 60 s even inside a running measurement, so keep each
+`measure` window short and split a long campaign into several.
+`scripts/regtest.py` both builds and times, so split it: a heavy job with
+`--no-perftest --no-direct-bench`, then `measure` with
+`--test-only --no-regtest`. `bench_icount.py` counts instructions, which load
+cannot move, but it builds first: run it as a heavy job. `scripts/quiet.py status`
+names the holder and the queue.

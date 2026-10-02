@@ -12,6 +12,8 @@
  *  -------------------------------------------------------------------
  *  072026 MF,CC  First version (#131).
  *  080926 MF,CC  Allow period of 1. Just copy input into output.
+ *  092526 MF,CC  #446 exact zero sums on a dead volume window.
+ *  092626 MF,CC  #446 branch-free zero count.
  */
 
    /**
@@ -49,14 +51,16 @@
       double tempPV = 0;
       double tempV = 0;
       double tempReal = 0;
+      double trailingVolume = 0;
       int i = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      int zeroCount = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -105,12 +109,19 @@
       sumPV = 0.0;
       sumV = 0.0;
       trailingIdx = startIdx - lookbackTotal;
+      /* Zero-volume bars in the window. Once they fill it both sums are exactly
+       * zero, where add-then-subtract would leave the rounding residue of the bars
+       * that departed, of either sign. The test is fabs(v) <= 0.0 rather than
+       * == 0.0: the same result, NaN included, from one flag instead of two.
+       */
+      zeroCount = 0;
       i = trailingIdx;
       if( optInTimePeriod > 1 ) {
          while( i < startIdx ) {
             tempReal = inReal[i] * inVolume[i];
             sumPV += tempReal;
             sumV += inVolume[i];
+            zeroCount += (Math.abs(inVolume[i]) <= 0.0) ? 1 : 0;
             i = i + 1;
          }
       }
@@ -123,20 +134,38 @@
          tempReal = inReal[i] * inVolume[i];
          sumPV += tempReal;
          sumV += inVolume[i];
+         zeroCount += (Math.abs(inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
-         /* Snapshot both sums before removing the trailing bar, mirroring the
-          * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-          * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-          */
-         tempPV = sumPV;
-         tempV = sumV;
          /* Read the trailing values before writing the output, since the caller
           * may pass the same buffer for an input and the output.
           */
-         tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
-         sumPV -= tempReal;
-         sumV -= inVolume[trailingIdx];
-         outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         trailingVolume = inVolume[trailingIdx];
+         tempReal = inReal[trailingIdx] * trailingVolume;
+         /* Each branch writes its own output: a branch that only zeroes the sums
+          * is if-converted into a mask on their dependency chain.
+          */
+         if( zeroCount >= optInTimePeriod ) {
+            /* Zero, then subtract the departing bar: a non-finite price times its
+             * zero volume is NaN, not zero.
+             */
+            tempPV = 0.0;
+            tempV = 0.0;
+            sumPV = 0.0 - tempReal;
+            sumV = 0.0 - trailingVolume;
+            outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         } else {
+            /* Snapshot both sums before removing the trailing bar, mirroring the
+             * add-new / snapshot / subtract-old order of TA_SMA. Up to the first
+             * dead window, that order is what makes this bit-identical to
+             * SMA(inReal*inVolume)/SMA(inVolume).
+             */
+            tempPV = sumPV;
+            tempV = sumV;
+            sumPV -= tempReal;
+            sumV -= trailingVolume;
+            outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         }
+         zeroCount -= (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          outIdx = outIdx + 1;
       }
@@ -159,14 +188,16 @@
       double tempPV = 0;
       double tempV = 0;
       double tempReal = 0;
+      double trailingVolume = 0;
       int i = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      int zeroCount = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -196,12 +227,14 @@
       sumPV = 0.0;
       sumV = 0.0;
       trailingIdx = startIdx - lookbackTotal;
+      zeroCount = 0;
       i = trailingIdx;
       if( optInTimePeriod > 1 ) {
          while( i < startIdx ) {
             tempReal = (double)inReal[i] * (double)inVolume[i];
             sumPV += tempReal;
             sumV += (double)inVolume[i];
+            zeroCount += (Math.abs((double)inVolume[i]) <= 0.0) ? 1 : 0;
             i = i + 1;
          }
       }
@@ -210,13 +243,24 @@
          tempReal = (double)inReal[i] * (double)inVolume[i];
          sumPV += tempReal;
          sumV += (double)inVolume[i];
+         zeroCount += (Math.abs((double)inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
-         tempPV = sumPV;
-         tempV = sumV;
-         tempReal = (double)inReal[trailingIdx] * (double)inVolume[trailingIdx];
-         sumPV -= tempReal;
-         sumV -= (double)inVolume[trailingIdx];
-         outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         trailingVolume = (double)inVolume[trailingIdx];
+         tempReal = (double)inReal[trailingIdx] * trailingVolume;
+         if( zeroCount >= optInTimePeriod ) {
+            tempPV = 0.0;
+            tempV = 0.0;
+            sumPV = 0.0 - tempReal;
+            sumV = 0.0 - trailingVolume;
+            outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         } else {
+            tempPV = sumPV;
+            tempV = sumV;
+            sumPV -= tempReal;
+            sumV -= trailingVolume;
+            outReal[outIdx] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         }
+         zeroCount -= (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          outIdx = outIdx + 1;
       }
@@ -245,8 +289,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#vwmaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#vwmaLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -255,11 +299,12 @@
     * @param optInTimePeriod Number of bars in the weighting window (default 30;
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Volume weighted moving average of the input. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, vwmaLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -321,8 +366,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#vwmaLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#vwmaLookback} is a <b>success
+    * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -331,11 +376,12 @@
     * @param optInTimePeriod Number of bars in the weighting window (default 30;
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outReal Volume weighted moving average of the input. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, vwmaLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -394,6 +440,7 @@
       private int optInTimePeriod;
       private double sumPV;
       private double sumV;
+      private int zeroCount;
       private int ringPos_trailingIdx;
       private int ringCap_trailingIdx;
       private double[] ring_trailingIdx_inReal;
@@ -414,7 +461,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -428,12 +475,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("VWMA advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -443,6 +490,7 @@
          this.optInTimePeriod = other.optInTimePeriod;
          this.sumPV = other.sumPV;
          this.sumV = other.sumV;
+         this.zeroCount = other.zeroCount;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
@@ -466,15 +514,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal, double inVolume ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("VWMA update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
-            throw new TALibArgumentException("VWMA update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("VWMA update", !Double.isFinite(inReal) ? "inReal" : "inVolume");
          core.vwmaStepImpl(this, inReal, inVolume);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -484,52 +532,59 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal, double inVolume ) {
          if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
-            throw new TALibArgumentException("VWMA peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("VWMA peek", !Double.isFinite(inReal) ? "inReal" : "inVolume");
          VwmaStream sp = this;
          double tempPV = 0.0;
          double tempV = 0.0;
          double tempReal = 0.0;
+         double trailingVolume = 0.0;
          double cur_outReal = 0.0;
          double sumPV = sp.sumPV;
          double sumV = sp.sumV;
-         int pkSlot0 = -1;
-         double pkVal0 = 0.0;
-         int pkSlot1 = -1;
-         double pkVal1 = 0.0;
+         int zeroCount = sp.zeroCount;
          if( sp.optInTimePeriod == 1 ) {
             cur_outReal = inReal;
             return cur_outReal ;
          }
-         if( sp.ringCap_trailingIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inReal;
-            pkSlot1 = 0;
-            pkVal1 = inVolume;
-         }
          tempReal = inReal * inVolume;
          sumPV += tempReal;
          sumV += inVolume;
-         /* Snapshot both sums before removing the trailing bar, mirroring the
-          * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-          * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-          */
-         tempPV = sumPV;
-         tempV = sumV;
+         zeroCount += (Math.abs(inVolume) <= 0.0) ? 1 : 0;
          /* Read the trailing values before writing the output, since the caller
           * may pass the same buffer for an input and the output.
           */
-         tempReal = ((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] : pkVal0) * ((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] : pkVal1);
-         sumPV -= tempReal;
-         sumV -= (sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] : pkVal1;
-         cur_outReal = tempPV / (double)sp.optInTimePeriod / (tempV / (double)sp.optInTimePeriod);
+         trailingVolume = sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+         tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] * trailingVolume;
+         /* Each branch writes its own output: a branch that only zeroes the sums
+          * is if-converted into a mask on their dependency chain.
+          */
+         if( zeroCount >= sp.optInTimePeriod ) {
+            /* Zero, then subtract the departing bar: a non-finite price times its
+             * zero volume is NaN, not zero.
+             */
+            tempPV = 0.0;
+            tempV = 0.0;
+            sumPV = 0.0 - tempReal;
+            sumV = 0.0 - trailingVolume;
+            cur_outReal = tempPV / (double)sp.optInTimePeriod / (tempV / (double)sp.optInTimePeriod);
+         } else {
+            /* Snapshot both sums before removing the trailing bar, mirroring the
+             * add-new / snapshot / subtract-old order of TA_SMA. Up to the first
+             * dead window, that order is what makes this bit-identical to
+             * SMA(inReal*inVolume)/SMA(inVolume).
+             */
+            tempPV = sumPV;
+            tempV = sumV;
+            sumPV -= tempReal;
+            sumV -= trailingVolume;
+            cur_outReal = tempPV / (double)sp.optInTimePeriod / (tempV / (double)sp.optInTimePeriod);
+         }
          return cur_outReal;
       }
 
@@ -564,34 +619,51 @@
       double tempPV = 0.0;
       double tempV = 0.0;
       double tempReal = 0.0;
+      double trailingVolume = 0.0;
+      int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
          return ;
       }
-      if( sp.ringCap_trailingIdx == 0 ) {
-         sp.ring_trailingIdx_inReal[0] = inReal;
-         sp.ring_trailingIdx_inVolume[0] = inVolume;
-      }
       tempReal = inReal * inVolume;
       sp.sumPV += tempReal;
       sp.sumV += inVolume;
-      /* Snapshot both sums before removing the trailing bar, mirroring the
-       * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-       * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-       */
-      tempPV = sp.sumPV;
-      tempV = sp.sumV;
+      sp.zeroCount += (Math.abs(inVolume) <= 0.0) ? 1 : 0;
       /* Read the trailing values before writing the output, since the caller
        * may pass the same buffer for an input and the output.
        */
-      tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] * sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
-      sp.sumPV -= tempReal;
-      sp.sumV -= sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
-      sp.cur_outReal = tempPV / (double)sp.optInTimePeriod / (tempV / (double)sp.optInTimePeriod);
+      trailingVolume = sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+      tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] * trailingVolume;
+      /* Each branch writes its own output: a branch that only zeroes the sums
+       * is if-converted into a mask on their dependency chain.
+       */
+      if( sp.zeroCount >= sp.optInTimePeriod ) {
+         /* Zero, then subtract the departing bar: a non-finite price times its
+          * zero volume is NaN, not zero.
+          */
+         tempPV = 0.0;
+         tempV = 0.0;
+         sp.sumPV = 0.0 - tempReal;
+         sp.sumV = 0.0 - trailingVolume;
+         sp.cur_outReal = tempPV / (double)sp.optInTimePeriod / (tempV / (double)sp.optInTimePeriod);
+      } else {
+         /* Snapshot both sums before removing the trailing bar, mirroring the
+          * add-new / snapshot / subtract-old order of TA_SMA. Up to the first
+          * dead window, that order is what makes this bit-identical to
+          * SMA(inReal*inVolume)/SMA(inVolume).
+          */
+         tempPV = sp.sumPV;
+         tempV = sp.sumV;
+         sp.sumPV -= tempReal;
+         sp.sumV -= trailingVolume;
+         sp.cur_outReal = tempPV / (double)sp.optInTimePeriod / (tempV / (double)sp.optInTimePeriod);
+      }
+      sp.zeroCount -= (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
+      ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
       sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
          sp.ringPos_trailingIdx = 0;
       }
    }
@@ -602,16 +674,18 @@
       double tempPV = 0;
       double tempV = 0;
       double tempReal = 0;
+      double trailingVolume = 0;
       int i = 0;
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
+      int zeroCount = 0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inVolume.length != inReal.length ) {
@@ -636,6 +710,7 @@
          sp.optInTimePeriod = optInTimePeriod;
          sp.sumPV = 0.0;
          sp.sumV = 0.0;
+         sp.zeroCount = 0;
          sp.ringPos_trailingIdx = 0;
          sp.ringCap_trailingIdx = 0;
          sp.ring_trailingIdx_inReal = new double[1];
@@ -678,12 +753,19 @@
       sumPV = 0.0;
       sumV = 0.0;
       trailingIdx = startIdx - lookbackTotal;
+      /* Zero-volume bars in the window. Once they fill it both sums are exactly
+       * zero, where add-then-subtract would leave the rounding residue of the bars
+       * that departed, of either sign. The test is fabs(v) <= 0.0 rather than
+       * == 0.0: the same result, NaN included, from one flag instead of two.
+       */
+      zeroCount = 0;
       i = trailingIdx;
       if( optInTimePeriod > 1 ) {
          while( i < startIdx ) {
             tempReal = inReal[i] * inVolume[i];
             sumPV += tempReal;
             sumV += inVolume[i];
+            zeroCount += (Math.abs(inVolume[i]) <= 0.0) ? 1 : 0;
             i = i + 1;
          }
       }
@@ -696,20 +778,38 @@
          tempReal = inReal[i] * inVolume[i];
          sumPV += tempReal;
          sumV += inVolume[i];
+         zeroCount += (Math.abs(inVolume[i]) <= 0.0) ? 1 : 0;
          i = i + 1;
-         /* Snapshot both sums before removing the trailing bar, mirroring the
-          * add-new / snapshot / subtract-old order of TA_SMA. That order is what
-          * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
-          */
-         tempPV = sumPV;
-         tempV = sumV;
          /* Read the trailing values before writing the output, since the caller
           * may pass the same buffer for an input and the output.
           */
-         tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
-         sumPV -= tempReal;
-         sumV -= inVolume[trailingIdx];
-         outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         trailingVolume = inVolume[trailingIdx];
+         tempReal = inReal[trailingIdx] * trailingVolume;
+         /* Each branch writes its own output: a branch that only zeroes the sums
+          * is if-converted into a mask on their dependency chain.
+          */
+         if( zeroCount >= optInTimePeriod ) {
+            /* Zero, then subtract the departing bar: a non-finite price times its
+             * zero volume is NaN, not zero.
+             */
+            tempPV = 0.0;
+            tempV = 0.0;
+            sumPV = 0.0 - tempReal;
+            sumV = 0.0 - trailingVolume;
+            outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         } else {
+            /* Snapshot both sums before removing the trailing bar, mirroring the
+             * add-new / snapshot / subtract-old order of TA_SMA. Up to the first
+             * dead window, that order is what makes this bit-identical to
+             * SMA(inReal*inVolume)/SMA(inVolume).
+             */
+            tempPV = sumPV;
+            tempV = sumV;
+            sumPV -= tempReal;
+            sumV -= trailingVolume;
+            outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         }
+         zeroCount -= (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          outIdx = outIdx + 1;
       }
@@ -718,7 +818,7 @@
       outBegIdx.value = startIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = i - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+      if( cap_trailingIdx < 1 || cap_trailingIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -729,6 +829,7 @@
       sp.optInTimePeriod = optInTimePeriod;
       sp.sumPV = sumPV;
       sp.sumV = sumV;
+      sp.zeroCount = zeroCount;
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
@@ -747,12 +848,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("VWMA openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("VWMA openAndFill", inReal.length, startIdx, vwmaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("VWMA openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("VWMA openAndFill: " + retCode, retCode);
+      throw streamFailure("VWMA openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind vwmaOpen (composition seam). */
    VwmaStream vwmaOpenInternal( double inReal[], double inVolume[], int startIdx, int optInTimePeriod )
@@ -768,12 +866,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("VWMA open: history shorter than lookback + 1");
+         throw insufficientHistory("VWMA open", inReal.length, startIdx, vwmaLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("VWMA open: internal error", retCode);
-      }
-      throw new TALibArgumentException("VWMA open: " + retCode, retCode);
+      throw streamFailure("VWMA open", retCode);
    }
    /**
     * Open a live VWMA stream over the warm-up history; the handle's
@@ -816,7 +911,7 @@
       requireHistoryLength("VWMA openAndFill", "inVolume", inVolume.length, inReal.length);
       requireLength("VWMA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
-         throw new TALibArgumentException("VWMA openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("VWMA openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

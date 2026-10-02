@@ -26,7 +26,7 @@ ErrorNumber test_codegen_unstable_map( void );
 /* Fails with TA_CODEGEN_OUTPUT_ARITY_EXCEEDS_CAP if any registered function
  * has nbOutput > CODEGEN_MAX_OUTPUTS (issue #352). Call with the library
  * initialized, ahead of every run mode — the clamped loops and sized buffers
- * this protects are used by the normal suite, --codegen, --fuzz-064 and
+ * this protects are used by the normal suite, --codegen, --ref and
  * --xlang-hash alike. */
 ErrorNumber codegen_output_arity_within_cap( void );
 
@@ -49,11 +49,11 @@ int codegen_short_filter_token_matches(const char *name, const char *token);
  * --xlang-hash and server_verify; see the comment on the implementation. */
 int codegen_lang_needs_transcendental_tol(const char *lang);
 
-/* Bit-exact differential fuzz of the current in-process library against the
- * frozen released v0.6.4 exposed as bin/ta_064_serve. Opt-in (--fuzz-064),
- * never part of default/nightly runs. functionFilter: CSV substring filter
- * (NULL = all). Returns TA_TEST_PASS iff there is no unwaived divergence. */
-ErrorNumber fuzz_ref064(const char *functionFilter);
+/* Differential fuzz of the current in-process library against the frozen
+ * release `version` ("0_6_4"), served by bin/ta_ref_<version>_serve (--ref).
+ * functionFilter: CSV substring filter (NULL = all). Returns TA_TEST_PASS iff
+ * there is no divergence the release's member does not account for. */
+ErrorNumber fuzz_ref(const char *version, const char *functionFilter);
 
 /* Cross-language BITWISE parity gate (--xlang-hash, issue #113). Diffs each
  * generated language server against the shipped in-process C library on
@@ -121,13 +121,16 @@ void codegen_hash_report(const char *who, TA_RetCode goldRc, int goldBeg,
  * CODEGEN_EPSILON_DOUBLE. ---- */
 #define CODEGEN_TRANSCENDENTAL_TOL 1e-9
 
+/* Passed as codegen_compare_tol's tol, compares bits: the sign of a zero counts. */
+#define CODEGEN_TOL_BITWISE (-1.0)
+
 /* True if the FUNCTION name calls a transcendental C math routine directly.
  * Source-derived fixed list (ta_codegen/input grep). */
 int codegen_is_transcendental(const char *name);
 
 /* True if THIS CALL reaches a transcendental — the name test above, OR an
  * MA-dispatch function (MA/MAVP/BBANDS/MACDEXT/APO/PPO/STOCH*) whose *MAType
- * optional parameter selects TA_MAType_MAMA (which uses atan). optVals[i] is one
+ * optional parameter selects TA_MAType_MAMA (atan) or TA_MAType_ALMA (exp). optVals[i] is one
  * value per optInput in signature order; defaults are assumed beyond nbOpt. */
 int codegen_call_is_transcendental(const TA_FuncHandle *handle,
                                    const double optVals[], int nbOpt);

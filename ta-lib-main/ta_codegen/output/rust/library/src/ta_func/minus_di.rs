@@ -116,10 +116,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -253,6 +253,9 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inHigh = &inHigh[..=endIdx];
+        let inLow = &inLow[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         // Indicate where the next output should be put
         // in the outReal.
         outIdx = 0;
@@ -323,74 +326,94 @@ impl Core {
         prevLow = inLow[today];
         prevClose = inClose[today];
         i = (optInTimePeriod - 1) as usize;
-        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            today += 1;
-            tempReal = inHigh[today];
-            diffP = tempReal - prevHigh;
-            // Plus Delta
-            prevHigh = tempReal;
-            tempReal = inLow[today];
-            diffM = prevLow - tempReal;
-            // Minus Delta
-            prevLow = tempReal;
-            // -DM1 = diffM when diffP < diffM and diffM > 0: the select takes the
-            // first test and the max the second, as a non-positive delta cannot raise
-            // the sum. gcc keeps a branch if the select compares diffM itself or if a
-            // select, not the max, ends the step.
-            tempReal = diffM - diffP;
-            minusDM1 = (if tempReal > 0.0 { diffM } else { 0.0 });
-            tempReal = prevMinusDM + minusDM1;
-            prevMinusDM = (if prevMinusDM > tempReal { prevMinusDM } else { tempReal });
-            let mut _true_range_1: f64;
-            let mut range_1: f64 = prevHigh - prevLow;
-            let mut tmp_1: f64 = (prevHigh - prevClose).abs();
-            if tmp_1 > range_1 {
-                range_1 = tmp_1;
+        if i > 0 {
+            let _wn: usize = i;
+            let _w0 = &inClose[today + 1..][.._wn];
+            let _w1 = &inHigh[today + 1..][.._wn];
+            let _w2 = &inLow[today + 1..][.._wn];
+            for _wk in 0.._wn {
+                i -= 1;
+                today += 1;
+                tempReal = _w1[_wk];
+                diffP = tempReal - prevHigh;
+                // Plus Delta
+                prevHigh = tempReal;
+                tempReal = _w2[_wk];
+                diffM = prevLow - tempReal;
+                // Minus Delta
+                prevLow = tempReal;
+                // -DM1 = diffM when diffP < diffM and diffM > 0: the select takes the
+                // first test and the max the second, as a non-positive delta cannot raise
+                // the sum. gcc keeps a branch if the select compares diffM itself or if a
+                // select, not the max, ends the step.
+                tempReal = diffM - diffP;
+                minusDM1 = (if tempReal > 0.0 { diffM } else { 0.0 });
+                tempReal = prevMinusDM + minusDM1;
+                prevMinusDM = (if prevMinusDM > tempReal { prevMinusDM } else { tempReal });
+                let mut _true_range_1: f64;
+                let mut range_1: f64 = prevHigh - prevLow;
+                let mut tmp_1: f64 = (prevHigh - prevClose).abs();
+                if tmp_1 > range_1 {
+                    range_1 = tmp_1;
+                }
+                tmp_1 = (prevLow - prevClose).abs();
+                if tmp_1 > range_1 {
+                    range_1 = tmp_1;
+                }
+                _true_range_1 = range_1;
+                tempReal = _true_range_1;
+                prevTR += tempReal;
+                prevClose = _w0[_wk];
             }
-            tmp_1 = (prevLow - prevClose).abs();
-            if tmp_1 > range_1 {
-                range_1 = tmp_1;
-            }
-            _true_range_1 = range_1;
-            tempReal = _true_range_1;
-            prevTR += tempReal;
-            prevClose = inClose[today];
+            i = i.wrapping_sub(1);
+        } else {
+            i = i.wrapping_sub(1);
         }
         // Process subsequent DI
         // Skip the unstable period. Note that this loop must be executed
         // at least ONCE to calculate the first DI.
         i = (self.unstable_period[FuncUnstId::MINUS_DI as usize] + 1) as usize;
-        while { let _v = i; i = i.wrapping_sub(1); _v } != 0 {
-            // Calculate the prevMinusDM
-            today += 1;
-            tempReal = inHigh[today];
-            diffP = tempReal - prevHigh;
-            // Plus Delta
-            prevHigh = tempReal;
-            tempReal = inLow[today];
-            diffM = prevLow - tempReal;
-            // Minus Delta
-            prevLow = tempReal;
-            tempReal = diffM - diffP;
-            minusDM1 = (if tempReal > 0.0 { diffM } else { 0.0 });
-            tempReal = prevMinusDM - prevMinusDM * invPeriod;
-            prevMinusDM = tempReal + minusDM1;
-            prevMinusDM = (if tempReal > prevMinusDM { tempReal } else { prevMinusDM });
-            // Calculate the prevTR
-            let mut _true_range_2: f64;
-            let mut range_2: f64 = prevHigh - prevLow;
-            let mut tmp_2: f64 = (prevHigh - prevClose).abs();
-            if tmp_2 > range_2 {
-                range_2 = tmp_2;
+        if i > 0 {
+            let _wn: usize = i;
+            let _w0 = &inClose[today + 1..][.._wn];
+            let _w1 = &inHigh[today + 1..][.._wn];
+            let _w2 = &inLow[today + 1..][.._wn];
+            for _wk in 0.._wn {
+                i -= 1;
+                // Calculate the prevMinusDM
+                today += 1;
+                tempReal = _w1[_wk];
+                diffP = tempReal - prevHigh;
+                // Plus Delta
+                prevHigh = tempReal;
+                tempReal = _w2[_wk];
+                diffM = prevLow - tempReal;
+                // Minus Delta
+                prevLow = tempReal;
+                tempReal = diffM - diffP;
+                minusDM1 = (if tempReal > 0.0 { diffM } else { 0.0 });
+                tempReal = prevMinusDM - prevMinusDM * invPeriod;
+                prevMinusDM = tempReal + minusDM1;
+                prevMinusDM = (if tempReal > prevMinusDM { tempReal } else { prevMinusDM });
+                // Calculate the prevTR
+                let mut _true_range_2: f64;
+                let mut range_2: f64 = prevHigh - prevLow;
+                let mut tmp_2: f64 = (prevHigh - prevClose).abs();
+                if tmp_2 > range_2 {
+                    range_2 = tmp_2;
+                }
+                tmp_2 = (prevLow - prevClose).abs();
+                if tmp_2 > range_2 {
+                    range_2 = tmp_2;
+                }
+                _true_range_2 = range_2;
+                tempReal = _true_range_2;
+                prevTR = prevTR - prevTR * invPeriod + tempReal;
+                prevClose = _w0[_wk];
             }
-            tmp_2 = (prevLow - prevClose).abs();
-            if tmp_2 > range_2 {
-                range_2 = tmp_2;
-            }
-            _true_range_2 = range_2;
-            tempReal = _true_range_2;
-            prevTR = prevTR - prevTR * invPeriod + tempReal;
-            prevClose = inClose[today];
+            i = i.wrapping_sub(1);
+        } else {
+            i = i.wrapping_sub(1);
         }
         // Now start to write the output in
         // the caller provided outReal.
@@ -473,15 +496,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -530,10 +553,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.minus_di_lookback(optInTimePeriod)?;
@@ -695,7 +718,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -1260,7 +1283,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.minus_di_lookback(optInTimePeriod)?;
@@ -1293,7 +1316,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl MinusDiStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -1311,11 +1334,11 @@ impl MinusDiStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_MINUS_DI_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -1330,16 +1353,15 @@ impl MinusDiStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_MINUS_DI_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -1458,7 +1480,7 @@ impl MinusDiStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_MINUS_DI_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -1476,11 +1498,11 @@ impl MinusDiStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_MINUS_DI_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

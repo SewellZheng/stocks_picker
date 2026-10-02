@@ -104,10 +104,10 @@ public partial class Core
       double trailingValue = 0;
       double divider = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -304,10 +304,10 @@ public partial class Core
       double trailingValue = 0;
       double divider = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -398,8 +398,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>WmaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>WmaLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -407,26 +412,36 @@ public partial class Core
    /// <param name="inReal">Source price/data series.</param>
    /// <param name="optInTimePeriod">Number of bars in the weighting window (default 30; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">Weighted moving average series. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">Weighted moving average series. Must hold at least <c>endIdx -
+   /// max(startIdx, WmaLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Dema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Tema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Wma( int startIdx,
                         int endIdx,
                         ReadOnlySpan<double> inReal,
@@ -467,8 +482,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>WmaLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>WmaLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -476,28 +496,38 @@ public partial class Core
    /// <param name="inReal">Source price/data series.</param>
    /// <param name="optInTimePeriod">Number of bars in the weighting window (default 30; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">Weighted moving average series. Must hold at least <c>endIdx - startIdx +
-   /// 1</c> values.</param>
+   /// <param name="outReal">Weighted moving average series. Must hold at least <c>endIdx -
+   /// max(startIdx, WmaLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Ma(int, int, ReadOnlySpan{double}, int, MAType, Span{double})"/>
+   /// <seealso cref="Core.Dema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Tema(int, int, ReadOnlySpan{double}, int, Span{double})"/>
    public OutRange Wma( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inReal,
@@ -564,7 +594,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -577,13 +607,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("WMA", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -613,7 +643,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -624,7 +653,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -632,9 +661,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("WMA", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("WMA", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("WMA", "update", nameof(inReal));
          core.WmaStepImpl(this, inReal);
          outRangeCount++;
          return cur_outReal;
@@ -646,16 +675,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public double Peek( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("WMA", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("WMA", "peek", nameof(inReal));
          WmaStream sp = this;
          int j = 0;
          int rw = 0;
@@ -667,18 +695,12 @@ public partial class Core
          double trailingValue = sp.trailingValue;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         int pkSlot1 = -1;
-         double pkVal1 = 0.0;
          if( sp.optInTimePeriod == 1 ) {
             cur_outReal = inReal;
             return cur_outReal ;
          }
-         if( sp.ringCap_trailingIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inReal;
-         }
-         pkSlot1 = sp.winPos_j;
-         pkVal1 = inReal;
+         pkSlot0 = sp.winPos_j;
+         pkVal0 = inReal;
          /* Add the current price bar to the sum
           * who are carried through the iterations.
           */
@@ -736,7 +758,7 @@ public partial class Core
             periodSum = (double)0.0;
             rw = 1;
             for( j = sp.lookbackWin; j >= 0; j -= 1 ) {
-               tempReal = (((sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j) != pkSlot1) ? sp.win_j_inReal[(sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j] : pkVal1;
+               tempReal = (((sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j) != pkSlot0) ? sp.win_j_inReal[(sp.winPos_j + sp.winCap_j - j >= sp.winCap_j) ? sp.winPos_j + sp.winCap_j - j - sp.winCap_j : sp.winPos_j + sp.winCap_j - j] : pkVal0;
                periodSub += tempReal;
                periodSum += tempReal * rw;
                rw += 1;
@@ -747,7 +769,7 @@ public partial class Core
           * (must be saved here just in case outReal and
           *  inReal are the same buffer).
           */
-         trailingValue = (sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] : pkVal0;
+         trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
          /* Calculate the WMA for this price bar. */
          cur_outReal = periodSum / sp.divider;
          return cur_outReal;
@@ -770,17 +792,15 @@ public partial class Core
       }
    }
 
-   internal void WmaStepImpl( WmaStream sp, double inReal )
+   private void WmaStepImpl( WmaStream sp, double inReal )
    {
       int j = 0;
       int rw = 0;
       double tempReal = 0.0;
+      int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
          return ;
-      }
-      if( sp.ringCap_trailingIdx == 0 ) {
-         sp.ring_trailingIdx_inReal[0] = inReal;
       }
       sp.win_j_inReal[sp.winPos_j] = inReal;
       /* Add the current price bar to the sum
@@ -856,9 +876,10 @@ public partial class Core
       sp.cur_outReal = sp.periodSum / sp.divider;
       /* Prepare the periodSum for the next iteration. */
       sp.periodSum -= sp.periodSub;
+      ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
          sp.ringPos_trailingIdx = 0;
       }
       sp.winPos_j = sp.winPos_j + 1;
@@ -890,7 +911,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -1078,7 +1099,7 @@ public partial class Core
       outBegIdx = startIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = inIdx - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+      if( cap_trailingIdx < 1 || cap_trailingIdx > historyLen ) {
          return RetCode.InternalError;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -1117,6 +1138,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("WMA", "openAndFill", nameof(inReal), inReal.Length, startIdx, WmaLookback(optInTimePeriod));
+      }
       throw StreamFailure("WMA", "openAndFill", retCode);
    }
 
@@ -1130,6 +1154,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("WMA", "open", nameof(inReal), inReal.Length, startIdx, WmaLookback(optInTimePeriod));
       }
       throw StreamFailure("WMA", "open", retCode);
    }
@@ -1149,12 +1176,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>WmaLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public WmaStream WmaOpen( ReadOnlySpan<double> inReal, int optInTimePeriod )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "WMA open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "WMA open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "WMA open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return WmaOpenInternal(inReal, 0, optInTimePeriod);
    }
 
@@ -1183,17 +1210,201 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public WmaStream WmaOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "WMA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "WMA openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "WMA openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("WMA", "openAndFill", inReal.Length, WmaLookback(optInTimePeriod));
       RequireFillLength("WMA", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inReal) ) {
          throw StreamFailure("WMA", "openAndFill", RetCode.BadParam);
       }
       return WmaOpenAndFillInternal(inReal, 0, optInTimePeriod, out _, out _, outReal);
+   }
+
+   private double WmaStepTape( WmaStream sp, ReadOnlySpan<double> tape, int tapeBase, int tapeMask, double inReal )
+   {
+      int j = 0;
+      int rw = 0;
+      double tempReal = 0.0;
+      /* Add the current price bar to the sum
+       * who are carried through the iterations.
+       */
+      tempReal = inReal;
+      sp.periodSub += tempReal;
+      sp.periodSub -= sp.trailingValue;
+      sp.periodSum += tempReal * sp.optInTimePeriod;
+      /* Re-anchor: rebuild both totals from the window itself.
+       *
+       * periodSum and periodSub were running totals that were never
+       * recomputed, so each bar's rounding joined a residue no later bar
+       * could subtract, and its size was set by the largest value the totals
+       * had ever held rather than by the current window. That is the defect
+       * #254 fixed in the LINEARREG family, and `periodSum -= periodSub`
+       * below is the same weight-shifting identity as that family's
+       * `SumXY = SumXY + SumY - period*trailingValue` -- which is why WMA has
+       * it and TA_SMA, whose output lives at its own sum's scale, does not.
+       * Measured before the fix: worst range disagreement 1.41e-08 at 200000
+       * bars against a 1e-10 tier, over the tier from ~10000 bars on ordinary
+       * closes or ~1000 with one large print. After: 1.79e-12, flat in call
+       * length.
+       *
+       * ONE TRIGGER, NOT TWO, AND THE INTERVAL IS 8*period NOT 32. The
+       * LINEARREG family also carries an OUTLIER trigger (rebuild when the
+       * departing value outweighs the window) because for a slope the
+       * interval alone FAILS the tier outright, at 2.38e-10. WMA is not in
+       * that position: its weights are bounded by `period` and its divider is
+       * period*(period+1)/2, which dilutes the residue enough that the
+       * interval alone holds. Swept over periods 2, 3, 4, 14, 50, 200, 1000,
+       * 5000 and 20000 on 60000 bars, clean and with a 1000x print, the worst
+       * is 2.2e-11 -- 4.6x inside the band, and the margin does not thin at
+       * either end of the period range. Measured, the trigger bought 1.4e-11 -> 7e-12 and cost 1.17x
+       * here and 1.65x in TA_HMA, whose three fused stages each pay it. The
+       * shorter interval buys most of the accuracy for ~1.1x instead.
+       *
+       * The rebuild walks the window OLDEST FIRST with the weight counting UP
+       * from 1 -- the priming scan's own order and weighting -- so a
+       * re-anchored bar is bit-identical to the same bar computed by a call
+       * that started there. That identity is what the range-stability
+       * contract measures, and what test_wma.c W2/W3 assert.
+       *
+       * The loop start is written INLINE rather than through a `windowStart`
+       * local: only that form is recognised as a rescan window, which is what
+       * keeps this on the stream classifier's primary path. See
+       * docs/ta_codegen_input_code.md.
+       *
+       * Reading the window is safe when outReal aliases inReal: the outputs
+       * written so far occupy [0, outIdx-1], and the window starts at
+       * startIdx-lookbackTotal+outIdx, which is >= outIdx.
+       */
+      sp.barsSinceReseed -= 1;
+      if( sp.barsSinceReseed <= 0 ) {
+         sp.barsSinceReseed = 8 * sp.optInTimePeriod;
+         sp.periodSub = (double)0.0;
+         sp.periodSum = (double)0.0;
+         rw = 1;
+         for( j = sp.lookbackWin; j >= 0; j -= 1 ) {
+            tempReal = tape[(tapeBase - j) & tapeMask];
+            sp.periodSub += tempReal;
+            sp.periodSum += tempReal * rw;
+            rw += 1;
+         }
+      }
+      /* Save the trailing value for being substract at
+       * the next iteration.
+       * (must be saved here just in case outReal and
+       *  inReal are the same buffer).
+       */
+      sp.trailingValue = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+      /* Calculate the WMA for this price bar. */
+      sp.cur_outReal = sp.periodSum / sp.divider;
+      /* Prepare the periodSum for the next iteration. */
+      sp.periodSum -= sp.periodSub;
+      sp.outRangeCount++;
+      return sp.cur_outReal;
+   }
+
+   private double WmaPeekTape( WmaStream sp, ReadOnlySpan<double> tape, int tapeBase, int tapeMask, double inReal )
+   {
+      int j = 0;
+      int rw = 0;
+      double tempReal = 0.0;
+      int barsSinceReseed = sp.barsSinceReseed;
+      double cur_outReal = 0.0;
+      double periodSub = sp.periodSub;
+      double periodSum = sp.periodSum;
+      double trailingValue = sp.trailingValue;
+      int pkSlot0 = -1;
+      double pkVal0 = 0.0;
+      pkSlot0 = tapeBase & tapeMask;
+      pkVal0 = inReal;
+      /* Add the current price bar to the sum
+       * who are carried through the iterations.
+       */
+      tempReal = inReal;
+      periodSub += tempReal;
+      periodSub -= trailingValue;
+      periodSum += tempReal * sp.optInTimePeriod;
+      /* Re-anchor: rebuild both totals from the window itself.
+       *
+       * periodSum and periodSub were running totals that were never
+       * recomputed, so each bar's rounding joined a residue no later bar
+       * could subtract, and its size was set by the largest value the totals
+       * had ever held rather than by the current window. That is the defect
+       * #254 fixed in the LINEARREG family, and `periodSum -= periodSub`
+       * below is the same weight-shifting identity as that family's
+       * `SumXY = SumXY + SumY - period*trailingValue` -- which is why WMA has
+       * it and TA_SMA, whose output lives at its own sum's scale, does not.
+       * Measured before the fix: worst range disagreement 1.41e-08 at 200000
+       * bars against a 1e-10 tier, over the tier from ~10000 bars on ordinary
+       * closes or ~1000 with one large print. After: 1.79e-12, flat in call
+       * length.
+       *
+       * ONE TRIGGER, NOT TWO, AND THE INTERVAL IS 8*period NOT 32. The
+       * LINEARREG family also carries an OUTLIER trigger (rebuild when the
+       * departing value outweighs the window) because for a slope the
+       * interval alone FAILS the tier outright, at 2.38e-10. WMA is not in
+       * that position: its weights are bounded by `period` and its divider is
+       * period*(period+1)/2, which dilutes the residue enough that the
+       * interval alone holds. Swept over periods 2, 3, 4, 14, 50, 200, 1000,
+       * 5000 and 20000 on 60000 bars, clean and with a 1000x print, the worst
+       * is 2.2e-11 -- 4.6x inside the band, and the margin does not thin at
+       * either end of the period range. Measured, the trigger bought 1.4e-11 -> 7e-12 and cost 1.17x
+       * here and 1.65x in TA_HMA, whose three fused stages each pay it. The
+       * shorter interval buys most of the accuracy for ~1.1x instead.
+       *
+       * The rebuild walks the window OLDEST FIRST with the weight counting UP
+       * from 1 -- the priming scan's own order and weighting -- so a
+       * re-anchored bar is bit-identical to the same bar computed by a call
+       * that started there. That identity is what the range-stability
+       * contract measures, and what test_wma.c W2/W3 assert.
+       *
+       * The loop start is written INLINE rather than through a `windowStart`
+       * local: only that form is recognised as a rescan window, which is what
+       * keeps this on the stream classifier's primary path. See
+       * docs/ta_codegen_input_code.md.
+       *
+       * Reading the window is safe when outReal aliases inReal: the outputs
+       * written so far occupy [0, outIdx-1], and the window starts at
+       * startIdx-lookbackTotal+outIdx, which is >= outIdx.
+       */
+      barsSinceReseed -= 1;
+      if( barsSinceReseed <= 0 ) {
+         barsSinceReseed = 8 * sp.optInTimePeriod;
+         periodSub = (double)0.0;
+         periodSum = (double)0.0;
+         rw = 1;
+         for( j = sp.lookbackWin; j >= 0; j -= 1 ) {
+            tempReal = (((tapeBase - j) & tapeMask) != pkSlot0) ? tape[(tapeBase - j) & tapeMask] : pkVal0;
+            periodSub += tempReal;
+            periodSum += tempReal * rw;
+            rw += 1;
+         }
+      }
+      /* Save the trailing value for being substract at
+       * the next iteration.
+       * (must be saved here just in case outReal and
+       *  inReal are the same buffer).
+       */
+      trailingValue = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+      /* Calculate the WMA for this price bar. */
+      cur_outReal = periodSum / sp.divider;
+      return cur_outReal;
+   }
+
+   private int WmaTapeDetach( WmaStream sp )
+   {
+      int reach = 0;
+      sp.ring_trailingIdx_inReal = [];
+      if( sp.ringCap_trailingIdx > reach ) {
+         reach = sp.ringCap_trailingIdx;
+      }
+      sp.win_j_inReal = [];
+      if( sp.winCap_j - 1 > reach ) {
+         reach = sp.winCap_j - 1;
+      }
+      return reach;
    }
 }

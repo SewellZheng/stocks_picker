@@ -10,7 +10,13 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  090426 MF,CC  First version (issue #368).
+ *  092226 MF,CC  O(1) read, binary search from 256 values, one shift per bar (issue #435).
+ *  092326 MF,CC  Branchless update kernels, merge-sorted first window (issue #435).
+ *  092426 MF,CC  Rust stream tier takes the branchless kernels too (issue #439).
+ *  092426 MF,CC  Default period 100, and stack buffers sized to it (issue #437).
  */
+
+/* Using percentile_ALT1 for TA_ALT={ALL_API,JAVA} */
 
    /**
     * Number of leading input bars {@link Core#percentile} consumes before it
@@ -19,8 +25,8 @@
     * series is requested. Feed at least {@code lookback + 1} bars to get any
     * output.
     *
-    * @param optInTimePeriod Number of bars in the trailing window (default 30;
-    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInTimePeriod Number of bars in the trailing window (default 100;
+    *        range 2..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInPercentile Percentage position within the sorted window
     *        (default 50; range 0..100; {@link Core#REAL_DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
@@ -28,8 +34,8 @@
    public int percentileLookback( int optInTimePeriod, double optInPercentile )
    {
       if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         optInTimePeriod = 100;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 10000 ) {
          return -1;
       }
       if( optInPercentile == REAL_DEFAULT ) {
@@ -59,21 +65,24 @@
       int pos = 0;
       int nbSorted = 0;
       int rank = 0;
+      int lo = 0;
+      int hi = 0;
+      int mid = 0;
       double[] ring;
       int ring_Idx = 0;
-      int maxIdx_ring = (30)-1;
+      int maxIdx_ring = (100)-1;
       double[] sorted;
       int sorted_Idx = 0;
-      int maxIdx_sorted = (30)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      int maxIdx_sorted = (100)-1;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         optInTimePeriod = 100;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInPercentile == REAL_DEFAULT ) {
@@ -99,6 +108,10 @@
       sorted = new double[optInTimePeriod];
       maxIdx_sorted = (optInTimePeriod)-1;
       sorted_Idx = 0;
+      /* Never read: set so two handles opened over the same bars hold the same
+       * state.
+       */
+      sorted[lookbackTotal] = 0.0;
       /* Keep the multiply left of the divide. (P*n)/100 reproduces exact integer
        * arithmetic; P/100 is inexact in binary64 and lands the product just above
        * an integer, one order statistic too high, at exactly the round
@@ -130,47 +143,101 @@
       /* Both scratch buffers hold copies and inReal is never read below i, so
        * inReal and outReal may be the same buffer.
        *
-       * Every buffer store sits BELOW the output store on purpose: deriving the
-       * whole answer read-only above it is what lets the streaming peek frame drop
-       * the state update rather than shadow a shift loop, which it cannot do.
+       * Every buffer store sits BELOW the output store: deriving the whole answer
+       * read-only above it is what lets the streaming peek frame drop the state
+       * update.
        */
       outIdx = 0;
       do {
          newValue = inReal[i];
-         pos = 0;
-         while( pos < lookbackTotal && sorted[pos] <= newValue ) {
-            pos += 1;
+         /* The full window is the retained values with newValue inserted after
+          * its equals, so its rank-th value is newValue clamped to
+          * [sorted[rank-2], sorted[rank-1]]: a tie with the upper bound yields
+          * sorted[rank-1], a tie with the lower bound yields newValue. Spelled as
+          * selects, not branches: which side wins is a coin flip.
+          */
+         result = newValue;
+         if( rank <= lookbackTotal ) {
+            result = (result < sorted[rank - 1]) ? result : sorted[rank - 1];
          }
-         if( rank - 1 < pos ) {
-            result = sorted[rank - 1];
-         } else if( rank - 1 == pos ) {
-            result = newValue;
-         } else {
-            result = sorted[rank - 2];
+         if( rank > 1 ) {
+            result = (result < sorted[rank - 2]) ? sorted[rank - 2] : result;
          }
          outReal[outIdx] = result;
          outIdx += 1;
-         /* Shifting only the strictly greater entries leaves equal values in
-          * insertion order, which is age order -- that is what lets the delete
-          * below evict the oldest of a run by value alone, with no slot array.
+         /* pos counts the retained values <= newValue and j is the first retained
+          * value >= oldValue. Below 256 values a linear scan beats a binary
+          * search: one mispredicted loop exit costs less than log2(n)
+          * unpredictable halvings. From 64 values the scan steps 4 at a time
+          * first, which is what pays for that step's own mispredicted exit.
+          *
+          * Keep every run of equal values in age order (newValue goes after its
+          * equals): the oldest of a run is then the departing value bit for bit,
+          * which is what keeps -0.0 and 0.0 apart. Inserting before the equals
+          * instead changes no value but flips the sign of some zero outputs.
           */
-         j = lookbackTotal;
-         while( j > pos ) {
-            sorted[j] = sorted[j - 1];
-            j -= 1;
-         }
-         sorted[pos] = newValue;
          ring[ring_Idx] = newValue;
          ring_Idx++;
          if( ring_Idx > maxIdx_ring ) { ring_Idx = 0; }
          oldValue = ring[ring_Idx];
-         j = 0;
-         while( j < lookbackTotal && sorted[j] < oldValue ) {
-            j += 1;
+         if( lookbackTotal < 256 ) {
+            pos = 0;
+            if( lookbackTotal >= 64 ) {
+               while( pos + 4 <= lookbackTotal && sorted[pos + 3] <= newValue ) {
+                  pos += 4;
+               }
+            }
+            while( pos < lookbackTotal && sorted[pos] <= newValue ) {
+               pos += 1;
+            }
+            j = 0;
+            if( lookbackTotal >= 64 ) {
+               while( j + 4 <= lookbackTotal && sorted[j + 3] < oldValue ) {
+                  j += 4;
+               }
+            }
+            while( j < lookbackTotal && sorted[j] < oldValue ) {
+               j += 1;
+            }
+         } else {
+            lo = 0;
+            hi = lookbackTotal;
+            while( lo < hi ) {
+               mid = (lo + hi) / 2;
+               if( sorted[mid] <= newValue ) {
+                  lo = mid + 1;
+               } else {
+                  hi = mid;
+               }
+            }
+            pos = lo;
+            lo = 0;
+            hi = lookbackTotal;
+            while( lo < hi ) {
+               mid = (lo + hi) / 2;
+               if( sorted[mid] < oldValue ) {
+                  lo = mid + 1;
+               } else {
+                  hi = mid;
+               }
+            }
+            j = lo;
          }
-         while( j < lookbackTotal ) {
-            sorted[j] = sorted[j + 1];
-            j += 1;
+         /* Evict oldValue and place newValue with one shift of the slots between
+          * them.
+          */
+         if( j < pos ) {
+            while( j < pos - 1 ) {
+               sorted[j] = sorted[j + 1];
+               j += 1;
+            }
+            sorted[pos - 1] = newValue;
+         } else {
+            while( j > pos ) {
+               sorted[j] = sorted[j - 1];
+               j -= 1;
+            }
+            sorted[pos] = newValue;
          }
          i += 1;
       } while( i <= endIdx );
@@ -197,21 +264,24 @@
       int pos = 0;
       int nbSorted = 0;
       int rank = 0;
+      int lo = 0;
+      int hi = 0;
+      int mid = 0;
       double[] ring;
       int ring_Idx = 0;
-      int maxIdx_ring = (30)-1;
+      int maxIdx_ring = (100)-1;
       double[] sorted;
       int sorted_Idx = 0;
-      int maxIdx_sorted = (30)-1;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      int maxIdx_sorted = (100)-1;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         optInTimePeriod = 100;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInPercentile == REAL_DEFAULT ) {
@@ -236,6 +306,7 @@
       sorted = new double[optInTimePeriod];
       maxIdx_sorted = (optInTimePeriod)-1;
       sorted_Idx = 0;
+      sorted[lookbackTotal] = 0.0;
       rank = (int)Math.ceil(optInPercentile * (double)optInTimePeriod / 100.0);
       if( rank < 1 ) {
          rank = 1;
@@ -262,36 +333,74 @@
       outIdx = 0;
       do {
          newValue = (double)inReal[i];
-         pos = 0;
-         while( pos < lookbackTotal && sorted[pos] <= newValue ) {
-            pos += 1;
+         result = newValue;
+         if( rank <= lookbackTotal ) {
+            result = (result < sorted[rank - 1]) ? result : sorted[rank - 1];
          }
-         if( rank - 1 < pos ) {
-            result = sorted[rank - 1];
-         } else if( rank - 1 == pos ) {
-            result = newValue;
-         } else {
-            result = sorted[rank - 2];
+         if( rank > 1 ) {
+            result = (result < sorted[rank - 2]) ? sorted[rank - 2] : result;
          }
          outReal[outIdx] = result;
          outIdx += 1;
-         j = lookbackTotal;
-         while( j > pos ) {
-            sorted[j] = sorted[j - 1];
-            j -= 1;
-         }
-         sorted[pos] = newValue;
          ring[ring_Idx] = newValue;
          ring_Idx++;
          if( ring_Idx > maxIdx_ring ) { ring_Idx = 0; }
          oldValue = ring[ring_Idx];
-         j = 0;
-         while( j < lookbackTotal && sorted[j] < oldValue ) {
-            j += 1;
+         if( lookbackTotal < 256 ) {
+            pos = 0;
+            if( lookbackTotal >= 64 ) {
+               while( pos + 4 <= lookbackTotal && sorted[pos + 3] <= newValue ) {
+                  pos += 4;
+               }
+            }
+            while( pos < lookbackTotal && sorted[pos] <= newValue ) {
+               pos += 1;
+            }
+            j = 0;
+            if( lookbackTotal >= 64 ) {
+               while( j + 4 <= lookbackTotal && sorted[j + 3] < oldValue ) {
+                  j += 4;
+               }
+            }
+            while( j < lookbackTotal && sorted[j] < oldValue ) {
+               j += 1;
+            }
+         } else {
+            lo = 0;
+            hi = lookbackTotal;
+            while( lo < hi ) {
+               mid = (lo + hi) / 2;
+               if( sorted[mid] <= newValue ) {
+                  lo = mid + 1;
+               } else {
+                  hi = mid;
+               }
+            }
+            pos = lo;
+            lo = 0;
+            hi = lookbackTotal;
+            while( lo < hi ) {
+               mid = (lo + hi) / 2;
+               if( sorted[mid] < oldValue ) {
+                  lo = mid + 1;
+               } else {
+                  hi = mid;
+               }
+            }
+            j = lo;
          }
-         while( j < lookbackTotal ) {
-            sorted[j] = sorted[j + 1];
-            j += 1;
+         if( j < pos ) {
+            while( j < pos - 1 ) {
+               sorted[j] = sorted[j + 1];
+               j += 1;
+            }
+            sorted[pos - 1] = newValue;
+         } else {
+            while( j > pos ) {
+               sorted[j] = sorted[j - 1];
+               j -= 1;
+            }
+            sorted[pos] = newValue;
          }
          i += 1;
       } while( i <= endIdx );
@@ -312,27 +421,30 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>The nearest-rank method is one of several incompatible percentile conventions. The linear-interpolation family (Hyndman &amp; Fan type 7, the default of most statistical packages, and TradingView's {@code ta.percentile_linear_interpolation}) reports a weighted blend of two neighbouring order statistics and can emit a value that never occurred. That is a different indicator, not a mode of this one: PERCENTILE's parameter list is fixed at a window and a percentage, and a method selector cannot be appended to it later without changing the function's arity.</li>
+    * <li>A tail percentile rests on the few values beyond it: at N = 30, P = 95 is the second-largest value in the window. For a stable estimate keep about ten values beyond the percentile, N ≥ 1000 / min(P, 100 − P): 100 bars at P = 10 or 90, 200 at P = 5 or 95.</li>
     * <li>Every input value in the window must be finite. A NaN makes every comparison against it false, which breaks the ordering the rank index is read from.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#percentileLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#percentileLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal Source series to take the percentile of.
-    * @param optInTimePeriod Number of bars in the trailing window (default 30;
-    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInTimePeriod Number of bars in the trailing window (default 100;
+    *        range 2..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInPercentile Percentage position within the sorted window
     *        (default 50; range 0..100; {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal The value at the requested rank within the trailing window.
-    *        Must hold at least {@code endIdx - startIdx + 1} values.
+    *        Must hold at least
+    *        {@code endIdx - max(startIdx, percentileLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -382,6 +494,7 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>The nearest-rank method is one of several incompatible percentile conventions. The linear-interpolation family (Hyndman &amp; Fan type 7, the default of most statistical packages, and TradingView's {@code ta.percentile_linear_interpolation}) reports a weighted blend of two neighbouring order statistics and can emit a value that never occurred. That is a different indicator, not a mode of this one: PERCENTILE's parameter list is fixed at a window and a percentage, and a method selector cannot be appended to it later without changing the function's arity.</li>
+    * <li>A tail percentile rests on the few values beyond it: at N = 30, P = 95 is the second-largest value in the window. For a stable estimate keep about ten values beyond the percentile, N ≥ 1000 / min(P, 100 − P): 100 bars at P = 10 or 90, 200 at P = 5 or 95.</li>
     * <li>Every input value in the window must be finite. A NaN makes every comparison against it false, which breaks the ordering the rank index is read from.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -390,22 +503,24 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#percentileLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#percentileLookback} is a
+    * <b>success with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal Source series to take the percentile of.
-    * @param optInTimePeriod Number of bars in the trailing window (default 30;
-    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInTimePeriod Number of bars in the trailing window (default 100;
+    *        range 2..10000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInPercentile Percentage position within the sorted window
     *        (default 50; range 0..100; {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal The value at the requested rank within the trailing window.
-    *        Must hold at least {@code endIdx - startIdx + 1} values.
+    *        Must hold at least
+    *        {@code endIdx - max(startIdx, percentileLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -443,6 +558,8 @@
       return new OutRange(outBegIdx.value, outNBElement.value);
    }
 /**** Streaming API *****/
+
+/* Using percentile_ALT1 for TA_ALT={ALL_API,JAVA} */
 
    /**
     * A live PERCENTILE stream (unrelated to {@code java.util.stream}): one value per
@@ -488,7 +605,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -502,12 +619,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("PERCENTILE advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -545,15 +662,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("PERCENTILE update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("PERCENTILE update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("PERCENTILE update", "inReal");
          core.percentileStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -563,31 +680,30 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("PERCENTILE peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("PERCENTILE peek", "inReal");
          PercentileStream sp = this;
          double newValue = 0.0;
          double result = 0.0;
-         int pos = 0;
          double cur_outReal = 0.0;
          newValue = inReal;
-         pos = 0;
-         while( pos < sp.lookbackTotal && sp.cb_sorted[pos] <= newValue ) {
-            pos += 1;
+         /* The full window is the retained values with newValue inserted after
+          * its equals, so its rank-th value is newValue clamped to
+          * [sorted[rank-2], sorted[rank-1]]: a tie with the upper bound yields
+          * sorted[rank-1], a tie with the lower bound yields newValue. Spelled as
+          * selects, not branches: which side wins is a coin flip.
+          */
+         result = newValue;
+         if( sp.rank <= sp.lookbackTotal ) {
+            result = (result < sp.cb_sorted[sp.rank - 1]) ? result : sp.cb_sorted[sp.rank - 1];
          }
-         if( sp.rank - 1 < pos ) {
-            result = sp.cb_sorted[sp.rank - 1];
-         } else if( sp.rank - 1 == pos ) {
-            result = newValue;
-         } else {
-            result = sp.cb_sorted[sp.rank - 2];
+         if( sp.rank > 1 ) {
+            result = (result < sp.cb_sorted[sp.rank - 2]) ? sp.cb_sorted[sp.rank - 2] : result;
          }
          cur_outReal = result;
          return cur_outReal;
@@ -626,42 +742,99 @@
       double result = 0.0;
       int j = 0;
       int pos = 0;
+      int lo = 0;
+      int hi = 0;
+      int mid = 0;
       newValue = inReal;
-      pos = 0;
-      while( pos < sp.lookbackTotal && sp.cb_sorted[pos] <= newValue ) {
-         pos += 1;
+      /* The full window is the retained values with newValue inserted after
+       * its equals, so its rank-th value is newValue clamped to
+       * [sorted[rank-2], sorted[rank-1]]: a tie with the upper bound yields
+       * sorted[rank-1], a tie with the lower bound yields newValue. Spelled as
+       * selects, not branches: which side wins is a coin flip.
+       */
+      result = newValue;
+      if( sp.rank <= sp.lookbackTotal ) {
+         result = (result < sp.cb_sorted[sp.rank - 1]) ? result : sp.cb_sorted[sp.rank - 1];
       }
-      if( sp.rank - 1 < pos ) {
-         result = sp.cb_sorted[sp.rank - 1];
-      } else if( sp.rank - 1 == pos ) {
-         result = newValue;
-      } else {
-         result = sp.cb_sorted[sp.rank - 2];
+      if( sp.rank > 1 ) {
+         result = (result < sp.cb_sorted[sp.rank - 2]) ? sp.cb_sorted[sp.rank - 2] : result;
       }
       sp.cur_outReal = result;
-      /* Shifting only the strictly greater entries leaves equal values in
-       * insertion order, which is age order -- that is what lets the delete
-       * below evict the oldest of a run by value alone, with no slot array.
+      /* pos counts the retained values <= newValue and j is the first retained
+       * value >= oldValue. Below 256 values a linear scan beats a binary
+       * search: one mispredicted loop exit costs less than log2(n)
+       * unpredictable halvings. From 64 values the scan steps 4 at a time
+       * first, which is what pays for that step's own mispredicted exit.
+       *
+       * Keep every run of equal values in age order (newValue goes after its
+       * equals): the oldest of a run is then the departing value bit for bit,
+       * which is what keeps -0.0 and 0.0 apart. Inserting before the equals
+       * instead changes no value but flips the sign of some zero outputs.
        */
-      j = sp.lookbackTotal;
-      while( j > pos ) {
-         sp.cb_sorted[j] = sp.cb_sorted[j - 1];
-         j -= 1;
-      }
-      sp.cb_sorted[pos] = newValue;
       sp.cb_ring[sp.ring_Idx] = newValue;
       sp.ring_Idx = sp.ring_Idx + 1;
       if( sp.ring_Idx > sp.maxIdx_ring ) {
          sp.ring_Idx = 0;
       }
       oldValue = sp.cb_ring[sp.ring_Idx];
-      j = 0;
-      while( j < sp.lookbackTotal && sp.cb_sorted[j] < oldValue ) {
-         j += 1;
+      if( sp.lookbackTotal < 256 ) {
+         pos = 0;
+         if( sp.lookbackTotal >= 64 ) {
+            while( pos + 4 <= sp.lookbackTotal && sp.cb_sorted[pos + 3] <= newValue ) {
+               pos += 4;
+            }
+         }
+         while( pos < sp.lookbackTotal && sp.cb_sorted[pos] <= newValue ) {
+            pos += 1;
+         }
+         j = 0;
+         if( sp.lookbackTotal >= 64 ) {
+            while( j + 4 <= sp.lookbackTotal && sp.cb_sorted[j + 3] < oldValue ) {
+               j += 4;
+            }
+         }
+         while( j < sp.lookbackTotal && sp.cb_sorted[j] < oldValue ) {
+            j += 1;
+         }
+      } else {
+         lo = 0;
+         hi = sp.lookbackTotal;
+         while( lo < hi ) {
+            mid = (lo + hi) / 2;
+            if( sp.cb_sorted[mid] <= newValue ) {
+               lo = mid + 1;
+            } else {
+               hi = mid;
+            }
+         }
+         pos = lo;
+         lo = 0;
+         hi = sp.lookbackTotal;
+         while( lo < hi ) {
+            mid = (lo + hi) / 2;
+            if( sp.cb_sorted[mid] < oldValue ) {
+               lo = mid + 1;
+            } else {
+               hi = mid;
+            }
+         }
+         j = lo;
       }
-      while( j < sp.lookbackTotal ) {
-         sp.cb_sorted[j] = sp.cb_sorted[j + 1];
-         j += 1;
+      /* Evict oldValue and place newValue with one shift of the slots between
+       * them.
+       */
+      if( j < pos ) {
+         while( j < pos - 1 ) {
+            sp.cb_sorted[j] = sp.cb_sorted[j + 1];
+            j += 1;
+         }
+         sp.cb_sorted[pos - 1] = newValue;
+      } else {
+         while( j > pos ) {
+            sp.cb_sorted[j] = sp.cb_sorted[j - 1];
+            j -= 1;
+         }
+         sp.cb_sorted[pos] = newValue;
       }
    }
    private RetCode percentileOpenImpl( PercentileStream sp, double inReal[], int startIdx, int optInTimePeriod, double optInPercentile, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
@@ -676,23 +849,26 @@
       int pos = 0;
       int nbSorted = 0;
       int rank = 0;
+      int lo = 0;
+      int hi = 0;
+      int mid = 0;
       double[] ring;
       int ring_Idx = 0;
-      int maxIdx_ring = (30)-1;
+      int maxIdx_ring = (100)-1;
       double[] sorted;
       int sorted_Idx = 0;
-      int maxIdx_sorted = (30)-1;
+      int maxIdx_sorted = (100)-1;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
-         optInTimePeriod = 30;
-      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         optInTimePeriod = 100;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 10000 ) {
          return RetCode.BAD_PARAM;
       }
       if( optInPercentile == REAL_DEFAULT ) {
@@ -723,6 +899,10 @@
       sorted = new double[optInTimePeriod];
       maxIdx_sorted = (optInTimePeriod)-1;
       sorted_Idx = 0;
+      /* Never read: set so two handles opened over the same bars hold the same
+       * state.
+       */
+      sorted[lookbackTotal] = 0.0;
       /* Keep the multiply left of the divide. (P*n)/100 reproduces exact integer
        * arithmetic; P/100 is inexact in binary64 and lands the product just above
        * an integer, one order statistic too high, at exactly the round
@@ -754,47 +934,101 @@
       /* Both scratch buffers hold copies and inReal is never read below i, so
        * inReal and outReal may be the same buffer.
        *
-       * Every buffer store sits BELOW the output store on purpose: deriving the
-       * whole answer read-only above it is what lets the streaming peek frame drop
-       * the state update rather than shadow a shift loop, which it cannot do.
+       * Every buffer store sits BELOW the output store: deriving the whole answer
+       * read-only above it is what lets the streaming peek frame drop the state
+       * update.
        */
       outIdx = 0;
       do {
          newValue = inReal[i];
-         pos = 0;
-         while( pos < lookbackTotal && sorted[pos] <= newValue ) {
-            pos += 1;
+         /* The full window is the retained values with newValue inserted after
+          * its equals, so its rank-th value is newValue clamped to
+          * [sorted[rank-2], sorted[rank-1]]: a tie with the upper bound yields
+          * sorted[rank-1], a tie with the lower bound yields newValue. Spelled as
+          * selects, not branches: which side wins is a coin flip.
+          */
+         result = newValue;
+         if( rank <= lookbackTotal ) {
+            result = (result < sorted[rank - 1]) ? result : sorted[rank - 1];
          }
-         if( rank - 1 < pos ) {
-            result = sorted[rank - 1];
-         } else if( rank - 1 == pos ) {
-            result = newValue;
-         } else {
-            result = sorted[rank - 2];
+         if( rank > 1 ) {
+            result = (result < sorted[rank - 2]) ? sorted[rank - 2] : result;
          }
          outReal[outIdx * outStride] = result;
          outIdx += 1;
-         /* Shifting only the strictly greater entries leaves equal values in
-          * insertion order, which is age order -- that is what lets the delete
-          * below evict the oldest of a run by value alone, with no slot array.
+         /* pos counts the retained values <= newValue and j is the first retained
+          * value >= oldValue. Below 256 values a linear scan beats a binary
+          * search: one mispredicted loop exit costs less than log2(n)
+          * unpredictable halvings. From 64 values the scan steps 4 at a time
+          * first, which is what pays for that step's own mispredicted exit.
+          *
+          * Keep every run of equal values in age order (newValue goes after its
+          * equals): the oldest of a run is then the departing value bit for bit,
+          * which is what keeps -0.0 and 0.0 apart. Inserting before the equals
+          * instead changes no value but flips the sign of some zero outputs.
           */
-         j = lookbackTotal;
-         while( j > pos ) {
-            sorted[j] = sorted[j - 1];
-            j -= 1;
-         }
-         sorted[pos] = newValue;
          ring[ring_Idx] = newValue;
          ring_Idx++;
          if( ring_Idx > maxIdx_ring ) { ring_Idx = 0; }
          oldValue = ring[ring_Idx];
-         j = 0;
-         while( j < lookbackTotal && sorted[j] < oldValue ) {
-            j += 1;
+         if( lookbackTotal < 256 ) {
+            pos = 0;
+            if( lookbackTotal >= 64 ) {
+               while( pos + 4 <= lookbackTotal && sorted[pos + 3] <= newValue ) {
+                  pos += 4;
+               }
+            }
+            while( pos < lookbackTotal && sorted[pos] <= newValue ) {
+               pos += 1;
+            }
+            j = 0;
+            if( lookbackTotal >= 64 ) {
+               while( j + 4 <= lookbackTotal && sorted[j + 3] < oldValue ) {
+                  j += 4;
+               }
+            }
+            while( j < lookbackTotal && sorted[j] < oldValue ) {
+               j += 1;
+            }
+         } else {
+            lo = 0;
+            hi = lookbackTotal;
+            while( lo < hi ) {
+               mid = (lo + hi) / 2;
+               if( sorted[mid] <= newValue ) {
+                  lo = mid + 1;
+               } else {
+                  hi = mid;
+               }
+            }
+            pos = lo;
+            lo = 0;
+            hi = lookbackTotal;
+            while( lo < hi ) {
+               mid = (lo + hi) / 2;
+               if( sorted[mid] < oldValue ) {
+                  lo = mid + 1;
+               } else {
+                  hi = mid;
+               }
+            }
+            j = lo;
          }
-         while( j < lookbackTotal ) {
-            sorted[j] = sorted[j + 1];
-            j += 1;
+         /* Evict oldValue and place newValue with one shift of the slots between
+          * them.
+          */
+         if( j < pos ) {
+            while( j < pos - 1 ) {
+               sorted[j] = sorted[j + 1];
+               j += 1;
+            }
+            sorted[pos - 1] = newValue;
+         } else {
+            while( j > pos ) {
+               sorted[j] = sorted[j - 1];
+               j -= 1;
+            }
+            sorted[pos] = newValue;
          }
          i += 1;
       } while( i <= endIdx );
@@ -835,12 +1069,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("PERCENTILE openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("PERCENTILE openAndFill", inReal.length, startIdx, percentileLookback(optInTimePeriod, optInPercentile));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("PERCENTILE openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("PERCENTILE openAndFill: " + retCode, retCode);
+      throw streamFailure("PERCENTILE openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind percentileOpen (composition seam). */
    PercentileStream percentileOpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInPercentile )
@@ -856,12 +1087,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("PERCENTILE open: history shorter than lookback + 1");
+         throw insufficientHistory("PERCENTILE open", inReal.length, startIdx, percentileLookback(optInTimePeriod, optInPercentile));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("PERCENTILE open: internal error", retCode);
-      }
-      throw new TALibArgumentException("PERCENTILE open: " + retCode, retCode);
+      throw streamFailure("PERCENTILE open", retCode);
    }
    /**
     * Open a live PERCENTILE stream over the warm-up history; the handle's
@@ -900,7 +1128,7 @@
       int guardOutLen = openFillCount("PERCENTILE openAndFill", inReal.length, percentileLookback(optInTimePeriod, optInPercentile));
       requireLength("PERCENTILE openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("PERCENTILE openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("PERCENTILE openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

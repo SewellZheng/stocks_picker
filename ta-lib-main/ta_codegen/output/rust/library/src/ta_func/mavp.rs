@@ -58,6 +58,7 @@
  *  072726 MF,CC  #145. Index the bucket table relative to the smallest period
  *                used, and bound it so an off-contract period cannot overflow.
  *  080326 MF,CC  Split the size temp from the cast-fed period temp (#160).
+ *  092526 MF,CC  #442. Allocate the multi-period buffers on that path only.
  */
 
 // Import types from parent module
@@ -75,11 +76,11 @@ impl Core {
     ///
     /// # Arguments
     ///
-    /// * `optInMinPeriod` — Lower clamp for the per-bar period (default 2, range 1..=100000)
-    /// * `optInMaxPeriod` — Upper clamp for the per-bar period (default 30, range 1..=100000)
+    /// * `optInMinPeriod` — Lower clamp for the per-bar period (default 2, range 1..=10000)
+    /// * `optInMaxPeriod` — Upper clamp for the per-bar period (default 30, range 1..=10000)
     /// * `optInMAType` — Moving-average type applied (default 0 = SMA, values: 0=SMA, 1=EMA,
     ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT,
-    ///   12=ZLEMA, 13=RMA, `MAType::DEFAULT` selects the default)
+    ///   12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
     ///
     /// # Errors
     ///
@@ -90,12 +91,12 @@ impl Core {
     pub fn mavp_lookback(&self, mut optInMinPeriod: i32, mut optInMaxPeriod: i32, mut optInMAType: MAType) -> Result<usize, RetCode> {
         if ((optInMinPeriod) as i32) == (i32::MIN) {
             optInMinPeriod = 2;
-        } else if (((optInMinPeriod) as i32) < 1) || (((optInMinPeriod) as i32) > 100000) {
+        } else if (((optInMinPeriod) as i32) < 1) || (((optInMinPeriod) as i32) > 10000) {
             return Err(RetCode::BadParam);
         }
         if ((optInMaxPeriod) as i32) == (i32::MIN) {
             optInMaxPeriod = 30;
-        } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 100000) {
+        } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 10000) {
             return Err(RetCode::BadParam);
         }
         if optInMAType == MAType::DEFAULT {
@@ -125,20 +126,20 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInMinPeriod) as i32) == (i32::MIN) {
             optInMinPeriod = 2;
-        } else if (((optInMinPeriod) as i32) < 1) || (((optInMinPeriod) as i32) > 100000) {
+        } else if (((optInMinPeriod) as i32) < 1) || (((optInMinPeriod) as i32) > 10000) {
             return RetCode::BadParam;
         }
         if ((optInMaxPeriod) as i32) == (i32::MIN) {
             optInMaxPeriod = 30;
-        } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 100000) {
+        } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 10000) {
             return RetCode::BadParam;
         }
         if optInMAType == MAType::DEFAULT {
@@ -169,7 +170,6 @@ impl Core {
         let mut sortedIdx: Vec<i32> = Vec::new();
         let mut bucketOfs: Vec<i32> = Vec::new();
         let mut localOutputArray: Vec<f64> = Vec::new();
-        let mut localFinalArray: Vec<f64> = Vec::new();
         let mut finalIsAllocated: usize = 0_usize;
         let mut localBegIdx: usize = 0_usize;
         let mut localNbElement: usize = 0_usize;
@@ -197,6 +197,7 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inPeriods = &inPeriods[..=endIdx];
         // Calculate exact output size. A dedicated temp: tempInt is the cast-fed
         // period below, which the Rust backend types SIGNED (#160) — reusing it
         // here would drag this index arithmetic into i32.
@@ -212,28 +213,24 @@ impl Core {
             return RetCode::Success;
         }
         outputSize = endIdx - firstOut + 1;
-        // Allocate intermediate local buffer.
-        localOutputArray = vec![0.0_f64; (outputSize * 1) as usize];
         localPeriodArray = vec![0_i32; (outputSize * 1) as usize];
-        // Output indices grouped by clamped period (counting sort below).
-        sortedIdx = vec![0_i32; (outputSize * 1) as usize];
         // In-place defence (issue #130): each ma() pass below re-reads inReal over
         // the full range, so with outReal==inReal the results are staged in a
         // scratch buffer and copied once at the end. A regular call writes
         // straight to outReal and skips both the allocation and the copy.
         finalIsAllocated = 0;
-        if outReal.as_ptr() == inReal.as_ptr() {
-            finalIsAllocated = 1;
-            localFinalArray = vec![0.0_f64; (outputSize * 1) as usize];
-        } else {
-            localFinalArray = outReal.to_vec();
-        }
+        // Rust: C's pointer election here is a rename, so the calculation runs
+        // directly in the caller's slices:
+        //   C's `localFinalArray` is `outReal`
+        // C's aliasing arms and any guard or copy-back they need are
+        // unreachable here: `&[T]` and `&mut [T]` parameters can never
+        // overlap, and neither can two `&mut [T]`. See issue #146.
         // Read the caller array of period, truncate to min/max, and track the
         // range of periods actually used so all later work is sized by the data,
         // not by optInMaxPeriod. The floor at 1 (and on minUsed's start value)
         // keeps a period below 1 from indexing the occurrence tables out of range.
-        // mavp.yaml caps both periods at [1, 100000], so it is inert through the
-        // API; it is kept because this file is the source of truth for four
+        // mavp.yaml's period range starts at 1, so it is inert through the API;
+        // it is kept because this file is the source of truth for four
         // backends and it makes the shared source safe by construction rather than
         // by trusting each backend's prologue to be identical.
         minUsed = (optInMaxPeriod) as usize;
@@ -278,8 +275,8 @@ impl Core {
         }
         // Bound the bucket table before sizing it.
         //
-        // Unreachable through the API: mavp.yaml caps both periods at 100000, so
-        // the widest spread expressible is 99999. It is kept because it protects a
+        // Unreachable through the API: mavp.yaml's period range keeps the spread
+        // below this bound. It is kept because it protects a
         // memory-safety property and this file is the source of truth for four
         // backends — without it the size expression below can overflow (signed
         // overflow in C, a wrapped negative in Java, a usize underflow panic in
@@ -299,49 +296,62 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::BadParam;
         }
-        // Per-period bucket cursor for the counting sort. Indexed RELATIVE to
-        // minUsed: only [minUsed, maxUsed+1] is ever touched, so sizing from the
-        // largest period used allocated up to 400KB for a band of periods that
-        // may be a handful wide — and allocated it even on the single-period
-        // fast path below.
-        bucketOfs = vec![0_i32; ((maxUsed - minUsed + 2) * 1) as usize];
         if minUsed == maxUsed {
             // Single distinct period: one MA pass, written straight into the
             // destination buffer. Nothing to group or copy.
-            let _xr0 = match self.ma(startIdx, endIdx, inReal, (minUsed) as i32, optInMAType, &mut localFinalArray[..]) { Ok(_r) => _r, Err(_e) => return _e };
+            let _xr0 = match self.ma(startIdx, endIdx, inReal, (minUsed) as i32, optInMAType, outReal) { Ok(_r) => _r, Err(_e) => return _e };
             localBegIdx = _xr0.beg_idx;
             localNbElement = _xr0.count;
             retCode = RetCode::Success;
         } else {
+            localOutputArray = vec![0.0_f64; (outputSize * 1) as usize];
+            sortedIdx = vec![0_i32; (outputSize * 1) as usize];
+            bucketOfs = vec![0_i32; ((maxUsed - minUsed + 2) * 1) as usize];
             // Counting sort: sortedIdx ends up holding the output indices ordered
             // by period, one contiguous ascending slice per distinct period, with
             // bucketOfs[p] the end of period p's slice.
-            for curPeriod in (minUsed as usize)..(maxUsed + 1 as usize) + 1 {
-                bucketOfs[curPeriod - minUsed] = 0;
+            curPeriod = minUsed;
+            if curPeriod <= maxUsed + 1 {
+                let _wn: usize = maxUsed + 1 - curPeriod + 1;
+                let _w0 = &mut bucketOfs[curPeriod - minUsed..][.._wn];
+                for _wk in 0.._wn {
+                    _w0[_wk] = 0;
+                    curPeriod += 1;
+                }
             }
-            curPeriod = (maxUsed + 1 as usize) + 1;
-            // for( i = 0; i < outputSize; i += 1 )
             i = 0;
-            while i < outputSize {
-                // Staged through tempInt, not indexed inline: the Rust backend only
-                // coerces an int-array read to the index type when it is a DIRECT
-                // operand, so bucketOfs[localPeriodArray[i]+1-minUsed] would mix
-                // i32 with usize and fail to compile.
-                tempInt = localPeriodArray[i];
-                bucketOfs[(tempInt + 1 - ((minUsed) as i32)) as usize] = (bucketOfs[(tempInt + 1 - ((minUsed) as i32)) as usize] + 1) as i32;
-                i += 1;
+            if i < outputSize {
+                let _wn: usize = outputSize - i;
+                let _w0 = &localPeriodArray[i..][.._wn];
+                for _wk in 0.._wn {
+                    // Staged through tempInt, not indexed inline: the Rust backend only
+                    // coerces an int-array read to the index type when it is a DIRECT
+                    // operand, so bucketOfs[localPeriodArray[i]+1-minUsed] would mix
+                    // i32 with usize and fail to compile.
+                    tempInt = _w0[_wk];
+                    bucketOfs[(tempInt + 1 - ((minUsed) as i32)) as usize] = (bucketOfs[(tempInt + 1 - ((minUsed) as i32)) as usize] + 1) as i32;
+                    i += 1;
+                }
             }
-            for curPeriod in (minUsed as usize)..(maxUsed as usize) + 1 {
-                bucketOfs[curPeriod + 1 - minUsed] = (bucketOfs[curPeriod + 1 - minUsed] + bucketOfs[curPeriod - minUsed]) as i32;
+            curPeriod = minUsed;
+            if curPeriod <= maxUsed {
+                let _wn: usize = maxUsed - curPeriod + 1;
+                let _w0 = &mut bucketOfs[curPeriod - minUsed..][.._wn + 1];
+                for _wk in 0.._wn {
+                    _w0[_wk + 1] = (_w0[_wk + 1] + _w0[_wk]) as i32;
+                    curPeriod += 1;
+                }
             }
-            curPeriod = (maxUsed as usize) + 1;
-            // for( i = 0; i < outputSize; i += 1 )
             i = 0;
-            while i < outputSize {
-                tempInt = localPeriodArray[i];
-                sortedIdx[(bucketOfs[(tempInt - ((minUsed) as i32)) as usize]) as usize] = (i) as i32;
-                bucketOfs[(tempInt - ((minUsed) as i32)) as usize] = (bucketOfs[(tempInt - ((minUsed) as i32)) as usize] + 1) as i32;
-                i += 1;
+            if i < outputSize {
+                let _wn: usize = outputSize - i;
+                let _w0 = &localPeriodArray[i..][.._wn];
+                for _wk in 0.._wn {
+                    tempInt = _w0[_wk];
+                    sortedIdx[(bucketOfs[(tempInt - ((minUsed) as i32)) as usize]) as usize] = (i) as i32;
+                    bucketOfs[(tempInt - ((minUsed) as i32)) as usize] = (bucketOfs[(tempInt - ((minUsed) as i32)) as usize] + 1) as i32;
+                    i += 1;
+                }
             }
             // One MA pass per period actually requested, ending at the last output
             // that uses it: outputs before that point cannot depend on later input
@@ -371,32 +381,24 @@ impl Core {
             let _n = ((bucketEnd - bucketStart) * 1) as usize;
             let _di = (firstOccurrence) as usize;
             let _si = (firstOccurrence) as usize;
-            localFinalArray[_di.._di + _n].copy_from_slice(&localOutputArray[_si.._si + _n]);
+            outReal[_di.._di + _n].copy_from_slice(&localOutputArray[_si.._si + _n]);
         };
                     } else {
-                        // for( i = bucketStart; i < bucketEnd; i += 1 )
                         i = bucketStart;
-                        while i < bucketEnd {
-                            tempInt = sortedIdx[i];
-                            localFinalArray[(tempInt) as usize] = localOutputArray[(tempInt) as usize];
-                            i += 1;
+                        if i < bucketEnd {
+                            let _wn: usize = bucketEnd - i;
+                            let _w0 = &sortedIdx[i..][.._wn];
+                            for _wk in 0.._wn {
+                                tempInt = _w0[_wk];
+                                outReal[(tempInt) as usize] = ((localOutputArray[(tempInt) as usize]) as f64);
+                                i += 1;
+                            }
                         }
                     }
                 }
                 bucketStart = bucketEnd;
             }
             curPeriod = (maxUsed as usize) + 1;
-        }
-        // Pointer-inequality guard, not finalIsAllocated: in backends where the
-        // scratch election materializes as a copy (Rust), the copy-back must
-        // always run; in C/Java the non-aliased self-copy is skipped.
-        if localFinalArray.as_ptr() != outReal.as_ptr() {
-            {
-            let _n = (outputSize * 1) as usize;
-            let _di = (0) as usize;
-            let _si = (0) as usize;
-            outReal[_di.._di + _n].copy_from_slice(&localFinalArray[_si.._si + _n]);
-        };
         }
         // Done. Inform the caller of the success.
         (*outBegIdx) = startIdx;
@@ -414,11 +416,11 @@ impl Core {
     /// * `endIdx` — End index of the requested calculation range (inclusive).
     /// * `inReal` — series to be averaged.
     /// * `inPeriods` — per-bar desired MA period.
-    /// * `optInMinPeriod` — Lower clamp for the per-bar period (default 2, range 1..=100000)
-    /// * `optInMaxPeriod` — Upper clamp for the per-bar period (default 30, range 1..=100000)
+    /// * `optInMinPeriod` — Lower clamp for the per-bar period (default 2, range 1..=10000)
+    /// * `optInMaxPeriod` — Upper clamp for the per-bar period (default 30, range 1..=10000)
     /// * `optInMAType` — Moving-average type applied (default 0 = SMA, values: 0=SMA, 1=EMA,
     ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT,
-    ///   12=ZLEMA, 13=RMA, `MAType::DEFAULT` selects the default)
+    ///   12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
     /// * `outReal` — variable-period moving average.
     ///
     /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
@@ -426,15 +428,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -478,10 +480,10 @@ impl Core {
         optInMAType: MAType,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.mavp_lookback(optInMinPeriod, optInMaxPeriod, optInMAType)?;
@@ -539,8 +541,11 @@ struct MavpStreamState {
     optInMinPeriod: i32,
     optInMaxPeriod: i32,
     optInMAType: MAType,
-    // One sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
+    // Empty in window mode; otherwise one sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
     bank: Vec<MaStream>,
+    tapeMask: usize,
+    tapePos: usize,
+    tape: Vec<f64>,
     cur_outReal: f64,
 }
 
@@ -550,7 +555,7 @@ struct MavpStreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn mavp_step_impl(sp: &mut MavpStreamState, inReal: f64, inPeriods: f64, outReal: &mut f64) -> Result<(), RetCode> {
+    fn mavp_step_impl(sp: &mut MavpStreamState, inReal: f64, inPeriods: f64, outReal: &mut f64) {
         let mut cp: i32 = inPeriods as i32;
         if cp < sp.optInMinPeriod {
             cp = sp.optInMinPeriod;
@@ -558,12 +563,68 @@ impl Core {
             cp = sp.optInMaxPeriod;
         }
         let slot: usize = (cp - sp.optInMinPeriod) as usize;
+        sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;
+        sp.tape[sp.tapePos] = inReal;
+        let tapeBase: usize = sp.tapePos + sp.tapeMask + 1;
         for (bankIdx, sub) in sp.bank.iter_mut().enumerate() {
-            let subValue = sub.update(inReal)?;
+            let subValue = sub.step_tape(&sp.tape, tapeBase, sp.tapeMask, inReal);
             if bankIdx == slot {
                 (*outReal) = subValue;
             }
         }
+        sp.cur_outReal = (*outReal);
+    }
+
+    fn mavp_tape_open(inReal: &[f64], reach: usize) -> (Vec<f64>, usize, usize) {
+        let historyLen: usize = inReal.len();
+        let mut size: usize = 1;
+        while size <= reach {
+            size <<= 1;
+        }
+        let tapeMask: usize = size - 1;
+        let mut tape: Vec<f64> = vec![0.0_f64; size];
+        for b in historyLen.saturating_sub(size)..historyLen {
+            tape[b & tapeMask] = inReal[b];
+        }
+        (tape, tapeMask, (historyLen - 1) & tapeMask)
+    }
+
+    fn mavp_window_mode(t: MAType) -> bool {
+        matches!(t, MAType::ALMA | MAType::DISABLED)
+    }
+
+    fn mavp_eval_window(sp: &MavpStreamState, inReal: f64, cp: i32) -> Result<f64, RetCode> {
+        let core = Core::new();
+        let lb: usize = core.ma_lookback(cp, sp.optInMAType)?;
+        let mut small = [0.0_f64; 32];
+        let mut heap: Vec<f64>;
+        let win: &mut [f64] = if lb < 32 {
+            &mut small[..=lb]
+        } else {
+            heap = vec![0.0_f64; lb + 1];
+            &mut heap
+        };
+        for (i, w) in win[..lb].iter_mut().enumerate() {
+            *w = sp.tape[(sp.tapePos + sp.tapeMask + 2 - lb + i) & sp.tapeMask];
+        }
+        win[lb] = inReal;
+        let mut out1 = [0.0_f64; 1];
+        core.ma(lb, lb, win, cp, sp.optInMAType, &mut out1)?;
+        Ok(out1[0])
+    }
+
+    fn mavp_update_window(sp: &mut MavpStreamState, inReal: f64, inPeriods: f64, outReal: &mut f64) -> Result<(), RetCode> {
+        let mut cp: i32 = inPeriods as i32;
+        if cp < sp.optInMinPeriod {
+            cp = sp.optInMinPeriod;
+        } else if cp > sp.optInMaxPeriod {
+            cp = sp.optInMaxPeriod;
+        }
+        let v = Core::mavp_eval_window(sp, inReal, cp)?;
+        sp.tapePos = (sp.tapePos + 1) & sp.tapeMask;
+        sp.tape[sp.tapePos] = inReal;
+        (*outReal) = v;
+        sp.cur_outReal = v;
         Ok(())
     }
 
@@ -574,17 +635,17 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInMinPeriod) as i32) == (i32::MIN) {
             optInMinPeriod = 2;
-        } else if (((optInMinPeriod) as i32) < 1) || (((optInMinPeriod) as i32) > 100000) {
+        } else if (((optInMinPeriod) as i32) < 1) || (((optInMinPeriod) as i32) > 10000) {
             return Err(RetCode::BadParam);
         }
         if ((optInMaxPeriod) as i32) == (i32::MIN) {
             optInMaxPeriod = 30;
-        } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 100000) {
+        } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 10000) {
             return Err(RetCode::BadParam);
         }
         if optInMAType == MAType::DEFAULT {
@@ -610,13 +671,44 @@ impl Core {
             return Err(RetCode::InsufficientHistory);
         }
         let nBank: usize = (optInMaxPeriod - optInMinPeriod + 1) as usize;
+        let mut window: bool = Core::mavp_window_mode(optInMAType);
+        if (optInMaxPeriod - optInMinPeriod + 1) < 12 {
+            window = false;
+        }
+        if window {
+            for bankIdx in 0..nBank {
+                if self.ma_lookback(optInMinPeriod + (bankIdx as i32), optInMAType)? > lookbackTotal {
+                    window = false;
+                    break;
+                }
+            }
+        }
+        if window {
+            let (tape, tapeMask, tapePos) = Core::mavp_tape_open(inReal, lookbackTotal);
+            let mut cp: i32 = inPeriods[historyLen - 1] as i32;
+            if cp < optInMinPeriod {
+                cp = optInMinPeriod;
+            } else if cp > optInMaxPeriod {
+                cp = optInMaxPeriod;
+            }
+            let mut out1 = [0.0_f64; 1];
+            self.ma(historyLen - 1, historyLen - 1, inReal, cp, optInMAType, &mut out1)?;
+            let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank: Vec::new(), tapeMask, tapePos, tape, cur_outReal: out1[0] };
+            return Ok((MavpStream { state, out: OutRange { beg_idx: subStart, count: historyLen - subStart } }, out1[0]));
+        }
         let mut bank: Vec<MaStream> = Vec::with_capacity(nBank);
         let mut scratch: Vec<f64> = Vec::with_capacity(nBank);
+        let mut reach: usize = 0;
         for bankIdx in 0..nBank {
-            let (sub, subValue) = self.ma_open_internal(inReal, subStart, optInMinPeriod + (bankIdx as i32), optInMAType)?;
+            let (mut sub, subValue) = self.ma_open_internal(inReal, subStart, optInMinPeriod + (bankIdx as i32), optInMAType)?;
+            let slotReach = sub.tape_detach();
+            if slotReach > reach {
+                reach = slotReach;
+            }
             bank.push(sub);
             scratch.push(subValue);
         }
+        let (tape, tapeMask, tapePos) = Core::mavp_tape_open(inReal, reach);
         let mut cp: i32 = inPeriods[historyLen - 1] as i32;
         if cp < optInMinPeriod {
             cp = optInMinPeriod;
@@ -624,7 +716,7 @@ impl Core {
             cp = optInMaxPeriod;
         }
         let lastValue_outReal: f64 = scratch[(cp - optInMinPeriod) as usize];
-        let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank, cur_outReal: lastValue_outReal };
+        let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank, tapeMask, tapePos, tape, cur_outReal: lastValue_outReal };
         Ok((MavpStream { state, out: OutRange { beg_idx: subStart, count: historyLen - subStart } }, lastValue_outReal))
     }
 
@@ -696,17 +788,17 @@ impl Core {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inReal.len() > Self::MAX_INDEX + 1 {
+        if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInMinPeriod) as i32) == (i32::MIN) {
             optInMinPeriod = 2;
-        } else if (((optInMinPeriod) as i32) < 1) || (((optInMinPeriod) as i32) > 100000) {
+        } else if (((optInMinPeriod) as i32) < 1) || (((optInMinPeriod) as i32) > 10000) {
             return Err(RetCode::BadParam);
         }
         if ((optInMaxPeriod) as i32) == (i32::MIN) {
             optInMaxPeriod = 30;
-        } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 100000) {
+        } else if (((optInMaxPeriod) as i32) < 1) || (((optInMaxPeriod) as i32) > 10000) {
             return Err(RetCode::BadParam);
         }
         if optInMAType == MAType::DEFAULT {
@@ -730,14 +822,61 @@ impl Core {
             return Err(RetCode::InsufficientHistory);
         }
         let nBank: usize = (optInMaxPeriod - optInMinPeriod + 1) as usize;
+        let mut window: bool = Core::mavp_window_mode(optInMAType);
+        if (optInMaxPeriod - optInMinPeriod + 1) < 12 {
+            window = false;
+        }
+        if window {
+            for bankIdx in 0..nBank {
+                if self.ma_lookback(optInMinPeriod + (bankIdx as i32), optInMAType)? > lookbackTotal {
+                    window = false;
+                    break;
+                }
+            }
+        }
+        if window {
+            let mut t: usize = lookbackTotal;
+            while t < historyLen {
+                let mut cp: i32 = inPeriods[t] as i32;
+                if cp < optInMinPeriod {
+                    cp = optInMinPeriod;
+                } else if cp > optInMaxPeriod {
+                    cp = optInMaxPeriod;
+                }
+                let mut t1: usize = t;
+                while t1 + 1 < historyLen {
+                    let mut cp2: i32 = inPeriods[t1 + 1] as i32;
+                    if cp2 < optInMinPeriod {
+                        cp2 = optInMinPeriod;
+                    } else if cp2 > optInMaxPeriod {
+                        cp2 = optInMaxPeriod;
+                    }
+                    if cp2 != cp {
+                        break;
+                    }
+                    t1 += 1;
+                }
+                self.ma(t, t1, inReal, cp, optInMAType, &mut outReal[t - lookbackTotal..=t1 - lookbackTotal])?;
+                t = t1 + 1;
+            }
+            let (tape, tapeMask, tapePos) = Core::mavp_tape_open(inReal, lookbackTotal);
+            let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank: Vec::new(), tapeMask, tapePos, tape, cur_outReal: outReal[historyLen - 1 - lookbackTotal] };
+            return Ok((MavpStream { state, out: OutRange { beg_idx: lookbackTotal, count: historyLen - lookbackTotal } }, OutRange { beg_idx: lookbackTotal, count: historyLen - lookbackTotal }));
+        }
         // Seed each sub-MA at the first output bar (lookbackTotal), NOT the last.
         let mut bank: Vec<MaStream> = Vec::with_capacity(nBank);
         let mut scratch: Vec<f64> = Vec::with_capacity(nBank);
+        let mut reach: usize = 0;
         for bankIdx in 0..nBank {
-            let (sub, subValue) = self.ma_open_internal(&inReal[..lookbackTotal + 1], lookbackTotal, optInMinPeriod + (bankIdx as i32), optInMAType)?;
+            let (mut sub, subValue) = self.ma_open_internal(&inReal[..lookbackTotal + 1], lookbackTotal, optInMinPeriod + (bankIdx as i32), optInMAType)?;
+            let slotReach = sub.tape_detach();
+            if slotReach > reach {
+                reach = slotReach;
+            }
             bank.push(sub);
             scratch.push(subValue);
         }
+        let (tape, tapeMask, tapePos) = Core::mavp_tape_open(&inReal[..lookbackTotal + 1], reach);
         // First output bar (lookbackTotal), then replay the remaining history.
         let mut cp: i32 = inPeriods[lookbackTotal] as i32;
         if cp < optInMinPeriod {
@@ -746,21 +885,12 @@ impl Core {
             cp = optInMaxPeriod;
         }
         outReal[0] = scratch[(cp - optInMinPeriod) as usize];
+        let mut state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank, tapeMask, tapePos, tape, cur_outReal: outReal[0] };
         let mut t: usize = lookbackTotal + 1;
         while t < historyLen {
-            for (bankIdx, sub) in bank.iter_mut().enumerate() {
-                scratch[bankIdx] = sub.update(inReal[t])?;
-            }
-            cp = inPeriods[t] as i32;
-            if cp < optInMinPeriod {
-                cp = optInMinPeriod;
-            } else if cp > optInMaxPeriod {
-                cp = optInMaxPeriod;
-            }
-            outReal[t - lookbackTotal] = scratch[(cp - optInMinPeriod) as usize];
+            Core::mavp_step_impl(&mut state, inReal[t], inPeriods[t], &mut outReal[t - lookbackTotal]);
             t += 1;
         }
-        let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank, cur_outReal: outReal[historyLen - lookbackTotal - 1] };
         Ok((MavpStream { state, out: OutRange { beg_idx: lookbackTotal, count: historyLen - lookbackTotal } }, OutRange { beg_idx: lookbackTotal, count: historyLen - lookbackTotal }))
     }
 
@@ -772,7 +902,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl MavpStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -790,19 +920,23 @@ impl MavpStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_MAVP_Update")]
     pub fn update(&mut self, inReal: f64, inPeriods: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inReal.is_finite() || !inPeriods.is_finite() {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        Core::mavp_step_impl(&mut self.state, inReal, inPeriods, &mut outReal)?;
-        self.state.cur_outReal = outReal;
+        if self.state.bank.is_empty() {
+            Core::mavp_update_window(&mut self.state, inReal, inPeriods, &mut outReal)?;
+            self.out.count += 1;
+            return Ok(outReal);
+        }
+        Core::mavp_step_impl(&mut self.state, inReal, inPeriods, &mut outReal);
         self.out.count += 1;
         Ok(outReal)
     }
@@ -810,16 +944,15 @@ impl MavpStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_MAVP_Peek")]
     pub fn peek(&self, inReal: f64, inPeriods: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() || !inPeriods.is_finite() {
@@ -834,8 +967,12 @@ impl MavpStream {
             } else if cp > sp.optInMaxPeriod {
                 cp = sp.optInMaxPeriod;
             }
+            if sp.bank.is_empty() {
+                return Core::mavp_eval_window(sp, inReal, cp);
+            }
             let slot: usize = (cp - sp.optInMinPeriod) as usize;
-            outReal = sp.bank[slot].peek(inReal)?;
+            let tapeBase: usize = ((sp.tapePos + 1) & sp.tapeMask) + sp.tapeMask + 1;
+            outReal = sp.bank[slot].peek_tape(&sp.tape, tapeBase, sp.tapeMask, inReal)?;
         }
         Ok(outReal)
     }
@@ -863,7 +1000,7 @@ impl MavpStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_MAVP_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -881,11 +1018,11 @@ impl MavpStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_MAVP_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

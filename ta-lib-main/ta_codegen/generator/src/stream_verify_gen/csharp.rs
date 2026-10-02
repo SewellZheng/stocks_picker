@@ -148,8 +148,7 @@ fn emit_csharp_sv_func(
                 );
             }
             crate::ir::ParamType::Enum(en) => {
-                let d = p.default.unwrap_or(0.0) as i64;
-                let _ = writeln!(s, "        int _raw_{name} = GetInt(req, \"{name}\", {d});");
+                let _ = writeln!(s, "        int _raw_{name} = GetInt(req, \"{name}\", (int){en}.DEFAULT);");
                 let _ = writeln!(s, "        {en} {name} = ({en})_raw_{name};");
                 enum_param_names.push(name.clone());
             }
@@ -756,10 +755,12 @@ fn emit_csharp_sv_func(
 
 
     // ---- Clone() independence: open at the earliest prefix, advance to mid,
-    // clone, drive both to the end. Both must match batch (cross-tier) and each
-    // other (same-tier), and both must report the batch range (#287: a clone
-    // that carries every numeric field but drops the range pair produced
-    // identical values and was invisible here).
+    // clone, drive the fork to the end, then the original. Both must match
+    // batch (cross-tier) and each other (same-tier), and both must report the
+    // batch range (#287: a clone that carries every numeric field but drops the
+    // range pair produced identical values and was invisible here).
+    // Fed in lockstep instead, a buffer the two share and each writes the bar
+    // into before reading (MAVP's tape) answers correctly on both, forever.
     // `Clone()` is C#'s spelling of Java's `copy()`.
     s.push_str("            {\n");
     s.push_str("                int p0 = lb + 1;\n");
@@ -776,11 +777,21 @@ fn emit_csharp_sv_func(
         "                        for (int t = p0; t < mid; t++) sA.Update({bars_t});"
     );
     let _ = writeln!(s, "                        Core.{class} sB = sA.Clone();");
+    let _ = writeln!(s, "                        var fk = new {up_ty}[svN];");
+    s.push_str("                        for (int t = mid; t < svN; t++) {\n");
+    let _ = writeln!(s, "                            fk[t] = sB.Update({bars_t});");
+    for i in 0..n_out {
+        let cross = xtier_ne(&rd_out("fk[t]", i), &format!("b{i}[t - beg]"), i, "zsign");
+        let _ = writeln!(
+            s,
+            "                            if ({cross}) {{ allOk = false; if (diag.Length == 0) diag = \",\\\"copyForkDiverged\\\":\" + t; }}"
+        );
+    }
+    s.push_str("                        }\n");
     s.push_str("                        for (int t = mid; t < svN; t++) {\n");
     let _ = writeln!(s, "                            {up_ty} uA = sA.Update({bars_t});");
-    let _ = writeln!(s, "                            {up_ty} uB = sB.Update({bars_t});");
     for i in 0..n_out {
-        let same = same_tier_ne(&rd_out("uA", i), &rd_out("uB", i), i);
+        let same = same_tier_ne(&rd_out("uA", i), &rd_out("fk[t]", i), i);
         let cross = xtier_ne(&rd_out("uA", i), &format!("b{i}[t - beg]"), i, "zsign");
         let _ = writeln!(
             s,
@@ -846,7 +857,44 @@ fn emit_csharp_sv_func(
     s.push_str("                        long ad = GC.GetAllocatedBytesForCurrentThread() - a0;\n");
     s.push_str("                        svUpdSink += sink;\n");
     s.push_str("                        if (ad > updAlloc) updAlloc = ad;\n");
-    s.push_str("                        if (ad != 0) { allOk = false; if (diag.Length == 0) diag = \",\\\"updAllocBytes\\\":\" + ad; }\n");
+    // A window-mode period bank evaluates each bar with the callee's batch, which
+    // may allocate; every other function, MAType and the identity types are held
+    // to zero.
+    let window_skip = {
+        let lookup = crate::streaming::FuncsLookup(funcs);
+        match crate::streaming::validate_streamable(func, &lookup) {
+            Ok(crate::streaming::StreamPlan::PeriodBank(pb)) => {
+                let labels = crate::streaming::window_batch_labels_of(funcs, &func.name.to_lowercase());
+                if labels.iter().any(|l| l == "*") {
+                    format!(
+                        " && !({} - {} + 1 >= {})",
+                        pb.max_param,
+                        pb.min_param,
+                        crate::streaming::WINDOW_MIN_BAND
+                    )
+                } else if labels.is_empty() {
+                    String::new()
+                } else {
+                    let cases: Vec<String> = labels
+                        .iter()
+                        .map(|l| format!("{} == {}", pb.matype_param, crate::backends::csharp::render_csharp_switch_label(l, enums)))
+                        .collect();
+                    format!(
+                        " && !(({}) && {} - {} + 1 >= {})",
+                        cases.join(" || "),
+                        pb.max_param,
+                        pb.min_param,
+                        crate::streaming::WINDOW_MIN_BAND
+                    )
+                }
+            }
+            _ => String::new(),
+        }
+    };
+    let _ = writeln!(
+        s,
+        "                        if (ad != 0{window_skip}) {{ allOk = false; if (diag.Length == 0) diag = \",\\\"updAllocBytes\\\":\" + ad; }}"
+    );
     s.push_str("                    } catch (ArgumentException) { /* open rejects here -- nothing to measure */ }\n");
     s.push_str("                }\n");
     s.push_str("            }\n");
@@ -870,7 +918,7 @@ fn emit_csharp_sv_func(
         s.push_str("            {\n");
         s.push_str("                int pc = lb + 1;\n");
         s.push_str("                if (pc <= svN - 1) {\n");
-        s.push_str("                    CandleSetting[] svSaved = (CandleSetting[])c2.candleSettings.Clone();\n");
+        s.push_str("                    CandleSetting[] svSaved = (CandleSetting[])c2._candleSettings.Clone();\n");
         s.push_str(&mdecls);
         s.push_str("                    try {\n");
         let _ = writeln!(
@@ -939,6 +987,17 @@ fn emit_csharp_sv_func(
     );
     s.push_str("                catch (InsufficientHistoryException) { /* expected, typed */ }\n");
     s.push_str("                catch (ArgumentException) { allOk = false; if (diag.Length == 0) diag = \",\\\"shortHistoryWrongType\\\":1\"; }\n");
+    // OpenAndFill's guard is not always Open's: MAVP hand-rolls one per entry.
+    s.push_str("                {\n");
+    s.push_str(&fdecls.replace("            ", "                    "));
+    let _ = writeln!(
+        s,
+        "                    try {{ _ = c2.{base_pascal}OpenAndFill({}{opts_tail}{fargs}); allOk = false; if (diag.Length == 0) diag = \",\\\"shortHistoryFillAccepted\\\":1\"; }}",
+        pfx_ins("lb")
+    );
+    s.push_str("                    catch (InsufficientHistoryException) { /* expected, typed */ }\n");
+    s.push_str("                    catch (ArgumentException) { allOk = false; if (diag.Length == 0) diag = \",\\\"shortHistoryFillWrongType\\\":1\"; }\n");
+    s.push_str("                }\n");
     s.push_str("            }\n");
 
     // ---- int.MinValue default-sentinel pair: Open(int.MinValue) must equal
@@ -1032,9 +1091,6 @@ fn emit_csharp_sv_func(
 /// The whole C# `stream_verify` section: the two comparators, the candle-round
 /// and live-mutation helpers, the allocation sink, one `Sv_<NAME>` per function
 /// with an emitted C# stream, the `fuzz_in_hash` self-check, and the dispatcher.
-///
-/// The dispatcher's unknown-method answer is DELIBERATELY NOT Java's
-/// `not_streamable` -- see the block comment at the emit site.
 #[allow(clippy::too_many_lines)]
 pub(crate) fn generate_csharp_stream_verify(
     funcs: &[FuncDef],
@@ -1107,7 +1163,7 @@ pub(crate) fn generate_csharp_stream_verify(
 
     // Live mutation of a BUILT Core -- the one thing the builder cannot express.
     s.push_str("    /* Overwrite a BUILT Core's live candle settings, in place.\n");
-    s.push_str("       `Core.candleSettings` is `internal readonly CandleSetting[]` -- the\n");
+    s.push_str("       `Core._candleSettings` is `internal readonly CandleSetting[]` -- the\n");
     s.push_str("       REFERENCE is readonly, the ELEMENTS are not -- and CandleSetting's\n");
     s.push_str("       constructor is internal. Both are reachable because the server csproj\n");
     s.push_str("       compiles the library sources into its own assembly.\n");
@@ -1120,9 +1176,9 @@ pub(crate) fn generate_csharp_stream_verify(
     s.push_str("       The caller saves and restores: every later leg in the round runs against\n");
     s.push_str("       the round's settings, not these. */\n");
     s.push_str("    static void SvMutateLiveCandles(Core c) {\n");
-    s.push_str("        for (int ci = 0; ci < c.candleSettings.Length; ci++) {\n");
-    s.push_str("            CandleSetting cs = c.candleSettings[ci];\n");
-    s.push_str("            c.candleSettings[ci] = new CandleSetting(\n");
+    s.push_str("        for (int ci = 0; ci < c._candleSettings.Length; ci++) {\n");
+    s.push_str("            CandleSetting cs = c._candleSettings[ci];\n");
+    s.push_str("            c._candleSettings[ci] = new CandleSetting(\n");
     s.push_str("                cs.RangeType == TALib.RangeType.Shadows ? TALib.RangeType.HighLow\n");
     s.push_str("                                                       : TALib.RangeType.Shadows,\n");
     s.push_str("                (cs.AvgPeriod + 7) % 13,\n");
@@ -1130,7 +1186,7 @@ pub(crate) fn generate_csharp_stream_verify(
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     s.push_str("    static void SvRestoreLiveCandles(Core c, CandleSetting[] saved) {\n");
-    s.push_str("        Array.Copy(saved, c.candleSettings, saved.Length);\n");
+    s.push_str("        Array.Copy(saved, c._candleSettings, saved.Length);\n");
     s.push_str("    }\n\n");
 
     let lookup = crate::streaming::FuncsLookup(funcs);
@@ -1183,31 +1239,10 @@ pub(crate) fn generate_csharp_stream_verify(
             f.name
         );
     }
-    // ============ THE DARK RESPONSE -- READ BEFORE CHANGING THIS LINE ========
-    //
-    // The driver's capability probe is a SUBSTRING test:
-    //     test_codegen.c:3686   strstr(responseBuf, "not_streamable")
-    // and it is all-or-nothing: the moment the C# server answers with that
-    // token, ta_regtest starts requiring a stream handler for every function
-    // carrying TA_FUNC_FLG_STREAM and prints STREAM SET MISMATCH for each one
-    // that is missing. The C# metadata catalogue already publishes that flag on
-    // all 172 functions, so copying Java's literal now would redden every
-    // regtest.py run for the remaining stages, for a reason unrelated to the
-    // work in flight.
-    //
-    // So the unknown-method answer -- including the TA_STREAM_PROBE the driver
-    // sends -- is pinned to the string below, which must NOT contain the token
-    // `not_streamable` anywhere in the emitted file. S2 gates on
-    // `grep -c not_streamable TaCodegenServe.cs == 0` until S9.
-    //
-    // The flip happened once all 172 functions had a handler, which is the
-    // precondition the all-or-nothing check needs. It is a capability
-    // ANNOUNCEMENT, not a description of this method: the driver reads the
-    // token off the unknown-name path (it probes with TA_STREAM_PROBE, which is
-    // not a function), so answering it is how the server says "ask me about
-    // streams". A real function name that fell through to here would be a
-    // missing handler, and the driver reports that as STREAM SET MISMATCH.
-    // ========================================================================
+    // The unknown-function answer must carry `not_streamable`: the driver
+    // probes with TA_STREAM_PROBE and runs the stream pass only when the reply
+    // contains that substring, so without it every C# stream check is skipped
+    // silently.
     s.push_str("        default: return \"{\\\"error\\\":\\\"not_streamable\\\"}\";\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");

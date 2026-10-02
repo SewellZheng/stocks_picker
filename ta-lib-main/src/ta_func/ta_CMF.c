@@ -54,6 +54,8 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  072126 MF,CC  First version (issue #134).
+ *  092526 MF,CC  #446 exact zero sums on a dead volume window.
+ *  092626 MF,CC  #446 branch-free zero run.
  */
 
 TA_LIB_API int TA_CMF_Lookback( int optInTimePeriod )
@@ -87,6 +89,8 @@ TA_LIB_API TA_RetCode TA_CMF( int    startIdx,
    int outIdx;
    int i;
    int today;
+   int nullRun;
+   int zeroVol;
    double local_mfv_flow[50];
    double *mfv_flow = &local_mfv_flow[0];
    double local_mfv_volume[50];
@@ -94,9 +98,9 @@ TA_LIB_API TA_RetCode TA_CMF( int    startIdx,
    int mfv_Idx;
    int maxIdx_mfv;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -172,6 +176,13 @@ TA_LIB_API TA_RetCode TA_CMF( int    startIdx,
    today = startIdx - lookbackTotal;
    sumMFV = 0.0;
    sumVol = 0.0;
+   /* Consecutive zero-volume bars. Once they fill a window both sums are
+    * exactly zero, where add-then-subtract would leave the rounding residue of
+    * the bars that departed, of either sign. It advances as a product rather
+    * than as v == 0.0 ? nullRun+1 : 0, which gcc and RyuJIT compile to a branch
+    * that mispredicts on scattered zero volumes.
+    */
+   nullRun = 0;
    for( i = optInTimePeriod; i > 0; i -= 1 )
    {
       high = inHigh[today];
@@ -189,6 +200,8 @@ TA_LIB_API TA_RetCode TA_CMF( int    startIdx,
       mfv_volume[mfv_Idx] = inVolume[today];
       sumMFV += mfv;
       sumVol += inVolume[today];
+      zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
+      nullRun = (nullRun + zeroVol) * zeroVol;
       today += 1;
       mfv_Idx++;
       if( mfv_Idx > maxIdx_mfv ) mfv_Idx = 0;
@@ -226,8 +239,19 @@ TA_LIB_API TA_RetCode TA_CMF( int    startIdx,
       mfv_volume[mfv_Idx] = inVolume[today];
       sumMFV += mfv;
       sumVol += inVolume[today];
+      zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
+      nullRun = (nullRun + zeroVol) * zeroVol;
       today += 1;
-      if( sumVol > 0.0 )
+      /* The reset writes its own output: a branch that only zeroes the sums is
+       * if-converted into a mask on their dependency chain.
+       */
+      if( nullRun >= optInTimePeriod )
+      {
+         nullRun = optInTimePeriod;
+         sumMFV = 0.0;
+         sumVol = 0.0;
+         outReal[outIdx++] = 0.0;
+      } else if( sumVol > 0.0 )
       {
          outReal[outIdx++] = sumMFV / sumVol;
       } else 
@@ -266,6 +290,8 @@ TA_RetCode TA_S_CMF( int    startIdx,
    int outIdx;
    int i;
    int today;
+   int nullRun;
+   int zeroVol;
    double local_mfv_flow[50];
    double *mfv_flow = &local_mfv_flow[0];
    double local_mfv_volume[50];
@@ -273,9 +299,9 @@ TA_RetCode TA_S_CMF( int    startIdx,
    int mfv_Idx;
    int maxIdx_mfv;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -332,6 +358,7 @@ TA_RetCode TA_S_CMF( int    startIdx,
    today = startIdx - lookbackTotal;
    sumMFV = 0.0;
    sumVol = 0.0;
+   nullRun = 0;
    for( i = optInTimePeriod; i > 0; i -= 1 )
    {
       high = (double)inHigh[today];
@@ -349,6 +376,8 @@ TA_RetCode TA_S_CMF( int    startIdx,
       mfv_volume[mfv_Idx] = (double)inVolume[today];
       sumMFV += mfv;
       sumVol += (double)inVolume[today];
+      zeroVol = ((double)inVolume[today] == 0.0) ? 1 : 0;
+      nullRun = (nullRun + zeroVol) * zeroVol;
       today += 1;
       mfv_Idx++;
       if( mfv_Idx > maxIdx_mfv ) mfv_Idx = 0;
@@ -379,8 +408,16 @@ TA_RetCode TA_S_CMF( int    startIdx,
       mfv_volume[mfv_Idx] = (double)inVolume[today];
       sumMFV += mfv;
       sumVol += (double)inVolume[today];
+      zeroVol = ((double)inVolume[today] == 0.0) ? 1 : 0;
+      nullRun = (nullRun + zeroVol) * zeroVol;
       today += 1;
-      if( sumVol > 0.0 )
+      if( nullRun >= optInTimePeriod )
+      {
+         nullRun = optInTimePeriod;
+         sumMFV = 0.0;
+         sumVol = 0.0;
+         outReal[outIdx++] = 0.0;
+      } else if( sumVol > 0.0 )
       {
          outReal[outIdx++] = sumMFV / sumVol;
       } else 
@@ -408,6 +445,7 @@ struct TA_CMF_Stream {
    int optInTimePeriod;
    double sumMFV;
    double sumVol;
+   int nullRun;
    int mfv_Idx;
    int maxIdx_mfv;
    int cbSize_mfv;
@@ -432,6 +470,7 @@ static void TA_CMF_StepImpl( struct TA_CMF_Stream *sp, double inHigh, double inL
    double close;
    double tmp;
    double mfv;
+   int zeroVol;
    double sumMFV;
    double sumVol;
 
@@ -454,7 +493,18 @@ static void TA_CMF_StepImpl( struct TA_CMF_Stream *sp, double inHigh, double inL
    sp->cb_mfv_volume[sp->mfv_Idx] = inVolume;
    sumMFV += mfv;
    sumVol += inVolume;
-   if( sumVol > 0.0 )
+   zeroVol = (inVolume == 0.0) ? 1 : 0;
+   sp->nullRun = (sp->nullRun + zeroVol) * zeroVol;
+   /* The reset writes its own output: a branch that only zeroes the sums is
+    * if-converted into a mask on their dependency chain.
+    */
+   if( sp->nullRun >= sp->optInTimePeriod )
+   {
+      sp->nullRun = sp->optInTimePeriod;
+      sumMFV = 0.0;
+      sumVol = 0.0;
+      *outReal= 0.0;
+   } else if( sumVol > 0.0 )
    {
       *outReal= sumMFV / sumVol;
    } else 
@@ -485,7 +535,7 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 20;
@@ -512,6 +562,8 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
       int outIdx;
       int i;
       int today;
+      int nullRun = 0;
+      int zeroVol;
       /* Both the per-bar money flow volume and the volume that produced it are
        * carried in the circular buffer. Keeping the volume here rather than
        * re-reading inVolume[] at the trailing index is what makes outReal safe to
@@ -568,6 +620,13 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
       today = startIdx - lookbackTotal;
       sumMFV = 0.0;
       sumVol = 0.0;
+      /* Consecutive zero-volume bars. Once they fill a window both sums are
+       * exactly zero, where add-then-subtract would leave the rounding residue of
+       * the bars that departed, of either sign. It advances as a product rather
+       * than as v == 0.0 ? nullRun+1 : 0, which gcc and RyuJIT compile to a branch
+       * that mispredicts on scattered zero volumes.
+       */
+      nullRun = 0;
       for( i = optInTimePeriod; i > 0; i -= 1 )
       {
          high = inHigh[today];
@@ -585,6 +644,8 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
+         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
          today += 1;
          mfv_Idx++;
          if( mfv_Idx > maxIdx_mfv ) mfv_Idx = 0;
@@ -622,8 +683,19 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
+         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
+         nullRun = (nullRun + zeroVol) * zeroVol;
          today += 1;
-         if( sumVol > 0.0 )
+         /* The reset writes its own output: a branch that only zeroes the sums is
+          * if-converted into a mask on their dependency chain.
+          */
+         if( nullRun >= optInTimePeriod )
+         {
+            nullRun = optInTimePeriod;
+            sumMFV = 0.0;
+            sumVol = 0.0;
+            outReal[outIdx++ * outStride] = 0.0;
+         } else if( sumVol > 0.0 )
          {
             outReal[outIdx++ * outStride] = sumMFV / sumVol;
          } else 
@@ -643,6 +715,7 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
       sp->optInTimePeriod = optInTimePeriod;
       sp->sumMFV = sumMFV;
       sp->sumVol = sumVol;
+      sp->nullRun = nullRun;
       sp->mfv_Idx = mfv_Idx;
       sp->maxIdx_mfv = maxIdx_mfv;
       sp->cbSize_mfv = maxIdx_mfv + 1;
@@ -682,7 +755,7 @@ TA_LIB_API TA_RetCode TA_CMF_Open( TA_CMF_Stream **stream, const double inHigh[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_CMF_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal );
 }
@@ -692,7 +765,7 @@ TA_LIB_API TA_RetCode TA_CMF_OpenAndFill( TA_CMF_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    return TA_CMF_OpenAndFillInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
@@ -707,7 +780,7 @@ TA_RetCode TA_CMF_OpenAndFillInternal( struct TA_CMF_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_CMF_Update( TA_CMF_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
@@ -724,6 +797,8 @@ TA_LIB_API TA_RetCode TA_CMF_Peek( const TA_CMF_Stream *stream, double inHigh, d
    double close;
    double tmp;
    double mfv;
+   int zeroVol;
+   int nullRun;
    double sumMFV;
    double sumVol;
    double *cb_mfv_flow;
@@ -731,6 +806,7 @@ TA_LIB_API TA_RetCode TA_CMF_Peek( const TA_CMF_Stream *stream, double inHigh, d
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
+   nullRun = sp->nullRun;
    sumMFV = sp->sumMFV;
    sumVol = sp->sumVol;
    cb_mfv_flow = sp->cb_mfv_flow;
@@ -750,7 +826,18 @@ TA_LIB_API TA_RetCode TA_CMF_Peek( const TA_CMF_Stream *stream, double inHigh, d
    }
    sumMFV += mfv;
    sumVol += inVolume;
-   if( sumVol > 0.0 )
+   zeroVol = (inVolume == 0.0) ? 1 : 0;
+   nullRun = (nullRun + zeroVol) * zeroVol;
+   /* The reset writes its own output: a branch that only zeroes the sums is
+    * if-converted into a mask on their dependency chain.
+    */
+   if( nullRun >= sp->optInTimePeriod )
+   {
+      nullRun = sp->optInTimePeriod;
+      sumMFV = 0.0;
+      sumVol = 0.0;
+      *outReal= 0.0;
+   } else if( sumVol > 0.0 )
    {
       *outReal= sumMFV / sumVol;
    } else 
@@ -784,7 +871,7 @@ TA_LIB_API TA_RetCode TA_CMF_OutRange( const TA_CMF_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_CMF_Advance( TA_CMF_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

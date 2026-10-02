@@ -17,6 +17,10 @@
  *  071126 MF,CC  Rewrite the combine into flat error-guards and a single-cursor
  *                offset index (offset = fastNb - *outNBElement). Bit-identical,
  *                streamable, and index-safe.
+ *  092826 MF,CC  #459 fuse the fast and slow SMA into one pass over the input:
+ *                two running sums, no intermediate buffer, no allocation.
+ *                Bit-identical.
+ *  092826 MF,CC  Fuse the fast and slow EMA into one pass (#459).
  */
 
    /**
@@ -32,7 +36,7 @@
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type used for both MAs (default 1 = EMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
@@ -72,10 +76,10 @@
       MInteger fastNb = new MInteger();
       int offset = 0;
       int i = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -91,14 +95,14 @@
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
       }
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the fast MA below runs first, and its lookback is SMALLER
        * than apo's own — so it reads the whole range and computes a result the
        * empty slow MA then discards. Observably identical (the slow MA's own early
        * return already yields 0,0 here), but it is the difference between "a range
-       * shorter than the lookback reads nothing" being true of this function and
+       * that ends before the lookback reads nothing" being true of this function and
        * being false: with a caller-supplied inReal that stops short of endIdx, that
        * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
        * probe over every guarded core.
@@ -106,6 +110,157 @@
       if( maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      if( optInMAType == MAType.SMA ) {
+         /* SMA fast path: the fast window is the newest optInFastPeriod bars of the
+          * slow one, so ONE pass over the input serves both moving averages - two
+          * running sums, no intermediate buffer and no allocation, where the general
+          * path below makes two passes and allocates the fast MA in full.
+          *
+          * Bit-identical to that path. Each sum sees exactly the add/subtract
+          * sequence TA_SMA gives it at its own period, starting from its own first
+          * output bar - which is why the fast sum is walked alone over the bars the
+          * slow MA does not reach (its running total is path-dependent, so arriving
+          * at the first output bar by a shorter route would change the low bits) -
+          * and each quotient is formed as sma.c forms it: the total AFTER adding the
+          * new bar and BEFORE dropping the trailing one, divided by the period.
+          *
+          * inReal may alias outReal, as it may in the general path. outReal[_outIdx]
+          * is written at bar _i with _outIdx <= _i-optInSlowPeriod+1 <= both trailing
+          * indices, and both trailing bars are read before that write, so no bar is
+          * overwritten before its last read.
+          *
+          * Every read is inside [0, endIdx]: the guard above leaves the slow
+          * lookback no greater than endIdx, and the public tier rejects
+          * endIdx < startIdx, so _slowStart <= endIdx and the seeding loops stop
+          * one bar below it. There is nothing left for an empty-output arm to
+          * catch, which is why this path has none.
+          */
+         double _fastTotal;
+         double _slowTotal;
+         double _fastValue;
+         double _slowValue;
+         int _i;
+         int _j;
+         int _outIdx;
+         int _fastStart;
+         int _slowStart;
+         int _fastTrailing;
+         int _slowTrailing;
+         /* Make sure slow is really slower than the fast period! if not, swap... */
+         if( optInSlowPeriod < optInFastPeriod ) {
+            tempInteger = optInSlowPeriod;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = tempInteger;
+         }
+         _fastStart = optInFastPeriod - 1;
+         if( _fastStart < startIdx ) {
+            _fastStart = startIdx;
+         }
+         _slowStart = optInSlowPeriod - 1;
+         if( _slowStart < startIdx ) {
+            _slowStart = startIdx;
+         }
+         _fastTrailing = _fastStart - (optInFastPeriod - 1);
+         _fastTotal = 0.0;
+         for( _j = _fastTrailing; _j < _fastStart; _j += 1 ) {
+            _fastTotal += inReal[_j];
+         }
+         _slowTrailing = _slowStart - (optInSlowPeriod - 1);
+         _slowTotal = 0.0;
+         for( _j = _slowTrailing; _j < _slowStart; _j += 1 ) {
+            _slowTotal += inReal[_j];
+         }
+         /* The bars the fast MA has and the slow one does not: advance the fast sum
+          * alone. No output, but the sum must arrive at _slowStart along the same
+          * path TA_SMA would have taken.
+          */
+         for( _i = _fastStart; _i < _slowStart; _i += 1 ) {
+            _fastTotal += inReal[_i];
+            _fastTotal -= inReal[_fastTrailing];
+            _fastTrailing += 1;
+         }
+         _outIdx = 0;
+         for( _i = _slowStart; _i <= endIdx; _i += 1 ) {
+            _fastTotal += inReal[_i];
+            _fastValue = _fastTotal;
+            _fastTotal -= inReal[_fastTrailing];
+            _fastTrailing += 1;
+            _slowTotal += inReal[_i];
+            _slowValue = _slowTotal;
+            _slowTotal -= inReal[_slowTrailing];
+            _slowTrailing += 1;
+            outReal[_outIdx] = _fastValue / (double)optInFastPeriod - _slowValue / (double)optInSlowPeriod;
+            _outIdx += 1;
+         }
+         outBegIdx.value = _slowStart;
+         outNBElement.value = _outIdx;
+         return RetCode.SUCCESS ;
+      }
+      if( optInMAType == MAType.EMA ) {
+         /* EMA fast path: both recursions in one loop, no buffer. Bit-identical to
+          * the general path only while each EMA is seeded at its OWN lookback and
+          * keeps ema.c's recursion spelling: the fast EMA starts earlier than the
+          * slow one, and a shared seed bar would change every output.
+          */
+         double _eFastK;
+         double _eSlowK;
+         double _eFast;
+         double _eSlow;
+         double _eX;
+         int _eN;
+         int _eToday;
+         int _eFastToday;
+         int _eSlowToday;
+         int _eSlowStart;
+         int _eOutIdx;
+         if( optInSlowPeriod < optInFastPeriod ) {
+            tempInteger = optInSlowPeriod;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = tempInteger;
+         }
+         _eFastK = 2.0 / (double)(optInFastPeriod + 1);
+         _eSlowK = 2.0 / (double)(optInSlowPeriod + 1);
+         _eFastToday = emaLookback(optInFastPeriod);
+         if( _eFastToday < startIdx ) {
+            _eFastToday = startIdx;
+         }
+         _eFastToday -= emaLookback(optInFastPeriod);
+         _eSlowStart = emaLookback(optInSlowPeriod);
+         if( _eSlowStart < startIdx ) {
+            _eSlowStart = startIdx;
+         }
+         _eSlowToday = _eSlowStart - emaLookback(optInSlowPeriod);
+         _eFast = 0.0;
+         for( _eN = 0; _eN < optInFastPeriod; _eN += 1 ) {
+            _eFast += inReal[_eFastToday++];
+         }
+         _eFast = _eFast / optInFastPeriod;
+         while( _eFastToday <= _eSlowStart ) {
+            _eFast = Math.fma(inReal[_eFastToday++] - _eFast, _eFastK, _eFast);
+         }
+         _eSlow = 0.0;
+         for( _eN = 0; _eN < optInSlowPeriod; _eN += 1 ) {
+            _eSlow += inReal[_eSlowToday++];
+         }
+         _eSlow = _eSlow / optInSlowPeriod;
+         while( _eSlowToday <= _eSlowStart ) {
+            _eSlow = Math.fma(inReal[_eSlowToday++] - _eSlow, _eSlowK, _eSlow);
+         }
+         _eOutIdx = 0;
+         outReal[_eOutIdx] = _eFast - _eSlow;
+         _eOutIdx += 1;
+         _eToday = _eSlowStart + 1;
+         while( _eToday <= endIdx ) {
+            _eX = inReal[_eToday++];
+            _eFast = Math.fma(_eX - _eFast, _eFastK, _eFast);
+            _eSlow = Math.fma(_eX - _eSlow, _eSlowK, _eSlow);
+            outReal[_eOutIdx] = _eFast - _eSlow;
+            _eOutIdx += 1;
+         }
+         outBegIdx.value = _eSlowStart;
+         outNBElement.value = _eOutIdx;
          return RetCode.SUCCESS ;
       }
       /* Allocate an intermediate buffer. */
@@ -157,10 +312,10 @@
       MInteger fastNb = new MInteger();
       int offset = 0;
       int i = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -179,6 +334,123 @@
       if( maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      if( optInMAType == MAType.SMA ) {
+         double _fastTotal;
+         double _slowTotal;
+         double _fastValue;
+         double _slowValue;
+         int _i;
+         int _j;
+         int _outIdx;
+         int _fastStart;
+         int _slowStart;
+         int _fastTrailing;
+         int _slowTrailing;
+         if( optInSlowPeriod < optInFastPeriod ) {
+            tempInteger = optInSlowPeriod;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = tempInteger;
+         }
+         _fastStart = optInFastPeriod - 1;
+         if( _fastStart < startIdx ) {
+            _fastStart = startIdx;
+         }
+         _slowStart = optInSlowPeriod - 1;
+         if( _slowStart < startIdx ) {
+            _slowStart = startIdx;
+         }
+         _fastTrailing = _fastStart - (optInFastPeriod - 1);
+         _fastTotal = 0.0;
+         for( _j = _fastTrailing; _j < _fastStart; _j += 1 ) {
+            _fastTotal += (double)inReal[_j];
+         }
+         _slowTrailing = _slowStart - (optInSlowPeriod - 1);
+         _slowTotal = 0.0;
+         for( _j = _slowTrailing; _j < _slowStart; _j += 1 ) {
+            _slowTotal += (double)inReal[_j];
+         }
+         for( _i = _fastStart; _i < _slowStart; _i += 1 ) {
+            _fastTotal += (double)inReal[_i];
+            _fastTotal -= (double)inReal[_fastTrailing];
+            _fastTrailing += 1;
+         }
+         _outIdx = 0;
+         for( _i = _slowStart; _i <= endIdx; _i += 1 ) {
+            _fastTotal += (double)inReal[_i];
+            _fastValue = _fastTotal;
+            _fastTotal -= (double)inReal[_fastTrailing];
+            _fastTrailing += 1;
+            _slowTotal += (double)inReal[_i];
+            _slowValue = _slowTotal;
+            _slowTotal -= (double)inReal[_slowTrailing];
+            _slowTrailing += 1;
+            outReal[_outIdx] = _fastValue / (double)optInFastPeriod - _slowValue / (double)optInSlowPeriod;
+            _outIdx += 1;
+         }
+         outBegIdx.value = _slowStart;
+         outNBElement.value = _outIdx;
+         return RetCode.SUCCESS ;
+      }
+      if( optInMAType == MAType.EMA ) {
+         double _eFastK;
+         double _eSlowK;
+         double _eFast;
+         double _eSlow;
+         double _eX;
+         int _eN;
+         int _eToday;
+         int _eFastToday;
+         int _eSlowToday;
+         int _eSlowStart;
+         int _eOutIdx;
+         if( optInSlowPeriod < optInFastPeriod ) {
+            tempInteger = optInSlowPeriod;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = tempInteger;
+         }
+         _eFastK = 2.0 / (double)(optInFastPeriod + 1);
+         _eSlowK = 2.0 / (double)(optInSlowPeriod + 1);
+         _eFastToday = emaLookback(optInFastPeriod);
+         if( _eFastToday < startIdx ) {
+            _eFastToday = startIdx;
+         }
+         _eFastToday -= emaLookback(optInFastPeriod);
+         _eSlowStart = emaLookback(optInSlowPeriod);
+         if( _eSlowStart < startIdx ) {
+            _eSlowStart = startIdx;
+         }
+         _eSlowToday = _eSlowStart - emaLookback(optInSlowPeriod);
+         _eFast = 0.0;
+         for( _eN = 0; _eN < optInFastPeriod; _eN += 1 ) {
+            _eFast += (double)inReal[_eFastToday++];
+         }
+         _eFast = _eFast / optInFastPeriod;
+         while( _eFastToday <= _eSlowStart ) {
+            _eFast = Math.fma((double)inReal[_eFastToday++] - _eFast, _eFastK, _eFast);
+         }
+         _eSlow = 0.0;
+         for( _eN = 0; _eN < optInSlowPeriod; _eN += 1 ) {
+            _eSlow += (double)inReal[_eSlowToday++];
+         }
+         _eSlow = _eSlow / optInSlowPeriod;
+         while( _eSlowToday <= _eSlowStart ) {
+            _eSlow = Math.fma((double)inReal[_eSlowToday++] - _eSlow, _eSlowK, _eSlow);
+         }
+         _eOutIdx = 0;
+         outReal[_eOutIdx] = _eFast - _eSlow;
+         _eOutIdx += 1;
+         _eToday = _eSlowStart + 1;
+         while( _eToday <= endIdx ) {
+            _eX = (double)inReal[_eToday++];
+            _eFast = Math.fma(_eX - _eFast, _eFastK, _eFast);
+            _eSlow = Math.fma(_eX - _eSlow, _eSlowK, _eSlow);
+            outReal[_eOutIdx] = _eFast - _eSlow;
+            _eOutIdx += 1;
+         }
+         outBegIdx.value = _eSlowStart;
+         outNBElement.value = _eOutIdx;
          return RetCode.SUCCESS ;
       }
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
@@ -215,8 +487,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#apoLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#apoLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -227,14 +499,15 @@
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type used for both MAs (default 1 = EMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @param outReal Fast MA minus slow MA. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, apoLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -291,8 +564,8 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#apoLookback} is a <b>success with no
-    * values</b> ({@code count() == 0}), not an error.
+    * valid range that ends before {@link Core#apoLookback} is a <b>success with
+    * no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -303,14 +576,15 @@
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMAType Moving-average type used for both MAs (default 1 = EMA;
     *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
-    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
+    *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @param outReal Fast MA minus slow MA. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, apoLookback(...)) + 1} values, the count the
+    *        call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -389,7 +663,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -403,12 +677,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("APO advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -439,15 +713,15 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public double update( double inReal ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("APO update", RetCode.OUT_OF_RANGE_END_INDEX);
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("APO update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("APO update", "inReal");
          core.apoStepImpl(this, inReal);
          this.outRangeCount++;
          return this.cur_outReal;
@@ -457,15 +731,13 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
-            throw new TALibArgumentException("APO peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("APO peek", "inReal");
          ApoStream sp = this;
          double cur_tempBuffer = 0.0;
          double cur_outReal = 0.0;
@@ -528,7 +800,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
@@ -553,14 +825,14 @@
          return RetCode.INSUFFICIENT_HISTORY;
       }
       double[] sc_outReal = outStride == 1 ? outReal : new double[historyLen];
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the fast MA below runs first, and its lookback is SMALLER
        * than apo's own — so it reads the whole range and computes a result the
        * empty slow MA then discards. Observably identical (the slow MA's own early
        * return already yields 0,0 here), but it is the difference between "a range
-       * shorter than the lookback reads nothing" being true of this function and
+       * that ends before the lookback reads nothing" being true of this function and
        * being false: with a caller-supplied inReal that stops short of endIdx, that
        * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
        * probe over every guarded core.
@@ -623,12 +895,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("APO openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("APO openAndFill", inReal.length, startIdx, apoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("APO openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("APO openAndFill: " + retCode, retCode);
+      throw streamFailure("APO openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind apoOpen (composition seam). */
    ApoStream apoOpenInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
@@ -644,12 +913,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("APO open: history shorter than lookback + 1");
+         throw insufficientHistory("APO open", inReal.length, startIdx, apoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("APO open: internal error", retCode);
-      }
-      throw new TALibArgumentException("APO open: " + retCode, retCode);
+      throw streamFailure("APO open", retCode);
    }
    /**
     * Open a live APO stream over the warm-up history; the handle's
@@ -690,7 +956,7 @@
       int guardOutLen = openFillCount("APO openAndFill", inReal.length, apoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       requireLength("APO openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
-         throw new TALibArgumentException("APO openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("APO openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

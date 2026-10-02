@@ -15,7 +15,7 @@ outRequired[i] = real_i; outFirstOptional[i] = real_i / 2; outSecondOptional[i] 
 - Coverage trap: `outRequired` owns the `outIdx` advance and the two declinable stores carry none. That is what makes guarding a store COMPLETE — the write is skipped and the cursor still moves. `mama.c` was reordered for the same reason (#125).
 - Real outputs, scaled by powers of two: MAMA's nullable output is real, so this mirrors the shipped case, and halving is exact, so every value is bitwise identical in all four backends with no `(int)` cast — the conversion the README warns is defined differently in each of them.
 - Each output is a different function of the same bar, so a store that landed in the wrong buffer — or a guard that skipped the wrong one — changes a value the gates compare. The multiplications are separate statements from any addition, so no `a*b+c` fusion site exists to add a second variable to a failure.
-- Issue #262; rule B6a of `docs/error-handling-spec.md`.
+- Issue #262; rule [B6a](https://ta-lib.org/spec/errors/#b6a).
 
 ## Inputs
 
@@ -26,7 +26,3 @@ outRequired[i] = real_i; outFirstOptional[i] = real_i / 2; outSecondOptional[i] 
 - `outFirstOptional` — Half the bar, declinable
 - `outRequired` — The bar itself, always written
 - `outSecondOptional` — A quarter of the bar, declinable
-
-## Implementation
-
-TA-Lib Definition: [`synth10.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/generator/input_synth/synth10/synth10.c) · [`synth10.yaml`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/generator/input_synth/synth10/synth10.yaml)

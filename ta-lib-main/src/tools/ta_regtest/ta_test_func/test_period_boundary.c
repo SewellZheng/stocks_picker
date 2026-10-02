@@ -124,10 +124,9 @@
 /* Buffers for the abstract-driven sweep (max 3 outputs per function). */
 #define PB_MAX_OUTPUT 3
 /* Server-verify scratch bounds: a Price input expands to at most OHLCV+OI (6)
- * pointers, and MACDEXT carries the most optional params (6). Sized with slack;
- * pbBuildServerInputs guards the input bound, the opt loop the param bound. */
+ * pointers. A function past either bound fails the sweep, never skips it. */
 #define PB_MAX_INPUT  8
-#define PB_MAX_OPT    8
+#define PB_MAX_OPT    16
 /* MA's shipped optInMAType choice list -- ta_codegen generates it from
  * enums.yaml, the same human-maintained file the enumerators come from, so it
  * is how that source of truth reaches a C test. A loop bounded by an enumerator
@@ -646,7 +645,6 @@ static ErrorNumber testIdentityAtPeriodOne( const TA_History *history )
       if( errNb != TA_TEST_PASS ) return errNb;
    }
 
-   /* doRangeTest varies the unstable period and leaves it set. */
    TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 0 );
 
    return TA_TEST_PASS;
@@ -694,7 +692,7 @@ static ErrorNumber testIdentityAtPeriodOne( const TA_History *history )
  *    check is required to carry it. A bit lost on one of the others fails the
  *    PB_MIN_FLAGGED floor, which is why that floor is a literal;
  *  - a `period1_identity` deleted from a function's YAML fails at generate time
- *    (ta_codegen/generator/tests/period1_suite.rs), which is also where the rule
+ *    (ta_codegen/generator/tests/all/period1_suite.rs), which is also where the rule
  *    for who must DECLARE it lives. That gate covers the enum members and every
  *    function carrying a recognisable identity arm, which today is all of them.
  *
@@ -1515,7 +1513,6 @@ static ErrorNumber testMacdFamilySignalOne( const TA_History *history )
       }
    }
 
-   /* doRangeTest varies the unstable period and leaves it set. */
    TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 0 );
 
    errNb = testMacdSignalOneHostile();
@@ -2257,7 +2254,15 @@ static void pbSweepRunCase( PBSweepCtx *ctx,
     * always a bug. Runs for every swept case, matching the in-process check
     * above -- including PB_EXPECT_REJECT, which server_verify() never reaches
     * (its early call-tier rejection returns before server_verify would fire). */
-   if( server_verify_active() && funcInfo->nbOptInput <= PB_MAX_OPT )
+   if( server_verify_active() && funcInfo->nbOptInput > PB_MAX_OPT )
+   {
+      printf( "\nFail: %s: %u optional params exceed PB_MAX_OPT %d\n",
+              label, funcInfo->nbOptInput, PB_MAX_OPT );
+      pbFail( ctx );
+      TA_ParamHolderFree( paramHolder );
+      return;
+   }
+   if( server_verify_active() )
    {
       const TA_Real *svInputs[PB_MAX_INPUT];
       double         svOpt[PB_MAX_OPT];
@@ -2347,11 +2352,11 @@ static void pbSweepRunCase( PBSweepCtx *ctx,
       }
 
       /* #142 deferred: extend the empty-output (period > input-length) contract
-       * to the language servers. The generic --codegen / --xlang-hash sweeps keep
-       * every lookback < nbBars (compute_large_int clamps to nbBars-5), so this
-       * is the one boundary they never cross-check. Each server must likewise
-       * return TA_SUCCESS with a zero-length output at the same outBegIdx. */
-      if( server_verify_active() && funcInfo->nbOptInput <= PB_MAX_OPT )
+       * to the language servers. The --codegen sweep keeps every lookback <
+       * nbBars (compute_large_int clamps to nbBars-5), so it never sends such a
+       * period. Each server must likewise return TA_SUCCESS with a zero-length
+       * output at the same outBegIdx. */
+      if( server_verify_active() )
       {
          const TA_Real     *svInputs[PB_MAX_INPUT];
          const TA_Real     *svOutReal[PB_MAX_OUTPUT + 1];
@@ -2430,6 +2435,8 @@ static void pbSweepOneFunction( const TA_FuncInfo *funcInfo, void *opaque )
     * value (min / min+1 / default+-1) — so a regression that wrongly rejects a
     * documented minimum period is caught, not silently accepted. */
    int crossConstrained = ( strcmp( funcInfo->name, "MAVP" ) == 0 );
+   /* The range cannot say "even": FRAMA must reject an odd period cleanly. */
+   int evenOnly = ( strcmp( funcInfo->name, "FRAMA" ) == 0 );
 
    if( ctx->errNb != TA_TEST_PASS )
       return;   /* Already failed: skip the rest quietly. */
@@ -2468,7 +2475,8 @@ static void pbSweepOneFunction( const TA_FuncInfo *funcInfo, void *opaque )
           * default itself must always succeed, for every function. */
          for( k = 0; k < nCand; k++ )
          {
-            int expect = ( !crossConstrained || cand[k] == def )
+            int expect = ( evenOnly && (cand[k] % 2) != 0 ) ? PB_EXPECT_REJECT
+                       : ( !crossConstrained || cand[k] == def )
                              ? PB_EXPECT_STRICT : PB_EXPECT_LENIENT;
             pbSweepRunCase( ctx, funcInfo, paramNb, optInfo, 0, cand[k], 0.0, expect );
             if( ctx->errNb != TA_TEST_PASS ) return;

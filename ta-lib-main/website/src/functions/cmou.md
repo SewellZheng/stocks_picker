@@ -9,7 +9,7 @@ Chande Momentum Oscillator: Tushar Chande's original momentum oscillator, comput
 
 Bounded in [-100,+100]; positive = net upward momentum, negative = net downward.
 
-CMOU is the version as defined by Chande in his book *The New Technical Trader* (1994), and is the more common implementation used by TradingView (`ta.cmo`), QuantConnect and pandas-ta's default.
+CMOU is the version as defined by Chande in his book *The New Technical Trader* (1994), and is the more common implementation used by TradingView (`ta.cmo`) and pandas-ta's default.
 
 See [`CMO`](/functions/cmo.md) for a smoothed variant of CMOU.
 
@@ -56,6 +56,7 @@ TA-Lib Definition: [`cmou.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_code
 | C | [`ta_CMOU.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_CMOU.c) |
 | Rust | [`cmou.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/cmou.rs) |
 | Java | [`Core_CMOU.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_CMOU.java) |
+| C# | [`Core_CMOU.cs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/csharp/library/src/Core_CMOU.cs) |
 
 TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 

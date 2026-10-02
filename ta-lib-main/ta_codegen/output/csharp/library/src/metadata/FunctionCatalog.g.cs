@@ -65,8 +65,8 @@ namespace TALib.Metadata;
 /// <para>Generated from the same definitions as the indicators themselves, so it
 /// cannot drift from them. Immutable and safe to use from any thread.</para>
 /// <para>Scope is the guarded, double-precision batch API — the same surface C's
-/// <c>ta_abstract</c> and Rust's <c>abstract_api</c> describe. Streaming handles,
-/// <c>float[]</c> overloads are not catalogued.</para>
+/// <c>ta_abstract</c> and Rust's <c>abstract_api</c> describe. Streaming handles and
+/// the <c>float</c> overloads are not catalogued.</para>
 /// </remarks>
 public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
 {
@@ -86,6 +86,8 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         new(11, "DEFAULT"),
         new(12, "ZLEMA"),
         new(13, "RMA"),
+        new(14, "VIDYA"),
+        new(15, "ALMA"),
     ];
 
     /// <summary>The process-wide catalogue.</summary>
@@ -122,16 +124,19 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeAdr(),
             MakeAdx(),
             MakeAdxr(),
+            MakeAlma(),
             MakeAo(),
             MakeApo(),
             MakeAroon(),
             MakeAroonosc(),
+            MakeAsi(),
             MakeAsin(),
             MakeAtan(),
             MakeAtr(),
             MakeAvgdev(),
             MakeAvgprice(),
             MakeBbands(),
+            MakeBbw(),
             MakeBeta(),
             MakeBop(),
             MakeCci(),
@@ -197,6 +202,10 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeCdlupsidegap2crows(),
             MakeCdlxsidegap3methods(),
             MakeCeil(),
+            MakeCg(),
+            MakeChop(),
+            MakeChoptr(),
+            MakeCksp(),
             MakeCmf(),
             MakeCmo(),
             MakeCmou(),
@@ -204,6 +213,8 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeCorrel(),
             MakeCos(),
             MakeCosh(),
+            MakeCrsi(),
+            MakeCti(),
             MakeCumsum(),
             MakeCvi(),
             MakeDema(),
@@ -213,12 +224,14 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeDx(),
             MakeEfi(),
             MakeEma(),
+            MakeEmv(),
             MakeEr(),
             MakeEri(),
             MakeExp(),
             MakeFloor(),
             MakeFosc(),
             MakeFractal(),
+            MakeFrama(),
             MakeHa(),
             MakeHma(),
             MakeHtDcperiod(),
@@ -227,10 +240,14 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeHtSine(),
             MakeHtTrendline(),
             MakeHtTrendmode(),
+            MakeIbs(),
             MakeImi(),
             MakeKama(),
             MakeKc(),
             MakeKdj(),
+            MakeKst(),
+            MakeKstext(),
+            MakeKurtosis(),
             MakeLinearreg(),
             MakeLinearregAngle(),
             MakeLinearregIntercept(),
@@ -247,6 +264,8 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeMavp(),
             MakeMax(),
             MakeMaxindex(),
+            MakeMcgd(),
+            MakeMedian(),
             MakeMedprice(),
             MakeMfi(),
             MakeMidpoint(),
@@ -262,6 +281,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeNatr(),
             MakeNvi(),
             MakeObv(),
+            MakePercentb(),
             MakePercentile(),
             MakePercentrank(),
             MakePlusDi(),
@@ -278,14 +298,17 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeRocr100(),
             MakeRsi(),
             MakeRvi(),
+            MakeRvir(),
             MakeRvol(),
             MakeSar(),
             MakeSarext(),
+            MakeSi(),
             MakeSin(),
             MakeSinh(),
             MakeSma(),
             MakeSmi(),
             MakeSqrt(),
+            MakeStc(),
             MakeStddev(),
             MakeStoch(),
             MakeStochf(),
@@ -306,6 +329,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeUltosc(),
             MakeVar(),
             MakeVhf(),
+            MakeVidya(),
             MakeVortex(),
             MakeVwap(),
             MakeVwma(),
@@ -560,6 +584,31 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Adxr(
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOut(0)));
 
+    private static FuncInfo MakeAlma() => new(
+        name: "ALMA",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Arnaud Legoux Moving Average",
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.Period1Identity,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 9, 1, 200, 1)),
+            new OptInputInfo("optInSigma", "Sigma", "Gaussian width divisor", OptInputFlags.None, new OptInputDomain.RealRange(0.01, 3e37, 2, 6.0, 1.0, 20.0, 0.5)),
+            new OptInputInfo("optInOffset", "Offset", "Position of the peak weight", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 1.0, 2, 0.85, 0.0, 1.0, 0.05)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.AlmaLookback(c.IntOpt(0), c.RealOpt(1), c.RealOpt(2)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Alma(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), c.RealOut(0)));
+
     private static FuncInfo MakeAo() => new(
         name: "AO",
         group: FunctionGroup.MomentumIndicators,
@@ -655,6 +704,29 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Aroonosc(
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeAsi() => new(
+        name: "ASI",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Wilder Accumulative Swing Index",
+        flags: FuncFlags.Stream | FuncFlags.PathDependent,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceOHLC", PriceComponents.Open | PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.Open, PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInLimitMove", "Limit Move", "Largest one-bar price move the index is scaled against, in price units", OptInputFlags.None, new OptInputDomain.RealRange(1e-8, 3e37, 4, 3.0, 0.5, 30.0, 0.5)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.AsiLookback(c.RealOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Asi(
+                startIdx, endIdx, c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.RealOpt(0), c.RealOut(0)));
 
     private static FuncInfo MakeAsin() => new(
         name: "ASIN",
@@ -789,6 +861,32 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Bbands(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), (MAType)c.IntOpt(3), c.RealOut(0), c.RealOut(1), c.RealOut(2)));
+
+    private static FuncInfo MakeBbw() => new(
+        name: "BBW",
+        group: FunctionGroup.VolatilityIndicators,
+        hint: "Bollinger BandWidth",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 20, 4, 200, 1)),
+            new OptInputInfo("optInNbDevUp", "Deviations up", "Deviation multiplier for upper band", OptInputFlags.None, new OptInputDomain.RealRange(-3e37, 3e37, 2, 2.0, -2.0, 2.0, 0.2)),
+            new OptInputInfo("optInNbDevDn", "Deviations down", "Deviation multiplier for lower band", OptInputFlags.None, new OptInputDomain.RealRange(-3e37, 3e37, 2, 2.0, -2.0, 2.0, 0.2)),
+            new OptInputInfo("optInMAType", "MA Type", "Type of Moving Average", OptInputFlags.None, new OptInputDomain.IntegerList(MATypeValues, 0)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.BbwLookback(c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), (MAType)c.IntOpt(3)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Bbw(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), (MAType)c.IntOpt(3), c.RealOut(0)));
 
     private static FuncInfo MakeBeta() => new(
         name: "BETA",
@@ -2118,6 +2216,101 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Ceil(
                 startIdx, endIdx, c.Series(0), c.RealOut(0)));
 
+    private static FuncInfo MakeCg() => new(
+        name: "CG",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Center of Gravity Oscillator",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Number of bars in the window", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 10, 4, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.CgLookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Cg(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeChop() => new(
+        name: "CHOP",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Choppiness Index",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 14, 4, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.ChopLookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Chop(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeChoptr() => new(
+        name: "CHOPTR",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Choppiness Index (True Range Box)",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 14, 4, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.ChoptrLookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Choptr(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeCksp() => new(
+        name: "CKSP",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Chande Kroll Stop",
+        flags: FuncFlags.Overlap | FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "ATR and extreme window", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 10, 4, 200, 1)),
+            new OptInputInfo("optInMultiplier", "Multiplier", "ATR multiplier", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 3e37, 2, 1.0, 0.5, 5.0, 0.5)),
+            new OptInputInfo("optInStopPeriod", "Stop Period", "Stop window", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 9, 1, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outHighStop", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outLowStop", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.CkspLookback(c.IntOpt(0), c.RealOpt(1), c.IntOpt(2)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Cksp(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.IntOpt(2), c.RealOut(0), c.RealOut(1)));
+
     private static FuncInfo MakeCmf() => new(
         name: "CMF",
         group: FunctionGroup.VolumeIndicators,
@@ -2275,6 +2468,54 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Cosh(
                 startIdx, endIdx, c.Series(0), c.RealOut(0)));
+
+    private static FuncInfo MakeCrsi() => new(
+        name: "CRSI",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Connors Relative Strength Index",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 3, 2, 20, 1)),
+            new OptInputInfo("optInStreakPeriod", "Streak Period", "Time period of the RSI of the up/down streak", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 2, 2, 20, 1)),
+            new OptInputInfo("optInRankPeriod", "Rank Period", "Number of previous one-bar returns the current one is ranked against", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 10000, 100, 20, 200, 20)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.CrsiLookback(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Crsi(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.RealOut(0)));
+
+    private static FuncInfo MakeCti() => new(
+        name: "CTI",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Correlation Trend Indicator",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Number of bars correlated against the ramp", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 20, 5, 50, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.CtiLookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Cti(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
 
     private static FuncInfo MakeCumsum() => new(
         name: "CUMSUM",
@@ -2481,6 +2722,30 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Ema(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
 
+    private static FuncInfo MakeEmv() => new(
+        name: "EMV",
+        group: FunctionGroup.VolumeIndicators,
+        hint: "Arms Ease of Movement",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLV", PriceComponents.High | PriceComponents.Low | PriceComponents.Volume, [PriceComponents.High, PriceComponents.Low, PriceComponents.Volume]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Bars in the SMA of the one-bar values (1 = unsmoothed)", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 14, 1, 200, 1)),
+            new OptInputInfo("optInVolumeDivisor", "Volume Divisor", "Volume is divided by this before forming the box ratio", OptInputFlags.None, new OptInputDomain.RealRange(1.0, 3e37, 0, 10000.0, 0.0, 0.0, 0.0)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.EmvLookback(c.IntOpt(0), c.RealOpt(1)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Emv(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Volume), c.IntOpt(0), c.RealOpt(1), c.RealOut(0)));
+
     private static FuncInfo MakeEr() => new(
         name: "ER",
         group: FunctionGroup.MomentumIndicators,
@@ -2615,6 +2880,29 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Fractal(
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1), c.IntOut(0), c.IntOut(1)));
+
+    private static FuncInfo MakeFrama() => new(
+        name: "FRAMA",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Fractal Adaptive Moving Average",
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.FRAMA,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHL", PriceComponents.High | PriceComponents.Low, [PriceComponents.High, PriceComponents.Low]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Number of bars, even; the window is split into two halves of optInTimePeriod/2 bars", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 16, 4, 200, 2)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.FramaLookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Frama(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.RealOut(0)));
 
     private static FuncInfo MakeHa() => new(
         name: "HA",
@@ -2784,6 +3072,26 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.HtTrendmode(
                 startIdx, endIdx, c.Series(0), c.IntOut(0)));
 
+    private static FuncInfo MakeIbs() => new(
+        name: "IBS",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Internal Bar Strength",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs: [],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.IbsLookback(),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Ibs(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.RealOut(0)));
+
     private static FuncInfo MakeImi() => new(
         name: "IMI",
         group: FunctionGroup.MomentumIndicators,
@@ -2885,6 +3193,95 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Kdj(
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), (MAType)c.IntOpt(2), c.IntOpt(3), (MAType)c.IntOpt(4), c.RealOut(0), c.RealOut(1), c.RealOut(2)));
+
+    private static FuncInfo MakeKst() => new(
+        name: "KST",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Know Sure Thing (Pring)",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInROC1Period", "ROC-1 Period", "Rate-of-change period of leg 1", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInROC2Period", "ROC-2 Period", "Rate-of-change period of leg 2", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 15, 1, 200, 1)),
+            new OptInputInfo("optInROC3Period", "ROC-3 Period", "Rate-of-change period of leg 3", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 20, 1, 200, 1)),
+            new OptInputInfo("optInROC4Period", "ROC-4 Period", "Rate-of-change period of leg 4", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 30, 1, 200, 1)),
+            new OptInputInfo("optInSMA1Period", "SMA-1 Period", "Smoothing period of leg 1", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInSMA2Period", "SMA-2 Period", "Smoothing period of leg 2", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInSMA3Period", "SMA-3 Period", "Smoothing period of leg 3", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInSMA4Period", "SMA-4 Period", "Smoothing period of leg 4", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 15, 1, 200, 1)),
+            new OptInputInfo("optInSignalPeriod", "Signal Period", "Smoothing period of the signal line", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 9, 1, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outKST", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outKSTSignal", OutputFlags.DashLine),
+        ],
+        lookback: static (core, c) => core.KstLookback(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5), c.IntOpt(6), c.IntOpt(7), c.IntOpt(8)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Kst(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5), c.IntOpt(6), c.IntOpt(7), c.IntOpt(8), c.RealOut(0), c.RealOut(1)));
+
+    private static FuncInfo MakeKstext() => new(
+        name: "KSTEXT",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Know Sure Thing with controllable MA type",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInROC1Period", "ROC-1 Period", "Rate-of-change period of leg 1", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInROC2Period", "ROC-2 Period", "Rate-of-change period of leg 2", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 15, 1, 200, 1)),
+            new OptInputInfo("optInROC3Period", "ROC-3 Period", "Rate-of-change period of leg 3", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 20, 1, 200, 1)),
+            new OptInputInfo("optInROC4Period", "ROC-4 Period", "Rate-of-change period of leg 4", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 30, 1, 200, 1)),
+            new OptInputInfo("optInMA1Period", "MA-1 Period", "Smoothing period of leg 1", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInMA2Period", "MA-2 Period", "Smoothing period of leg 2", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInMA3Period", "MA-3 Period", "Smoothing period of leg 3", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInMA4Period", "MA-4 Period", "Smoothing period of leg 4", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 15, 1, 200, 1)),
+            new OptInputInfo("optInSignalPeriod", "Signal Period", "Smoothing period of the signal line", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 9, 1, 200, 1)),
+            new OptInputInfo("optInROCMAType", "ROC MA", "Type of Moving Average smoothing the four legs", OptInputFlags.None, new OptInputDomain.IntegerList(MATypeValues, 0)),
+            new OptInputInfo("optInSignalMAType", "Signal MA", "Type of Moving Average for signal line", OptInputFlags.None, new OptInputDomain.IntegerList(MATypeValues, 0)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outKST", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outKSTSignal", OutputFlags.DashLine),
+        ],
+        lookback: static (core, c) => core.KstextLookback(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5), c.IntOpt(6), c.IntOpt(7), c.IntOpt(8), (MAType)c.IntOpt(9), (MAType)c.IntOpt(10)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Kstext(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5), c.IntOpt(6), c.IntOpt(7), c.IntOpt(8), (MAType)c.IntOpt(9), (MAType)c.IntOpt(10), c.RealOut(0), c.RealOut(1)));
+
+    private static FuncInfo MakeKurtosis() => new(
+        name: "KURTOSIS",
+        group: FunctionGroup.StatisticFunctions,
+        hint: "Rolling Excess Kurtosis",
+        flags: FuncFlags.Stream | FuncFlags.NanInfOutput,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(4, 10000, 30, 10, 200, 5)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.KurtosisLookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Kurtosis(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
 
     private static FuncInfo MakeLinearreg() => new(
         name: "LINEARREG",
@@ -3206,8 +3603,8 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         optInputs:
         [
-            new OptInputInfo("optInMinPeriod", "Minimum Period", "Value less than minimum will be changed to Minimum period", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 2, 1, 200, 1)),
-            new OptInputInfo("optInMaxPeriod", "Maximum Period", "Value higher than maximum will be changed to Maximum period", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 30, 1, 200, 1)),
+            new OptInputInfo("optInMinPeriod", "Minimum Period", "Value less than minimum will be changed to Minimum period", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 10000, 2, 1, 200, 1)),
+            new OptInputInfo("optInMaxPeriod", "Maximum Period", "Value higher than maximum will be changed to Maximum period", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 10000, 30, 1, 200, 1)),
             new OptInputInfo("optInMAType", "MA Type", "Type of Moving Average", OptInputFlags.None, new OptInputDomain.IntegerList(MATypeValues, 0)),
         ],
         outputs:
@@ -3264,6 +3661,52 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Maxindex(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOut(0)));
+
+    private static FuncInfo MakeMcgd() => new(
+        name: "MCGD",
+        group: FunctionGroup.OverlapStudies,
+        hint: "McGinley Dynamic",
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.MCGD,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 14, 2, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.McgdLookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Mcgd(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeMedian() => new(
+        name: "MEDIAN",
+        group: FunctionGroup.StatisticFunctions,
+        hint: "Rolling Median",
+        flags: FuncFlags.Overlap | FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Number of bars in the window", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 10000, 30, 4, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.MedianLookback(c.IntOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Median(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
 
     private static FuncInfo MakeMedprice() => new(
         name: "MEDPRICE",
@@ -3602,6 +4045,32 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Obv(
                 startIdx, endIdx, c.Series(0), c.Price(1, PriceComponents.Volume), c.RealOut(0)));
 
+    private static FuncInfo MakePercentb() => new(
+        name: "PERCENTB",
+        group: FunctionGroup.VolatilityIndicators,
+        hint: "Bollinger Bands %B",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 20, 4, 200, 1)),
+            new OptInputInfo("optInNbDevUp", "Deviations up", "Deviation multiplier for upper band", OptInputFlags.None, new OptInputDomain.RealRange(-3e37, 3e37, 2, 2.0, -2.0, 2.0, 0.2)),
+            new OptInputInfo("optInNbDevDn", "Deviations down", "Deviation multiplier for lower band", OptInputFlags.None, new OptInputDomain.RealRange(-3e37, 3e37, 2, 2.0, -2.0, 2.0, 0.2)),
+            new OptInputInfo("optInMAType", "MA Type", "Type of Moving Average", OptInputFlags.None, new OptInputDomain.IntegerList(MATypeValues, 0)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.PercentbLookback(c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), (MAType)c.IntOpt(3)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Percentb(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), (MAType)c.IntOpt(3), c.RealOut(0)));
+
     private static FuncInfo MakePercentile() => new(
         name: "PERCENTILE",
         group: FunctionGroup.StatisticFunctions,
@@ -3614,7 +4083,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         optInputs:
         [
-            new OptInputInfo("optInTimePeriod", "Time Period", "Number of bars in the window", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 30, 4, 200, 1)),
+            new OptInputInfo("optInTimePeriod", "Time Period", "Number of bars in the window", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 10000, 100, 4, 200, 1)),
             new OptInputInfo("optInPercentile", "Percentile", "Percentile to report", OptInputFlags.IsPercent, new OptInputDomain.RealRange(0.0, 100.0, 2, 50.0, 10.0, 90.0, 5.0)),
         ],
         outputs:
@@ -3638,7 +4107,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         optInputs:
         [
-            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 100, 20, 200, 20)),
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 10000, 100, 20, 200, 20)),
         ],
         outputs:
         [
@@ -3970,6 +4439,30 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Rvi(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOpt(1), c.RealOut(0)));
 
+    private static FuncInfo MakeRvir() => new(
+        name: "RVIR",
+        group: FunctionGroup.VolatilityIndicators,
+        hint: "Relative Volatility Index, refined high/low form",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHL", PriceComponents.High | PriceComponents.Low, [PriceComponents.High, PriceComponents.Low]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period of the Wilder smoothing applied to both indices", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 14, 4, 200, 1)),
+            new OptInputInfo("optInStdDevPeriod", "StdDev Period", "Time period of the standard deviation", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 10, 4, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.RvirLookback(c.IntOpt(0), c.IntOpt(1)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Rvir(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1), c.RealOut(0)));
+
     private static FuncInfo MakeRvol() => new(
         name: "RVOL",
         group: FunctionGroup.VolumeIndicators,
@@ -4046,6 +4539,29 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Sarext(
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.RealOpt(0), c.RealOpt(1), c.RealOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5), c.RealOpt(6), c.RealOpt(7), c.RealOut(0)));
+
+    private static FuncInfo MakeSi() => new(
+        name: "SI",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Wilder Swing Index",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceOHLC", PriceComponents.Open | PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.Open, PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInLimitMove", "Limit Move", "Largest one-bar price move the index is scaled against, in price units", OptInputFlags.None, new OptInputDomain.RealRange(1e-8, 3e37, 4, 3.0, 0.5, 30.0, 0.5)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.SiLookback(c.RealOpt(0)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Si(
+                startIdx, endIdx, c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.RealOpt(0), c.RealOut(0)));
 
     private static FuncInfo MakeSin() => new(
         name: "SIN",
@@ -4156,6 +4672,31 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Sqrt(
                 startIdx, endIdx, c.Series(0), c.RealOut(0)));
+
+    private static FuncInfo MakeStc() => new(
+        name: "STC",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Schaff Trend Cycle",
+        flags: FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.STC,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInFastPeriod", "Fast Period", "Period of the fast EMA", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 23, 4, 200, 1)),
+            new OptInputInfo("optInSlowPeriod", "Slow Period", "Period of the slow EMA", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 50, 4, 200, 1)),
+            new OptInputInfo("optInCyclePeriod", "Cycle Period", "Window of both stochastic stages", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 10, 2, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.StcLookback(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Stc(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.RealOut(0)));
 
     private static FuncInfo MakeStddev() => new(
         name: "STDDEV",
@@ -4622,6 +5163,30 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Vhf(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeVidya() => new(
+        name: "VIDYA",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Variable Index Dynamic Average",
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.UnstablePeriod | FuncFlags.Period1Identity,
+        unstableId: FuncUnstId.VIDYA,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "EMA-equivalent smoothing period, alpha = 2/(n+1)", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 12, 4, 200, 1)),
+            new OptInputInfo("optInCMOPeriod", "CMO Period", "Period of the unsmoothed CMO that scales alpha", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 9, 4, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.VidyaLookback(c.IntOpt(0), c.IntOpt(1)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Vidya(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOpt(1), c.RealOut(0)));
 
     private static FuncInfo MakeVortex() => new(
         name: "VORTEX",

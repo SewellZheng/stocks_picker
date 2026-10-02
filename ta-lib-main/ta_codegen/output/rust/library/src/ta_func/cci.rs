@@ -69,6 +69,9 @@
  *                scales: `0.015*tempReal2` underflows to 0.0 on a denormal
  *                price the deviation's own band still calls "not flat", and
  *                the division returned +/-Inf under TA_SUCCESS.
+ *  092826 MF,CC  Sum the window around the slot just stored, taking it from
+ *                lastValue: a wide load over that slot waited for the store
+ *                (#455). Same order, same values.
  */
 
 // Import types from parent module
@@ -118,10 +121,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -149,7 +152,6 @@ impl Core {
         let mut heap_circBuffer: Vec<f64> = Vec::new();
         let mut circBuffer: &mut [f64] = &mut [];
         let mut circBuffer_Idx: usize = 0;
-        let mut maxIdx_circBuffer: usize = 29;
         // This ptr will points on a circular buffer of
         // at least "optInTimePeriod" element.
         // Identify the minimum number of price bar needed
@@ -166,16 +168,18 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
+        let inHigh = &inHigh[..=endIdx];
+        let inLow = &inLow[..=endIdx];
+        let inClose = &inClose[..=endIdx];
         // Allocate a circular buffer equal to the requested
         // period.
         if optInTimePeriod < 1 { return RetCode::InternalError; }
         if (optInTimePeriod) as usize <= 30usize {
-            circBuffer = &mut local_circBuffer;
+            circBuffer = &mut local_circBuffer[..(optInTimePeriod) as usize];
         } else {
             heap_circBuffer = vec![0.0_f64; (optInTimePeriod) as usize];
             circBuffer = &mut heap_circBuffer;
         }
-        maxIdx_circBuffer = ((optInTimePeriod) as usize) - 1;
         circBuffer_Idx = 0;
         // Do the MA calculation using tight loops.
         // Add-up the initial period, except for the last value.
@@ -186,7 +190,7 @@ impl Core {
                 circBuffer[circBuffer_Idx] = (inHigh[i] + inLow[i] + inClose[i]) / 3_f64;
                 i += 1;
                 circBuffer_Idx += 1;
-                if circBuffer_Idx > maxIdx_circBuffer { circBuffer_Idx = 0; }
+                if circBuffer_Idx >= circBuffer.len() { circBuffer_Idx = 0; }
             }
         }
         // Proceed with the calculation for the requested range.
@@ -196,23 +200,52 @@ impl Core {
         loop {
             lastValue = (inHigh[i] + inLow[i] + inClose[i]) / 3_f64;
             circBuffer[circBuffer_Idx] = lastValue;
-            // Calculate the average for the whole period.
+            // Calculate the average for the whole period. Both sums take the
+            // slot just stored from lastValue, in the same order, so no load reads
+            // it back: a vector load spanning that slot stalls until the store
+            // commits.
             theAverage = 0.0;
-            // for( j = 0; j < ((optInTimePeriod) as usize); j += 1 )
             j = 0;
-            while j < ((optInTimePeriod) as usize) {
-                theAverage += circBuffer[j];
-                j += 1;
+            if j < circBuffer_Idx {
+                let _wn: usize = circBuffer_Idx - j;
+                let _w0 = &circBuffer[j..][.._wn];
+                for _wk in 0.._wn {
+                    theAverage += _w0[_wk];
+                    j += 1;
+                }
+            }
+            theAverage += lastValue;
+            j = circBuffer_Idx + 1;
+            if j < ((optInTimePeriod) as usize) {
+                let _wn: usize = (optInTimePeriod as usize) - j;
+                let _w0 = &circBuffer[j..][.._wn];
+                for _wk in 0.._wn {
+                    theAverage += _w0[_wk];
+                    j += 1;
+                }
             }
             theAverage /= ((optInTimePeriod) as f64);
             // Do the summation of the ABS(TypePrice-average)
             // for the whole period, then its mean.
             tempReal2 = 0.0;
-            // for( j = 0; j < ((optInTimePeriod) as usize); j += 1 )
             j = 0;
-            while j < ((optInTimePeriod) as usize) {
-                tempReal2 += (circBuffer[j] - theAverage).abs();
-                j += 1;
+            if j < circBuffer_Idx {
+                let _wn: usize = circBuffer_Idx - j;
+                let _w0 = &circBuffer[j..][.._wn];
+                for _wk in 0.._wn {
+                    tempReal2 += (_w0[_wk] - theAverage).abs();
+                    j += 1;
+                }
+            }
+            tempReal2 += (lastValue - theAverage).abs();
+            j = circBuffer_Idx + 1;
+            if j < ((optInTimePeriod) as usize) {
+                let _wn: usize = (optInTimePeriod as usize) - j;
+                let _w0 = &circBuffer[j..][.._wn];
+                for _wk in 0.._wn {
+                    tempReal2 += (_w0[_wk] - theAverage).abs();
+                    j += 1;
+                }
             }
             tempReal2 /= ((optInTimePeriod) as f64);
             // And finally, the CCI...
@@ -242,7 +275,7 @@ impl Core {
             }
             // Move forward the circular buffer indexes.
             circBuffer_Idx += 1;
-            if circBuffer_Idx > maxIdx_circBuffer { circBuffer_Idx = 0; }
+            if circBuffer_Idx >= circBuffer.len() { circBuffer_Idx = 0; }
             i += 1;
             if !(i <= endIdx) { break; }
         }
@@ -274,15 +307,15 @@ impl Core {
     /// # Returns
     ///
     /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
-    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
-    /// succeeds with `count == 0`.
+    /// series' coordinates, and `count` is how many were written. A range that ends before the
+    /// lookback succeeds with `count == 0`.
     ///
     /// # Errors
     ///
     /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
-    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
     /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
-    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// range. A range that ends before the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
@@ -328,10 +361,10 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
-        if startIdx > Self::MAX_INDEX {
+        if startIdx > Self::INDEX_MAX {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.cci_lookback(optInTimePeriod)?;
@@ -411,10 +444,20 @@ impl Core {
         let mut j: usize = 0_usize;
         lastValue = (inHigh + inLow + inClose) / 3_f64;
         sp.cb_circBuffer[sp.circBuffer_Idx] = lastValue;
-        // Calculate the average for the whole period.
+        // Calculate the average for the whole period. Both sums take the
+        // slot just stored from lastValue, in the same order, so no load reads
+        // it back: a vector load spanning that slot stalls until the store
+        // commits.
         theAverage = 0.0;
-        // for( j = 0; j < ((sp.optInTimePeriod) as usize); j += 1 )
+        // for( j = 0; j < sp.circBuffer_Idx; j += 1 )
         j = 0;
+        while j < sp.circBuffer_Idx {
+            theAverage += sp.cb_circBuffer[j];
+            j += 1;
+        }
+        theAverage += lastValue;
+        // for( j = sp.circBuffer_Idx + 1; j < ((sp.optInTimePeriod) as usize); j += 1 )
+        j = sp.circBuffer_Idx + 1;
         while j < ((sp.optInTimePeriod) as usize) {
             theAverage += sp.cb_circBuffer[j];
             j += 1;
@@ -423,8 +466,15 @@ impl Core {
         // Do the summation of the ABS(TypePrice-average)
         // for the whole period, then its mean.
         tempReal2 = 0.0;
-        // for( j = 0; j < ((sp.optInTimePeriod) as usize); j += 1 )
+        // for( j = 0; j < sp.circBuffer_Idx; j += 1 )
         j = 0;
+        while j < sp.circBuffer_Idx {
+            tempReal2 += (sp.cb_circBuffer[j] - theAverage).abs();
+            j += 1;
+        }
+        tempReal2 += (lastValue - theAverage).abs();
+        // for( j = sp.circBuffer_Idx + 1; j < ((sp.optInTimePeriod) as usize); j += 1 )
+        j = sp.circBuffer_Idx + 1;
         while j < ((sp.optInTimePeriod) as usize) {
             tempReal2 += (sp.cb_circBuffer[j] - theAverage).abs();
             j += 1;
@@ -469,7 +519,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -543,10 +593,20 @@ impl Core {
         loop {
             lastValue = (inHigh[i] + inLow[i] + inClose[i]) / 3_f64;
             circBuffer[circBuffer_Idx] = lastValue;
-            // Calculate the average for the whole period.
+            // Calculate the average for the whole period. Both sums take the
+            // slot just stored from lastValue, in the same order, so no load reads
+            // it back: a vector load spanning that slot stalls until the store
+            // commits.
             theAverage = 0.0;
-            // for( j = 0; j < ((optInTimePeriod) as usize); j += 1 )
+            // for( j = 0; j < circBuffer_Idx; j += 1 )
             j = 0;
+            while j < circBuffer_Idx {
+                theAverage += circBuffer[j];
+                j += 1;
+            }
+            theAverage += lastValue;
+            // for( j = circBuffer_Idx + 1; j < ((optInTimePeriod) as usize); j += 1 )
+            j = circBuffer_Idx + 1;
             while j < ((optInTimePeriod) as usize) {
                 theAverage += circBuffer[j];
                 j += 1;
@@ -555,8 +615,15 @@ impl Core {
             // Do the summation of the ABS(TypePrice-average)
             // for the whole period, then its mean.
             tempReal2 = 0.0;
-            // for( j = 0; j < ((optInTimePeriod) as usize); j += 1 )
+            // for( j = 0; j < circBuffer_Idx; j += 1 )
             j = 0;
+            while j < circBuffer_Idx {
+                tempReal2 += (circBuffer[j] - theAverage).abs();
+                j += 1;
+            }
+            tempReal2 += (lastValue - theAverage).abs();
+            // for( j = circBuffer_Idx + 1; j < ((optInTimePeriod) as usize); j += 1 )
+            j = circBuffer_Idx + 1;
             while j < ((optInTimePeriod) as usize) {
                 tempReal2 += (circBuffer[j] - theAverage).abs();
                 j += 1;
@@ -697,7 +764,7 @@ impl Core {
         if inHigh.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
-        if inHigh.len() > Self::MAX_INDEX + 1 {
+        if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let _guardLb = self.cci_lookback(optInTimePeriod)?;
@@ -730,7 +797,7 @@ impl Core {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl CciStream {
-    /// Commit one closed bar. Never allocates.
+    /// Commit one closed bar.
     ///
     /// # Errors
     ///
@@ -748,11 +815,11 @@ impl CciStream {
     /// happens.
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// bar [`Core::INDEX_MAX`], which no re-feed clears: the handle has run
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_CCI_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -767,16 +834,15 @@ impl CciStream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
-    /// allocates nothing and copies no buffer, so its cost does not grow with
-    /// the period, and it writes no part of the handle — peeks may run
-    /// concurrently with each other.
+    /// writes no part of the handle, so peeks may run concurrently with each
+    /// other.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
     /// `update` applies, and a rejected peek changes nothing at all. Not
     /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
-    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
+    /// answering past the [`Core::INDEX_MAX`] ceiling `update` stops at.
     #[doc(alias = "TA_CCI_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -792,27 +858,40 @@ impl CciStream {
             let mut theAverage: f64 = 0.0_f64;
             let mut lastValue: f64 = 0.0_f64;
             let mut j: usize = 0_usize;
-            let mut pkSlot0: usize = usize::MAX;
-            let mut pkVal0: f64 = 0.0_f64;
             lastValue = (inHigh + inLow + inClose) / 3_f64;
-            pkSlot0 = sp.circBuffer_Idx as usize;
-            pkVal0 = lastValue;
-            // Calculate the average for the whole period.
+            // Calculate the average for the whole period. Both sums take the
+            // slot just stored from lastValue, in the same order, so no load reads
+            // it back: a vector load spanning that slot stalls until the store
+            // commits.
             theAverage = 0.0;
-            // for( j = 0; j < ((sp.optInTimePeriod) as usize); j += 1 )
+            // for( j = 0; j < sp.circBuffer_Idx; j += 1 )
             j = 0;
+            while j < sp.circBuffer_Idx {
+                theAverage += sp.cb_circBuffer[j];
+                j += 1;
+            }
+            theAverage += lastValue;
+            // for( j = sp.circBuffer_Idx + 1; j < ((sp.optInTimePeriod) as usize); j += 1 )
+            j = sp.circBuffer_Idx + 1;
             while j < ((sp.optInTimePeriod) as usize) {
-                theAverage += (if (j as usize) != pkSlot0 { sp.cb_circBuffer[j] } else { pkVal0 });
+                theAverage += sp.cb_circBuffer[j];
                 j += 1;
             }
             theAverage /= ((sp.optInTimePeriod) as f64);
             // Do the summation of the ABS(TypePrice-average)
             // for the whole period, then its mean.
             tempReal2 = 0.0;
-            // for( j = 0; j < ((sp.optInTimePeriod) as usize); j += 1 )
+            // for( j = 0; j < sp.circBuffer_Idx; j += 1 )
             j = 0;
+            while j < sp.circBuffer_Idx {
+                tempReal2 += (sp.cb_circBuffer[j] - theAverage).abs();
+                j += 1;
+            }
+            tempReal2 += (lastValue - theAverage).abs();
+            // for( j = sp.circBuffer_Idx + 1; j < ((sp.optInTimePeriod) as usize); j += 1 )
+            j = sp.circBuffer_Idx + 1;
             while j < ((sp.optInTimePeriod) as usize) {
-                tempReal2 += ((if (j as usize) != pkSlot0 { sp.cb_circBuffer[j] } else { pkVal0 }) - theAverage).abs();
+                tempReal2 += (sp.cb_circBuffer[j] - theAverage).abs();
                 j += 1;
             }
             tempReal2 /= ((sp.optInTimePeriod) as f64);
@@ -866,7 +945,7 @@ impl CciStream {
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
     ///
-    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// The last bar it can reach is [`Core::INDEX_MAX`]; past that `update`
     /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_CCI_OutRange")]
     pub fn out_range(&self) -> OutRange {
@@ -884,11 +963,11 @@ impl CciStream {
     /// # Errors
     ///
     /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
-    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// bar [`Core::INDEX_MAX`] — the last one the batch tier can address, and
     /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_CCI_Advance")]
     pub fn advance(&mut self) -> Result<(), RetCode> {
-        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+        if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         self.out.count += 1;

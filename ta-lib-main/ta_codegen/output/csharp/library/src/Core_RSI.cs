@@ -62,6 +62,9 @@ public partial class Core
     *  090926 MF,CC #410 Scale the Wilder step by a hoisted 1/period and split the
     *               gain/loss without a branch; the loop-carried chain keeps
     *               neither a divide nor a 50/50 mispredict.
+    *  092826 MF,CC #466 Drop the period-1 copy-through; the range starts at 2.
+    *  093026 MF,CC #480 Answer the neutral 50 instead of 0 when neither a gain nor
+    *               a loss has been seen; 0 read as extremely oversold.
     */
    /// <summary>
    /// Number of leading input bars <c>Rsi</c> consumes before it can produce its
@@ -87,7 +90,7 @@ public partial class Core
          return -1;
       }
       int retValue = 0;
-      retValue = optInTimePeriod + this.unstablePeriod[(int)FuncUnstId.RSI];
+      retValue = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.RSI];
       return retValue ;
 
    }
@@ -112,10 +115,10 @@ public partial class Core
       double prevValue = 0;
       double tempValue1 = 0;
       double tempValue2 = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -143,24 +146,6 @@ public partial class Core
       }
       outIdx = 0;
       /* Index into the output. */
-      /* Trap special case where the period is '1'.
-       * In that case, just copy the input into the
-       * output for the requested range (as-is !)
-       */
-      if( optInTimePeriod == 1 ) {
-         outBegIdx = startIdx;
-         i = (int)(endIdx - startIdx + 1);
-         outNBElement = (int)i;
-         /* Element loop, not a block copy: the C single-precision variant reads a
-          * float array, so a double-sized byte copy would reinterpret and
-          * over-read it (#137). Forward order keeps the in-place case correct (#94).
-          */
-         today = (int)startIdx;
-         for( outIdx = 0; outIdx < (int)i; outIdx += 1 ) {
-            outReal[outIdx] = inReal[today++];
-         }
-         return RetCode.Success ;
-      }
       invPeriod = 1.0 / (double)optInTimePeriod;
       /* Accumulate Wilder's "Average Gain" and "Average Loss"
        * among the initial period.
@@ -175,7 +160,7 @@ public partial class Core
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         gainDelta = MaxGt(tempValue2, 0.0);
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
       }
@@ -197,11 +182,15 @@ public partial class Core
        *
        * The second equation is used here for speed optimization.
        *
-       * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
-       * when every change since the seed was exactly zero -- test it exactly, never
-       * against a fixed band. A gain carries the quote unit, so a constant put
-       * against it zeroes a healthy oscillator for an instrument quoted below it
-       * (issue #253).
+       * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero when
+       * every change since the seed was exactly zero, or once both have decayed to
+       * zero. Test it exactly, never against a fixed band: a gain carries the
+       * quote unit, so a constant put against it zeroes a healthy oscillator for
+       * an instrument quoted below it (issue #253).
+       *
+       * A zero total is 0/0, no gain against no loss, so it answers the neutral
+       * 50 (issue #480). Keep it apart from the one-sided cases, which are 0 and
+       * 100 and reach the division.
        */
       if( today > startIdx ) {
          tempValue1 = prevGain + prevLoss;
@@ -209,7 +198,7 @@ public partial class Core
             outReal[outIdx] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
-            outReal[outIdx] = 0.0;
+            outReal[outIdx] = 50.0;
             outIdx = outIdx + 1;
          }
       } else {
@@ -222,7 +211,7 @@ public partial class Core
             prevValue = tempValue1;
             prevLoss *= (double)(optInTimePeriod - 1);
             prevGain *= (double)(optInTimePeriod - 1);
-            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+            gainDelta = MaxGt(tempValue2, 0.0);
             prevGain += gainDelta;
             prevLoss += gainDelta - tempValue2;
             prevLoss *= invPeriod;
@@ -240,7 +229,7 @@ public partial class Core
          prevValue = tempValue1;
          prevLoss *= (double)(optInTimePeriod - 1);
          prevGain *= (double)(optInTimePeriod - 1);
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         gainDelta = MaxGt(tempValue2, 0.0);
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
          prevLoss *= invPeriod;
@@ -250,7 +239,7 @@ public partial class Core
             outReal[outIdx] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
-            outReal[outIdx] = 0.0;
+            outReal[outIdx] = 50.0;
             outIdx = outIdx + 1;
          }
       }
@@ -279,10 +268,10 @@ public partial class Core
       double prevValue = 0;
       double tempValue1 = 0;
       double tempValue2 = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -303,16 +292,6 @@ public partial class Core
          return RetCode.Success ;
       }
       outIdx = 0;
-      if( optInTimePeriod == 1 ) {
-         outBegIdx = startIdx;
-         i = (int)(endIdx - startIdx + 1);
-         outNBElement = (int)i;
-         today = (int)startIdx;
-         for( outIdx = 0; outIdx < (int)i; outIdx += 1 ) {
-            outReal[outIdx] = (double)inReal[today++];
-         }
-         return RetCode.Success ;
-      }
       invPeriod = 1.0 / (double)optInTimePeriod;
       today = startIdx - lookbackTotal;
       prevValue = (double)inReal[today];
@@ -324,7 +303,7 @@ public partial class Core
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         gainDelta = MaxGt(tempValue2, 0.0);
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
       }
@@ -336,7 +315,7 @@ public partial class Core
             outReal[outIdx] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
-            outReal[outIdx] = 0.0;
+            outReal[outIdx] = 50.0;
             outIdx = outIdx + 1;
          }
       } else {
@@ -346,7 +325,7 @@ public partial class Core
             prevValue = tempValue1;
             prevLoss *= (double)(optInTimePeriod - 1);
             prevGain *= (double)(optInTimePeriod - 1);
-            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+            gainDelta = MaxGt(tempValue2, 0.0);
             prevGain += gainDelta;
             prevLoss += gainDelta - tempValue2;
             prevLoss *= invPeriod;
@@ -361,7 +340,7 @@ public partial class Core
          prevValue = tempValue1;
          prevLoss *= (double)(optInTimePeriod - 1);
          prevGain *= (double)(optInTimePeriod - 1);
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         gainDelta = MaxGt(tempValue2, 0.0);
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
          prevLoss *= invPeriod;
@@ -371,7 +350,7 @@ public partial class Core
             outReal[outIdx] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
-            outReal[outIdx] = 0.0;
+            outReal[outIdx] = 50.0;
             outIdx = outIdx + 1;
          }
       }
@@ -389,12 +368,21 @@ public partial class Core
    /// Formula and more info at
    /// <see href="https://ta-lib.org/functions/rsi">ta-lib.org/functions/rsi</see>.
    /// </para>
+   /// <list type="bullet">
+   /// <item><description>While the input has not changed since the first bar the call reads, there is neither a gain nor a loss and RSI is 0/0: the output is the neutral 50. Up to 0.8.1 it was 0, which read as oversold. Input that has only risen gives 100 and input that has only fallen gives 0.</description></item>
+   /// <item><description>After a move, an unchanged input holds the last value until the two averages decay to rounding residue: about a thousand unchanged bars at period 2, about ten thousand at period 14. The output then drifts and settles on 50. Input that had only risen or only fallen stays at 100 or 0, except at period 2.</description></item>
+   /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>RsiLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>RsiLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -402,25 +390,33 @@ public partial class Core
    /// <param name="inReal">Price series (typically close)</param>
    /// <param name="optInTimePeriod">Lookback for the gain/loss averaging (default 14; range 2..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">RSI value. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
+   /// <param name="outReal">RSI value. Must hold at least <c>endIdx - max(startIdx, RsiLookback(...))
+   /// + 1</c> values, the count the call produces (none when that is not
+   /// positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Cmo(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Stochrsi(int, int, ReadOnlySpan{double}, int, int, int, MAType, Span{double}, Span{double})"/>
    public OutRange Rsi( int startIdx,
                         int endIdx,
                         ReadOnlySpan<double> inReal,
@@ -448,6 +444,10 @@ public partial class Core
    /// Formula and more info at
    /// <see href="https://ta-lib.org/functions/rsi">ta-lib.org/functions/rsi</see>.
    /// </para>
+   /// <list type="bullet">
+   /// <item><description>While the input has not changed since the first bar the call reads, there is neither a gain nor a loss and RSI is 0/0: the output is the neutral 50. Up to 0.8.1 it was 0, which read as oversold. Input that has only risen gives 100 and input that has only fallen gives 0.</description></item>
+   /// <item><description>After a move, an unchanged input holds the last value until the two averages decay to rounding residue: about a thousand unchanged bars at period 2, about ten thousand at period 14. The output then drifts and settles on 50. Input that had only risen or only fallen stays at 100 or 0, except at period 2.</description></item>
+   /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
    /// <c>double</c> as they are read and all arithmetic is performed in
@@ -458,8 +458,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>RsiLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>RsiLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -467,27 +472,35 @@ public partial class Core
    /// <param name="inReal">Price series (typically close)</param>
    /// <param name="optInTimePeriod">Lookback for the gain/loss averaging (default 14; range 2..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">RSI value. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
+   /// <param name="outReal">RSI value. Must hold at least <c>endIdx - max(startIdx, RsiLookback(...))
+   /// + 1</c> values, the count the call produces (none when that is not
+   /// positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Cmo(int, int, ReadOnlySpan{double}, int, Span{double})"/>
+   /// <seealso cref="Core.Stochrsi(int, int, ReadOnlySpan{double}, int, int, int, MAType, Span{double}, Span{double})"/>
    public OutRange Rsi( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inReal,
@@ -546,7 +559,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -559,13 +572,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("RSI", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -585,7 +598,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -596,7 +608,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -604,9 +616,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("RSI", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("RSI", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("RSI", "update", nameof(inReal));
          core.RsiStepImpl(this, inReal);
          outRangeCount++;
          return cur_outReal;
@@ -618,16 +630,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
       /// it.</returns>
       public double Peek( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("RSI", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal) ) throw Core.NonFiniteBar("RSI", "peek", nameof(inReal));
          RsiStream sp = this;
          double gainDelta = 0.0;
          double tempValue1 = 0.0;
@@ -636,16 +647,12 @@ public partial class Core
          double prevGain = sp.prevGain;
          double prevLoss = sp.prevLoss;
          double prevValue = sp.prevValue;
-         if( sp.optInTimePeriod == 1 ) {
-            cur_outReal = inReal;
-            return cur_outReal ;
-         }
          tempValue1 = (double)inReal;
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
          prevLoss *= (double)(sp.optInTimePeriod - 1);
          prevGain *= (double)(sp.optInTimePeriod - 1);
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         gainDelta = MaxGt(tempValue2, 0.0);
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
          prevLoss *= sp.invPeriod;
@@ -654,7 +661,7 @@ public partial class Core
          if( tempValue1 > 0.0 ) {
             cur_outReal = 100.0 * (prevGain / tempValue1);
          } else {
-            cur_outReal = 0.0;
+            cur_outReal = 50.0;
          }
          return cur_outReal;
       }
@@ -676,21 +683,17 @@ public partial class Core
       }
    }
 
-   internal void RsiStepImpl( RsiStream sp, double inReal )
+   private void RsiStepImpl( RsiStream sp, double inReal )
    {
       double gainDelta = 0.0;
       double tempValue1 = 0.0;
       double tempValue2 = 0.0;
-      if( sp.optInTimePeriod == 1 ) {
-         sp.cur_outReal = inReal;
-         return ;
-      }
       tempValue1 = (double)inReal;
       tempValue2 = tempValue1 - sp.prevValue;
       sp.prevValue = tempValue1;
       sp.prevLoss *= (double)(sp.optInTimePeriod - 1);
       sp.prevGain *= (double)(sp.optInTimePeriod - 1);
-      gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+      gainDelta = MaxGt(tempValue2, 0.0);
       sp.prevGain += gainDelta;
       sp.prevLoss += gainDelta - tempValue2;
       sp.prevLoss *= sp.invPeriod;
@@ -699,7 +702,7 @@ public partial class Core
       if( tempValue1 > 0.0 ) {
          sp.cur_outReal = 100.0 * (sp.prevGain / tempValue1);
       } else {
-         sp.cur_outReal = 0.0;
+         sp.cur_outReal = 50.0;
       }
    }
 
@@ -723,7 +726,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( optInTimePeriod == int.MinValue ) {
@@ -735,29 +738,6 @@ public partial class Core
          outBegIdx = 0;
          outNBElement = 0;
          return RetCode.InsufficientHistory;
-      }
-      if( optInTimePeriod == 1 ) {
-         int fillLb = RsiLookback(optInTimePeriod);
-         if( startIdx > fillLb ) fillLb = startIdx;
-         if( historyLen < fillLb + 1 ) {
-            return RetCode.InsufficientHistory;
-         }
-         sp.optInTimePeriod = optInTimePeriod;
-         sp.invPeriod = 0.0;
-         sp.prevGain = 0.0;
-         sp.prevLoss = 0.0;
-         sp.prevValue = 0.0;
-         outBegIdx = fillLb;
-         outNBElement = historyLen - fillLb;
-         if( outStride == 0 ) {
-            outReal[0] = inReal[historyLen - 1];
-         } else {
-            for( int fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ ) {
-               outReal[fillIdx] = inReal[fillLb + fillIdx];
-            }
-         }
-         sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
-         return RetCode.Success;
       }
       /* The following algorithm is base on the original
        * work from Wilder's and shall represent the
@@ -790,7 +770,7 @@ public partial class Core
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
          prevValue = tempValue1;
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         gainDelta = MaxGt(tempValue2, 0.0);
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
       }
@@ -812,11 +792,15 @@ public partial class Core
        *
        * The second equation is used here for speed optimization.
        *
-       * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
-       * when every change since the seed was exactly zero -- test it exactly, never
-       * against a fixed band. A gain carries the quote unit, so a constant put
-       * against it zeroes a healthy oscillator for an instrument quoted below it
-       * (issue #253).
+       * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero when
+       * every change since the seed was exactly zero, or once both have decayed to
+       * zero. Test it exactly, never against a fixed band: a gain carries the
+       * quote unit, so a constant put against it zeroes a healthy oscillator for
+       * an instrument quoted below it (issue #253).
+       *
+       * A zero total is 0/0, no gain against no loss, so it answers the neutral
+       * 50 (issue #480). Keep it apart from the one-sided cases, which are 0 and
+       * 100 and reach the division.
        */
       if( today > startIdx ) {
          tempValue1 = prevGain + prevLoss;
@@ -824,7 +808,7 @@ public partial class Core
             outReal[outIdx * outStride] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
-            outReal[outIdx * outStride] = 0.0;
+            outReal[outIdx * outStride] = 50.0;
             outIdx = outIdx + 1;
          }
       } else {
@@ -837,7 +821,7 @@ public partial class Core
             prevValue = tempValue1;
             prevLoss *= (double)(optInTimePeriod - 1);
             prevGain *= (double)(optInTimePeriod - 1);
-            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+            gainDelta = MaxGt(tempValue2, 0.0);
             prevGain += gainDelta;
             prevLoss += gainDelta - tempValue2;
             prevLoss *= invPeriod;
@@ -855,7 +839,7 @@ public partial class Core
          prevValue = tempValue1;
          prevLoss *= (double)(optInTimePeriod - 1);
          prevGain *= (double)(optInTimePeriod - 1);
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         gainDelta = MaxGt(tempValue2, 0.0);
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
          prevLoss *= invPeriod;
@@ -865,7 +849,7 @@ public partial class Core
             outReal[outIdx * outStride] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
-            outReal[outIdx * outStride] = 0.0;
+            outReal[outIdx * outStride] = 50.0;
             outIdx = outIdx + 1;
          }
       }
@@ -891,6 +875,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("RSI", "openAndFill", nameof(inReal), inReal.Length, startIdx, RsiLookback(optInTimePeriod));
+      }
       throw StreamFailure("RSI", "openAndFill", retCode);
    }
 
@@ -904,6 +891,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("RSI", "open", nameof(inReal), inReal.Length, startIdx, RsiLookback(optInTimePeriod));
       }
       throw StreamFailure("RSI", "open", retCode);
    }
@@ -923,12 +913,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>RsiLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public RsiStream RsiOpen( ReadOnlySpan<double> inReal, int optInTimePeriod )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "RSI open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "RSI open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "RSI open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return RsiOpenInternal(inReal, 0, optInTimePeriod);
    }
 
@@ -956,12 +946,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public RsiStream RsiOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "RSI openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "RSI openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "RSI openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("RSI", "openAndFill", inReal.Length, RsiLookback(optInTimePeriod));
       RequireFillLength("RSI", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inReal) ) {

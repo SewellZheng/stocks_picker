@@ -75,6 +75,7 @@
  *  082326 MF,CC  #243 the SMA path's TA_EPSILON test on the variance is replaced
  *                by var.c's scale-relative reseed floor; the square root is
  *                unconditional. Bands no longer collapse on a fine tick.
+ *  092226 MF,CC  #434 the SMA path's variance step follows var.c.
  */
 
 TA_LIB_API int TA_BBANDS_Lookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType )
@@ -137,9 +138,9 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
    double *tempBuffer1;
    double *tempBuffer2;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -219,6 +220,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
       double variance;
       double _invPeriod;
       double _tempReal;
+      double _peakTotal2;
       int _i;
       int _j;
       int _outIdx;
@@ -254,6 +256,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
       _i = startIdx;
       _outIdx = 0;
       _barsSinceReseed = 32 * optInTimePeriod;
+      _peakTotal2 = varTotal2;
       do
       {
          maTotal += inReal[_i];
@@ -261,6 +264,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
          varTotal1 += _tempReal;
          _tempReal *= _tempReal;
          varTotal2 += _tempReal;
+         _peakTotal2 = (varTotal2 > _peakTotal2) ? varTotal2 : _peakTotal2;
          meanValue1 = varTotal1 * _invPeriod;
          variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
          tempBuffer1[_outIdx] = maTotal / optInTimePeriod;
@@ -271,7 +275,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
          varTotal2 -= _tempReal;
          _trailingIdx += 1;
          _barsSinceReseed -= 1;
-         if( variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 )
+         if( variance < 0.000001 * (_peakTotal2 * _invPeriod) || _barsSinceReseed <= 0 )
          {
             _barsSinceReseed = 32 * optInTimePeriod;
             _windowStart = _i - _lookbackTotal;
@@ -292,8 +296,24 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
             }
             meanValue1 = varTotal1 * _invPeriod;
             variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
-            /* The floor from var.c, verbatim: it owns both the sign and the
-             * dead-zone, so the square root below can be unconditional.
+            if( variance < 0.000001 * (varTotal2 * _invPeriod) )
+            {
+               shift = inReal[_i];
+               varTotal1 = 0.0;
+               varTotal2 = 0.0;
+               for( _j = _windowStart; _j <= _i; _j += 1 )
+               {
+                  _tempReal = inReal[_j] - shift;
+                  varTotal1 += _tempReal;
+                  _tempReal *= _tempReal;
+                  varTotal2 += _tempReal;
+               }
+               meanValue1 = varTotal1 * _invPeriod;
+               variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+            }
+            _peakTotal2 = varTotal2;
+            /* The floor from var.c, verbatim: it owns the sign, so the
+             * square root below can be unconditional.
              */
             if( variance < 0.000000000001 * (varTotal2 * _invPeriod) )
             {
@@ -308,7 +328,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
           * quantity to a fixed 1e-14 and flattened all three bands onto each
           * other for any finely quoted series (#243). What replaces it skips
           * the root ONLY where the answer is already known, because the
-          * reseed floor above has made it exactly 0 -- worth doing because
+          * rebuild above has made it exactly 0 -- worth doing because
           * this root, unlike stddev.c's, sits in the fused loop with a
           * carried dependency and cannot vectorize, so running it on flat
           * input cost 1.59x.
@@ -361,7 +381,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
     * at the same bar. Two intermediate buffers are allocated so the input may
     * safely alias an output (it is only read here).
     */
-   /* Nothing to produce: the range is shorter than the lookback. Return before
+   /* Nothing to produce: the range ends before the lookback. Return before
     * touching anything.
     *
     * Without this the moving average below runs first, and for the MA types whose
@@ -369,7 +389,7 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
     * TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
     * computes a middle band the empty standard deviation then discards.
     * Observably identical (the empty deviation already yields 0,0 here), but it
-    * is the difference between "a range shorter than the lookback reads nothing"
+    * is the difference between "a range that ends before the lookback reads nothing"
     * being true of this function and being false: with a caller-supplied inReal
     * that stops short of endIdx, that discarded work is an out-of-bounds read.
     * The SMA fast path above needs no such guard - its own lookback IS the
@@ -481,9 +501,9 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
    double *tempBuffer1;
    double *tempBuffer2;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -546,6 +566,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
       double variance;
       double _invPeriod;
       double _tempReal;
+      double _peakTotal2;
       int _i;
       int _j;
       int _outIdx;
@@ -581,6 +602,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
       _i = startIdx;
       _outIdx = 0;
       _barsSinceReseed = 32 * optInTimePeriod;
+      _peakTotal2 = varTotal2;
       do
       {
          maTotal += (double)inReal[_i];
@@ -588,6 +610,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
          varTotal1 += _tempReal;
          _tempReal *= _tempReal;
          varTotal2 += _tempReal;
+         _peakTotal2 = (varTotal2 > _peakTotal2) ? varTotal2 : _peakTotal2;
          meanValue1 = varTotal1 * _invPeriod;
          variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
          tempBuffer1[_outIdx] = maTotal / optInTimePeriod;
@@ -598,7 +621,7 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
          varTotal2 -= _tempReal;
          _trailingIdx += 1;
          _barsSinceReseed -= 1;
-         if( variance < 0.000001 * (varTotal2 * _invPeriod) || _tempReal > 1000000.0 * varTotal2 || _barsSinceReseed <= 0 )
+         if( variance < 0.000001 * (_peakTotal2 * _invPeriod) || _barsSinceReseed <= 0 )
          {
             _barsSinceReseed = 32 * optInTimePeriod;
             _windowStart = _i - _lookbackTotal;
@@ -619,6 +642,22 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
             }
             meanValue1 = varTotal1 * _invPeriod;
             variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000001 * (varTotal2 * _invPeriod) )
+            {
+               shift = (double)inReal[_i];
+               varTotal1 = 0.0;
+               varTotal2 = 0.0;
+               for( _j = _windowStart; _j <= _i; _j += 1 )
+               {
+                  _tempReal = (double)inReal[_j] - shift;
+                  varTotal1 += _tempReal;
+                  _tempReal *= _tempReal;
+                  varTotal2 += _tempReal;
+               }
+               meanValue1 = varTotal1 * _invPeriod;
+               variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+            }
+            _peakTotal2 = varTotal2;
             if( variance < 0.000000000001 * (varTotal2 * _invPeriod) )
             {
                variance = 0.0;
@@ -747,7 +786,7 @@ struct TA_BBANDS_Stream {
 };
 
 /* Private function, not in public API. */
-static TA_RetCode TA_BBANDS_StepImpl( struct TA_BBANDS_Stream *sp, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
+static TA_FMA_STEP_INLINE TA_RetCode TA_BBANDS_StepImpl( struct TA_BBANDS_Stream *sp, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
    double tempReal;
    double tempReal2;
@@ -801,7 +840,7 @@ static TA_RetCode TA_BBANDS_OpenImpl( struct TA_BBANDS_Stream **stream, const do
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 20;
@@ -865,7 +904,7 @@ static TA_RetCode TA_BBANDS_OpenImpl( struct TA_BBANDS_Stream **stream, const do
        * at the same bar. Two intermediate buffers are allocated so the input may
        * safely alias an output (it is only read here).
        */
-      /* Nothing to produce: the range is shorter than the lookback. Return before
+      /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
        * Without this the moving average below runs first, and for the MA types whose
@@ -873,7 +912,7 @@ static TA_RetCode TA_BBANDS_OpenImpl( struct TA_BBANDS_Stream **stream, const do
        * TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
        * computes a middle band the empty standard deviation then discards.
        * Observably identical (the empty deviation already yields 0,0 here), but it
-       * is the difference between "a range shorter than the lookback reads nothing"
+       * is the difference between "a range that ends before the lookback reads nothing"
        * being true of this function and being false: with a caller-supplied inReal
        * that stops short of endIdx, that discarded work is an out-of-bounds read.
        * The SMA fast path above needs no such guard - its own lookback IS the
@@ -1038,7 +1077,7 @@ TA_LIB_API TA_RetCode TA_BBANDS_Open( TA_BBANDS_Stream **stream, const double in
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    return TA_BBANDS_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
 }
@@ -1048,7 +1087,7 @@ TA_LIB_API TA_RetCode TA_BBANDS_OpenAndFill( TA_BBANDS_Stream **stream, const do
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( (const void *)outRealUpperBand == (const void *)inReal || (const void *)outRealMiddleBand == (const void *)inReal || (const void *)outRealLowerBand == (const void *)inReal || (const void *)outRealUpperBand == (const void *)outRealMiddleBand || (const void *)outRealUpperBand == (const void *)outRealLowerBand || (const void *)outRealMiddleBand == (const void *)outRealLowerBand ) return TA_BAD_PARAM;
    return TA_BBANDS_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
@@ -1060,12 +1099,13 @@ TA_RetCode TA_BBANDS_OpenAndFillInternal( struct TA_BBANDS_Stream **stream, cons
    return TA_BBANDS_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_BBANDS_Update( TA_BBANDS_Stream *stream, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
    TA_RetCode retCode;
 
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -1149,7 +1189,7 @@ TA_LIB_API TA_RetCode TA_BBANDS_OutRange( const TA_BBANDS_Stream *stream, int *o
 TA_LIB_API TA_RetCode TA_BBANDS_Advance( TA_BBANDS_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

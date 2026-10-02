@@ -24,7 +24,7 @@ SAR_next = SAR + AF*(EP - SAR), then clamped within the prior and current bar's 
 
 | Parameter | Type | Default | Accepted values | Description |
 | --- | --- | --- | --- | --- |
-| `optInStartValue` | real | 0 | any real | Initial SAR/direction: 0 auto, >0 start long at value, <0 start short at \|value\| |
+| `optInStartValue` | real | 0 | any real | Initial SAR/direction: 0 auto, >0 start long at value, <0 start short at -value |
 | `optInOffsetOnReverse` | real | 0 | ≥ 0 | Fractional offset applied to the stop on each reversal |
 | `optInAccelerationInitLong` | real | 0.02 | ≥ 0 | Initial acceleration factor when long |
 | `optInAccelerationLong` | real | 0.02 | ≥ 0 | AF increment per new long extreme |
@@ -58,6 +58,7 @@ TA-Lib Definition: [`sarext.c`](https://github.com/TA-Lib/ta-lib/blob/main/ta_co
 | C | [`ta_SAREXT.c`](https://github.com/TA-Lib/ta-lib/blob/main/src/ta_func/ta_SAREXT.c) |
 | Rust | [`sarext.rs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/rust/library/src/ta_func/sarext.rs) |
 | Java | [`Core_SAREXT.java`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/java/fragments/Core_SAREXT.java) |
+| C# | [`Core_SAREXT.cs`](https://github.com/TA-Lib/ta-lib/blob/main/ta_codegen/output/csharp/library/src/Core_SAREXT.cs) |
 
 TA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).
 

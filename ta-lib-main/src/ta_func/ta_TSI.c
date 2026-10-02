@@ -105,9 +105,9 @@ TA_LIB_API TA_RetCode TA_TSI( int    startIdx,
    int nBar;
    int nSecond;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInFirstPeriod == TA_INTEGER_DEFAULT )
@@ -299,9 +299,9 @@ TA_RetCode TA_S_TSI( int    startIdx,
    int nBar;
    int nSecond;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInFirstPeriod == TA_INTEGER_DEFAULT )
@@ -430,6 +430,7 @@ struct TA_TSI_Stream {
    int optInSecondPeriod;
    double kFirst;
    double kSecond;
+   double pad_0;
    double emaFirstNum;
    double emaFirstDen;
    double emaSecondNum;
@@ -438,7 +439,7 @@ struct TA_TSI_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_TSI_StepImpl( struct TA_TSI_Stream *sp, double inReal, double *outReal )
+static TA_FMA_STEP_INLINE void TA_TSI_StepImpl( struct TA_TSI_Stream *sp, double inReal, double *outReal )
 {
    double mom;
    double absMom;
@@ -470,7 +471,7 @@ static TA_RetCode TA_TSI_OpenImpl( struct TA_TSI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInFirstPeriod == TA_INTEGER_DEFAULT )
       optInFirstPeriod = 25;
@@ -692,7 +693,7 @@ TA_LIB_API TA_RetCode TA_TSI_Open( TA_TSI_Stream **stream, const double inReal[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_TSI_OpenInternal( stream, inReal, 0, historyLen, optInFirstPeriod, optInSecondPeriod, outReal );
 }
@@ -702,7 +703,7 @@ TA_LIB_API TA_RetCode TA_TSI_OpenAndFill( TA_TSI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_TSI_OpenAndFillInternal( stream, inReal, 0, historyLen, optInFirstPeriod, optInSecondPeriod, outBegIdx, outNBElement, outReal );
@@ -714,10 +715,11 @@ TA_RetCode TA_TSI_OpenAndFillInternal( struct TA_TSI_Stream **stream, const doub
    return TA_TSI_OpenImpl( stream, inReal, startIdx, historyLen, optInFirstPeriod, optInSecondPeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_TSI_Update( TA_TSI_Stream *stream, double inReal, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
@@ -788,7 +790,7 @@ TA_LIB_API TA_RetCode TA_TSI_OutRange( const TA_TSI_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_TSI_Advance( TA_TSI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

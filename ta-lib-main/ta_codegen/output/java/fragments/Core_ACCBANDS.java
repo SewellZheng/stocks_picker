@@ -68,10 +68,10 @@
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -207,10 +207,10 @@
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
-      if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
          return RetCode.OUT_OF_RANGE_END_INDEX ;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
@@ -293,7 +293,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#accbandsLookback} is a <b>success
+    * valid range that ends before {@link Core#accbandsLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -304,15 +304,18 @@
     * @param optInTimePeriod SMA smoothing period for all three bands (default
     *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outRealUpperBand SMA of the range-scaled high band. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, accbandsLookback(...)) + 1} values,
+    *        the count the call produces (none when that is not positive).
     * @param outRealMiddleBand SMA of the close. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, accbandsLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @param outRealLowerBand SMA of the range-scaled low band. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, accbandsLookback(...)) + 1} values,
+    *        the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -366,7 +369,7 @@
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
-    * valid range shorter than {@link Core#accbandsLookback} is a <b>success
+    * valid range that ends before {@link Core#accbandsLookback} is a <b>success
     * with no values</b> ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
@@ -377,15 +380,18 @@
     * @param optInTimePeriod SMA smoothing period for all three bands (default
     *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param outRealUpperBand SMA of the range-scaled high band. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, accbandsLookback(...)) + 1} values,
+    *        the count the call produces (none when that is not positive).
     * @param outRealMiddleBand SMA of the close. Must hold at least
-    *        {@code endIdx - startIdx + 1} values.
+    *        {@code endIdx - max(startIdx, accbandsLookback(...)) + 1} values, the
+    *        count the call produces (none when that is not positive).
     * @param outRealLowerBand SMA of the range-scaled low band. Must hold at
-    *        least {@code endIdx - startIdx + 1} values.
+    *        least {@code endIdx - max(startIdx, accbandsLookback(...)) + 1} values,
+    *        the count the call produces (none when that is not positive).
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
-    *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
     *        documented range, two outputs share one array, or an array is absent or
     *        too short for the range requested — any input this function
@@ -472,7 +478,7 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
-       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
        * {@code update} and {@code advance} throw
        * {@link IndexOutOfBoundsException}.
        */
@@ -486,12 +492,12 @@
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
        * can address and the last this handle will count. {@code update}
        * throws the same there.
        */
       public void advance() {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("ACCBANDS advance", RetCode.OUT_OF_RANGE_END_INDEX);
          this.outRangeCount++;
       }
@@ -528,16 +534,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
-       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
        * handle has run out of index domain and only a shorter history can
        * start a new one.
        */
       public void update( double inHigh, double inLow, double inClose, AccbandsOut out ) {
-         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
             throw failure("ACCBANDS update", RetCode.OUT_OF_RANGE_END_INDEX);
          requireArgument("ACCBANDS update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("ACCBANDS update: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("ACCBANDS update", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          core.accbandsStepImpl(this, inHigh, inLow, inClose);
          this.outRangeCount++;
          out.realUpperBand = this.cur_outRealUpperBand;
@@ -549,16 +555,14 @@
        * Evaluate a forming bar without committing — bit-identical to what the
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
-       * Never writes this handle, so peeks may
-       * run concurrently with each other, and its cost does not grow with the
-       * period.
+       * Never writes this handle, so peeks may run concurrently with each other.
        * <p>It counts no bar, so it keeps answering past the
-       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, double inClose, AccbandsOut out ) {
          requireArgument("ACCBANDS peek", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
-            throw new TALibArgumentException("ACCBANDS peek: BAD_PARAM", RetCode.BAD_PARAM);
+            throw nonFiniteBar("ACCBANDS peek", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          AccbandsStream sp = this;
          double tempUpper = 0.0;
          double tempMiddle = 0.0;
@@ -570,20 +574,6 @@
          double periodTotalLower = sp.periodTotalLower;
          double periodTotalMiddle = sp.periodTotalMiddle;
          double periodTotalUpper = sp.periodTotalUpper;
-         int pkSlot0 = -1;
-         double pkVal0 = 0.0;
-         int pkSlot1 = -1;
-         double pkVal1 = 0.0;
-         int pkSlot2 = -1;
-         double pkVal2 = 0.0;
-         if( sp.ringCap_trailingIdx == 0 ) {
-            pkSlot0 = 0;
-            pkVal0 = inHigh;
-            pkSlot1 = 0;
-            pkVal1 = inLow;
-            pkSlot2 = 0;
-            pkVal2 = inClose;
-         }
          /* Add the incoming bar to each running sum. */
          tempReal = inHigh + inLow;
          if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh) + Math.abs(inLow))) ) {
@@ -600,16 +590,16 @@
          tempMiddle = periodTotalMiddle;
          tempLower = periodTotalLower;
          /* Remove the trailing bar from each running sum. */
-         tempReal = ((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0) + ((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1);
-         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0) + Math.abs((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1))) ) {
-            tempReal = 4 * (((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0) - ((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1)) / tempReal;
-            periodTotalUpper -= ((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0) * (1 + tempReal);
-            periodTotalLower -= ((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1) * (1 - tempReal);
+         tempReal = sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] + sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx];
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx]) + Math.abs(sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]))) ) {
+            tempReal = 4 * (sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] - sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]) / tempReal;
+            periodTotalUpper -= sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] * (1 + tempReal);
+            periodTotalLower -= sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] * (1 - tempReal);
          } else {
-            periodTotalUpper -= (sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0;
-            periodTotalLower -= (sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1;
+            periodTotalUpper -= sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx];
+            periodTotalLower -= sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx];
          }
-         periodTotalMiddle -= (sp.ringPos_trailingIdx != pkSlot2) ? sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] : pkVal2;
+         periodTotalMiddle -= sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx];
          /* Write the three bands. */
          cur_outRealUpperBand = tempUpper / (double)sp.optInTimePeriod;
          cur_outRealMiddleBand = tempMiddle / (double)sp.optInTimePeriod;
@@ -678,11 +668,7 @@
       double tempMiddle = 0.0;
       double tempLower = 0.0;
       double tempReal = 0.0;
-      if( sp.ringCap_trailingIdx == 0 ) {
-         sp.ring_trailingIdx_inHigh[0] = inHigh;
-         sp.ring_trailingIdx_inLow[0] = inLow;
-         sp.ring_trailingIdx_inClose[0] = inClose;
-      }
+      int ringCapL_trailingIdx = 0;
       /* Add the incoming bar to each running sum. */
       tempReal = inHigh + inLow;
       if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh) + Math.abs(inLow))) ) {
@@ -713,11 +699,12 @@
       sp.cur_outRealUpperBand = tempUpper / (double)sp.optInTimePeriod;
       sp.cur_outRealMiddleBand = tempMiddle / (double)sp.optInTimePeriod;
       sp.cur_outRealLowerBand = tempLower / (double)sp.optInTimePeriod;
+      ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] = inHigh;
       sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] = inLow;
       sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] = inClose;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
          sp.ringPos_trailingIdx = 0;
       }
    }
@@ -739,7 +726,7 @@
       if( historyLen < 1 ) {
          return RetCode.OUT_OF_RANGE_START_INDEX;
       }
-      if( historyLen > MAX_INDEX + 1 ) {
+      if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
       if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
@@ -857,7 +844,7 @@
       outNBElement.value = outIdx;
       /* Capture the live batch state into the handle. */
       int cap_trailingIdx = i - trailingIdx;
-      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+      if( cap_trailingIdx < 1 || cap_trailingIdx > historyLen ) {
          return RetCode.INTERNAL_ERROR;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -892,12 +879,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("ACCBANDS openAndFill: history shorter than lookback + 1");
+         throw insufficientHistory("ACCBANDS openAndFill", inHigh.length, startIdx, accbandsLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("ACCBANDS openAndFill: internal error", retCode);
-      }
-      throw new TALibArgumentException("ACCBANDS openAndFill: " + retCode, retCode);
+      throw streamFailure("ACCBANDS openAndFill", retCode);
    }
    /* Internal startIdx-anchored open behind accbandsOpen (composition seam). */
    AccbandsStream accbandsOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
@@ -915,12 +899,9 @@
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
-         throw new InsufficientHistoryException("ACCBANDS open: history shorter than lookback + 1");
+         throw insufficientHistory("ACCBANDS open", inHigh.length, startIdx, accbandsLookback(optInTimePeriod));
       }
-      if( retCode == RetCode.INTERNAL_ERROR ) {
-         throw new TALibStateException("ACCBANDS open: internal error", retCode);
-      }
-      throw new TALibArgumentException("ACCBANDS open: " + retCode, retCode);
+      throw streamFailure("ACCBANDS open", retCode);
    }
    /**
     * Open a live ACCBANDS stream over the warm-up history; the handle's
@@ -969,7 +950,7 @@
       requireLength("ACCBANDS openAndFill", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
       requireLength("ACCBANDS openAndFill", "outRealLowerBand", outRealLowerBand, guardOutLen);
       if( (Object)outRealUpperBand == (Object)inHigh || (Object)outRealUpperBand == (Object)inLow || (Object)outRealUpperBand == (Object)inClose || (Object)outRealMiddleBand == (Object)inHigh || (Object)outRealMiddleBand == (Object)inLow || (Object)outRealMiddleBand == (Object)inClose || (Object)outRealLowerBand == (Object)inHigh || (Object)outRealLowerBand == (Object)inLow || (Object)outRealLowerBand == (Object)inClose || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
-         throw new TALibArgumentException("ACCBANDS openAndFill: " + RetCode.BAD_PARAM, RetCode.BAD_PARAM);
+         throw streamFailure("ACCBANDS openAndFill", RetCode.BAD_PARAM);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

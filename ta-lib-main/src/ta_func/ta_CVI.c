@@ -93,9 +93,9 @@ TA_LIB_API TA_RetCode TA_CVI( int    startIdx,
    int emaRing_Idx;
    int maxIdx_emaRing;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -232,9 +232,9 @@ TA_RetCode TA_S_CVI( int    startIdx,
    int emaRing_Idx;
    int maxIdx_emaRing;
 
-   if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
+   if( (startIdx < 0) || (startIdx > TA_INDEX_MAX) )
       return TA_OUT_OF_RANGE_START_INDEX;
-   if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
+   if( (endIdx < 0) || (endIdx > TA_INDEX_MAX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -337,6 +337,7 @@ struct TA_CVI_Stream {
    int optInTimePeriod;
    int optInROCPeriod;
    double prevEMA;
+   double pad_0;
    double optInK_1;
    int emaRing_Idx;
    int maxIdx_emaRing;
@@ -353,7 +354,7 @@ static void TA_CVI_ReleaseImpl( struct TA_CVI_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_CVI_StepImpl( struct TA_CVI_Stream *sp, double inHigh, double inLow, double *outReal )
+static TA_FMA_STEP_INLINE void TA_CVI_StepImpl( struct TA_CVI_Stream *sp, double inHigh, double inLow, double *outReal )
 {
    double laggedEMA;
    double tempReal;
@@ -392,7 +393,7 @@ static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 10;
@@ -554,7 +555,7 @@ TA_LIB_API TA_RetCode TA_CVI_Open( TA_CVI_Stream **stream, const double inHigh[]
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_CVI_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, optInROCPeriod, outReal );
 }
@@ -564,7 +565,7 @@ TA_LIB_API TA_RetCode TA_CVI_OpenAndFill( TA_CVI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_CVI_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal );
@@ -576,10 +577,11 @@ TA_RetCode TA_CVI_OpenAndFillInternal( struct TA_CVI_Stream **stream, const doub
    return TA_CVI_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_CVI_Update( TA_CVI_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
@@ -645,7 +647,7 @@ TA_LIB_API TA_RetCode TA_CVI_OutRange( const TA_CVI_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_CVI_Advance( TA_CVI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_INDEX_MAX )
       return TA_OUT_OF_RANGE_END_INDEX;
    stream->outRangeCount++;
    return TA_SUCCESS;

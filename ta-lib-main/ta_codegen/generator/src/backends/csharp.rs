@@ -70,6 +70,7 @@ use crate::ir::{
 };
 use crate::parser::enums::lookup_variant;
 use crate::registry::{Lang, Registry};
+use crate::streaming;
 use super::builtins::{MathFn, SpecialBuiltin, StdlibFn};
 use super::common::{
     contains_alloc_err_return, expr_directly_contains_candle_call, find_sizeof_type, CANDLE_FNS,
@@ -113,6 +114,10 @@ pub(crate) struct CsRenderCtx<'a> {
     /// output's last value and has no array to read it back from when the
     /// caller declines one.
     pub(crate) nullable_shadow: bool,
+    /// Set while rendering a store into a
+    /// [`FmaVarSets::recurrent_select_targets`] name, whose selects stay
+    /// branches.
+    pub(crate) plain_selects: Cell<bool>,
 }
 
 /// Words this backend cannot render as an identifier (see [`crate::naming`]):
@@ -321,8 +326,8 @@ pub fn generate(
     out.push_str(&gen_func(func, false, enums, registry, helpers)); // double guarded
     out.push_str(&gen_func(func, true, enums, registry, helpers)); // float guarded
     // Public surface: OutRange-returning wrappers over the cores above.
-    out.push_str(&gen_public_wrapper(func, false, enums));
-    out.push_str(&gen_public_wrapper(func, true, enums));
+    out.push_str(&gen_public_wrapper(func, false, enums, registry));
+    out.push_str(&gen_public_wrapper(func, true, enums, registry));
     // Streaming API section (only for YAML-declared streamable functions).
     // Unlike Java there is no fragment splice: the section simply lands inside
     // this file's `partial class Core`, before its closing brace.
@@ -347,8 +352,7 @@ fn csharp_enum_literal(enum_name: &str, value: i32, enums: &HashMap<String, Enum
 /// functions fail with `RetCode.BadParam`, lookback functions fail with `-1`.
 ///
 /// `enum:` params get the same treatment, because a C# enum is an `int` with
-/// names: `(MAType)int.MinValue` is a value a caller — or the generated server's
-/// `(MAType)GetInt(p, "optInMAType", 0)` — can produce, so it must resolve the way
+/// names: `(MAType)int.MinValue` is a value a caller can produce, so it must resolve the way
 /// C's `if( (int)optInMAType == TA_INTEGER_DEFAULT )` does. The substituted value is
 /// that parameter's declared default, never a fixed 0: APO, PPO and PVO default to
 /// EMA, the other ten to SMA.
@@ -500,9 +504,11 @@ fn render_init_expr(expr: &Expr) -> String {
     match expr {
         Expr::Literal(f) => {
             let s = format!("{f}");
-            if f.fract() == 0.0 && !s.contains('.') { format!("{s}.0") } else { s }
+            let s = if f.fract() == 0.0 && !s.contains('.') { format!("{s}.0") } else { s };
+            if *f < 0.0 { format!("({s})") } else { s }
         }
-        Expr::IntLiteral(i) => format!("{i}"),
+        Expr::IntLiteral(i) => if *i < 0 { format!("({i})") } else { format!("{i}") },
+        Expr::Neg(inner) => format!("(-({}))", render_init_expr(inner)),
         Expr::Var(name) => name.clone(),
         Expr::BinOp(lhs, op, rhs) => {
             let op_str = match op {
@@ -547,13 +553,14 @@ fn body_name(base: &str) -> String {
 /// cross-call's rejection propagates as a throw rather than being converted to a
 /// code and re-thrown under this function's name.
 ///
-/// **A short range is not an error.** A valid range shorter than the lookback
-/// returns `Success` with `outNBElement == 0`, which becomes an `OutRange` whose
-/// `Count` is 0 — exactly C's contract, never an exception.
+/// **A short range is not an error.** A valid range that ends before the
+/// lookback returns `Success` with `outNBElement == 0`, which becomes an
+/// `OutRange` whose `Count` is 0 — exactly C's contract, never an exception.
 fn gen_public_wrapper(
     func: &FuncDef,
     single_precision: bool,
     enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
 ) -> String {
     let base_name = super::common::pascal_words(&func.name);
     let core = body_name(&base_name);
@@ -588,7 +595,13 @@ fn gen_public_wrapper(
     }
 
     let mut out = String::new();
-    out.push_str(&super::csharp_doc::guarded_docs(func, &base_name, single_precision, enums));
+    out.push_str(&super::csharp_doc::guarded_docs(
+        func,
+        &base_name,
+        single_precision,
+        enums,
+        registry,
+    ));
     let sig_prefix = format!("   public OutRange {public_name}( ");
     let indent = " ".repeat(sig_prefix.len());
     out.push_str(&sig_prefix);
@@ -891,10 +904,10 @@ fn gen_func_inner(
     // Validation prologue. Omitted for the `Private` variant, whose callers are the
     // guarded cores that have already validated.
     if name_override.is_none() {
-        out.push_str("      if( (startIdx < 0) || (startIdx > MaxIndex) ) {\n");
+        out.push_str("      if( (startIdx < 0) || (startIdx > IndexMax) ) {\n");
         out.push_str("         return RetCode.OutOfRangeStartIndex ;\n");
         out.push_str("      }\n");
-        out.push_str("      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {\n");
+        out.push_str("      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {\n");
         out.push_str("         return RetCode.OutOfRangeEndIndex ;\n");
         out.push_str("      }\n");
         // Optional parameter validation (default + range)
@@ -910,7 +923,7 @@ fn gen_func_inner(
         // Zero-length operands are NOT rejected, and must not be. `Overlaps`
         // short-circuits to false when either side is empty, which is the right
         // answer: two empty spans cannot clobber each other. Rejecting them makes
-        // a range shorter than the lookback — a documented success with no values,
+        // a range that ends before the lookback — a documented success with no values,
         // needing no output space (rule N1) — answer BadParam here while C and
         // Java accept it (Appendix D item 11, #262), and it makes "declined"
         // unspellable, since an empty span is how a C# caller declines a nullable
@@ -1013,6 +1026,7 @@ fn gen_func_inner(
         inline_counter: &inline_counter,
         fma: Some(&fma_sets),
         matype_map: build_matype_map(enums),
+        plain_selects: Cell::new(false),
     };
 
     // Emit VarDecl initializations
@@ -1151,6 +1165,166 @@ struct CsStmt<'a> {
 }
 
 impl CsStmt<'_> {
+    /// `if( a > b ) t = v;` as the unconditional `t = <helper>(..);`, when
+    /// `a > b ? v : t` is an [`fp_select`]; `if( a < b ) n++;` as
+    /// `n += (a < b) ? 1 : 0;`, which RyuJIT computes with a SETcc.
+    fn if_as_select(
+        &self,
+        condition: &Expr,
+        then_body: &[Statement],
+        else_body: &[Statement],
+        cond_comments: &[Option<Vec<String>>],
+        indent: usize,
+    ) -> Option<String> {
+        if !else_body.is_empty() || !cond_comments.is_empty() {
+            return None;
+        }
+        let at = then_body.iter().position(|s| !matches!(s, Statement::Comment(_)))?;
+        let (lead, rest) = then_body.split_at(at);
+        let [Statement::Assign { target: target @ Expr::Var(name), value, compound }, trail @ ..] = rest
+        else {
+            return None;
+        };
+        if !trail.iter().all(|s| matches!(s, Statement::Comment(_))) {
+            return None;
+        }
+        let comments = |c: &[Statement]| -> String { c.iter().map(|s| self.walk_stmt(s, indent)).collect() };
+        let (lead, trail) = (comments(lead), comments(trail));
+        if *compound {
+            return self.if_as_count(condition, target, name, value, indent).map(|s| lead + &s + &trail);
+        }
+        if is_recurrent_select_target(name, self.ctx) {
+            return None;
+        }
+        // The C stores the canonicalized sum; the helper would store the
+        // operand as the compare spells it, which can fuse differently.
+        if fma::canonicalize_accumulator_add(target, value) != *value {
+            return None;
+        }
+        fp_select(condition, value, target, self.ctx)?;
+        let select = Expr::Ternary(
+            Box::new(condition.clone()),
+            Box::new(value.clone()),
+            Box::new(target.clone()),
+        );
+        Some(lead + &self.assign(target, &select, false, indent) + &trail)
+    }
+
+    fn if_as_count(
+        &self,
+        condition: &Expr,
+        target: &Expr,
+        name: &str,
+        value: &Expr,
+        indent: usize,
+    ) -> Option<String> {
+        let Expr::BinOp(head, step @ (BinOp::Add | BinOp::Sub), one) = value else { return None };
+        if !matches!(head.as_ref(), Expr::Var(h) if h == name)
+            || !matches!(one.as_ref(), Expr::IntLiteral(1))
+        {
+            return None;
+        }
+        // An equality test counts a rare event, which a branch predicts on any
+        // input.
+        let Expr::BinOp(l, BinOp::Greater | BinOp::Less | BinOp::GreaterEq | BinOp::LessEq, r) =
+            condition
+        else {
+            return None;
+        };
+        if !compares_reals(l, r, self.ctx) || !is_pure_operand(condition) {
+            return None;
+        }
+        // A double counter would add +0.0 when the test fails, which turns a
+        // -0.0 into +0.0.
+        let fs = self.ctx.fma?.view();
+        let base = fma::stream_base(name);
+        if !fs.index_vars.contains(base) || fs.real_vars.contains(base) {
+            return None;
+        }
+        let pad = " ".repeat(indent);
+        let t = render_assign_target(target, self.ctx, self.registry, self.helpers);
+        let c = render_expr(condition, self.ctx, self.registry, self.helpers);
+        let op = if matches!(step, BinOp::Add) { "+=" } else { "-=" };
+        Some(format!("{pad}{t} {op} ({c}) ? 1 : 0;\n"))
+    }
+
+    fn assign_unscoped(&self, target: &Expr, value: &Expr, compound: bool, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        // A cross-indicator call answers an `OutRange` and throws (#236 step 3),
+        // so the assigned code is Success by construction.
+        if let Expr::FuncCall(fname, cargs) = value {
+            if self.registry.contains(fname) {
+                if let Some(block) =
+                    render_cross_indicator_call(fname, cargs, indent, self.ctx, self.registry, self.helpers)
+                {
+                    let t = render_assign_target(target, self.ctx, self.registry, self.helpers);
+                    return format!("{block}{pad}{t} = RetCode.Success;\n");
+                }
+            }
+        }
+        // Hoist multi-statement helpers from the value expression
+        let mut hoisted = Vec::new();
+        let mut cnt = self.ctx.inline_counter.get();
+        let new_value = hoist_block_helpers(value, self.helpers, &mut hoisted, &mut cnt, CANDLE_FNS);
+        // Canonicalize accumulator recurrences so all backends fuse the same
+        // product regardless of operand order.
+        let new_value = if fma::EMIT_FMA {
+            fma::canonicalize_accumulator_add(target, &new_value)
+        } else {
+            new_value
+        };
+        self.ctx.inline_counter.set(cnt);
+        let mut out = render_hoisted_blocks(
+            &hoisted, indent, self.ctx, self.enums, self.registry, self.helpers,
+        );
+
+        // Only fold compound assignments if the original source used +=/-=/etc.
+        if compound {
+            if let (Expr::Var(tname), Expr::BinOp(left, op, right)) = (target, &new_value) {
+                if let Expr::Var(lname) = left.as_ref() {
+                    if lname == tname {
+                        let op_str = match op {
+                            BinOp::Add => "+=",
+                            BinOp::Sub => "-=",
+                            BinOp::Mul => "*=",
+                            BinOp::Div => "/=",
+                            _ => "",
+                        };
+                        if !op_str.is_empty() {
+                            let target_str =
+                                render_assign_target(target, self.ctx, self.registry, self.helpers);
+                            out.push_str(&format!(
+                                "{}{} {} {};\n",
+                                pad,
+                                target_str,
+                                op_str,
+                                render_assign_value(right, self.ctx, self.registry, self.helpers)
+                            ));
+                            return out;
+                        }
+                    }
+                }
+            }
+        }
+
+        let target_str = render_assign_target(target, self.ctx, self.registry, self.helpers);
+        let value_str = render_assign_value(&new_value, self.ctx, self.registry, self.helpers);
+        // Writing into a nullable output — guard it so a declined (empty) output
+        // is skipped (rule B6a). The `outIdx` advance rides the non-nullable
+        // partner's write (see mama.c), so guarding this store is complete.
+        if let Some(base) = nullable_target_base(target, self.ctx.nullable_outputs) {
+            if self.ctx.nullable_shadow {
+                out.push_str(&format!("{pad}lastCur_{base} = {value_str};\n"));
+            }
+            out.push_str(&format!(
+                "{pad}if( !{base}.IsEmpty )\n{pad}   {target_str} = {value_str};\n"
+            ));
+        } else {
+            out.push_str(&format!("{pad}{target_str} = {value_str};\n"));
+        }
+        out
+    }
+
     /// Shared `if` tail (then-body + else branch with `} else if` collapse).
     fn render_if_tail(
         &self,
@@ -1276,79 +1450,10 @@ impl StatementEmitter for CsStmt<'_> {
     }
 
     fn assign(&self, target: &Expr, value: &Expr, compound: bool, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        // A cross-indicator call answers an `OutRange` and throws (#236 step 3),
-        // so the assigned code is Success by construction.
-        if let Expr::FuncCall(fname, cargs) = value {
-            if self.registry.contains(fname) {
-                if let Some(block) =
-                    render_cross_indicator_call(fname, cargs, indent, self.ctx, self.registry, self.helpers)
-                {
-                    let t = render_assign_target(target, self.ctx, self.registry, self.helpers);
-                    return format!("{block}{pad}{t} = RetCode.Success;\n");
-                }
-            }
-        }
-        // Hoist multi-statement helpers from the value expression
-        let mut hoisted = Vec::new();
-        let mut cnt = self.ctx.inline_counter.get();
-        let new_value = hoist_block_helpers(value, self.helpers, &mut hoisted, &mut cnt, CANDLE_FNS);
-        // Canonicalize accumulator recurrences so all backends fuse the same
-        // product regardless of operand order.
-        let new_value = if fma::EMIT_FMA {
-            fma::canonicalize_accumulator_add(target, &new_value)
-        } else {
-            new_value
-        };
-        self.ctx.inline_counter.set(cnt);
-        let mut out = render_hoisted_blocks(
-            &hoisted, indent, self.ctx, self.enums, self.registry, self.helpers,
-        );
-
-        // Only fold compound assignments if the original source used +=/-=/etc.
-        if compound {
-            if let (Expr::Var(tname), Expr::BinOp(left, op, right)) = (target, &new_value) {
-                if let Expr::Var(lname) = left.as_ref() {
-                    if lname == tname {
-                        let op_str = match op {
-                            BinOp::Add => "+=",
-                            BinOp::Sub => "-=",
-                            BinOp::Mul => "*=",
-                            BinOp::Div => "/=",
-                            _ => "",
-                        };
-                        if !op_str.is_empty() {
-                            let target_str =
-                                render_assign_target(target, self.ctx, self.registry, self.helpers);
-                            out.push_str(&format!(
-                                "{}{} {} {};\n",
-                                pad,
-                                target_str,
-                                op_str,
-                                render_expr(right, self.ctx, self.registry, self.helpers)
-                            ));
-                            return out;
-                        }
-                    }
-                }
-            }
-        }
-
-        let target_str = render_assign_target(target, self.ctx, self.registry, self.helpers);
-        let value_str = render_assign_value(&new_value, self.ctx, self.registry, self.helpers);
-        // Writing into a nullable output — guard it so a declined (empty) output
-        // is skipped (rule B6a). The `outIdx` advance rides the non-nullable
-        // partner's write (see mama.c), so guarding this store is complete.
-        if let Some(base) = nullable_target_base(target, self.ctx.nullable_outputs) {
-            if self.ctx.nullable_shadow {
-                out.push_str(&format!("{pad}lastCur_{base} = {value_str};\n"));
-            }
-            out.push_str(&format!(
-                "{pad}if( !{base}.IsEmpty )\n{pad}   {target_str} = {value_str};\n"
-            ));
-        } else {
-            out.push_str(&format!("{pad}{target_str} = {value_str};\n"));
-        }
+        let recurrent = matches!(target, Expr::Var(n) if is_recurrent_select_target(n, self.ctx));
+        let outer = self.ctx.plain_selects.replace(recurrent || self.ctx.plain_selects.get());
+        let out = self.assign_unscoped(target, value, compound, indent);
+        self.ctx.plain_selects.set(outer);
         out
     }
 
@@ -1464,6 +1569,9 @@ impl StatementEmitter for CsStmt<'_> {
                 }
                 CondFold::Open { changed: false, .. } => {}
             }
+        }
+        if let Some(out) = self.if_as_select(condition, then_body, else_body, cond_comments, indent) {
+            return out;
         }
         // Split `if(A && B)` into nested `if(A) { if(B)` when both sides
         // contain a candle helper call — preserves short-circuit evaluation.
@@ -2009,6 +2117,7 @@ impl ExprEmitter for CsExpr<'_> {
                     inline_counter: self.ctx.inline_counter,
                     fma: self.ctx.fma,
                     matype_map: self.ctx.matype_map.clone(),
+                    plain_selects: Cell::new(self.ctx.plain_selects.get()),
                 };
                 render_expr(inner, &inner_ctx, self.registry, self.helpers)
             }
@@ -2043,6 +2152,10 @@ impl ExprEmitter for CsExpr<'_> {
                 None => {}
             }
         }
+        if let Some((helper, args)) = fp_select(cond, then_expr, else_expr, self.ctx) {
+            let args: Vec<String> = args.iter().map(|a| self.walk(a)).collect();
+            return format!("{helper}({})", args.join(", "));
+        }
         let c = self.walk(cond);
         let t = self.walk(then_expr);
         let e = self.walk(else_expr);
@@ -2053,15 +2166,92 @@ impl ExprEmitter for CsExpr<'_> {
         } else {
             c
         };
-        let t = if matches!(then_expr, Expr::Ternary(..)) { format!("({t})") } else { t };
-        let e = if matches!(else_expr, Expr::Ternary(..)) { format!("({e})") } else { e };
+        let bare = |x: &Expr| match x {
+            Expr::Ternary(c, t, e) => fp_select(c, t, e, self.ctx).is_some(),
+            _ => true,
+        };
+        let t = if bare(then_expr) { t } else { format!("({t})") };
+        let e = if bare(else_expr) { e } else { format!("({e})") };
         format!("{c} ? {t} : {e}")
     }
 }
 
-/// Render `value` as the whole right-hand side of an assignment — see the Java
-/// twin, [`super::java::render_assign_value`], for why a `cond ? 1 : 0` must
-/// keep its ternary form here and collapse everywhere else.
+/// The `FpSelect.cs` helper, with its arguments, that returns the bits of
+/// `cond ? then_expr : else_expr` for every input, if one does: RyuJIT turns
+/// every floating-point ternary into a branch, and the helpers do not branch.
+///
+/// Only a strict `<`/`>` qualifies. `a >= b ? a : b` keeps the first operand
+/// on a tie where MAXSD keeps the second, which differs on signed zero and NaN
+/// without any gate noticing.
+fn fp_select<'e>(
+    cond: &'e Expr,
+    then_expr: &'e Expr,
+    else_expr: &'e Expr,
+    ctx: &CsRenderCtx,
+) -> Option<(&'static str, Vec<&'e Expr>)> {
+    if ctx.plain_selects.get() {
+        return None;
+    }
+    let Expr::BinOp(l, op, r) = cond else { return None };
+    let gt = match op {
+        BinOp::Greater => true,
+        BinOp::Less => false,
+        _ => return None,
+    };
+    let (l, r) = (l.as_ref(), r.as_ref());
+    if !compares_reals(l, r, ctx) {
+        return None;
+    }
+    if ![l, r, then_expr, else_expr].into_iter().all(is_pure_operand) {
+        return None;
+    }
+    // `l > r ? r : l` is `r < l ? r : l`: the operands swap with the verdict.
+    if streaming::exprs_equal(then_expr, l) && streaming::exprs_equal(else_expr, r) {
+        return Some((if gt { "MaxGt" } else { "MinLt" }, vec![l, r]));
+    }
+    if streaming::exprs_equal(then_expr, r) && streaming::exprs_equal(else_expr, l) {
+        return Some((if gt { "MinLt" } else { "MaxGt" }, vec![r, l]));
+    }
+    // A mask evaluates the kept arm unconditionally, so it must be a plain
+    // operand that cannot throw.
+    let is_zero = |e: &Expr| matches!(e, Expr::Literal(v) if v.to_bits() == 0);
+    let is_plain = |e: &Expr| matches!(e, Expr::Var(_) | Expr::Literal(_));
+    if is_zero(else_expr) && is_plain(then_expr) {
+        return Some((if gt { "KeepIfGt" } else { "KeepIfLt" }, vec![l, r, then_expr]));
+    }
+    if is_zero(then_expr) && is_plain(else_expr) {
+        return Some((if gt { "ZeroIfGt" } else { "ZeroIfLt" }, vec![l, r, else_expr]));
+    }
+    None
+}
+
+/// No side effect: a rewrite evaluates its operands a different number of
+/// times, or in a different order, than the C does.
+fn is_pure_operand(e: &Expr) -> bool {
+    !streaming::expr_effect(e, &|name| MathFn::from_name(name).is_some())
+}
+
+fn is_recurrent_select_target(name: &str, ctx: &CsRenderCtx) -> bool {
+    ctx.fma.is_some_and(|f| f.recurrent_select_targets.contains(fma::stream_base(name)))
+}
+
+/// Whether `l` against `r` may be a floating-point compare, the only kind these
+/// rewrites target. An inlined helper body's locals carry no type, so an
+/// untyped pair is accepted; a provably integer operand only against a known
+/// double.
+fn compares_reals(l: &Expr, r: &Expr, ctx: &CsRenderCtx) -> bool {
+    let Some(sets) = ctx.fma else { return false };
+    let fs = sets.view();
+    let int = |e: &Expr| matches!(e, Expr::IntLiteral(_)) || fma::is_definitely_integer(e, &fs);
+    if int(l) && int(r) {
+        return false;
+    }
+    fma::expr_is_float_typed(l, Some(&fs)) || fma::expr_is_float_typed(r, Some(&fs)) || !(int(l) || int(r))
+}
+
+/// Render `value` as an assignment's right-hand side or a compound assignment's
+/// operand — see the Java twin, [`super::java::render_assign_value`], for why a
+/// `cond ? 1 : 0` must keep its ternary form here and collapse everywhere else.
 pub(crate) fn render_assign_value(
     value: &Expr,
     ctx: &CsRenderCtx,
@@ -2202,13 +2392,13 @@ fn render_func_call(
     if let Some(b) = SpecialBuiltin::from_name(fname) {
         match b {
             SpecialBuiltin::UnstablePeriod => {
-                // UNSTABLE_PERIOD(RSI) -> this.unstablePeriod[(int)FuncUnstId.Rsi]
+                // UNSTABLE_PERIOD(RSI) -> this._unstablePeriod[(int)FuncUnstId.Rsi]
                 // (C# enums cast to int; there is no ordinal()).
                 if let Some(Expr::Var(func_name)) = args.first() {
                     let variant = unst_variant_name(func_name);
-                    return format!("this.unstablePeriod[(int)FuncUnstId.{variant}]");
+                    return format!("this._unstablePeriod[(int)FuncUnstId.{variant}]");
                 }
-                "this.unstablePeriod[0]".to_string()
+                "this._unstablePeriod[0]".to_string()
             }
             pred @ (SpecialBuiltin::IsZero
             | SpecialBuiltin::IsZeroScaled
@@ -2262,14 +2452,18 @@ fn render_func_call(
             MathFn::Tanh => "Tanh",
             MathFn::Log10 => "Log10",
             MathFn::Abs => "Abs",
-            MathFn::Max => "Max",
-            MathFn::Min => "Min",
+            MathFn::Max => "MaxGt",
+            MathFn::Min => "MinLt",
         };
         let rendered: Vec<String> = args
             .iter()
             .map(|a| render_expr(a, ctx, registry, helpers))
             .collect();
-        format!("Math.{}({})", cs, rendered.join(", "))
+        if matches!(mf, MathFn::Max | MathFn::Min) {
+            format!("{}({})", cs, rendered.join(", "))
+        } else {
+            format!("Math.{}({})", cs, rendered.join(", "))
+        }
     } else if let Some(s) = StdlibFn::from_name(fname) {
         match s {
             StdlibFn::Sizeof => {
@@ -2313,17 +2507,19 @@ fn render_func_call(
                 }
             }
             StdlibFn::Memset => {
-                // memset(buf, 0, count) → Array.Fill(buf, fillVal, off, count).
-                // NOTE the third Java argument is an END INDEX (Arrays.fill's
-                // `to`); Array.Fill takes a COUNT — the classic silent trap.
+                // The cast makes one spelling compile for a pointer local (a
+                // Span) and a fixed-size local (an array, which has no Slice).
+                // Never `arr[a..b].Fill(v)`: a range over an array is a copy.
                 if args.len() >= 3 {
                     let (arr, off) = decompose_array_ref(&args[0], ctx, registry, helpers);
                     let count = render_expr(&args[2], ctx, registry, helpers);
-                    let fill_val = match find_sizeof_type(&args[2]).as_deref() {
-                        Some("int") => "0",
-                        _ => "0.0",
+                    let (elem, fill_val) = match find_sizeof_type(&args[2]).as_deref() {
+                        Some("int") => ("int", "0"),
+                        _ => ("double", "0.0"),
                     };
-                    format!("Array.Fill({arr}, {fill_val}, (int)({off}), (int)({count}))")
+                    format!(
+                        "((Span<{elem}>){arr}).Slice((int)({off}), (int)({count})).Fill({fill_val})"
+                    )
                 } else {
                     "/* memset: bad args */".to_string()
                 }
@@ -2402,6 +2598,7 @@ fn render_lookback_code(
         // Lookback bodies are pure integer index arithmetic — no float multiply-add.
         fma: None,
         matype_map: build_matype_map(enums),
+        plain_selects: Cell::new(false),
     };
 
     // Declare local variables (initialized: locals assigned only inside a

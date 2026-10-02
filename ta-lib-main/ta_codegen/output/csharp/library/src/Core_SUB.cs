@@ -81,10 +81,10 @@ public partial class Core
       outNBElement = 0;
       int outIdx = 0;
       int i = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( (outReal.Overlaps(inReal0) && outReal != inReal0) || (outReal.Overlaps(inReal1) && outReal != inReal1) ) {
@@ -110,10 +110,10 @@ public partial class Core
       outNBElement = 0;
       int outIdx = 0;
       int i = 0;
-      if( (startIdx < 0) || (startIdx > MaxIndex) ) {
+      if( (startIdx < 0) || (startIdx > IndexMax) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
-      if( (endIdx < 0) || (endIdx > MaxIndex) || (endIdx < startIdx)) {
+      if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal0)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal1)) ) {
@@ -138,8 +138,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>SubLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>SubLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -147,25 +152,33 @@ public partial class Core
    /// <param name="inReal0">Minuend series.</param>
    /// <param name="inReal1">Subtrahend series.</param>
    /// <param name="outReal">Per-element difference inReal0 - inReal1. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// max(startIdx, SubLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Add(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Mult(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Div(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
    public OutRange Sub( int startIdx,
                         int endIdx,
                         ReadOnlySpan<double> inReal0,
@@ -202,8 +215,13 @@ public partial class Core
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
    /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range shorter than <c>SubLookback</c> is a <b>success with no
-   /// values</b> (<c>Count == 0</c>), not an error.
+   /// NaN. A valid range that ends before <c>SubLookback</c> is a <b>success
+   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// </para>
+   /// <para>
+   /// Every exception it throws, except the runtime's own
+   /// <c>OutOfMemoryException</c>, implements <see cref="ITALibFailure"/>, which
+   /// carries the <see cref="RetCode"/>.
    /// </para>
    /// </remarks>
    /// <param name="startIdx">First bar of the requested range (inclusive).</param>
@@ -211,27 +229,35 @@ public partial class Core
    /// <param name="inReal0">Minuend series.</param>
    /// <param name="inReal1">Subtrahend series.</param>
    /// <param name="outReal">Per-element difference inReal0 - inReal1. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// max(startIdx, SubLookback(...)) + 1</c> values, the count the call
+   /// produces (none when that is not positive).</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
-   /// <see cref="Core.MaxIndex"/>, or <c>endIdx &lt; startIdx</c>.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
-   /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <see cref="Core.IndexMax"/>, or <c>endIdx &lt; startIdx</c>.</exception>
+   /// <exception cref="System.ArgumentException">
+   /// One of the following, checked before anything is written, so a rejected
+   /// call leaves every buffer untouched:
+   /// <list type="bullet">
+   /// <item><description>An optional parameter is outside its documented range.</description></item>
+   /// <item><description>A span is too short for the range requested: any input this function
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
-   /// cannot hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. Declared, not read: a few
-   /// candlestick patterns take an OHLC series they never index, and it is
-   /// required all the same. An empty span — which is what a null array becomes,
-   /// since a span cannot be null — is rejected on the same terms and no others:
-   /// it is too short whenever the range produces a value, and fine when it
-   /// produces none, and on an output this function documents as declinable it
-   /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// cannot hold the values produced. Declared, not read: a few candlestick
+   /// patterns take an OHLC series they never index, and it is required all the
+   /// same. An empty span — which is what a null array becomes, since a span
+   /// cannot be null — is rejected on the same terms and no others: it is too
+   /// short whenever the range produces a value, and fine when it produces none,
+   /// and on an output this function documents as declinable it is how you
+   /// decline.</description></item>
+   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
    /// a real input never share an element type in this overload, so the two can
    /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</exception>
+   /// overlap of their byte ranges is rejected.</description></item>
+   /// </list>
+   /// </exception>
+   /// <seealso cref="Core.Add(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Mult(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
+   /// <seealso cref="Core.Div(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
    public OutRange Sub( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inReal0,
@@ -286,7 +312,7 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
-      /// <para>The last bar it can reach is <see cref="Core.MaxIndex"/>; past that
+      /// <para>The last bar it can reach is <see cref="Core.IndexMax"/>; past that
       /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
@@ -299,13 +325,13 @@ public partial class Core
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, the last one the batch tier
+      /// has reached bar <see cref="Core.IndexMax"/>, the last one the batch tier
       /// can address and the last this handle will count. <c>Update</c> throws the
       /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("SUB", "advance", RetCode.OutOfRangeEndIndex);
          outRangeCount++;
       }
@@ -320,7 +346,6 @@ public partial class Core
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
-      /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
       /// so nothing moves — <see cref="OutRange"/> included — and
@@ -331,7 +356,7 @@ public partial class Core
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
-      /// has reached bar <see cref="Core.MaxIndex"/>, which no re-feed clears: the
+      /// has reached bar <see cref="Core.IndexMax"/>, which no re-feed clears: the
       /// handle has run out of index domain and only a shorter history can start a
       /// new one.</para>
       /// </remarks>
@@ -340,9 +365,9 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal0, double inReal1 )
       {
-         if( outRangeBegIdx + outRangeCount > Core.MaxIndex )
+         if( outRangeBegIdx + outRangeCount > Core.IndexMax )
             throw Core.StreamFailure("SUB", "update", RetCode.OutOfRangeEndIndex);
-         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("SUB", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.NonFiniteBar("SUB", "update", !double.IsFinite(inReal0) ? nameof(inReal0) : nameof(inReal1));
          core.SubStepImpl(this, inReal0, inReal1);
          outRangeCount++;
          return cur_outReal;
@@ -354,9 +379,8 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>Its cost does not grow with the period.</para>
       /// <para>It counts no bar, so it keeps answering past the
-      /// <see cref="Core.MaxIndex"/> ceiling <c>Update</c> stops at.</para>
+      /// <see cref="Core.IndexMax"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal0">This bar's value for <c>inReal0</c>.</param>
       /// <param name="inReal1">This bar's value for <c>inReal1</c>.</param>
@@ -364,7 +388,7 @@ public partial class Core
       /// it.</returns>
       public double Peek( double inReal0, double inReal1 )
       {
-         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("SUB", "peek", RetCode.BadParam);
+         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.NonFiniteBar("SUB", "peek", !double.IsFinite(inReal0) ? nameof(inReal0) : nameof(inReal1));
          SubStream sp = this;
          double cur_outReal = 0.0;
          cur_outReal = inReal0 - inReal1;
@@ -388,7 +412,7 @@ public partial class Core
       }
    }
 
-   internal void SubStepImpl( SubStream sp, double inReal0, double inReal1 )
+   private void SubStepImpl( SubStream sp, double inReal0, double inReal1 )
    {
       sp.cur_outReal = inReal0 - inReal1;
    }
@@ -404,7 +428,7 @@ public partial class Core
       if( historyLen < 1 ) {
          return RetCode.OutOfRangeStartIndex;
       }
-      if( historyLen > MaxIndex + 1 ) {
+      if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inReal1.Length != inReal0.Length ) {
@@ -436,6 +460,9 @@ public partial class Core
       if( retCode == RetCode.Success ) {
          return sp;
       }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("SUB", "openAndFill", nameof(inReal0), inReal0.Length, startIdx, SubLookback());
+      }
       throw StreamFailure("SUB", "openAndFill", retCode);
    }
 
@@ -449,6 +476,9 @@ public partial class Core
       sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
+      }
+      if( retCode == RetCode.InsufficientHistory ) {
+         throw InsufficientHistory("SUB", "open", nameof(inReal0), inReal0.Length, startIdx, SubLookback());
       }
       throw StreamFailure("SUB", "open", retCode);
    }
@@ -467,12 +497,12 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SubLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">The input series have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public SubStream SubOpen( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1 )
    {
       if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "SUB open: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal0.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "SUB open: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "SUB open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inReal1.IsEmpty ) throw new TALibArgumentException("SUB open: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
       RequireHistoryLength("SUB", "open", "inReal1", inReal1.Length, inReal0.Length);
       return SubOpenInternal(inReal0, inReal1, 0);
@@ -502,12 +532,12 @@ public partial class Core
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.MaxIndex"/> + 1, the
+   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
    /// two index faults an opener can have (rules S1 and S2).</exception>
    public SubStream SubOpenAndFill( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, Span<double> outReal )
    {
       if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "SUB openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
-      if( inReal0.Length > MaxIndex + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "SUB openAndFill: history is longer than MaxIndex + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "SUB openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       if( inReal1.IsEmpty ) throw new TALibArgumentException("SUB openAndFill: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
       int guardOutLen = OpenFillCount("SUB", "openAndFill", inReal0.Length, SubLookback());
       RequireHistoryLength("SUB", "openAndFill", "inReal1", inReal1.Length, inReal0.Length);
