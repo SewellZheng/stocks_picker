@@ -113,6 +113,32 @@ public partial class Core
       return EmaLookback(optInSlowPeriod) + EmaLookback(optInSignalPeriod) ;
 
    }
+   /// <summary>
+   /// How many bars ahead (positive) or behind (negative) of the bar that
+   /// computed it a chart draws one output of <c>Macd</c>.
+   /// </summary>
+   /// <remarks>
+   /// Every output of this function is drawn at its own bar, so the answer is 0.
+   /// </remarks>
+   /// <param name="optInFastPeriod">Period of the fast EMA (default 12; range 2..100000; <c>int.MinValue</c>
+   /// selects the default).</param>
+   /// <param name="optInSlowPeriod">Period of the slow EMA (default 26; range 2..100000; <c>int.MinValue</c>
+   /// selects the default).</param>
+   /// <param name="optInSignalPeriod">Smoothing period of the signal line (default 9; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="outputIdx">Position of the output in the batch signature, from 0.</param>
+   /// <returns>The display shift, or <c>int.MinValue</c> if a parameter is out of range
+   /// or the index names no output.</returns>
+   public int MacdDisplayShift( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int outputIdx )
+   {
+      if( MacdLookback( optInFastPeriod, optInSlowPeriod, optInSignalPeriod ) < 0 ) {
+         return int.MinValue;
+      }
+      if( outputIdx < 0 || outputIdx >= 3 ) {
+         return int.MinValue;
+      }
+      return 0;
+   }
    internal RetCode MacdImpl( int startIdx,
                               int endIdx,
                               ReadOnlySpan<double> inReal,
@@ -162,7 +188,7 @@ public partial class Core
       } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( outMACD.Overlaps(outMACDSignal) || outMACD.Overlaps(outMACDHist) || outMACDSignal.Overlaps(outMACDHist) ) {
+      if( OutputsAlias(outMACD, outMACDSignal) || OutputsAlias(outMACD, outMACDHist) || OutputsAlias(outMACDSignal, outMACDHist) ) {
          return RetCode.BadParam ;
       }
       if( (outMACD.Overlaps(inReal) && outMACD != inReal) || (outMACDSignal.Overlaps(inReal) && outMACDSignal != inReal) || (outMACDHist.Overlaps(inReal) && outMACDHist != inReal) ) {
@@ -368,7 +394,7 @@ public partial class Core
       } else if( optInSignalPeriod < 1 || optInSignalPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( outMACD.Overlaps(outMACDSignal) || outMACD.Overlaps(outMACDHist) || outMACDSignal.Overlaps(outMACDHist) ) {
+      if( OutputsAlias(outMACD, outMACDSignal) || OutputsAlias(outMACD, outMACDHist) || OutputsAlias(outMACDSignal, outMACDHist) ) {
          return RetCode.BadParam ;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outMACD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outMACDSignal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outMACDHist).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
@@ -485,10 +511,10 @@ public partial class Core
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>MacdLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>MacdLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -527,13 +553,11 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output partially overlaps an input. Computing wholly in place (an output
+   /// that IS an input) is allowed.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Macdext(int, int, ReadOnlySpan{double}, int, MAType, int, MAType, int, MAType, Span{double}, Span{double}, Span{double})"/>
@@ -586,10 +610,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>MacdLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>MacdLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -628,15 +652,13 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
-   /// a real input never share an element type in this overload, so the two can
-   /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output overlaps an input. An output and a real input never share an
+   /// element type in this overload, so the two can never be the same span:
+   /// there is no in-place case to allow, and any overlap of their byte ranges
+   /// is rejected.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Macdext(int, int, ReadOnlySpan{double}, int, MAType, int, MAType, int, MAType, Span{double}, Span{double}, Span{double})"/>
@@ -1138,7 +1160,7 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public MacdStream MacdOpen( ReadOnlySpan<double> inReal, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MACD open: history is empty", RetCode.OutOfRangeStartIndex);
@@ -1180,7 +1202,7 @@ public partial class Core
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public MacdStream MacdOpenAndFill( ReadOnlySpan<double> inReal, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, Span<double> outMACD, Span<double> outMACDSignal, Span<double> outMACDHist )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MACD openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
@@ -1189,7 +1211,7 @@ public partial class Core
       RequireFillLength("MACD", "openAndFill", "outMACD", outMACD.Length, guardOutLen);
       RequireFillLength("MACD", "openAndFill", "outMACDSignal", outMACDSignal.Length, guardOutLen);
       RequireFillLength("MACD", "openAndFill", "outMACDHist", outMACDHist.Length, guardOutLen);
-      if( outMACD.Overlaps(inReal) || outMACDSignal.Overlaps(inReal) || outMACDHist.Overlaps(inReal) || outMACD.Overlaps(outMACDSignal) || outMACD.Overlaps(outMACDHist) || outMACDSignal.Overlaps(outMACDHist) ) {
+      if( outMACD.Overlaps(inReal) || outMACDSignal.Overlaps(inReal) || outMACDHist.Overlaps(inReal) || OutputsAlias(outMACD, outMACDSignal) || OutputsAlias(outMACD, outMACDHist) || OutputsAlias(outMACDSignal, outMACDHist) ) {
          throw StreamFailure("MACD", "openAndFill", RetCode.BadParam);
       }
       return MacdOpenAndFillInternal(inReal, 0, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out _, out _, outMACD, outMACDSignal, outMACDHist);

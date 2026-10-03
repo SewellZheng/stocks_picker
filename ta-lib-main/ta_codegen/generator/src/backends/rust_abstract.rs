@@ -706,7 +706,7 @@ mod binder_tests {
     }
 
     /// An output sized to the count the call PRODUCES is enough — the bound is
-    /// B5's, `endIdx - max(startIdx, lookback) + 1`, not the width of the
+    /// rB5's, `endIdx - max(startIdx, lookback) + 1`, not the width of the
     /// requested range. Demanding the latter rejects a caller who allocated by
     /// the published formula (#265).
     #[test]
@@ -918,6 +918,8 @@ fn emit_binder(
          \x20   }\n\n",
     );
 
+    emit_display_shift_dispatch(o, sorted, enum_params);
+
     // ---- call dispatch -----------------------------------------------------
     o.push_str(
         "    /// Run the function over `[start_idx, end_idx]`.\n\
@@ -943,7 +945,7 @@ fn emit_binder(
          \x20       // The buffer bounds are the PUBLIC entry point's, which every arm\n\
          \x20       // below calls (#265). This tier used to hand `_Impl` a hand-rolled\n\
          \x20       // output check of its own, `end_idx - start_idx + 1` -- the width of\n\
-         \x20       // the REQUESTED range, where B5 says the count actually PRODUCED, so\n\
+         \x20       // the REQUESTED range, where rB5 says the count actually PRODUCED, so\n\
          \x20       // it rejected a caller who sized by the published formula on a range\n\
          \x20       // starting below the lookback. It also checked no input at all, which\n\
          \x20       // is what let a short leg reach the numerics and panic. One bound, in\n\
@@ -987,6 +989,41 @@ fn enum_param_types(funcs: &[FuncDef]) -> HashMap<String, HashMap<String, String
             (f.name.clone(), params)
         })
         .collect()
+}
+
+fn emit_display_shift_dispatch(
+    o: &mut String,
+    sorted: &[FuncRow],
+    enum_params: &HashMap<String, HashMap<String, String>>,
+) {
+    o.push_str(
+        "    /// How many bars ahead (positive) or behind (negative) of the bar that\n\
+         \x20   /// computed it a chart draws output `output_idx`, for the optional\n\
+         \x20   /// parameters bound so far. 0 for an output without\n\
+         \x20   /// [`OutputFlags::DISPLAY_SHIFT`]. The values are never shifted.\n\
+         \x20   ///\n\
+         \x20   /// # Errors\n\
+         \x20   /// [`RetCode::BadParam`] if a bound optional parameter is out of range or\n\
+         \x20   /// `output_idx` names no output.\n\
+         \x20   pub fn display_shift(&self, output_idx: usize) -> Result<i32, RetCode> {\n\
+         \x20       match self.func {\n",
+    );
+    for f in sorted {
+        let snake = super::common::snake_words(&f.name);
+        let mut args = opt_args(f, enum_params);
+        if !args.is_empty() {
+            args.push_str(", ");
+        }
+        let _ = writeln!(
+            o,
+            "            FuncId::{} => self.core.{snake}_display_shift({args}output_idx),",
+            f.name
+        );
+    }
+    o.push_str(
+        "        }\n\
+         \x20   }\n\n",
+    );
 }
 
 /// The optional-parameter argument list for one function, in declaration order.
@@ -1128,7 +1165,7 @@ fn emit_call_arm(
             "                let mut o{k} = self.{arr}[{k}].take().ok_or(RetCode::BadParam)?;"
         );
         // The abstract tier always supplies every declared output, so a
-        // `nullable` one (rule B6a, `TA_OUT_NULLABLE`) is handed `Some(..)`
+        // `nullable` one (rule rB7, `TA_OUT_NULLABLE`) is handed `Some(..)`
         // rather than declined: the catalogue's job is to reproduce the direct
         // call, not to choose for the caller.
         args.push(if out.flags & super::abstract_rows::OUT_NULLABLE == 0 {
@@ -1488,12 +1525,14 @@ flag_newtype!(
     /// Inputs of ordinary magnitude can have no finite result, so a successful
     /// call may write NaN or ±Inf (e.g. ACOS outside `[-1, 1]`, LN of zero,
     /// `0/0`). Not set where a non-finite value needs magnitudes large enough to
-    /// overflow the intermediate arithmetic. Set on ACOS, ASIN, DIV, LN, LOG10,
-    /// RVOL, SQRT and VWMA, and on no others.
+    /// overflow the intermediate arithmetic.
     NAN_INF_OUTPUT = 0x4000_0000,
-    /// A period of 1 performs no smoothing: the lookback is 0 and every output
-    /// value is a bit-exact copy of its input value.
+    /// A period of 1 performs no smoothing: every output value is a bit-exact
+    /// copy of its input value.
     PERIOD1_IDENTITY = 0x0000_0001,
+    /// At least one output carries [`OutputFlags::DISPLAY_SHIFT`]. Without it
+    /// every output's display shift is 0.
+    DISPLAY_SHIFT = 0x0000_0002,
 });
 flag_newtype!(
     /// Which OHLCV components an [`InputType::Price`] input reads
@@ -1560,6 +1599,10 @@ flag_newtype!(
     /// The caller may discard this output — it is computed but need not be
     /// kept. E.g. MAMA's FAMA line when only the MAMA line is wanted.
     NULLABLE = 0x0000_2000,
+    /// A chart draws this output ahead of or behind the bar that computed it,
+    /// by the bars [`ParamHolder::display_shift`] reports. The values are never
+    /// shifted.
+    DISPLAY_SHIFT = 0x0000_4000,
 });
 
 /// A required input parameter.

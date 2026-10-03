@@ -35,7 +35,7 @@
 
 /* The following macro is used to return internal errors.
  * The Id can be from 1 to 999 and translate to the user
- * as the return code 5000 to 5999.
+ * as the return code 5001 to 5999.
  *
  * The generated function tier (src/ta_func) gives every
  * guard its own Id, so the number names the guard that
@@ -118,7 +118,7 @@ typedef struct TA_StringTable
  * Example:
  *        TA_RetCodeInfo info;
  *
- *        retCode = TA_Initialize( ... );
+ *        retCode = TA_SMA( ... );
  *
  *        if( retCode != TA_SUCCESS )
  *        {
@@ -130,7 +130,7 @@ typedef struct TA_StringTable
  *        }
  *
  * Would display:
- *        "Error 1(TA_LIB_NOT_INITIALIZE): TA_Initialize was not successfully called"
+ *        "Error 2(TA_BAD_PARAM): A parameter is out of range"
  */
 typedef struct TA_RetCodeInfo
 {
@@ -141,14 +141,15 @@ typedef struct TA_RetCodeInfo
 /* Info is always returned, even when 'theRetCode' is invalid. */
 TA_LIB_API void TA_SetRetCodeInfo( TA_RetCode theRetCode, TA_RetCodeInfo *retCodeInfo );
 
-/* TA_Initialize() initialize the ressources used by TA-Lib. This
- * function must be called once prior to any other functions declared in
- * this file.
+/* TA_Initialize() must be called once, and only once, per process, before
+ * any other TA function.
  *
- * TA_Shutdown() allows to free all ressources used by TA-Lib. Following
- * a shutdown, TA_Initialize() must be called again for re-using TA-Lib.
+ * TA_Shutdown() should be called before the application exits; the library
+ * must not be used after it.
  *
- * TA_Shutdown() should be called prior to exiting the application code.
+ * The unstable period and the candle settings are process-wide. Change them
+ * only while no TA function is running and no stream is open; the effect of a
+ * change made otherwise is undefined.
  */
 TA_LIB_API TA_RetCode TA_Initialize( void );
 TA_LIB_API TA_RetCode TA_Shutdown( void );
@@ -157,7 +158,7 @@ TA_LIB_API TA_RetCode TA_Shutdown( void );
  * whenever a source modification should trigger a repackaging of TA-Lib.
  * Written by scripts/sync.py; do not edit.
  */
-#define TA_LIB_SOURCES_DIGEST 29c923f00f50eb9a69442bcb5d0bf27f
+#define TA_LIB_SOURCES_DIGEST 09386f8b41b3ac13959d9eb285ac7f9b
 
 #ifdef __cplusplus
 }

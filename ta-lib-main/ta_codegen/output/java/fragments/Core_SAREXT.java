@@ -94,6 +94,44 @@
       return 1 ;
 
    }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#sarext}.
+    * <p>Every output of this function is drawn at its own bar, so the answer is
+    * 0.
+    *
+    * @param optInStartValue Initial SAR/direction: 0 auto, &gt;0 start long at
+    *        value, &lt;0 start short at -value (default 0; {@link Core#REAL_DEFAULT}
+    *        selects the default).
+    * @param optInOffsetOnReverse Fractional offset applied to the stop on each
+    *        reversal (default 0; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInAccelerationInitLong Initial acceleration factor when long
+    *        (default 0.02; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInAccelerationLong AF increment per new long extreme (default
+    *        0.02; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInAccelerationMaxLong Cap on the long acceleration factor
+    *        (default 0.2; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInAccelerationInitShort Initial acceleration factor when short
+    *        (default 0.02; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInAccelerationShort AF increment per new short extreme (default
+    *        0.02; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInAccelerationMaxShort Cap on the short acceleration factor
+    *        (default 0.2; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int sarextDisplayShift( double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort, int outputIdx )
+   {
+      if( sarextLookback( optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 1 ) {
+         return Integer.MIN_VALUE;
+      }
+      return 0;
+   }
    RetCode sarextImpl( int startIdx,
                        int endIdx,
                        double inHigh[],
@@ -676,10 +714,10 @@
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/sarext">ta-lib.org/functions/sarext</a>.
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#sarextLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#sarextLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -764,10 +802,10 @@
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#sarextLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#sarextLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).

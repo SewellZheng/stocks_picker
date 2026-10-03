@@ -216,8 +216,6 @@ typedef int TA_FuncFlags;
                                           * when. ta_regtest holds every
                                           * function WITHOUT this flag to
                                           * finite output.
-                                          * ACOS, ASIN, DIV, LN, LOG10, RVOL,
-                                          * SQRT, VWMA -- and no others.
                                           */
 /* The 0x01000000-and-up run above is the historical allocation and now has one
  * slot left, 0x80000000 -- the sign bit of the signed TA_FuncFlags, which is
@@ -227,22 +225,28 @@ typedef int TA_FuncFlags;
  */
 #define TA_FUNC_FLG_PERIOD1_IDENTITY 0x00000001
                                          /* A period of 1 performs no smoothing:
-                                          * the lookback is 0 and every output
-                                          * value is a bit-exact copy of its
-                                          * input value.
+                                          * every output value is a bit-exact
+                                          * copy of its input value.
                                           * Declared by the function rather than
                                           * inferred, because the two cases are
                                           * indistinguishable in the source:
                                           * SMA's window math is already exact at
                                           * a period of 1, while EMA's recurrence
                                           * needs an explicit arm to be. e.g.
-                                          * SMA, EMA, RSI, VWMA.
+                                          * SMA, EMA, VWMA.
                                           * NOT set on MACD/MACDFIX: only their
                                           * signal stage degenerates, the MACD
                                           * line is still computed.
                                           * ta_regtest sweeps every function
                                           * carrying this flag and holds it to the
                                           * copy on every API tier.
+                                          */
+#define TA_FUNC_FLG_DISPLAY_SHIFT 0x00000002
+                                         /* At least one output carries
+                                          * TA_OUT_DISPLAY_SHIFT: a chart draws it
+                                          * ahead of or behind the bar that
+                                          * computed it. Without this flag every
+                                          * output's display shift is 0. e.g. DPO.
                                           */
 
 typedef struct TA_FuncInfo
@@ -432,6 +436,10 @@ typedef int TA_OutputFlags;
 #define TA_OUT_NULLABLE          0x00002000 /* The output pointer may be NULL: the caller can discard
                                              * this output (it is computed but not written). E.g. MAMA's
                                              * FAMA line when only the MAMA line is wanted. */
+#define TA_OUT_DISPLAY_SHIFT     0x00004000 /* A chart draws this output ahead of or behind the bar
+                                             * that computed it, by the number of bars
+                                             * TA_GetDisplayShift reports. The values themselves are
+                                             * never shifted. */
 
 
 /* The following 3 structures will exist for each input, optional
@@ -512,8 +520,7 @@ TA_LIB_API TA_RetCode TA_GetOutputParameterInfo( const TA_FuncHandle *handle,
 /* Alloc a structure allowing to build the list of parameters
  * for doing a call.
  *
- * All input and output parameters must be setup. If not, TA_BAD_PARAM
- * will be returned when TA_CallFunc is called.
+ * All input and output parameters must be setup, or TA_CallFunc fails.
  *
  * The optional input are not required to be setup. A default value
  * will always be used in that case.
@@ -593,6 +600,18 @@ TA_LIB_API TA_RetCode TA_SetOutputParamRealPtr( TA_ParamHolder *params,
  */
 TA_LIB_API TA_RetCode TA_GetLookback( const TA_ParamHolder *params,
                                       TA_Integer *lookback );
+
+/* Where a chart draws one output: the value computed at bar i is drawn at
+ * bar i + displayShift. The values themselves are never shifted.
+ *
+ * outputIdx is zero for the first output. As with TA_GetLookback, a
+ * rejection is reported in the value, not the return code: displayShift is
+ * INT_MIN for parameters the lookback rejects and for an outputIdx that
+ * names no output.
+ */
+TA_LIB_API TA_RetCode TA_GetDisplayShift( const TA_ParamHolder *params,
+                                          unsigned int outputIdx,
+                                          TA_Integer *displayShift );
 
 /* Finally, call the TA function with the parameters.
  *

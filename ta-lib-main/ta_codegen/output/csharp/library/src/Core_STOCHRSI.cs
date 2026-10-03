@@ -106,6 +106,36 @@ public partial class Core
       return retValue ;
 
    }
+   /// <summary>
+   /// How many bars ahead (positive) or behind (negative) of the bar that
+   /// computed it a chart draws one output of <c>Stochrsi</c>.
+   /// </summary>
+   /// <remarks>
+   /// Every output of this function is drawn at its own bar, so the answer is 0.
+   /// </remarks>
+   /// <param name="optInTimePeriod">RSI period (default 14; range 2..100000; <c>int.MinValue</c> selects the
+   /// default).</param>
+   /// <param name="optInFastK_Period">Lookback window for the RSI min/max stochastic (default 5; range
+   /// 1..100000; <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInFastD_Period">Smoothing period for %D (default 3; range 1..100000; <c>int.MinValue</c>
+   /// selects the default).</param>
+   /// <param name="optInFastD_MAType">MA type used to smooth %D (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA,
+   /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// <param name="outputIdx">Position of the output in the batch signature, from 0.</param>
+   /// <returns>The display shift, or <c>int.MinValue</c> if a parameter is out of range
+   /// or the index names no output.</returns>
+   public int StochrsiDisplayShift( int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, int outputIdx )
+   {
+      if( StochrsiLookback( optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType ) < 0 ) {
+         return int.MinValue;
+      }
+      if( outputIdx < 0 || outputIdx >= 2 ) {
+         return int.MinValue;
+      }
+      return 0;
+   }
    internal RetCode StochrsiImpl( int startIdx,
                                   int endIdx,
                                   ReadOnlySpan<double> inReal,
@@ -154,7 +184,7 @@ public partial class Core
       } else if( (int)optInFastD_MAType < MATypes.Min || (int)optInFastD_MAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
-      if( outFastK.Overlaps(outFastD) ) {
+      if( OutputsAlias(outFastK, outFastD) ) {
          return RetCode.BadParam ;
       }
       if( (outFastK.Overlaps(inReal) && outFastK != inReal) || (outFastD.Overlaps(inReal) && outFastD != inReal) ) {
@@ -269,7 +299,7 @@ public partial class Core
       } else if( (int)optInFastD_MAType < MATypes.Min || (int)optInFastD_MAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
-      if( outFastK.Overlaps(outFastD) ) {
+      if( OutputsAlias(outFastK, outFastD) ) {
          return RetCode.BadParam ;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outFastK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outFastD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
@@ -327,10 +357,10 @@ public partial class Core
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>StochrsiLookback</c> is a
-   /// <b>success with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>StochrsiLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -370,13 +400,11 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output partially overlaps an input. Computing wholly in place (an output
+   /// that IS an input) is allowed.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Rsi(int, int, ReadOnlySpan{double}, int, Span{double})"/>
@@ -428,10 +456,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>StochrsiLookback</c> is a
-   /// <b>success with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>StochrsiLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -471,15 +499,13 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
-   /// a real input never share an element type in this overload, so the two can
-   /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output overlaps an input. An output and a real input never share an
+   /// element type in this overload, so the two can never be the same span:
+   /// there is no in-place case to allow, and any overlap of their byte ranges
+   /// is rejected.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Rsi(int, int, ReadOnlySpan{double}, int, Span{double})"/>
@@ -877,7 +903,7 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public StochrsiStream StochrsiOpen( ReadOnlySpan<double> inReal, int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "STOCHRSI open: history is empty", RetCode.OutOfRangeStartIndex);
@@ -920,7 +946,7 @@ public partial class Core
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public StochrsiStream StochrsiOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, Span<double> outFastK, Span<double> outFastD )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "STOCHRSI openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
@@ -928,7 +954,7 @@ public partial class Core
       int guardOutLen = OpenFillCount("STOCHRSI", "openAndFill", inReal.Length, StochrsiLookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType));
       RequireFillLength("STOCHRSI", "openAndFill", "outFastK", outFastK.Length, guardOutLen);
       RequireFillLength("STOCHRSI", "openAndFill", "outFastD", outFastD.Length, guardOutLen);
-      if( outFastK.Overlaps(inReal) || outFastD.Overlaps(inReal) || outFastK.Overlaps(outFastD) ) {
+      if( outFastK.Overlaps(inReal) || outFastD.Overlaps(inReal) || OutputsAlias(outFastK, outFastD) ) {
          throw StreamFailure("STOCHRSI", "openAndFill", RetCode.BadParam);
       }
       return StochrsiOpenAndFillInternal(inReal, 0, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out _, out _, outFastK, outFastD);

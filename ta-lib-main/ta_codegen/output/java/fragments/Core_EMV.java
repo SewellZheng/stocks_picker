@@ -43,6 +43,32 @@
       return 1 + smaLookback(optInTimePeriod) ;
 
    }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#emv}.
+    * <p>Every output of this function is drawn at its own bar, so the answer is
+    * 0.
+    *
+    * @param optInTimePeriod Number of one-bar values in the simple moving
+    *        average (default 14; range 1..100000; {@code Integer.MIN_VALUE} selects
+    *        the default).
+    * @param optInVolumeDivisor Volume is divided by this before it forms the
+    *        box ratio (default 10000; minimum 1; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int emvDisplayShift( int optInTimePeriod, double optInVolumeDivisor, int outputIdx )
+   {
+      if( emvLookback( optInTimePeriod, optInVolumeDivisor ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 1 ) {
+         return Integer.MIN_VALUE;
+      }
+      return 0;
+   }
    RetCode emvImpl( int startIdx,
                     int endIdx,
                     double inHigh[],
@@ -276,10 +302,10 @@
     * <li>A period of 1 returns the unsmoothed one-bar values. Smoothing is a simple moving average; for an exponential one, apply {@code EMA} to this function's output at a period of 1.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#emvLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#emvLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -364,10 +390,10 @@
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#emvLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#emvLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).

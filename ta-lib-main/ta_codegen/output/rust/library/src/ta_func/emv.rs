@@ -95,6 +95,33 @@ impl Core {
         }
         return Ok((1 + self.sma_lookback(optInTimePeriod)?) as usize);
     }
+    /// Display shift of one output of [`Core::emv`]: how many bars ahead (positive) or behind
+    /// (negative) of the bar that computed it a chart draws that output. The values are never
+    /// shifted.
+    ///
+    /// Every output of this function is drawn at its own bar, so the answer is 0.
+    ///
+    /// # Arguments
+    ///
+    /// * `optInTimePeriod` — Number of one-bar values in the simple moving average (default 14,
+    ///   range 1..=100000)
+    /// * `optInVolumeDivisor` — Volume is divided by this before it forms the box ratio (default
+    ///   10000, minimum 1)
+    /// * `outputIdx` — Position of the output in the batch signature, from 0
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range or the index names no output. Integer
+    /// parameters accept [`Core::INTEGER_DEFAULT`], and real parameters [`Core::REAL_DEFAULT`], to
+    /// select their default value.
+    #[doc(alias = "TA_EMV_DisplayShift")]
+    pub fn emv_display_shift(&self, mut optInTimePeriod: i32, mut optInVolumeDivisor: f64, outputIdx: usize) -> Result<i32, RetCode> {
+        self.emv_lookback(optInTimePeriod, optInVolumeDivisor)?;
+        if outputIdx >= 1 {
+            return Err(RetCode::BadParam);
+        }
+        return Ok(0);
+    }
     /// C-shaped body behind [`Core::emv`]: a `RetCode` plus two out-params,
     /// which is what the transcribed body is written against. Since #267 its only
     /// callers are that wrapper and the phantom-I/O sweep.
@@ -634,7 +661,7 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
-    /// values — the batch tier's sizing rule, checked here as it is there (rule S5).
+    /// values — the batch tier's sizing rule, checked here as it is there (rule rS5).
     /// Everything [`Core::emv_open`] rejects is rejected here too.
     ///
     /// # Examples
@@ -706,10 +733,9 @@ impl EmvStream {
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
     /// That check runs before anything is written, so the handle's state is
-    /// left exactly as it was and the stream stays usable: skip the bar, or
-    /// close and re-open on a clean history. This is the one place the
-    /// streaming tier is stricter than the batch API, which computes on
-    /// whatever it is given — a handle retains its state, so a single
+    /// left exactly as it was and the stream stays usable. This is the one
+    /// place the streaming tier is stricter than the batch API, which computes
+    /// on whatever it is given: a handle retains its state, so a single
     /// non-finite bar would poison every later value it produces.
     ///
     /// A rejection leaves [`Self::out_range`] alone too. Re-feed the bar when

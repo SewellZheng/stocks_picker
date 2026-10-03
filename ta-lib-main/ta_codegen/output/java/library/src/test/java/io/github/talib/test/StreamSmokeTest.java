@@ -254,7 +254,7 @@ public class StreamSmokeTest {
         nfOpenRejects++;
     }
 
-    /** Rule U3, and the rejection names the input that was not finite. */
+    /** Rule rU3, and the rejection names the input that was not finite. */
     private static void barMustReject(String what, String arg, Call r) {
         final String m = rejection(r);
         check(m != null && m.endsWith(": " + arg + " is not finite"),
@@ -279,7 +279,7 @@ public class StreamSmokeTest {
      * <p>What is deliberately NOT pinned: the warm-up history handed to
      * {@code Open}/{@code OpenAndFill}. It is an input array, and the library
      * does not scan input arrays. Passing a non-finite one is undefined
-     * behaviour (rule I5, https://ta-lib.org/spec/inputs-outputs/#i5).
+     * behaviour (https://ta-lib.org/spec/inputs-outputs/#finite-inputs).
      *
      * <p>Coverage is by stream TIER, not by function count: the check is emitted
      * from one place, but into the entry points of five different tiers. SMA is
@@ -395,7 +395,7 @@ public class StreamSmokeTest {
               + nfOpenRejects + "/" + nfBarRejects + "/" + nfStateHolds + ")");
     }
 
-    /* ---- rules U3, H4, H5 and N7, stated absolutely (https://ta-lib.org/spec/streaming/#u3, #h4, #h5, #n7) ---- */
+    /* ---- rules rU3, rH5, rH6 and rH4, stated absolutely (https://ta-lib.org/spec/streaming/#ru3, #rh5, #rh6, #rh4) ---- */
 
     /** Advance counters, one per property, each incremented AT its assertion. */
     private static int advRejects = 0;
@@ -691,7 +691,7 @@ public class StreamSmokeTest {
             advSkipHeld("CDLDOJI", gotJ[0], j.value());
         }
 
-        System.out.println("  Rejected-update advance gate (U3, absolute): "
+        System.out.println("  Rejected-update advance gate (rU3, absolute): "
             + advRejects + " rejection(s) that cost nothing, " + advHolds
             + " untouched value(s), " + advResumes + " resumed bar(s), "
             + advValues + " value(s) produced, " + advPeekStills
@@ -708,7 +708,7 @@ public class StreamSmokeTest {
               + "/" + advPeekStills + "/" + advSkips + "/" + advSkipHolds + ")");
     }
 
-    /* ---- rule U4, the other absolute (https://ta-lib.org/spec/streaming/#u4) --- */
+    /* ---- rule rU4, the other absolute (https://ta-lib.org/spec/streaming/#ru4) --- */
 
     private static int u4Ceilings = 0;
     private static int u4Rejects = 0;
@@ -739,7 +739,7 @@ public class StreamSmokeTest {
         u4Ceilings++;
 
         /* Terminal, unlike a non-finite bar: the repeat is what proves no call
-         * clears it. An IllegalArgumentException here would be U3's code on U4's
+         * clears it. An IllegalArgumentException here would be rU3's code on rU4's
          * condition, so the type is asserted, not just the throwing. */
         check(refusesPastTheCeiling(s::advance)
                   && refusesPastTheCeiling(() -> s.update(close[60]))
@@ -752,7 +752,7 @@ public class StreamSmokeTest {
         check(s.outRange().equals(full), "a refused call past the ceiling moves nothing");
         u4Holds++;
 
-        System.out.println("  Index-domain ceiling gate (U4, absolute): "
+        System.out.println("  Index-domain ceiling gate (rU4, absolute): "
             + u4Ceilings + " ceiling(s) reached, " + u4Rejects
             + " refusal set(s), " + u4Holds + " unmoved range(s)");
         check(u4Ceilings >= 1 && u4Rejects >= 1 && u4Holds >= 1,
@@ -761,7 +761,7 @@ public class StreamSmokeTest {
 
     /* The code as well as the type: {@code failure} maps BOTH index codes to
      * {@link io.github.talib.TALibIndexException}, so a type test alone would
-     * accept U4 answering rule S1's code. */
+     * accept rU4 answering rule rS1's code. */
     private static boolean refusesPastTheCeiling(Runnable r) {
         try {
             r.run();
@@ -996,7 +996,7 @@ public class StreamSmokeTest {
      * carries the previous call's values into the next one, and a tier that
      * wrote nothing at all would return them: {@code peek} then {@code update}
      * on the same bar would agree because both read {@code peek}'s leftovers,
-     * and the whole 176-handle sweep would hold while the sink was never
+     * and the sweep over every handle would hold while the sink was never
      * written. The canaries are the same ones the fill gates use, so a field
      * left unwritten reads as an absurd value rather than as a plausible one.
      */
@@ -1096,12 +1096,12 @@ public class StreamSmokeTest {
      * The one method {@code c} declares under {@code name}, taking the
      * {@code double} shape.
      *
-     * <p>There is exactly one opener per function today (176 methods, no
-     * {@code float[]} overload). The filter is there so that adding one later
-     * makes this sweep keep testing the {@code double} API rather than picking
-     * whichever overload {@code getMethods()} happened to return first — an
-     * order the JLS does not specify, which is the difference between a gate
-     * that fails and a gate that flakes.
+     * <p>There is exactly one opener per function today (no {@code float[]}
+     * overload). The filter is there so that adding one later makes this sweep
+     * keep testing the {@code double} API rather than picking whichever
+     * overload {@code getMethods()} happened to return first, an order the JLS
+     * does not specify, which is the difference between a gate that fails and a
+     * gate that flakes.
      */
     private static java.lang.reflect.Method methodNamed(Class<?> c, String name) {
         for (java.lang.reflect.Method m : c.getMethods()) {
@@ -1158,22 +1158,21 @@ public class StreamSmokeTest {
      * paired with the same sabotage driven through {@code stream_verify}, and
      * the miss recorded rather than rounded off:</b>
      * <ul>
-     *   <li>{@code clone()} → {@code return this}: 176 of 176 named here, and
-     *       the range assertions are what do it — the value assertions alone
-     *       name 108, so 68 handles would have shared state silently.
+     *   <li>{@code clone()} → {@code return this}: every handle named here,
+     *       and the range assertions are what do it; the value assertions alone
+     *       miss handles that would then share state silently.
      *       {@code stream_verify} also goes red.
-     *   <li>the copy constructor drops the two range fields: 176 of 176 named
-     *       here, {@code stream_verify} fully green. The one defect class with
-     *       no other cover.
+     *   <li>the copy constructor drops the two range fields: every handle
+     *       named here, {@code stream_verify} fully green. The one defect class
+     *       with no other cover.
      *   <li>{@code peek} moves the range: named here, {@code stream_verify}
      *       also goes red.
      * </ul>
      * With every {@code peek} rewritten to step the handle instead of a scratch
-     * copy (95 of the 176 handles are emitted in that shape), it names 81 of the
-     * 95. The 14 it does not are candlestick patterns whose output is 0 on both
-     * sides of the corruption; making them observable needs bars that trigger
-     * the pattern, which is what the MC/DC suites (#219) are for, not a corpus
-     * this sweep can carry.
+     * copy, it names every handle emitted in that shape except candlestick
+     * patterns whose output is 0 on both sides of the corruption; making them
+     * observable needs bars that trigger the pattern, which is what the MC/DC
+     * suites (#219) are for, not a corpus this sweep can carry.
      */
     private static void peekAndCopyHoldOnEveryHandle(Core core) {
         java.util.List<String> unhandled = new java.util.ArrayList<String>();

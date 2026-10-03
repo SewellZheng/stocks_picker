@@ -166,6 +166,52 @@ public partial class Core
       return legMax + MaLookback(optInSignalPeriod, optInSignalMAType) ;
 
    }
+   /// <summary>
+   /// How many bars ahead (positive) or behind (negative) of the bar that
+   /// computed it a chart draws one output of <c>Kstext</c>.
+   /// </summary>
+   /// <remarks>
+   /// Every output of this function is drawn at its own bar, so the answer is 0.
+   /// </remarks>
+   /// <param name="optInROC1Period">Rate-of-change period of leg 1 (weight 1) (default 10; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInROC2Period">Rate-of-change period of leg 2 (weight 2) (default 15; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInROC3Period">Rate-of-change period of leg 3 (weight 3) (default 20; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInROC4Period">Rate-of-change period of leg 4 (weight 4) (default 30; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMA1Period">Period of the MA smoothing leg 1 (default 10; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMA2Period">Period of the MA smoothing leg 2 (default 10; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMA3Period">Period of the MA smoothing leg 3 (default 10; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMA4Period">Period of the MA smoothing leg 4 (default 15; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInSignalPeriod">Period of the signal-line MA (default 9; range 1..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInROCMAType">MA type smoothing the four legs (default 0 = SMA; values: 0=SMA, 1=EMA,
+   /// 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// <param name="optInSignalMAType">MA type for the signal line (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA,
+   /// 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+   /// 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA; <c>MAType.DEFAULT</c> (or
+   /// <c>(MAType)int.MinValue</c>) selects the default).</param>
+   /// <param name="outputIdx">Position of the output in the batch signature, from 0.</param>
+   /// <returns>The display shift, or <c>int.MinValue</c> if a parameter is out of range
+   /// or the index names no output.</returns>
+   public int KstextDisplayShift( int optInROC1Period, int optInROC2Period, int optInROC3Period, int optInROC4Period, int optInMA1Period, int optInMA2Period, int optInMA3Period, int optInMA4Period, int optInSignalPeriod, MAType optInROCMAType, MAType optInSignalMAType, int outputIdx )
+   {
+      if( KstextLookback( optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType ) < 0 ) {
+         return int.MinValue;
+      }
+      if( outputIdx < 0 || outputIdx >= 2 ) {
+         return int.MinValue;
+      }
+      return 0;
+   }
    internal RetCode KstextImpl( int startIdx,
                                 int endIdx,
                                 ReadOnlySpan<double> inReal,
@@ -262,7 +308,7 @@ public partial class Core
       } else if( (int)optInSignalMAType < MATypes.Min || (int)optInSignalMAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
-      if( outKST.Overlaps(outKSTSignal) ) {
+      if( OutputsAlias(outKST, outKSTSignal) ) {
          return RetCode.BadParam ;
       }
       if( (outKST.Overlaps(inReal) && outKST != inReal) || (outKSTSignal.Overlaps(inReal) && outKSTSignal != inReal) ) {
@@ -449,7 +495,7 @@ public partial class Core
       } else if( (int)optInSignalMAType < MATypes.Min || (int)optInSignalMAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
-      if( outKST.Overlaps(outKSTSignal) ) {
+      if( OutputsAlias(outKST, outKSTSignal) ) {
          return RetCode.BadParam ;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outKST).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outKSTSignal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
@@ -557,10 +603,10 @@ public partial class Core
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>KstextLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>KstextLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -616,13 +662,11 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output partially overlaps an input. Computing wholly in place (an output
+   /// that IS an input) is allowed.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Kst(int, int, ReadOnlySpan{double}, int, int, int, int, int, int, int, int, int, Span{double}, Span{double})"/>
@@ -690,10 +734,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>KstextLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>KstextLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -749,15 +793,13 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
-   /// a real input never share an element type in this overload, so the two can
-   /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output overlaps an input. An output and a real input never share an
+   /// element type in this overload, so the two can never be the same span:
+   /// there is no in-place case to allow, and any overlap of their byte ranges
+   /// is rejected.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Kst(int, int, ReadOnlySpan{double}, int, int, int, int, int, int, int, int, int, Span{double}, Span{double})"/>
@@ -1328,7 +1370,7 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public KstextStream KstextOpen( ReadOnlySpan<double> inReal, int optInROC1Period, int optInROC2Period, int optInROC3Period, int optInROC4Period, int optInMA1Period, int optInMA2Period, int optInMA3Period, int optInMA4Period, int optInSignalPeriod, MAType optInROCMAType, MAType optInSignalMAType )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "KSTEXT open: history is empty", RetCode.OutOfRangeStartIndex);
@@ -1385,7 +1427,7 @@ public partial class Core
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public KstextStream KstextOpenAndFill( ReadOnlySpan<double> inReal, int optInROC1Period, int optInROC2Period, int optInROC3Period, int optInROC4Period, int optInMA1Period, int optInMA2Period, int optInMA3Period, int optInMA4Period, int optInSignalPeriod, MAType optInROCMAType, MAType optInSignalMAType, Span<double> outKST, Span<double> outKSTSignal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "KSTEXT openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
@@ -1393,7 +1435,7 @@ public partial class Core
       int guardOutLen = OpenFillCount("KSTEXT", "openAndFill", inReal.Length, KstextLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType));
       RequireFillLength("KSTEXT", "openAndFill", "outKST", outKST.Length, guardOutLen);
       RequireFillLength("KSTEXT", "openAndFill", "outKSTSignal", outKSTSignal.Length, guardOutLen);
-      if( outKST.Overlaps(inReal) || outKSTSignal.Overlaps(inReal) || outKST.Overlaps(outKSTSignal) ) {
+      if( outKST.Overlaps(inReal) || outKSTSignal.Overlaps(inReal) || OutputsAlias(outKST, outKSTSignal) ) {
          throw StreamFailure("KSTEXT", "openAndFill", RetCode.BadParam);
       }
       return KstextOpenAndFillInternal(inReal, 0, optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType, out _, out _, outKST, outKSTSignal);

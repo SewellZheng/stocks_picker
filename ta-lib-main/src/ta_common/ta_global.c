@@ -52,6 +52,7 @@
  *  040707 MF   Change global initialization to eliminate Mac OS X link error.
  *  081126 KL,MF,CC Validate every TA_SetCandleSettings argument, not just the
  *                settingType (#185)
+ *  100126 MF,CC Pre-load the candle defaults, also after TA_Shutdown.
  */
 
 /* Description:
@@ -76,8 +77,38 @@
 
 /**** Global variables definitions.    ****/
 
-/* The entry point for all globals */
-TA_LibcPriv ta_theGlobals = {0,{{0,0,0}},0,0,0,0,{0},{{(TA_CandleSettingType)0,(TA_RangeType)0,0,0}}};
+/* One row per TA_CandleSettingType, in enum order. */
+#define TA_CANDLE_DEFAULT_SETTINGS \
+   /* real body is long when it's longer than the average of the 10 previous candles' real body */ \
+   { TA_BodyLong, TA_RangeType_RealBody, 10, 1.0 }, \
+   /* real body is very long when it's longer than 3 times the average of the 10 previous candles' real body */ \
+   { TA_BodyVeryLong, TA_RangeType_RealBody, 10, 3.0 }, \
+   /* real body is short when it's shorter than the average of the 10 previous candles' real bodies */ \
+   { TA_BodyShort, TA_RangeType_RealBody, 10, 1.0 }, \
+   /* real body is like doji's body when it's shorter than 10% the average of the 10 previous candles' high-low range */ \
+   { TA_BodyDoji, TA_RangeType_HighLow, 10, 0.1 }, \
+   /* shadow is long when it's longer than the real body */ \
+   { TA_ShadowLong, TA_RangeType_RealBody, 0, 1.0 }, \
+   /* shadow is very long when it's longer than 2 times the real body */ \
+   { TA_ShadowVeryLong, TA_RangeType_RealBody, 0, 2.0 }, \
+   /* shadow is short when it's shorter than half the average of the 10 previous candles' sum of shadows */ \
+   { TA_ShadowShort, TA_RangeType_Shadows, 10, 1.0 }, \
+   /* shadow is very short when it's shorter than 10% the average of the 10 previous candles' high-low range */ \
+   { TA_ShadowVeryShort, TA_RangeType_HighLow, 10, 0.1 }, \
+   /* when measuring distance between parts of candles or width of gaps */ \
+   /* "near" means "<= 20% of the average of the 5 previous candles' high-low range" */ \
+   { TA_Near, TA_RangeType_HighLow, 5, 0.2 }, \
+   /* when measuring distance between parts of candles or width of gaps */ \
+   /* "far" means ">= 60% of the average of the 5 previous candles' high-low range" */ \
+   { TA_Far, TA_RangeType_HighLow, 5, 0.6 }, \
+   /* when measuring distance between parts of candles or width of gaps */ \
+   /* "equal" means "<= 5% of the average of the 5 previous candles' high-low range" */ \
+   { TA_Equal, TA_RangeType_HighLow, 5, 0.05 }
+
+/* The entry point for all globals. The candle defaults are pre-loaded only to
+ * soften a call made without TA_Initialize; the contract still requires it, once
+ * per process. */
+TA_LibcPriv ta_theGlobals = { .candleSettings = { TA_CANDLE_DEFAULT_SETTINGS } };
 
 TA_LibcPriv *TA_Globals = &ta_theGlobals;
 
@@ -122,7 +153,7 @@ TA_RetCode TA_Shutdown( void )
    /* Initialize to all zero to make sure we invalidate that object. */
    memset( TA_Globals, 0, sizeof( TA_LibcPriv ) );
 
-   return TA_SUCCESS;
+   return TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
 }
 
 /* A setting at 12 or above means candleSettings[] reaches past index 11,
@@ -150,11 +181,11 @@ TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
     if( (unsigned int)rangeType > (unsigned int)TA_RangeType_Shadows )
         return TA_BAD_PARAM;
 
-    /* avgPeriod IS the lookback of every function that reads this setting, so
-     * it is bounded like one (#185). A negative one starts the main loop that
-     * many bars late while *outBegIdx still reports startIdx -- every value
-     * shifted under a correct-looking index, and a lookback reporting negative
-     * while the call returns TA_SUCCESS. TA_INDEX_MAX is the ceiling
+    /* avgPeriod enters the lookback of every function that reads this
+     * setting, so it is bounded like one (#185). A negative one starts the main
+     * loop that many bars late while *outBegIdx still reports startIdx -- every
+     * value shifted under a correct-looking index, and a lookback reporting
+     * negative while the call returns TA_SUCCESS. TA_INDEX_MAX is the ceiling
      * TA_SetUnstablePeriod already uses for the same reason: above it the
      * `max(...)+N` lookbacks overflow signed-negative into that same state, and
      * a warm-up longer than the largest addressable series could never produce
@@ -163,12 +194,10 @@ TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
         return TA_BAD_PARAM;
 
     /* factor scales a threshold, never an index, so any finite value is legal.
-     * A negative one is legal too, and it does not "never match" -- the range
-     * and the average are both non-negative, so `range > factor*avg` becomes
-     * unconditionally TRUE rather than false, and the pattern fires on every
-     * bar. Legal, and worth knowing before setting one.
-     * NaN is refused because it silences every comparison it feeds without
-     * being asked to. */
+     * A negative one is legal too: with a positive average, every test that a
+     * range is above the threshold passes and every test that it is at or
+     * below fails. NaN is refused because it silences every comparison it
+     * feeds without being asked to. */
     if( factor != factor )
         return TA_BAD_PARAM;
 
@@ -183,33 +212,7 @@ TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
 
 TA_RetCode TA_RestoreCandleDefaultSettings( TA_CandleSettingType settingType )
 {
-    const TA_CandleSetting TA_CandleDefaultSettings[] = {
-        /* real body is long when it's longer than the average of the 10 previous candles' real body */
-        { TA_BodyLong, TA_RangeType_RealBody, 10, 1.0 },
-        /* real body is very long when it's longer than 3 times the average of the 10 previous candles' real body */
-        { TA_BodyVeryLong, TA_RangeType_RealBody, 10, 3.0 },
-        /* real body is short when it's shorter than the average of the 10 previous candles' real bodies */
-        { TA_BodyShort, TA_RangeType_RealBody, 10, 1.0 },
-        /* real body is like doji's body when it's shorter than 10% the average of the 10 previous candles' high-low range */
-        { TA_BodyDoji, TA_RangeType_HighLow, 10, 0.1 },
-        /* shadow is long when it's longer than the real body */
-        { TA_ShadowLong, TA_RangeType_RealBody, 0, 1.0 },
-        /* shadow is very long when it's longer than 2 times the real body */
-        { TA_ShadowVeryLong, TA_RangeType_RealBody, 0, 2.0 },
-        /* shadow is short when it's shorter than half the average of the 10 previous candles' sum of shadows */
-        { TA_ShadowShort, TA_RangeType_Shadows, 10, 1.0 },
-        /* shadow is very short when it's shorter than 10% the average of the 10 previous candles' high-low range */
-        { TA_ShadowVeryShort, TA_RangeType_HighLow, 10, 0.1 },
-        /* when measuring distance between parts of candles or width of gaps */
-        /* "near" means "<= 20% of the average of the 5 previous candles' high-low range" */
-        { TA_Near, TA_RangeType_HighLow, 5, 0.2 },
-        /* when measuring distance between parts of candles or width of gaps */
-        /* "far" means ">= 60% of the average of the 5 previous candles' high-low range" */
-        { TA_Far, TA_RangeType_HighLow, 5, 0.6 },
-        /* when measuring distance between parts of candles or width of gaps */
-        /* "equal" means "<= 5% of the average of the 5 previous candles' high-low range" */
-        { TA_Equal, TA_RangeType_HighLow, 5, 0.05 }
-    };
+    static const TA_CandleSetting TA_CandleDefaultSettings[] = { TA_CANDLE_DEFAULT_SETTINGS };
 
     int i;
 
@@ -218,7 +221,7 @@ TA_RetCode TA_RestoreCandleDefaultSettings( TA_CandleSettingType settingType )
      * becomes a clean error instead of an over-read. */
     if( sizeof(TA_CandleDefaultSettings)/sizeof(TA_CandleDefaultSettings[0])
         != (size_t)TA_NB_CANDLE_SETTING )
-        return TA_INTERNAL_ERROR;
+        return TA_INTERNAL_ERROR(482);
 
     if( settingType == TA_AllCandleSettings )
         for( i = 0; i < TA_NB_CANDLE_SETTING; ++i )

@@ -153,6 +153,32 @@ impl Core {
         }
         return Ok(retValue);
     }
+    /// Display shift of one output of [`Core::ma`]: how many bars ahead (positive) or behind
+    /// (negative) of the bar that computed it a chart draws that output. The values are never
+    /// shifted.
+    ///
+    /// Every output of this function is drawn at its own bar, so the answer is 0.
+    ///
+    /// # Arguments
+    ///
+    /// * `optInTimePeriod` — Averaging window length (default 30, range 1..=100000)
+    /// * `optInMAType` — Which moving-average algorithm to dispatch to (default 0 = SMA, values:
+    ///   0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
+    ///   11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA, `MAType::DEFAULT` selects the default)
+    /// * `outputIdx` — Position of the output in the batch signature, from 0
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range or the index names no output. Integer
+    /// parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_MA_DisplayShift")]
+    pub fn ma_display_shift(&self, mut optInTimePeriod: i32, mut optInMAType: MAType, outputIdx: usize) -> Result<i32, RetCode> {
+        self.ma_lookback(optInTimePeriod, optInMAType)?;
+        if outputIdx >= 1 {
+            return Err(RetCode::BadParam);
+        }
+        return Ok(0);
+    }
     /// C-shaped body behind [`Core::ma`]: a `RetCode` plus two out-params,
     /// which is what the transcribed body is written against. Since #267 its only
     /// callers are that wrapper and the phantom-I/O sweep.
@@ -745,7 +771,7 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
-    /// values — the batch tier's sizing rule, checked here as it is there (rule S5).
+    /// values — the batch tier's sizing rule, checked here as it is there (rule rS5).
     /// Everything [`Core::ma_open`] rejects is rejected here too.
     ///
     /// # Examples
@@ -969,10 +995,9 @@ impl MaStream {
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
     /// That check runs before anything is written, so the handle's state is
-    /// left exactly as it was and the stream stays usable: skip the bar, or
-    /// close and re-open on a clean history. This is the one place the
-    /// streaming tier is stricter than the batch API, which computes on
-    /// whatever it is given — a handle retains its state, so a single
+    /// left exactly as it was and the stream stays usable. This is the one
+    /// place the streaming tier is stricter than the batch API, which computes
+    /// on whatever it is given: a handle retains its state, so a single
     /// non-finite bar would poison every later value it produces.
     ///
     /// A rejection leaves [`Self::out_range`] alone too. Re-feed the bar when

@@ -37,6 +37,32 @@
       return optInTimePeriod - 1 ;
 
    }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#adr}.
+    * <p>Every output of this function is drawn at its own bar, so the answer is
+    * 0.
+    *
+    * @param optInTimePeriod Number of bar ranges averaged. Published
+    *        conventions differ and none is authoritative: TradingView's ADR indicator
+    *        page works its example over 7 bars, TC2000's over 10, and the Qullamaggie
+    *        screener community reads "ADR" as 20. The value shipped here is ATR's, so
+    *        the two volatility measures are comparable out of the box (default 14;
+    *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int adrDisplayShift( int optInTimePeriod, int outputIdx )
+   {
+      if( adrLookback( optInTimePeriod ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 1 ) {
+         return Integer.MIN_VALUE;
+      }
+      return 0;
+   }
    RetCode adrImpl( int startIdx,
                     int endIdx,
                     double inHigh[],
@@ -204,10 +230,10 @@
     * <li>No percentage form is emitted. The two published ones disagree by more than 20% on ordinary data — Qullamaggie's {@code 100 · (SMA(high/low, 20) - 1)} averages ratios, TradingView's {@code (SMA(high, 14) - SMA(low, 14)) / close · 100} takes a ratio of averages — so picking one silently would ship a second indicator under this one's name.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#adrLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#adrLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -288,10 +314,10 @@
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#adrLookback} is a <b>success with
-    * no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#adrLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).

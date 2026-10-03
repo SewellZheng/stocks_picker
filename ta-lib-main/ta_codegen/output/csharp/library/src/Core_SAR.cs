@@ -91,6 +91,30 @@ public partial class Core
       return 1 ;
 
    }
+   /// <summary>
+   /// How many bars ahead (positive) or behind (negative) of the bar that
+   /// computed it a chart draws one output of <c>Sar</c>.
+   /// </summary>
+   /// <remarks>
+   /// Every output of this function is drawn at its own bar, so the answer is 0.
+   /// </remarks>
+   /// <param name="optInAcceleration">Step added to the acceleration factor on each new extreme point (default
+   /// 0.02; minimum 0; <see cref="Core.RealDefault"/> selects the default).</param>
+   /// <param name="optInMaximum">Ceiling on the acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.RealDefault"/> selects the default).</param>
+   /// <param name="outputIdx">Position of the output in the batch signature, from 0.</param>
+   /// <returns>The display shift, or <c>int.MinValue</c> if a parameter is out of range
+   /// or the index names no output.</returns>
+   public int SarDisplayShift( double optInAcceleration, double optInMaximum, int outputIdx )
+   {
+      if( SarLookback( optInAcceleration, optInMaximum ) < 0 ) {
+         return int.MinValue;
+      }
+      if( outputIdx < 0 || outputIdx >= 1 ) {
+         return int.MinValue;
+      }
+      return 0;
+   }
    internal RetCode SarImpl( int startIdx,
                              int endIdx,
                              ReadOnlySpan<double> inHigh,
@@ -525,10 +549,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>SarLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>SarLookback</c> is a <b>success with no values</b> (<c>Count == 0</c>),
+   /// not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -560,13 +584,11 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output partially overlaps an input. Computing wholly in place (an output
+   /// that IS an input) is allowed.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Sarext(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, double, double, double, double, double, double, double, double, Span{double})"/>
@@ -611,10 +633,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>SarLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>SarLookback</c> is a <b>success with no values</b> (<c>Count == 0</c>),
+   /// not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -646,15 +668,13 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
-   /// a real input never share an element type in this overload, so the two can
-   /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output overlaps an input. An output and a real input never share an
+   /// element type in this overload, so the two can never be the same span:
+   /// there is no in-place case to allow, and any overlap of their byte ranges
+   /// is rejected.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Sarext(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, double, double, double, double, double, double, double, double, Span{double})"/>
@@ -1392,7 +1412,7 @@ public partial class Core
    /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public SarStream SarOpen( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, double optInAcceleration, double optInMaximum )
    {
       if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "SAR open: history is empty", RetCode.OutOfRangeStartIndex);
@@ -1431,7 +1451,7 @@ public partial class Core
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public SarStream SarOpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, double optInAcceleration, double optInMaximum, Span<double> outReal )
    {
       if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "SAR openAndFill: history is empty", RetCode.OutOfRangeStartIndex);

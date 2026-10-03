@@ -52,6 +52,33 @@
       return retValue ;
 
    }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#crsi}.
+    * <p>Every output of this function is drawn at its own bar, so the answer is
+    * 0.
+    *
+    * @param optInTimePeriod Period of the RSI of the closes (default 3; range
+    *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInStreakPeriod Period of the RSI of the up/down streak (default
+    *        2; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInRankPeriod Number of earlier one-bar returns each return is
+    *        ranked against (default 100; range 2..10000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int crsiDisplayShift( int optInTimePeriod, int optInStreakPeriod, int optInRankPeriod, int outputIdx )
+   {
+      if( crsiLookback( optInTimePeriod, optInStreakPeriod, optInRankPeriod ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 1 ) {
+         return Integer.MIN_VALUE;
+      }
+      return 0;
+   }
    RetCode crsiImpl( int startIdx,
                      int endIdx,
                      double inReal[],
@@ -282,10 +309,10 @@
     * <li>Finite input is a precondition. A NaN close does not propagate: the output stays finite and no error is reported, but the values that follow it are wrong.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#crsiLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#crsiLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -362,10 +389,10 @@
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#crsiLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#crsiLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).

@@ -132,6 +132,10 @@ pub struct RustRenderCtx {
     /// If true, we're inside a lookback function (returns usize, not RetCode).
     /// Return values that are i32-typed will be cast to usize.
     pub is_lookback: bool,
+    /// With `is_lookback`: the body is a display shift, so the value is an
+    /// `i32` that may be negative, `-1` is an answer rather than the bad-param
+    /// sentinel, and every integer local is signed.
+    pub signed_query: bool,
     /// Variable names that are assigned negative values (e.g., `highestIdx = -1`).
     /// These are declared as `i32` instead of `usize` to preserve sentinel semantics.
     /// When used as array indices, they get `as usize` casts.
@@ -159,7 +163,7 @@ pub struct RustRenderCtx {
     /// the ring's own check. A batch CIRCBUF absent here has no cursor.
     pub circbuf_len_of: std::collections::HashMap<String, String>,
     /// Output parameters typed `Option<&mut [T]>` because their .yaml marks them
-    /// `nullable` (rule B6a). Every store into one is wrapped in an `if let
+    /// `nullable` (rule rB7). Every store into one is wrapped in an `if let
     /// Some(..) = ..as_deref_mut()`, so a caller that passed `None` is skipped.
     /// Populated for the batch bodies and the stream tier's transcribed open
     /// region; the step/peek frames keep their outputs required and leave
@@ -290,6 +294,7 @@ impl RustRenderCtx {
             int_output_names: std::collections::HashSet::new(),
             int_vec_vars: std::collections::HashSet::new(),
             is_lookback: true,
+            signed_query: false,
             sentinel_vars: std::collections::HashSet::new(),
             result_error_returns: false,
             matype_map: std::collections::HashMap::new(),
@@ -622,6 +627,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     );
 
     out.push_str(&gen_lookback(func, &snake, enums, registry, helpers));
+    out.push_str(&gen_display_shift(func, &snake, enums, registry, helpers));
 
     // Guarded public entry: validates params, then either renders the algorithm
     // inline or delegates to `_private`.
@@ -686,6 +692,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         int_output_names: int_output_set,
         int_vec_vars,
         is_lookback: false,
+        signed_query: false,
         sentinel_vars,
         result_error_returns: false,
         matype_map: build_matype_map(enums),
@@ -734,7 +741,7 @@ fn gen_lookback(
             out.push_str(&format!("        return Ok(({param} - {offset}) as usize);\n"));
         }
         Some(LookbackExpr::Code(stmts)) => {
-            out.push_str(&render_lookback_code(stmts, func, enums, registry, helpers));
+            out.push_str(&render_lookback_code(stmts, func, false, enums, registry, helpers));
         }
         None => {
             out.push_str("        return Ok(0);\n");
@@ -768,6 +775,61 @@ fn gen_lookback(
         emit_lookback_return(&mut out);
     }
 
+    out.push_str("    }\n");
+    out
+}
+
+fn gen_display_shift(
+    func: &FuncDef,
+    snake: &str,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    let idx = crate::ir::DISPLAY_SHIFT_INDEX_PARAM;
+    let mut out = super::rust_doc::display_shift_docs(func, snake, enums);
+
+    let mut params: Vec<String> = func
+        .optional_inputs
+        .iter()
+        .map(|opt| format!("mut {}: {}", opt.name, opt_param_type(&opt.param_type)))
+        .collect();
+    params.push(format!("{idx}: usize"));
+    out.push_str(&format!(
+        "    pub fn {snake}_display_shift(&self, {}) -> Result<i32, RetCode> {{\n",
+        params.join(", ")
+    ));
+    if !func.optional_inputs.is_empty() {
+        let args: Vec<&str> = func.optional_inputs.iter().map(|o| o.name.as_str()).collect();
+        out.push_str(&format!("        self.{snake}_lookback({})?;\n", args.join(", ")));
+    }
+    if func.display_shift.is_some() {
+        for opt in &func.optional_inputs {
+            out.push_str(&gen_opt_param_validation(opt, "        ", true, enums));
+        }
+    }
+    out.push_str(&format!(
+        "        if {idx} >= {} {{\n            return Err(RetCode::BadParam);\n        }}\n",
+        func.outputs.len()
+    ));
+    match &func.display_shift {
+        Some(stmts) => {
+            let unshifted = func.unshifted_outputs();
+            if !unshifted.is_empty() {
+                let tests: Vec<String> =
+                    unshifted.iter().map(|i| format!("{idx} == {i}")).collect();
+                out.push_str(&format!(
+                    "        if {} {{\n            return Ok(0);\n        }}\n",
+                    tests.join(" || ")
+                ));
+            }
+            // The body is written against C's `int outputIdx`; in range, the
+            // conversion is exact.
+            out.push_str(&format!("        let {idx}: i32 = {idx} as i32;\n"));
+            out.push_str(&render_lookback_code(stmts, func, true, enums, registry, helpers));
+        }
+        None => out.push_str("        return Ok(0);\n"),
+    }
     out.push_str("    }\n");
     out
 }
@@ -814,9 +876,9 @@ fn internal_callee(name: &str) -> String {
 /// purpose.
 ///
 /// **Order is the contract, not an implementation detail.** The index rules
-/// (B1, B2) first, then the parameters (B3, carried by the `<N>_Lookback` call's
-/// `?`), then the buffers (B4, B5): the order of the batch table
-/// (`https://ta-lib.org/spec/errors/#b1`), and the one
+/// (rB1, rB2) first, then the parameters (rB3, carried by the `<N>_Lookback` call's
+/// `?`), then the buffers (rB4, rB5): the order of the batch table
+/// (`https://ta-lib.org/spec/errors/#rb1`), and the one
 /// [`super::java::gen_argument_checks`] emits. Put the input bound at
 /// the top and `SMA(10, 9, ..)` answers `BadParam` where `test_index_range_xlang`
 /// requires `OutOfRangeEndIndex`.
@@ -876,7 +938,7 @@ fn gen_public_entry(
     out
 }
 
-/// The public tier's argument contract: rules B1/B2, then B3, then B4/B5.
+/// The public tier's argument contract: rules rB1/rB2, then rB3, then rB4/rB5.
 ///
 /// The Rust transcription of [`super::java::gen_argument_checks`], down to the
 /// two guard widths. `guardInLen` is `endIdx + 1` **unconditionally** — `endIdx`
@@ -884,18 +946,18 @@ fn gen_public_entry(
 /// range, and the only reason C answers it with `TA_SUCCESS` is that it has no
 /// size to check against. `guardOutLen` is the count actually produced, which on
 /// a range that ends before the lookback is `0`: no output space is owed, so any
-/// length will do, including none (rule N1).
+/// length will do, including none (rule rW2).
 ///
-/// B3 rides on `<N>_Lookback`'s `?`. Rule L2 makes the lookback's parameter
-/// decision the batch tier's own B3 decision on the same parameters, so one call
+/// rB3 rides on `<N>_Lookback`'s `?`. Rule rL3 makes the lookback's parameter
+/// decision the batch tier's own rB3 decision on the same parameters, so one call
 /// buys the check and the clamp together — which is what Java's `clampedStart`
-/// does, and what puts B3 ahead of B4/B5.
+/// does, and what puts rB3 ahead of rB4/rB5.
 ///
-/// No `requireArgument` counterpart: a Rust enum cannot be absent, so B4's
+/// No `requireArgument` counterpart: a Rust enum cannot be absent, so rB4's
 /// presence half is the type system's, as it is in C#.
 fn gen_argument_checks(func: &FuncDef, snake: &str) -> String {
     let mut out = String::new();
-    // B1/B2 first. `_Impl` states them again -- it is reachable on its own from
+    // rB1/rB2 first. `_Impl` states them again -- it is reachable on its own from
     // a cross-indicator call -- but they have to be HERE, ahead of the buffer
     // bounds, or a malformed range answers the wrong code. They also make
     // `endIdx + 1` below non-overflowing.
@@ -928,7 +990,7 @@ fn gen_argument_checks(func: &FuncDef, snake: &str) -> String {
         );
     }
     for output in &func.outputs {
-        // A nullable output may be declined with `None` (rule B6a): nothing is
+        // A nullable output may be declined with `None` (rule rB7): nothing is
         // written to it, so there is no capacity to owe. Supplied, it is bounded
         // like any other -- "declined" is `None` and nothing else.
         let cond = if output.is_nullable() {
@@ -999,8 +1061,8 @@ fn gen_guarded_func(
     // checks in a `#![forbid(unsafe_code)]` crate. `guard_empty_range` keeps a
     // call that computes nothing from panicking.
     //
-    // BEFORE the aliasing guard below, because the spec orders B5 (a buffer too
-    // short) ahead of B6 (two outputs are the same buffer) and a call that is
+    // BEFORE the aliasing guard below, because the spec orders rB5 (a buffer too
+    // short) ahead of rB6 (two outputs are the same buffer) and a call that is
     // both must report the first (#261). The two answer DIFFERENT things here --
     // a panic against `BadParam` -- so, unlike two rules that share a code, the
     // order is observable and owed.
@@ -1019,7 +1081,7 @@ fn gen_guarded_func(
                 // Cross-typed pairs are skipped because safe code cannot lay
                 // a `&mut [f64]` over a `&mut [i32]` to begin with, so there is
                 // nothing to detect — not because the compare is unspellable
-                // (both `as *const u8` would do). Rationale B6 in
+                // (both `as *const u8` would do). Rationale rB6 in
                 // `docs/error-handling-spec.md`, #262.
                 if (a.param_type == ParamType::Integer) != (b.param_type == ParamType::Integer) {
                     continue;
@@ -1072,6 +1134,7 @@ fn gen_guarded_func(
             int_output_names: g_int_output_set,
             int_vec_vars: g_int_vec_vars,
             is_lookback: false,
+            signed_query: false,
             sentinel_vars: g_sentinel_vars,
             result_error_returns: false,
             matype_map: build_matype_map(enums),
@@ -1178,6 +1241,7 @@ fn gen_guarded_func(
             int_output_names: g_int_output_set,
             int_vec_vars: g_int_vec_vars,
             is_lookback: false,
+            signed_query: false,
             sentinel_vars: g_sentinel_vars,
             result_error_returns: false,
             matype_map: build_matype_map(enums),
@@ -1493,7 +1557,7 @@ fn emit_bounds_asserts(func: &FuncDef, snake: &str, guard_empty_range: bool) -> 
     let escape = if guard_empty_range { "_assertStart > endIdx || " } else { "" };
     // EVERY declared input, including the seven candlestick legs whose body never
     // indexes them (#260). For the legs the body DOES read the assert is the LLVM
-    // proof; for the seven it proves nothing and states B4/B5 instead — a `len()`
+    // proof; for the seven it proves nothing and states rB4/rB5 instead — a `len()`
     // compare in the entry block, outside every loop, on a call that is about to
     // walk the series. Filtering them out bought that and cost the contract: a
     // declared input a caller may omit is an exception list, and C never had one,
@@ -1504,8 +1568,8 @@ fn emit_bounds_asserts(func: &FuncDef, snake: &str, guard_empty_range: bool) -> 
         ));
     }
     for output in &func.outputs {
-        // A declined output (`None`, rule B6a) has no capacity to bound: nothing
-        // is written to it, so B5 has nothing to say about it.
+        // A declined output (`None`, rule rB7) has no capacity to bound: nothing
+        // is written to it, so rB5 has nothing to say about it.
         if output.is_nullable() {
             out.push_str(&format!(
                 "        assert!(_assertStart > endIdx || {}.as_deref().is_none_or(|o| endIdx - _assertStart < o.len()));\n",
@@ -1761,9 +1825,9 @@ fn gen_generic_params(func: &FuncDef) -> String {
 
 /// The Rust type of one output parameter.
 ///
-/// A `nullable` output (rule B6a) is `Option<&mut [T]>`. Rust can spell
+/// A `nullable` output (rule rB7) is `Option<&mut [T]>`. Rust can spell
 /// "declined" distinctly from "empty" and so it does, which leaves C# the only
-/// backend where the two collapse (rationale O5 in `docs/error-handling-spec.md`).
+/// backend where the two collapse (rationale rW5 in `docs/error-handling-spec.md`).
 /// `None` means *compute it but do not write it out*: every store to that output
 /// is guarded and its capacity assert is skipped.
 fn output_param_type(output: &Output) -> String {
@@ -1779,7 +1843,7 @@ fn output_param_type(output: &Output) -> String {
 }
 
 /// If `target` stores into one of the `nullable` outputs (an `Option<&mut [T]>`
-/// the caller may pass `None` to decline — rule B6a), return its base name so
+/// the caller may pass `None` to decline — rule rB7), return its base name so
 /// the store can be wrapped in `if let Some(..) = ..as_deref_mut()`. Matches the
 /// array store `outX[i] = …` and the scalar store `outX = …`; the value side is
 /// never involved.
@@ -1801,7 +1865,7 @@ fn nullable_target_base<'a>(
 /// pointer — so a bare `as_ptr()` comparison rejected three separately allocated
 /// empty `Vec`s while accepting three zero-length subslices of one buffer, which
 /// is worse than either answer. A range that ends before the lookback produces
-/// nothing and needs no output space (rule N1), so those calls are legal and C
+/// nothing and needs no output space (rule rW2), so those calls are legal and C
 /// and Java always accepted them (Appendix D item 11).
 ///
 /// A nullable output contributes a term only when the caller supplied it: `None`
@@ -3651,7 +3715,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
         };
         // A store into a nullable output is wrapped: the parameter is
         // `Option<&mut [T]>`, and `None` means the caller declined it (rule
-        // B6a). The `if let` shadows the parameter name with the slice, so
+        // rB7). The `if let` shadows the parameter name with the slice, so
         // `target_str` and the whole cast chain below render unchanged. The
         // `outIdx` advance rides the non-nullable partner's write (see mama.c),
         // so guarding this store is complete.
@@ -3875,6 +3939,10 @@ impl StatementEmitter for RustStmt<'_, '_> {
             }
         }
         match value {
+            Some(expr) if self.ctx.signed_query => {
+                let rendered = render_return_expr(expr, self.ctx, self.opt_real_params, self.registry, self.helpers);
+                format!("{pad}return Ok({rendered});\n")
+            }
             Some(expr) if self.ctx.is_lookback && is_negative_one(expr) => {
                 // The lookback bad-param contract: -1 in C, Java and C#; Rust's
                 // lookback returns `Result<usize, RetCode>`, so the same C-side
@@ -5165,6 +5233,7 @@ fn render_index_expr(
 fn render_lookback_code(
     stmts: &[Statement],
     func: &FuncDef,
+    signed_query: bool,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
@@ -5183,6 +5252,12 @@ fn render_lookback_code(
     lookback_ctx.matype_map = build_matype_map(enums);
     lookback_ctx.enum_vars = enum_local_types(func);
     prune_enum_locals(&mut lookback_ctx.index_vars, &lookback_ctx.enum_vars);
+    if signed_query {
+        lookback_ctx.signed_query = true;
+        lookback_ctx.sentinel_vars.extend(lookback_ctx.index_vars.drain());
+        // Its name reads as an index, which would type it `usize` in an expression.
+        lookback_ctx.sentinel_vars.insert(crate::ir::DISPLAY_SHIFT_INDEX_PARAM.to_string());
+    }
 
     for stmt in stmts {
         if let Statement::VarDecl { var_type, name, .. } = stmt {
@@ -5862,7 +5937,7 @@ fn render_cross_indicator_args(
                     render_cross_indicator_arg(arg, i, is_output, ctx, opt_real_params, registry, helpers)
                 }
             };
-            // A `nullable` callee output takes an `Option<&mut [T]>` (rule B6a):
+            // A `nullable` callee output takes an `Option<&mut [T]>` (rule rB7):
             // `NULL` already rendered as `None`, and anything else is a buffer
             // the caller does supply. This wraps EVERY way an output argument can
             // be rendered, the scratch-buffer and dummy redirections included --

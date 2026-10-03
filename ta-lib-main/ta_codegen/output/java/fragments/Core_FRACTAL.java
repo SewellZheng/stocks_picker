@@ -42,6 +42,32 @@
       return optInLeftBars + optInRightBars ;
 
    }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#fractal}.
+    * <p>Every output of this function is drawn at its own bar, so the answer is
+    * 0.
+    *
+    * @param optInLeftBars Bars before the pivot that it must strictly dominate
+    *        (default 2; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInRightBars Bars after the pivot that it must strictly dominate,
+    *        and the delay before the verdict is reported (default 2; range 1..100000;
+    *        {@code Integer.MIN_VALUE} selects the default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int fractalDisplayShift( int optInLeftBars, int optInRightBars, int outputIdx )
+   {
+      if( fractalLookback( optInLeftBars, optInRightBars ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 2 ) {
+         return Integer.MIN_VALUE;
+      }
+      return 0;
+   }
    RetCode fractalImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -250,10 +276,10 @@
     * <li>Each output is decided on its own side: a high tied with any other high in the window forces {@code outSwingHigh} to 0 while leaving {@code outSwingLow} free to fire 100, and the mirror holds. Only a window flat in both series emits 0 on both.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#fractalLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#fractalLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).
@@ -342,10 +368,10 @@
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
     * <p>Values are written only where the indicator is defined. The returned
-    * {@link OutRange} says where they start and how many there are; nothing
-    * outside that range is touched, and the library never pads with NaN. A
-    * valid range that ends before {@link Core#fractalLookback} is a <b>success
-    * with no values</b> ({@code count() == 0}), not an error.
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#fractalLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
     *
     * @param startIdx First bar of the requested range (inclusive).
     * @param endIdx Last bar of the requested range (inclusive).

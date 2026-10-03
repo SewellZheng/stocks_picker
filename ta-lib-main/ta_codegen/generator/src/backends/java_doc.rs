@@ -64,8 +64,8 @@ pub fn guarded_docs(
     // Range / lookback contract — the thing callers get wrong most often.
     b.para(&format!(
         "Values are written only where the indicator is defined. The returned \
-         {{@link OutRange}} says where they start and how many there are; nothing outside \
-         that range is touched, and the library never pads with NaN. A valid range that ends \
+         {{@link OutRange}} says where they start and how many there are, and the library \
+         never pads with NaN. A valid range that ends \
          before {{@link Core#{java_name}Lookback}} is a <b>success with no values</b> \
          ({{@code count() == 0}}), not an error."
     ));
@@ -169,6 +169,37 @@ pub fn lookback_docs(func: &FuncDef, java_name: &str, enums: &HashMap<String, En
         b.tag(&format!("param {}", opt.name), &param_doc(opt, doc, enums));
     }
     b.tag("return", "The lookback, or {@code -1} if a parameter is out of range.");
+    b.render()
+}
+
+#[allow(clippy::implicit_hasher)]
+pub fn display_shift_docs(func: &FuncDef, java_name: &str, enums: &HashMap<String, EnumDef>) -> String {
+    let empty = DocDef::default();
+    let doc = func.doc.as_ref().unwrap_or(&empty);
+    let mut b = Block::new();
+
+    b.para(&format!(
+        "How many bars ahead (positive) or behind (negative) of the bar that computed it a \
+         chart draws one output of {{@link Core#{java_name}}}."
+    ));
+    b.para(if func.has_display_shift() {
+        "The values are never shifted: this describes the drawing only."
+    } else {
+        "Every output of this function is drawn at its own bar, so the answer is 0."
+    });
+    b.blank();
+    for opt in &func.optional_inputs {
+        b.tag(&format!("param {}", opt.name), &param_doc(opt, doc, enums));
+    }
+    b.tag(
+        &format!("param {}", crate::ir::DISPLAY_SHIFT_INDEX_PARAM),
+        "Position of the output in the batch signature, from 0.",
+    );
+    b.tag(
+        "return",
+        "The display shift, or {@code Integer.MIN_VALUE} if a parameter is out of range or \
+         the index names no output.",
+    );
     b.render()
 }
 

@@ -1089,11 +1089,11 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
     }
 }
 
-/// Rule U4 — the opener's index-pair check read on a live handle, one bar at a
-/// time. Why a sub-handle cannot answer it before its parent: rationale U4 in
+/// Rule rU4 — the opener's index-pair check read on a live handle, one bar at a
+/// time. Why a sub-handle cannot answer it before its parent: rationale rU4 in
 /// `docs/error-handling-spec.md`.
 ///
-/// `>` and not `>=`: an opener may legally take `IndexMax + 1` bars (rule S2),
+/// `>` and not `>=`: an opener may legally take `IndexMax + 1` bars (rule rS2),
 /// so a handle can be born holding the last bar in the domain and it is the NEXT
 /// one that has nowhere to go.
 ///
@@ -1729,22 +1729,16 @@ fn emit_identity_step_branch(
 
 /// The output/input and output/output aliasing reject.
 ///
-/// `MemoryExtensions.Overlaps`, not reference identity. Over arrays the two
-/// agreed, because two arrays are identical or disjoint and nothing in
-/// between. Spans made the in-between expressible: `buf.Slice(0, n)` and
-/// `buf.Slice(1, n)` are different spans over overlapping memory, and identity
-/// would call them unrelated.
+/// An output/input pair takes `MemoryExtensions.Overlaps`, not reference
+/// identity: `buf.Slice(0, n)` and `buf.Slice(1, n)` are different spans over
+/// overlapping memory, and identity would call them unrelated.
 ///
 /// This is not only about the reject. Several transcribed bodies branch on
-/// series identity as part of the ALGORITHM — BBANDS elects its scratch with
-/// `if (inReal == outRealUpperBand)` — and on a partially-overlapping pair that
+/// series identity as part of the ALGORITHM (BBANDS elects its scratch with
+/// `if (inReal == outRealUpperBand)`), and on a partially-overlapping pair that
 /// test is false while the buffers do in fact collide, so the body would take
 /// the wrong arm and write through its own input. Rejecting overlap up front is
 /// what keeps those branches sound.
-///
-/// Cross-typed output pairs (`Span<double>` against `Span<int>`) go through
-/// [`super::common::csharp_overlap_expr`] rather than being skipped —
-/// SUPERTREND is the corpus's only mixed-type output pair today.
 fn alias_condition(func: &FuncDef, inputs: &[String]) -> Option<String> {
     let outs: Vec<&str> = func.outputs.iter().map(|out| out.name.as_str()).collect();
     let mut pairs: Vec<String> = Vec::new();
@@ -1760,7 +1754,7 @@ fn alias_condition(func: &FuncDef, inputs: &[String]) -> Option<String> {
     for i in 0..outs.len() {
         for b in &outs[i + 1..] {
             let ty = |o: &str| if out_is_int(func, o) { "int" } else { "double" };
-            pairs.push(super::common::csharp_overlap_expr(outs[i], ty(outs[i]), b, ty(b), false));
+            pairs.push(super::common::csharp_output_alias_expr(outs[i], ty(outs[i]), b, ty(b)));
         }
     }
     if pairs.is_empty() { None } else { Some(pairs.join(" || ")) }
@@ -2076,9 +2070,9 @@ fn emit_open_validation(
 ) {
     let inputs = streaming::input_array_names(func);
     let first = &inputs[0];
-    // S1 and S2 run first, ahead of every other check, answering
+    // rS1 and rS2 run first, ahead of every other check, answering
     // OutOfRangeStartIndex and OutOfRangeEndIndex
-    // (https://ta-lib.org/spec/streaming/#s1). `historyLen` is the FIRST input's
+    // (https://ta-lib.org/spec/streaming/#rs1). `historyLen` is the FIRST input's
     // length, so a later input of a different length is an argument
     // disagreement, not an empty history.
     let _ = writeln!(o, "      if( historyLen < 1 ) {{");
@@ -2562,7 +2556,7 @@ fn emit_cur_capture(o: &mut String, func: &FuncDef, outputs: &[String], source: 
 
 /// The reject-conversion tail shared by `OpenInternal` / `OpenAndFill`.
 ///
-/// Rule S7 is answered with its counts; every other code goes through
+/// Rule rS8 is answered with its counts; every other code goes through
 /// `Core.StreamFailure`, which single-sources the `"<NAME> <verb>: "` prefix the
 /// stream gate greps. `anchor` is the seam's `startIdx`, or `None` at a public
 /// frame (anchor 0).
@@ -2658,14 +2652,12 @@ fn emit_open_and_fill_internal_wrapper(o: &mut String, func: &FuncDef, merged: b
     let _ = writeln!(o, "   }}");
 }
 
-/// The PUBLIC opener's input guards. A span cannot be null — a null array
-/// converts to an empty one — so emptiness is the only absence C# can see, and
-/// it means two different things by position: the FIRST input carries the
-/// history, so empty there is rule S1, the implied `startIdx` of 0 naming no bar;
-/// any other input is then a length disagreement, which is `BadParam` like every
-/// other argument fault.
+/// The PUBLIC opener's input guards. An empty input means two different things
+/// by position: the FIRST input carries the history, so empty there is rule rS1,
+/// the implied `startIdx` of 0 naming no bar; any other input is then a length
+/// disagreement, which is `BadParam` like every other argument fault.
 ///
-/// S1 is answered here rather than left to the core so the pair is evaluated
+/// rS1 is answered here rather than left to the core so the pair is evaluated
 /// ahead of the aliasing guard below, which would otherwise see two empty spans
 /// and name the wrong problem. `OpenInternal` is the composition seam and is
 /// reached only with generator-created arrays, so it stays unchecked.
@@ -2689,11 +2681,11 @@ fn public_open_empty_guards(n: &str, verb: &str, inputs: &[String]) -> String {
     s
 }
 
-/// Rule S5's input half, the same at both openers: the history's own length IS
+/// Rule rS5's input half, the same at both openers: the history's own length IS
 /// the range, so every other declared input must AGREE with it rather than
 /// merely reach it.
 ///
-/// At the plain open it is the whole of S5 — nothing is written, so there is no
+/// At the plain open it is the whole of rS5 — nothing is written, so there is no
 /// capacity to bound — and it belongs on this frame for the same reason the
 /// fill's does: the core makes the test, but answers it as a bare `BadParam`
 /// naming nothing, where the same fault at `OpenAndFill` named the leg (issue
@@ -2711,16 +2703,16 @@ fn history_length_guards(func: &FuncDef, n: &str, verb: &str) -> String {
     s
 }
 
-/// Rule S5 at the PUBLIC `OpenAndFill`.
+/// Rule rS5 at the PUBLIC `OpenAndFill`.
 ///
-/// An opener is a batch call over `[0, historyLen - 1]`, so B5's produced count
-/// collapses to `historyLen - lookback`. B5 reads its two halves in one rule,
-/// inputs first, so the input series' agreement with the history is checked here
-/// too — the core makes that test, but only after this frame would have answered,
-/// which reported a short input as an output-capacity fault.
+/// Each input must equal the history's length and each output must hold
+/// `historyLen - lookback` values (<https://ta-lib.org/spec/streaming/#rs5>). The
+/// input half is checked first: the core makes that test too, but only after this
+/// frame would have answered, so a short input would read as an output-capacity
+/// fault.
 ///
-/// `Core.OpenFillCount` floors a short history at 0 so that it reaches S7, and
-/// raises on the `-1` a rejected parameter returns so that S3 stays ahead of the
+/// `Core.OpenFillCount` floors a short history at 0 so that it reaches rS8, and
+/// raises on the `-1` a rejected parameter returns so that rS3 stays ahead of the
 /// buffer rules.
 /// `<N>_Lookback` does its own default substitution, so the raw parameters the
 /// frame was handed are the right ones to pass.
@@ -2732,11 +2724,11 @@ fn history_length_guards(func: &FuncDef, n: &str, verb: &str) -> String {
 /// sized by construction.
 ///
 /// An output marked `nullable` is bounded only where it was supplied: declining
-/// it is legal here, exactly as in the batch tier (rule B6a).
+/// it is legal here, exactly as in the batch tier (rule rB7).
 fn public_open_fill_capacity(func: &FuncDef, n: &str, history: &str) -> String {
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     let mut s = String::new();
-    // Rule S3 first, in the shape the buffer rules need it: `<N>_Lookback`
+    // Rule rS3 first, in the shape the buffer rules need it: `<N>_Lookback`
     // answers `-1` for an out-of-domain parameter and `OpenFillCount` raises on
     // it, so a bad parameter is reported as one rather than as whatever the
     // buffer rules would have said about a call it made no sense to size.
@@ -2746,9 +2738,9 @@ fn public_open_fill_capacity(func: &FuncDef, n: &str, history: &str) -> String {
         pascal_words(n),
         lb_args.join(", ")
     );
-    // Then S5's input half, ahead of its output half — the order B5 states.
+    // Then rS5's input half, ahead of its output half — the order rB5 states.
     s.push_str(&history_length_guards(func, n, "openAndFill"));
-    // A `nullable` output may be declined with an empty span (rule B6a read on
+    // A `nullable` output may be declined with an empty span (rule rB7 read on
     // this tier), so its bound is conditional — the shape the batch wrapper uses.
     let nullable = super::common::nullable_output_names(func);
     for out in &func.outputs {
@@ -2910,7 +2902,7 @@ fn emit_open_wrappers(
         "System.ArgumentOutOfRangeException",
         "The history is empty — which is what a null array becomes, since a span cannot be \
          null — or it is longer than <see cref=\"Core.IndexMax\"/> + 1, the two index \
-         faults an opener can have (rules S1 and S2).",
+         faults an opener can have (rules rS1 and rS2).",
     );
     o.push('\n');
     o.push_str(&d.render(3));
@@ -2986,8 +2978,9 @@ fn emit_open_wrappers(
                 "{}{} Must hold at least <c>historyLen - {base}Lookback(...)</c> values.",
                 super::csharp_doc::output_desc(out, doc),
                 if out.is_nullable() {
-                    " Pass an empty span to decline it: the value is still computed \
-                     — the handle's <c>Value</c> reports it — and nothing is written out."
+                    " Pass an empty span, such as <c>default</c>, to decline it: the value \
+                     is still computed (the handle's <c>Value</c> reports it) and nothing \
+                     is written out."
                 } else {
                     ""
                 }
@@ -3009,7 +3002,7 @@ fn emit_open_wrappers(
         "System.ArgumentOutOfRangeException",
         "The history is empty — which is what a null array becomes, since a span cannot be \
          null — or it is longer than <see cref=\"Core.IndexMax\"/> + 1, the two index \
-         faults an opener can have (rules S1 and S2).",
+         faults an opener can have (rules rS1 and rS2).",
     );
     o.push('\n');
     o.push_str(&d.render(3));

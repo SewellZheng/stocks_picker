@@ -74,6 +74,23 @@ public partial class Core
       return this._unstablePeriod[(int)FuncUnstId.HA] ;
 
    }
+   /// <summary>
+   /// How many bars ahead (positive) or behind (negative) of the bar that
+   /// computed it a chart draws one output of <c>Ha</c>.
+   /// </summary>
+   /// <remarks>
+   /// Every output of this function is drawn at its own bar, so the answer is 0.
+   /// </remarks>
+   /// <param name="outputIdx">Position of the output in the batch signature, from 0.</param>
+   /// <returns>The display shift, or <c>int.MinValue</c> if a parameter is out of range
+   /// or the index names no output.</returns>
+   public int HaDisplayShift( int outputIdx )
+   {
+      if( outputIdx < 0 || outputIdx >= 4 ) {
+         return int.MinValue;
+      }
+      return 0;
+   }
    internal RetCode HaImpl( int startIdx,
                             int endIdx,
                             ReadOnlySpan<double> inOpen,
@@ -107,7 +124,7 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( outHAOpen.Overlaps(outHAHigh) || outHAOpen.Overlaps(outHALow) || outHAOpen.Overlaps(outHAClose) || outHAHigh.Overlaps(outHALow) || outHAHigh.Overlaps(outHAClose) || outHALow.Overlaps(outHAClose) ) {
+      if( OutputsAlias(outHAOpen, outHAHigh) || OutputsAlias(outHAOpen, outHALow) || OutputsAlias(outHAOpen, outHAClose) || OutputsAlias(outHAHigh, outHALow) || OutputsAlias(outHAHigh, outHAClose) || OutputsAlias(outHALow, outHAClose) ) {
          return RetCode.BadParam ;
       }
       if( (outHAOpen.Overlaps(inOpen) && outHAOpen != inOpen) || (outHAOpen.Overlaps(inHigh) && outHAOpen != inHigh) || (outHAOpen.Overlaps(inLow) && outHAOpen != inLow) || (outHAOpen.Overlaps(inClose) && outHAOpen != inClose) || (outHAHigh.Overlaps(inOpen) && outHAHigh != inOpen) || (outHAHigh.Overlaps(inHigh) && outHAHigh != inHigh) || (outHAHigh.Overlaps(inLow) && outHAHigh != inLow) || (outHAHigh.Overlaps(inClose) && outHAHigh != inClose) || (outHALow.Overlaps(inOpen) && outHALow != inOpen) || (outHALow.Overlaps(inHigh) && outHALow != inHigh) || (outHALow.Overlaps(inLow) && outHALow != inLow) || (outHALow.Overlaps(inClose) && outHALow != inClose) || (outHAClose.Overlaps(inOpen) && outHAClose != inOpen) || (outHAClose.Overlaps(inHigh) && outHAClose != inHigh) || (outHAClose.Overlaps(inLow) && outHAClose != inLow) || (outHAClose.Overlaps(inClose) && outHAClose != inClose) ) {
@@ -224,7 +241,7 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( outHAOpen.Overlaps(outHAHigh) || outHAOpen.Overlaps(outHALow) || outHAOpen.Overlaps(outHAClose) || outHAHigh.Overlaps(outHALow) || outHAHigh.Overlaps(outHAClose) || outHALow.Overlaps(outHAClose) ) {
+      if( OutputsAlias(outHAOpen, outHAHigh) || OutputsAlias(outHAOpen, outHALow) || OutputsAlias(outHAOpen, outHAClose) || OutputsAlias(outHAHigh, outHALow) || OutputsAlias(outHAHigh, outHAClose) || OutputsAlias(outHALow, outHAClose) ) {
          return RetCode.BadParam ;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAOpen).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAOpen).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAOpen).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAOpen).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHALow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHALow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHALow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHALow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAClose).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAClose).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAClose).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAClose).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
@@ -315,10 +332,10 @@ public partial class Core
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>HaLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>HaLookback</c> is a <b>success with no values</b> (<c>Count == 0</c>),
+   /// not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -357,13 +374,11 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output partially overlaps an input. Computing wholly in place (an output
+   /// that IS an input) is allowed.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Avgprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
@@ -432,10 +447,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>HaLookback</c> is a <b>success with
-   /// no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>HaLookback</c> is a <b>success with no values</b> (<c>Count == 0</c>),
+   /// not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -474,15 +489,13 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
-   /// a real input never share an element type in this overload, so the two can
-   /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output overlaps an input. An output and a real input never share an
+   /// element type in this overload, so the two can never be the same span:
+   /// there is no in-place case to allow, and any overlap of their byte ranges
+   /// is rejected.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Avgprice(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, ReadOnlySpan{double}, Span{double})"/>
@@ -913,7 +926,7 @@ public partial class Core
    /// <exception cref="System.ArgumentException">The input series have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public HaStream HaOpen( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose )
    {
       if( inOpen.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "HA open: history is empty", RetCode.OutOfRangeStartIndex);
@@ -960,7 +973,7 @@ public partial class Core
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public HaStream HaOpenAndFill( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outHAOpen, Span<double> outHAHigh, Span<double> outHALow, Span<double> outHAClose )
    {
       if( inOpen.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inOpen), "HA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
@@ -976,7 +989,7 @@ public partial class Core
       RequireFillLength("HA", "openAndFill", "outHAHigh", outHAHigh.Length, guardOutLen);
       RequireFillLength("HA", "openAndFill", "outHALow", outHALow.Length, guardOutLen);
       RequireFillLength("HA", "openAndFill", "outHAClose", outHAClose.Length, guardOutLen);
-      if( outHAOpen.Overlaps(inOpen) || outHAOpen.Overlaps(inHigh) || outHAOpen.Overlaps(inLow) || outHAOpen.Overlaps(inClose) || outHAHigh.Overlaps(inOpen) || outHAHigh.Overlaps(inHigh) || outHAHigh.Overlaps(inLow) || outHAHigh.Overlaps(inClose) || outHALow.Overlaps(inOpen) || outHALow.Overlaps(inHigh) || outHALow.Overlaps(inLow) || outHALow.Overlaps(inClose) || outHAClose.Overlaps(inOpen) || outHAClose.Overlaps(inHigh) || outHAClose.Overlaps(inLow) || outHAClose.Overlaps(inClose) || outHAOpen.Overlaps(outHAHigh) || outHAOpen.Overlaps(outHALow) || outHAOpen.Overlaps(outHAClose) || outHAHigh.Overlaps(outHALow) || outHAHigh.Overlaps(outHAClose) || outHALow.Overlaps(outHAClose) ) {
+      if( outHAOpen.Overlaps(inOpen) || outHAOpen.Overlaps(inHigh) || outHAOpen.Overlaps(inLow) || outHAOpen.Overlaps(inClose) || outHAHigh.Overlaps(inOpen) || outHAHigh.Overlaps(inHigh) || outHAHigh.Overlaps(inLow) || outHAHigh.Overlaps(inClose) || outHALow.Overlaps(inOpen) || outHALow.Overlaps(inHigh) || outHALow.Overlaps(inLow) || outHALow.Overlaps(inClose) || outHAClose.Overlaps(inOpen) || outHAClose.Overlaps(inHigh) || outHAClose.Overlaps(inLow) || outHAClose.Overlaps(inClose) || OutputsAlias(outHAOpen, outHAHigh) || OutputsAlias(outHAOpen, outHALow) || OutputsAlias(outHAOpen, outHAClose) || OutputsAlias(outHAHigh, outHALow) || OutputsAlias(outHAHigh, outHAClose) || OutputsAlias(outHALow, outHAClose) ) {
          throw StreamFailure("HA", "openAndFill", RetCode.BadParam);
       }
       return HaOpenAndFillInternal(inOpen, inHigh, inLow, inClose, 0, out _, out _, outHAOpen, outHAHigh, outHALow, outHAClose);

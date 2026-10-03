@@ -65,7 +65,7 @@ namespace TALib.Test;
 /// <para>What this file does NOT do is re-assert what a cross-language gate
 /// already proves. <c>ta_regtest --codegen --language=csharp</c> compares every
 /// row of this catalogue against the C library's <c>ta_abstract</c>, and drives
-/// <see cref="ParamHolder"/> for all 168 functions with the output values
+/// <see cref="ParamHolder"/> for every function with the output values
 /// compared to C. So the numbers and the dispatch are covered from outside;
 /// what is covered here is the surface a C# caller touches and no server ever
 /// sees, plus the two shapes an external oracle structurally cannot check:
@@ -169,8 +169,8 @@ public static class MetadataTest
     {
         FunctionCatalog c = FunctionCatalog.Default;
 
-        // Exact, not a threshold: `>= 160` against 168 would let eight
-        // functions disappear without a word.
+        // Exact, not a threshold: a threshold would let functions disappear
+        // without a word.
         Check(c.Count == CatalogFacts.FunctionCount,
             $"catalogue holds exactly {CatalogFacts.FunctionCount} functions (got {c.Count})");
         Check(ReferenceEquals(c, Core.Functions), "Core.Functions is the same catalogue");
@@ -605,7 +605,7 @@ public static class MetadataTest
         Check(shortOut == RetCode.BadParam && rShortOut.Count == 0,
             $"TryCall reports an output shorter than the produced count as BadParam ({shortOut})");
         /* Control: an output sized to the count actually produced is enough. The
-           bound is B5's -- endIdx - max(startIdx, lookback) + 1 -- not the width
+           bound is rB5's -- endIdx - max(startIdx, lookback) + 1 -- not the width
            of the requested range, so a caller who allocated by the published
            formula must not be rejected. */
         int lookback = sma.CreateCall().SetOptInput(0, 30).Lookback();
@@ -1181,6 +1181,21 @@ public static class MetadataTest
         Check(moved, "a correct rebind reaches the output");
     }
 
+    private static void HolderDisplayShiftMatchesTheTypedApi()
+    {
+        ParamHolder dpo = FunctionCatalog.Default["DPO"].CreateCall().SetOptInput(0, 20);
+        Check(dpo.DisplayShift(0) == Core.Default.DpoDisplayShift(20, 0) && dpo.DisplayShift(0) == -11,
+            $"the holder answers DPO's display shift ({dpo.DisplayShift(0)})");
+        Check(dpo.DisplayShift(1) == int.MinValue && dpo.DisplayShift(-1) == int.MinValue,
+            "an index that names no output is rejected");
+        Check(FunctionCatalog.Default["DPO"].CreateCall().SetOptInput(0, 1).DisplayShift(0) == int.MinValue,
+            "a period the lookback rejects is rejected");
+
+        ParamHolder bbands = FunctionCatalog.Default["BBANDS"].CreateCall();
+        Check(bbands.DisplayShift(0) == 0 && bbands.DisplayShift(2) == 0 && bbands.DisplayShift(3) == int.MinValue,
+            "an unflagged function answers 0 for each of its outputs and no further");
+    }
+
     /// <summary><see cref="FuncInfo.CreateCall(Core)"/> routes <c>Lookback</c>,
     /// <c>Call</c> and <c>TryCall</c> through the Core it was handed.</summary>
     /// <remarks>The unstable period is the oracle: it moves the lookback, and it
@@ -1239,6 +1254,7 @@ public static class MetadataTest
         BinderRejectsMisuse();
         ARejectedSetterLeavesTheCallAsItFoundIt();
         CreateCallCarriesTheGivenCore();
+        HolderDisplayShiftMatchesTheTypedApi();
         BothCallPathsAgree();
         UnboundParametersTakeTheDocumentedDefault();
         MetadataTypesCannotBeConstructedOutside();

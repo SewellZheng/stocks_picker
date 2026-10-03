@@ -40,11 +40,11 @@ const isFunctionPage = (page: Page): boolean =>
 
 // Within a section, in the sidebar's order.
 const PAGE_ORDER = [
-  "/spec/errors/",
   "/spec/inputs-outputs/",
   "/spec/lookback/",
   "/spec/streaming/",
   "/spec/settings-threads/",
+  "/spec/errors/",
   "/spec/versions/",
   "/api/",
   "/api/stream/",
@@ -54,14 +54,15 @@ const PAGE_ORDER = [
   "/api/java/stream/",
   "/api/csharp/",
   "/api/csharp/stream/",
+  "/api/abstract/",
   "/api/unstable-period/",
   "/functions/stability.html",
   "/api/candle-settings/",
 ];
 
 const SECTIONS: [string, (page: Page) => boolean][] = [
-  ["Specification", (page) => page.path.startsWith("/spec/")],
   ["API and concepts", (page) => page.path.startsWith("/api/") || page.path === "/functions/stability.html"],
+  ["Specification", (page) => page.path.startsWith("/spec/")],
   ["Functions", (page) => page.path.startsWith("/functions/")],
   ["Project", () => true],
 ];

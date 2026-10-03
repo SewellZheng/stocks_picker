@@ -105,9 +105,9 @@ pub(crate) struct CsRenderCtx<'a> {
     /// builds — the rendering is identical in both languages).
     pub(crate) matype_map: HashMap<String, String>,
     /// Output parameters the caller may decline with an empty span because their
-    /// .yaml marks them `nullable` (rule B6a). Every store into one is wrapped
+    /// .yaml marks them `nullable` (rule rB7). Every store into one is wrapped
     /// in an `if( !outX.IsEmpty )`. Populated for the batch bodies AND for the
-    /// stream open body, since rule B6a reads the same at both tiers.
+    /// stream open body, since rule rB7 reads the same at both tiers.
     pub(crate) nullable_outputs: &'a HashSet<String>,
     /// Emit `lastCur_<out> = <value>;` beside every guarded store into a
     /// nullable output — the streaming open body only, whose handle caches each
@@ -316,6 +316,7 @@ pub fn generate(
         out.push_str(&super::stmt_walk::block_comment(block, 3));
     }
     out.push_str(&gen_lookback(func, enums, registry, helpers));
+    out.push_str(&gen_display_shift(func, enums, registry, helpers));
     if func.has_explicit_private {
         out.push_str(&gen_private(func, false, enums, registry, helpers)); // double
         out.push_str(&gen_private(func, true, enums, registry, helpers)); // float overload
@@ -498,6 +499,61 @@ fn gen_lookback(
     )
 }
 
+fn gen_display_shift(
+    func: &FuncDef,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    let name = super::common::pascal_words(&func.name);
+    let idx = crate::ir::DISPLAY_SHIFT_INDEX_PARAM;
+    let mut params: Vec<String> = func
+        .optional_inputs
+        .iter()
+        .map(|opt| format!("{} {}", opt_param_type_str(opt), opt.name))
+        .collect();
+    params.push(format!("int {idx}"));
+
+    let mut validation = String::new();
+    if !func.optional_inputs.is_empty() {
+        let args: Vec<&str> = func.optional_inputs.iter().map(|o| o.name.as_str()).collect();
+        validation.push_str(&format!(
+            "      if( {name}Lookback( {} ) < 0 ) {{\n         return int.MinValue;\n      }}\n",
+            args.join(", ")
+        ));
+    }
+    if func.display_shift.is_some() {
+        validation.push_str(&emit_opt_param_validation(func, "int.MinValue", enums));
+    }
+    validation.push_str(&format!(
+        "      if( {idx} < 0 || {idx} >= {} ) {{\n         return int.MinValue;\n      }}\n",
+        func.outputs.len()
+    ));
+    let unshifted = func.unshifted_outputs();
+    if func.display_shift.is_some() && !unshifted.is_empty() {
+        let tests: Vec<String> = unshifted.iter().map(|i| format!("{idx} == {i}")).collect();
+        validation.push_str(&format!(
+            "      if( {} ) {{\n         return 0;\n      }}\n",
+            tests.join(" || ")
+        ));
+    }
+    let body = match &func.display_shift {
+        Some(stmts) => {
+            format!("{validation}{}", render_lookback_code(stmts, enums, registry, helpers))
+        }
+        None => format!("{validation}      return 0;"),
+    };
+
+    let docs = super::csharp_doc::display_shift_docs(func, &name, enums);
+    format!(
+        "{docs}   public int {name}DisplayShift( {} )\n\
+         \x20  {{\n\
+         {body}\n\
+         \x20  }}\n",
+        params.join(", ")
+    )
+}
+
 /// Render a simple init expression for private_param_init VarDecls.
 /// Only needs to handle arithmetic on optIn params (e.g., 2.0 / (period + 1)).
 fn render_init_expr(expr: &Expr) -> String {
@@ -661,11 +717,8 @@ fn gen_public_wrapper(
         }
         for output in &func.outputs {
             let name = &output.name;
-            // A nullable output may be declined (rule B6a). C# cannot spell
-            // "absent" apart from "empty" — a `Span<T>` is a ref struct and a
-            // null array converts to an empty one — so an empty span IS the
-            // declination, and its stores are guarded. Supplied, it is bounded
-            // like any other output.
+            // A nullable output may be declined (rule rW5): any empty span
+            // declines it.
             if output.is_nullable() {
                 let _ = writeln!(
                     out,
@@ -912,40 +965,20 @@ fn gen_func_inner(
         out.push_str("      }\n");
         // Optional parameter validation (default + range)
         out.push_str(&emit_opt_param_validation(func, "RetCode.BadParam", enums));
-        // Output-distinctness (issue #108): two outputs sharing memory has no
-        // correct result, so reject it. Input/output overlap stays allowed —
-        // several bodies are written to compute in place.
-        //
-        // `Overlaps`, NOT `==`. Spans make partial overlap expressible:
-        // `buf.AsSpan(0, n)` against `buf.AsSpan(0, n + 1)` is the SAME memory at
-        // the SAME start, and span `==` (ref AND length) reads false on it.
-        //
-        // Zero-length operands are NOT rejected, and must not be. `Overlaps`
-        // short-circuits to false when either side is empty, which is the right
-        // answer: two empty spans cannot clobber each other. Rejecting them makes
-        // a range that ends before the lookback — a documented success with no values,
-        // needing no output space (rule N1) — answer BadParam here while C and
-        // Java accept it (Appendix D item 11, #262), and it makes "declined"
-        // unspellable, since an empty span is how a C# caller declines a nullable
-        // output (B6a).
-        //
-        // Cross-typed pairs (`Span<double>` against `Span<int>`) go through
-        // `csharp_overlap_expr`'s byte-range compare rather than being
-        // skipped — `Overlaps` is not defined across element types, but a
-        // caller CAN place the two on the same memory (`MemoryMarshal.Cast`,
-        // or any other reinterpretation), so skipping them was a real hole.
-        // SUPERTREND is the corpus's only mixed-type output pair today.
+        // Output-distinctness (issue #108, rule rB6). Input/output overlap stays
+        // allowed: several bodies are written to compute in place. A cross-typed
+        // pair is compared too, never skipped: `MemoryMarshal.Cast` lays one over
+        // the other in safe code.
         if func.outputs.len() >= 2 {
             let mut pairs: Vec<String> = Vec::new();
             for i in 0..func.outputs.len() {
                 for j in (i + 1)..func.outputs.len() {
                     let (a, b) = (&func.outputs[i], &func.outputs[j]);
-                    pairs.push(super::common::csharp_overlap_expr(
+                    pairs.push(super::common::csharp_output_alias_expr(
                         &a.name,
                         cs_output_elem(a),
                         &b.name,
                         cs_output_elem(b),
-                        false,
                     ));
                 }
             }
@@ -1310,7 +1343,7 @@ impl CsStmt<'_> {
         let target_str = render_assign_target(target, self.ctx, self.registry, self.helpers);
         let value_str = render_assign_value(&new_value, self.ctx, self.registry, self.helpers);
         // Writing into a nullable output — guard it so a declined (empty) output
-        // is skipped (rule B6a). The `outIdx` advance rides the non-nullable
+        // is skipped (rule rB7). The `outIdx` advance rides the non-nullable
         // partner's write (see mama.c), so guarding this store is complete.
         if let Some(base) = nullable_target_base(target, self.ctx.nullable_outputs) {
             if self.ctx.nullable_shadow {
@@ -1848,7 +1881,7 @@ fn render_cross_indicator_call(
             // NULL for a nullable output the caller declines (#125): an empty
             // span is how C# spells that, the callee skips its stores and its
             // public tier skips the length check, so nothing is allocated —
-            // never a throwaway materialized on every call (B6a, #262).
+            // never a throwaway materialized on every call (rB7, #262).
             Expr::Var(n) if n == "NULL" => "default".to_string(),
             _ => render_expr(a, ctx, registry, helpers),
         });
@@ -1884,7 +1917,7 @@ fn out_meta_target(
 }
 
 /// If `target` stores into one of the `nullable` outputs (a `Span<double>` the
-/// caller may leave empty to decline — rule B6a), return its base name so the
+/// caller may leave empty to decline — rule rB7), return its base name so the
 /// store can be wrapped in `if( !outX.IsEmpty )`. Matches the array store
 /// `outX[i] = …` and the scalar store `outX = …`; the value side is never
 /// involved.
@@ -2534,7 +2567,7 @@ fn render_func_call(
                 // NULL for a nullable output the caller declines (MA passing
                 // NULL for MAMA's FAMA — issue #125). An empty span is how C#
                 // spells that and the callee's stores are guarded, so nothing
-                // is allocated (B6a, #262). NULL appears only here.
+                // is allocated (rB7, #262). NULL appears only here.
                 Expr::Var(n) if n == "NULL" => "default".to_string(),
                 // The caller's own out-params pass through to the callee's
                 // `out int` pair. In C both are `int*` passed bare; C# needs
@@ -2813,7 +2846,7 @@ mod tests {
         assert!(!output.contains("case SMA:"), "unqualified labels are Java-only");
         assert!(
             output.contains("Mama(startIdx, endIdx, inReal, 0.5, 0.05, outReal, default)"),
-            "MAMA's declined FAMA output must be an empty span (rule B6a), not a buffer"
+            "MAMA's declined FAMA output must be an empty span (rule rB7), not a buffer"
         );
         assert!(
             !output.contains("new double[(int)(endIdx - startIdx + 1)]"),

@@ -83,6 +83,23 @@ public partial class Core
       return 63 + this._unstablePeriod[(int)FuncUnstId.HT_SINE] ;
 
    }
+   /// <summary>
+   /// How many bars ahead (positive) or behind (negative) of the bar that
+   /// computed it a chart draws one output of <c>HtSine</c>.
+   /// </summary>
+   /// <remarks>
+   /// Every output of this function is drawn at its own bar, so the answer is 0.
+   /// </remarks>
+   /// <param name="outputIdx">Position of the output in the batch signature, from 0.</param>
+   /// <returns>The display shift, or <c>int.MinValue</c> if a parameter is out of range
+   /// or the index names no output.</returns>
+   public int HtSineDisplayShift( int outputIdx )
+   {
+      if( outputIdx < 0 || outputIdx >= 2 ) {
+         return int.MinValue;
+      }
+      return 0;
+   }
    internal RetCode HtSineImpl( int startIdx,
                                 int endIdx,
                                 ReadOnlySpan<double> inReal,
@@ -168,7 +185,7 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( outSine.Overlaps(outLeadSine) ) {
+      if( OutputsAlias(outSine, outLeadSine) ) {
          return RetCode.BadParam ;
       }
       if( (outSine.Overlaps(inReal) && outSine != inReal) || (outLeadSine.Overlaps(inReal) && outLeadSine != inReal) ) {
@@ -588,7 +605,7 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > IndexMax) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( outSine.Overlaps(outLeadSine) ) {
+      if( OutputsAlias(outSine, outLeadSine) ) {
          return RetCode.BadParam ;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSine).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outLeadSine).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
@@ -870,10 +887,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>HtSineLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>HtSineLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -903,13 +920,11 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output partially overlaps an input. Computing wholly in place (an output
+   /// that IS an input) is allowed.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.HtDcphase(int, int, ReadOnlySpan{double}, Span{double})"/>
@@ -954,10 +969,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>HtSineLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>HtSineLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -987,15 +1002,13 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
-   /// a real input never share an element type in this overload, so the two can
-   /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output overlaps an input. An output and a real input never share an
+   /// element type in this overload, so the two can never be the same span:
+   /// there is no in-place case to allow, and any overlap of their byte ranges
+   /// is rejected.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.HtDcphase(int, int, ReadOnlySpan{double}, Span{double})"/>
@@ -2246,7 +2259,7 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>HtSineLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public HtSineStream HtSineOpen( ReadOnlySpan<double> inReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "HT_SINE open: history is empty", RetCode.OutOfRangeStartIndex);
@@ -2280,7 +2293,7 @@ public partial class Core
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public HtSineStream HtSineOpenAndFill( ReadOnlySpan<double> inReal, Span<double> outSine, Span<double> outLeadSine )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "HT_SINE openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
@@ -2288,7 +2301,7 @@ public partial class Core
       int guardOutLen = OpenFillCount("HT_SINE", "openAndFill", inReal.Length, HtSineLookback());
       RequireFillLength("HT_SINE", "openAndFill", "outSine", outSine.Length, guardOutLen);
       RequireFillLength("HT_SINE", "openAndFill", "outLeadSine", outLeadSine.Length, guardOutLen);
-      if( outSine.Overlaps(inReal) || outLeadSine.Overlaps(inReal) || outSine.Overlaps(outLeadSine) ) {
+      if( outSine.Overlaps(inReal) || outLeadSine.Overlaps(inReal) || OutputsAlias(outSine, outLeadSine) ) {
          throw StreamFailure("HT_SINE", "openAndFill", RetCode.BadParam);
       }
       return HtSineOpenAndFillInternal(inReal, 0, out _, out _, outSine, outLeadSine);

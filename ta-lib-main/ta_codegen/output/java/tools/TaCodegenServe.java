@@ -235,6 +235,35 @@ class Core {
           return aoLookback(optInFastPeriod, optInSlowPeriod) + smaLookback(optInSignalPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ac}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Number of bars in the short moving average of the
+        *        median price (default 5; range 2..100000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param optInSlowPeriod Number of bars in the long moving average of the
+        *        median price (default 34; range 2..100000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param optInSignalPeriod Number of bars in the moving average taken over
+        *        the oscillator (default 5; range 2..100000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int acDisplayShift( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int outputIdx )
+       {
+          if( acLookback( optInFastPeriod, optInSlowPeriod, optInSignalPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode acImpl( int startIdx,
                        int endIdx,
                        double inHigh[],
@@ -559,10 +588,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ac">ta-lib.org/functions/ac</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#acLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#acLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -649,10 +678,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#acLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#acLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -1331,6 +1360,28 @@ class Core {
           return smaLookback(optInTimePeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#accbands}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod SMA smoothing period for all three bands (default
+        *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int accbandsDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( accbandsLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 3 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode accbandsImpl( int startIdx,
                              int endIdx,
                              double inHigh[],
@@ -1577,10 +1628,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/accbands">ta-lib.org/functions/accbands</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#accbandsLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#accbandsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -1653,10 +1704,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#accbandsLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#accbandsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -2269,6 +2320,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#acos}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int acosDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode acosImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -2322,10 +2390,10 @@ class Core {
         * <li>Outside [-1, 1] there is no angle whose cosine is that value, so those elements come out NaN.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#acosLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#acosLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -2382,10 +2450,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#acosLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#acosLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -2701,6 +2769,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ad}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int adDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode adImpl( int startIdx,
                        int endIdx,
                        double inHigh[],
@@ -2812,10 +2897,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ad">ta-lib.org/functions/ad</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -2879,10 +2964,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -3277,6 +3362,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#add}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int addDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode addImpl( int startIdx,
                         int endIdx,
                         double inReal0[],
@@ -3328,10 +3430,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/add">ta-lib.org/functions/add</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#addLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#addLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -3387,10 +3489,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#addLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#addLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -3736,6 +3838,30 @@ class Core {
           return emaLookback(slowestPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#adosc}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Period of the fast A/D EMA (default 3; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowPeriod Period of the slow A/D EMA (default 10; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int adoscDisplayShift( int optInFastPeriod, int optInSlowPeriod, int outputIdx )
+       {
+          if( adoscLookback( optInFastPeriod, optInSlowPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode adoscImpl( int startIdx,
                           int endIdx,
                           double inHigh[],
@@ -3991,10 +4117,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/adosc">ta-lib.org/functions/adosc</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adoscLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adoscLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -4064,10 +4190,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adoscLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adoscLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -4595,6 +4721,32 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#adr}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bar ranges averaged. Published
+        *        conventions differ and none is authoritative: TradingView's ADR indicator
+        *        page works its example over 7 bars, TC2000's over 10, and the Qullamaggie
+        *        screener community reads "ADR" as 20. The value shipped here is ATR's, so
+        *        the two volatility measures are comparable out of the box (default 14;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int adrDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( adrLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode adrImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -4762,10 +4914,10 @@ class Core {
         * <li>No percentage form is emitted. The two published ones disagree by more than 20% on ordinary data — Qullamaggie's {@code 100 · (SMA(high/low, 20) - 1)} averages ratios, TradingView's {@code (SMA(high, 14) - SMA(low, 14)) / close · 100} takes a ratio of averages — so picking one silently would ship a second indicator under this one's name.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adrLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -4846,10 +4998,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adrLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -5315,6 +5467,29 @@ class Core {
           }
           return 2 * optInTimePeriod + this.unstablePeriod[FuncUnstId.ADX.ordinal()] - 1 ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#adx}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing/averaging period for DM, TR, and ADX
+        *        (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int adxDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( adxLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode adxImpl( int startIdx,
                         int endIdx,
@@ -5938,10 +6113,10 @@ class Core {
         * <li>Wilder's original integer rounding is not applied.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adxLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adxLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -6016,10 +6191,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adxLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adxLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -6880,6 +7055,29 @@ class Core {
           }
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#adxr}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing period, also the bar gap between the two
+        *        averaged ADX values (default 14; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int adxrDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( adxrLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode adxrImpl( int startIdx,
                          int endIdx,
                          double inHigh[],
@@ -7012,10 +7210,10 @@ class Core {
         * <li>Wilder's original integer rounding is not applied (unreliable when values are near 1).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adxrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adxrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -7086,10 +7284,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#adxrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#adxrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -7540,6 +7738,33 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#alma}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the window (default 9; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSigma Divides the period to give the Gaussian's width in bars
+        *        (default 6; minimum 0.01; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInOffset Position of the peak weight, 0 at the oldest bar and 1
+        *        at the newest (default 0.85; range 0..1; {@link Core#REAL_DEFAULT} selects
+        *        the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int almaDisplayShift( int optInTimePeriod, double optInSigma, double optInOffset, int outputIdx )
+       {
+          if( almaLookback( optInTimePeriod, optInSigma, optInOffset ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode almaImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -7819,10 +8044,10 @@ class Core {
         * <li>The published paper's summary formula uses a different parameterisation; this is the form of the authors' own implementation.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#almaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#almaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -7902,10 +8127,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#almaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#almaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -8469,6 +8694,30 @@ class Core {
           return smaLookback(Math.max(optInFastPeriod, optInSlowPeriod)) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ao}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Number of bars in the short moving average (default
+        *        5; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowPeriod Number of bars in the long moving average (default
+        *        34; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int aoDisplayShift( int optInFastPeriod, int optInSlowPeriod, int outputIdx )
+       {
+          if( aoLookback( optInFastPeriod, optInSlowPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode aoImpl( int startIdx,
                        int endIdx,
                        double inHigh[],
@@ -8697,10 +8946,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ao">ta-lib.org/functions/ao</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#aoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#aoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -8777,10 +9026,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#aoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#aoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -9335,6 +9584,9 @@ class Core {
         */
        public int apoLookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
        {
+          if( optInMAType == null ) {
+             return -1;
+          }
           if( optInFastPeriod == Integer.MIN_VALUE ) {
              optInFastPeriod = 12;
           } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
@@ -9351,6 +9603,34 @@ class Core {
           /* The slow MA is the key factor determining the lookback period. */
           return maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#apo}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Period of the fast moving average (default 12;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowPeriod Period of the slow moving average (default 26;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMAType Moving-average type used for both MAs (default 1 = EMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int apoDisplayShift( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, int outputIdx )
+       {
+          if( apoLookback( optInFastPeriod, optInSlowPeriod, optInMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode apoImpl( int startIdx,
                         int endIdx,
@@ -9776,12 +10056,13 @@ class Core {
         * <p><b>Notes</b>
         * <ul>
         * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical and the output is zero at every bar.</li>
+        * <li>If the slow period is set smaller than the fast period, the two are swapped, as in {@code MACD}.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#apoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#apoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -9850,15 +10131,16 @@ class Core {
         * <p><b>Notes</b>
         * <ul>
         * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical and the output is zero at every bar.</li>
+        * <li>If the slow period is set smaller than the fast period, the two are swapped, as in {@code MACD}.</li>
         * </ul>
         * <p>This is the {@code float[]} overload. The arithmetic is performed in
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#apoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#apoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -10292,6 +10574,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#aroon}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback window length (default 14; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int aroonDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( aroonLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode aroonImpl( int startIdx,
                           int endIdx,
                           double inHigh[],
@@ -10509,10 +10813,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/aroon">ta-lib.org/functions/aroon</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#aroonLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#aroonLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -10583,10 +10887,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#aroonLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#aroonLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -11199,6 +11503,29 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#aroonosc}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback window for locating the highest high and
+        *        lowest low (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects
+        *        the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int aroonoscDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( aroonoscLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode aroonoscImpl( int startIdx,
                              int endIdx,
                              double inHigh[],
@@ -11423,10 +11750,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/aroonosc">ta-lib.org/functions/aroonosc</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#aroonoscLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#aroonoscLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -11488,10 +11815,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#aroonoscLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#aroonoscLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -12092,6 +12419,29 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#asi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInLimitMove Limit move, the largest one-bar price move the index
+        *        is scaled against, in price units (default 3; minimum 0.00000001;
+        *        {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int asiDisplayShift( double optInLimitMove, int outputIdx )
+       {
+          if( asiLookback( optInLimitMove ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode asiImpl( int startIdx,
                         int endIdx,
                         double inOpen[],
@@ -12261,10 +12611,10 @@ class Core {
         * <li>Wilder accumulates Swing Index values rounded to whole numbers; the running total here is of the unrounded values.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#asiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#asiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -12341,10 +12691,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#asiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#asiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -12821,6 +13171,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#asin}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int asinDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode asinImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -12874,10 +13241,10 @@ class Core {
         * <li>Outside [-1, 1] there is no angle whose sine is that value, so those elements come out NaN.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#asinLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#asinLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -12935,10 +13302,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#asinLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#asinLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -13251,6 +13618,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#atan}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int atanDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode atanImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -13301,10 +13685,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/atan">ta-lib.org/functions/atan</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#atanLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#atanLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -13357,10 +13741,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#atanLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#atanLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -13696,6 +14080,28 @@ class Core {
           return optInTimePeriod + this.unstablePeriod[FuncUnstId.ATR.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#atr}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing period (default 14; range 1..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int atrDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( atrLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode atrImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -13977,10 +14383,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/atr">ta-lib.org/functions/atr</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#atrLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#atrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -14045,10 +14451,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#atrLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#atrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -14589,6 +14995,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#avgdev}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length (default 14; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int avgdevDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( avgdevLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode avgdevImpl( int startIdx,
                            int endIdx,
                            double inReal[],
@@ -14705,10 +15133,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/avgdev">ta-lib.org/functions/avgdev</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#avgdevLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#avgdevLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -14767,10 +15195,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#avgdevLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#avgdevLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -15172,6 +15600,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#avgprice}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int avgpriceDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode avgpriceImpl( int startIdx,
                              int endIdx,
                              double inOpen[],
@@ -15232,10 +15677,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/avgprice">ta-lib.org/functions/avgprice</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#avgpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#avgpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -15299,10 +15744,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#avgpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#avgpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -15670,6 +16115,9 @@ class Core {
         */
        public int bbandsLookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
        {
+          if( optInMAType == null ) {
+             return -1;
+          }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
              optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
@@ -15706,6 +16154,36 @@ class Core {
           stddevLookback = stddevLookback(optInTimePeriod, 1.0);
           return (maLookback > stddevLookback) ? maLookback : stddevLookback ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#bbands}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Periods for the MA and standard deviation (default
+        *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInNbDevUp Standard-deviation multiplier for the upper band
+        *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInNbDevDn Standard-deviation multiplier for the lower band
+        *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInMAType Moving-average type for the middle band (default 0 =
+        *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int bbandsDisplayShift( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, int outputIdx )
+       {
+          if( bbandsLookback( optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 3 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode bbandsImpl( int startIdx,
                            int endIdx,
@@ -16252,10 +16730,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/bbands">ta-lib.org/functions/bbands</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#bbandsLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#bbandsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -16335,10 +16813,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#bbandsLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#bbandsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -16894,6 +17372,9 @@ class Core {
         */
        public int bbwLookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
        {
+          if( optInMAType == null ) {
+             return -1;
+          }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
              optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
@@ -16914,6 +17395,36 @@ class Core {
           }
           return bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#bbw}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Periods for the MA and standard deviation (default
+        *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInNbDevUp Standard-deviation multiplier for the upper band
+        *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInNbDevDn Standard-deviation multiplier for the lower band
+        *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInMAType Moving-average type for the middle band (default 0 =
+        *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int bbwDisplayShift( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, int outputIdx )
+       {
+          if( bbwLookback( optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode bbwImpl( int startIdx,
                         int endIdx,
@@ -17412,10 +17923,10 @@ class Core {
         * <li>Wherever the middle band is not 0, BBW is bit for bit {@code ((upper - lower) / middle) * 100} computed from BBANDS' own outputs.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#bbwLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#bbwLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -17495,10 +18006,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#bbwLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#bbwLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -17997,6 +18508,29 @@ class Core {
           }
           return optInTimePeriod ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#beta}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Rolling window length (number of returns) for the
+        *        regression sums (default 5; range 1..100000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int betaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( betaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode betaImpl( int startIdx,
                          int endIdx,
@@ -18577,10 +19111,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/beta">ta-lib.org/functions/beta</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#betaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#betaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -18646,10 +19180,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#betaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#betaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -19768,6 +20302,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#bop}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int bopDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode bopImpl( int startIdx,
                         int endIdx,
                         double inOpen[],
@@ -19847,10 +20398,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/bop">ta-lib.org/functions/bop</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#bopLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#bopLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -19911,10 +20462,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#bopLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#bopLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -20313,6 +20864,29 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cci}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the averaging/deviation window
+        *        (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cciDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( cciLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cciImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -20554,10 +21128,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cci">ta-lib.org/functions/cci</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cciLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cciLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -20622,10 +21196,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cciLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cciLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -21216,6 +21790,23 @@ class Core {
           return BodyLong_avgPeriod + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdl2crows}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdl2crowsDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdl2crowsImpl( int startIdx,
                               int endIdx,
                               double inOpen[],
@@ -21375,10 +21966,10 @@ class Core {
         * <li>Bulkowski's testing found this reverses bearishly only 54% of the time — "near random" — despite the pattern's classic always-bearish label; the breakout direction cannot be predicted with any real accuracy. (<a href="https://thepatternsite.com/TwoCrows.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl2crowsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl2crowsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -21449,10 +22040,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl2crowsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl2crowsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -21962,6 +22553,23 @@ class Core {
           return ShadowVeryShort_avgPeriod + 3 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdl3blackcrows}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdl3blackcrowsDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdl3blackcrowsImpl( int startIdx,
                                    int endIdx,
                                    double inOpen[],
@@ -22138,10 +22746,10 @@ class Core {
         * <li>Does not verify the prior mature uptrend the pattern classically assumes for significance.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3blackcrowsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3blackcrowsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -22211,10 +22819,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3blackcrowsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3blackcrowsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -22766,6 +23374,23 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdl3inside}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdl3insideDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdl3insideImpl( int startIdx,
                                int endIdx,
                                double inOpen[],
@@ -22953,10 +23578,10 @@ class Core {
         * <li>Bulkowski's testing found Three Inside Up succeeds as a bullish reversal 65% of the time (rank 20 of 103 overall) and Three Inside Down succeeds as a bearish reversal 60% of the time (rank 56 of 103) — both meaningfully better than a coin flip. (<a href="https://thepatternsite.com/ThreeInsideUp.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3insideLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3insideLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -23029,10 +23654,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3insideLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3insideLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -23605,6 +24230,23 @@ class Core {
           return Near_avgPeriod + 3 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdl3linestrike}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdl3linestrikeDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdl3linestrikeImpl( int startIdx,
                                    int endIdx,
                                    double inOpen[],
@@ -23783,10 +24425,10 @@ class Core {
         * <li>TA-Lib's sign follows the classic continuation reading. Thomas Bulkowski's statistical study of the pattern (<i>Encyclopedia of Candlestick Charts</i>) found the opposite in practice — it acted as a reversal far more often than a continuation — so traders who follow his research read this pattern's signal in the opposite direction from what its sign here suggests.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3linestrikeLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3linestrikeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -23859,10 +24501,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3linestrikeLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3linestrikeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -24419,6 +25061,23 @@ class Core {
           return 3 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdl3outside}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdl3outsideDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdl3outsideImpl( int startIdx,
                                 int endIdx,
                                 double inOpen[],
@@ -24545,10 +25204,10 @@ class Core {
         * <li>Bulkowski's testing puts Three Outside Up at a 75% bullish-reversal success rate versus 69% for Three Outside Down — both notably higher than the closely related Three Inside Up/Down (65%/60%), i.e. the engulfing "outside" variant tests as more reliable than the harami "inside" variant. (<a href="https://thepatternsite.com/ThreeOutsideUp.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3outsideLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3outsideLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -24620,10 +25279,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3outsideLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3outsideLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -25064,6 +25723,23 @@ class Core {
           return Math.max(Math.max(ShadowVeryShort_avgPeriod, ShadowLong_avgPeriod), Math.max(BodyLong_avgPeriod, BodyShort_avgPeriod)) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdl3starsinsouth}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdl3starsinsouthDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdl3starsinsouthImpl( int startIdx,
                                      int endIdx,
                                      double inOpen[],
@@ -25325,10 +26001,10 @@ class Core {
         * <li>Thomas Bulkowski's statistical study found this has the best reversal rate of the 103 candlestick patterns he tracked (86% bullish reversal) — but that rests on just 9 occurrences in 4.7 million candle lines, and its overall post-breakout performance ranks dead last, 103rd of 103. (<a href="https://thepatternsite.com/ThreeStarsSouth.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3starsinsouthLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3starsinsouthLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -25401,10 +26077,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3starsinsouthLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3starsinsouthLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -26133,6 +26809,23 @@ class Core {
           return Math.max(Math.max(ShadowVeryShort_avgPeriod, BodyShort_avgPeriod), Math.max(Far_avgPeriod, Near_avgPeriod)) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdl3whitesoldiers}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdl3whitesoldiersDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdl3whitesoldiersImpl( int startIdx,
                                       int endIdx,
                                       double inOpen[],
@@ -26413,10 +27106,10 @@ class Core {
         * <li>Bulkowski's testing found this reverses a downtrend 82% of the time, but cautions the high rate mostly reflects how rare downward breakouts are afterward — moves following an upward breakout perform poorly. (<a href="https://thepatternsite.com/ThreeWhiteSoldiers.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3whitesoldiersLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3whitesoldiersLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -26487,10 +27180,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdl3whitesoldiersLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdl3whitesoldiersLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -27235,6 +27928,29 @@ class Core {
           return Math.max(Math.max(BodyDoji_avgPeriod, BodyLong_avgPeriod), BodyShort_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlabandonedbaby}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInPenetration Fraction of the 1st candle's real body the 3rd
+        *        close must penetrate (default 0.3; minimum 0; {@link Core#REAL_DEFAULT}
+        *        selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlabandonedbabyDisplayShift( double optInPenetration, int outputIdx )
+       {
+          if( cdlabandonedbabyLookback( optInPenetration ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlabandonedbabyImpl( int startIdx,
                                      int endIdx,
                                      double inOpen[],
@@ -27468,10 +28184,10 @@ class Core {
         * <li>Bulkowski found the Abandoned Baby both very rare (293 occurrences out of 4.7 million candle lines, frequency rank 92 of 103) and unusually reliable when it does occur (70% success as a reversal, overall performance rank 9 of 103). (<a href="https://thepatternsite.com/AbandonBabyBull.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlabandonedbabyLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlabandonedbabyLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -27547,10 +28263,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlabandonedbabyLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlabandonedbabyLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -28223,6 +28939,23 @@ class Core {
           return Math.max(Math.max(Math.max(ShadowLong_avgPeriod, ShadowShort_avgPeriod), Math.max(Far_avgPeriod, Near_avgPeriod)), BodyLong_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdladvanceblock}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdladvanceblockDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdladvanceblockImpl( int startIdx,
                                     int endIdx,
                                     double inOpen[],
@@ -28544,10 +29277,10 @@ class Core {
         * <li>Although classically read as a bearish reversal, Bulkowski's testing found the Advance Block actually acts as a bullish continuation 64% of the time. (<a href="https://thepatternsite.com/AdvanceBlock.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdladvanceblockLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdladvanceblockLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -28618,10 +29351,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdladvanceblockLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdladvanceblockLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -29435,6 +30168,23 @@ class Core {
           return Math.max(BodyLong_avgPeriod, ShadowVeryShort_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlbelthold}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlbeltholdDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlbeltholdImpl( int startIdx,
                                 int endIdx,
                                 double inOpen[],
@@ -29612,10 +30362,10 @@ class Core {
         * <li>Bulkowski's testing ranks the bullish Belt-Hold's 71% reversal rate 11th of 103 patterns for pure reversal reliability (bearish reverses 68% of the time) — though its overall post-breakout performance rank is a more middling 62nd/63rd of 103. (<a href="https://thepatternsite.com/BeltHoldBull.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlbeltholdLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlbeltholdLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -29687,10 +30437,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlbeltholdLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlbeltholdLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -30211,6 +30961,23 @@ class Core {
           return BodyLong_avgPeriod + 4 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlbreakaway}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlbreakawayDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlbreakawayImpl( int startIdx,
                                  int endIdx,
                                  double inOpen[],
@@ -30382,10 +31149,10 @@ class Core {
         * <li>Bulkowski's data shows a directional asymmetry TA-Lib's symmetric output doesn't capture: bullish Breakaway reverses only 59% of the time ("near random"), while bearish Breakaway reverses 63% of the time overall. (<a href="https://thepatternsite.com/BullBreakaway.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlbreakawayLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlbreakawayLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -30457,10 +31224,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlbreakawayLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlbreakawayLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -31041,6 +31808,23 @@ class Core {
           return Math.max(BodyLong_avgPeriod, ShadowVeryShort_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlclosingmarubozu}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlclosingmarubozuDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlclosingmarubozuImpl( int startIdx,
                                        int endIdx,
                                        double inOpen[],
@@ -31216,10 +32000,10 @@ class Core {
         * <li>Bulkowski's testing found Closing Marubozu continues in its expected direction only marginally more than chance — 52% for the black variant — which he calls "near random." (<a href="https://thepatternsite.com/CloseBlkMarubozu.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlclosingmarubozuLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlclosingmarubozuLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -31289,10 +32073,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlclosingmarubozuLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlclosingmarubozuLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -31813,6 +32597,23 @@ class Core {
           return ShadowVeryShort_avgPeriod + 3 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlconcealbabyswall}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlconcealbabyswallDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlconcealbabyswallImpl( int startIdx,
                                         int endIdx,
                                         double inOpen[],
@@ -31988,10 +32789,10 @@ class Core {
         * <li>Despite the bullish-reversal label, Bulkowski's testing found this pattern actually behaves as a bearish continuation 75% of the time — though the finding rests on just 4 occurrences out of 4.7 million candle lines, and it ranks 101st of 103 patterns overall. (<a href="https://thepatternsite.com/ConcealBaby.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlconcealbabyswallLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlconcealbabyswallLookback} is a <b>success with no
+        * values</b> ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -32060,10 +32861,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlconcealbabyswallLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlconcealbabyswallLookback} is a <b>success with no
+        * values</b> ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -32615,6 +33416,23 @@ class Core {
           return Math.max(Equal_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlcounterattack}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlcounterattackDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlcounterattackImpl( int startIdx,
                                      int endIdx,
                                      double inOpen[],
@@ -32804,10 +33622,10 @@ class Core {
         * <li>Bulkowski's testing found the bearish Counterattack/Meeting Lines does not reliably reverse at all — it acts as a bullish CONTINUATION 51% of the time — and the bullish version reverses only 56% of the time, both "near random" by his classification. (<a href="https://thepatternsite.com/MeetingLinesBear.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlcounterattackLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlcounterattackLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -32878,10 +33696,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlcounterattackLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlcounterattackLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -33439,6 +34257,30 @@ class Core {
           return BodyLong_avgPeriod + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdldarkcloudcover}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInPenetration Fraction of candle 1's real body that candle 2's
+        *        close must penetrate below close[i-1]; larger values require deeper
+        *        penetration (default 0.5; minimum 0; {@link Core#REAL_DEFAULT} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdldarkcloudcoverDisplayShift( double optInPenetration, int outputIdx )
+       {
+          if( cdldarkcloudcoverLookback( optInPenetration ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdldarkcloudcoverImpl( int startIdx,
                                       int endIdx,
                                       double inOpen[],
@@ -33605,10 +34447,10 @@ class Core {
         * <li>Does not verify the preceding uptrend the bearish reversal classically assumes.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdldarkcloudcoverLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdldarkcloudcoverLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -33683,10 +34525,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdldarkcloudcoverLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdldarkcloudcoverLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -34188,6 +35030,23 @@ class Core {
           return BodyDoji_avgPeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdldoji}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdldojiDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdldojiImpl( int startIdx,
                             int endIdx,
                             double inOpen[],
@@ -34326,10 +35185,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cdldoji">ta-lib.org/functions/cdldoji</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdldojiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdldojiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -34394,10 +35253,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdldojiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdldojiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -34848,6 +35707,23 @@ class Core {
           return Math.max(BodyDoji_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdldojistar}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdldojistarDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdldojistarImpl( int startIdx,
                                 int endIdx,
                                 double inOpen[],
@@ -35031,10 +35907,10 @@ class Core {
         * <li>Bulkowski's testing contradicts the classic reading for the bullish case: theory says a bullish Doji Star (gapping down after a black candle) should be a bullish reversal, but he found it instead acts as a bearish CONTINUATION 64% of the time — almost 2 out of 3, the opposite of the textbook signal. (<a href="https://thepatternsite.com/DojiStarBull.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdldojistarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdldojistarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -35110,10 +35986,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdldojistarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdldojistarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -35663,6 +36539,23 @@ class Core {
           return Math.max(BodyDoji_avgPeriod, ShadowVeryShort_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdldragonflydoji}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdldragonflydojiDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdldragonflydojiImpl( int startIdx,
                                      int endIdx,
                                      double inOpen[],
@@ -35839,10 +36732,10 @@ class Core {
         * <li>Bulkowski's testing found this reverses the prior trend only about 50% of the time — statistically no better than a coin flip — and ranks 98th of 103 candlestick patterns for post-breakout performance. (<a href="https://thepatternsite.com/Dragonfly.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdldragonflydojiLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdldragonflydojiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -35917,10 +36810,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdldragonflydojiLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdldragonflydojiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -36430,6 +37323,23 @@ class Core {
           return 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlengulfing}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlengulfingDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlengulfingImpl( int startIdx,
                                  int endIdx,
                                  double inOpen[],
@@ -36568,10 +37478,10 @@ class Core {
         * <li>Bulkowski's testing found bearish Engulfing has a strong 79% reversal rate (5th-best of 103 patterns by that measure alone) but a weak overall post-breakout performance rank of 91st of 103 — the reversal fires reliably but rarely sustains. Bullish Engulfing reverses 63% of the time with a similarly weak overall rank of 84th of 103. (<a href="https://thepatternsite.com/BearEngulfing.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlengulfingLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlengulfingLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -36644,10 +37554,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlengulfingLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlengulfingLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -37106,6 +38016,29 @@ class Core {
           return Math.max(Math.max(BodyDoji_avgPeriod, BodyLong_avgPeriod), BodyShort_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdleveningdojistar}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInPenetration Fraction of the 1st real body the 3rd candle's
+        *        close must penetrate; larger demands a deeper close into the first body
+        *        (default 0.3; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdleveningdojistarDisplayShift( double optInPenetration, int outputIdx )
+       {
+          if( cdleveningdojistarLookback( optInPenetration ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdleveningdojistarImpl( int startIdx,
                                        int endIdx,
                                        double inOpen[],
@@ -37331,10 +38264,10 @@ class Core {
         * <li>Does not verify the preceding uptrend the bearish reversal classically assumes.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdleveningdojistarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdleveningdojistarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -37409,10 +38342,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdleveningdojistarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdleveningdojistarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -38064,6 +38997,30 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdleveningstar}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInPenetration Fraction of the 1st candle's real body the 3rd
+        *        close must penetrate below the 1st close; larger requires deeper
+        *        penetration (default 0.3; minimum 0; {@link Core#REAL_DEFAULT} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdleveningstarDisplayShift( double optInPenetration, int outputIdx )
+       {
+          if( cdleveningstarLookback( optInPenetration ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdleveningstarImpl( int startIdx,
                                    int endIdx,
                                    double inOpen[],
@@ -38270,10 +39227,10 @@ class Core {
         * <li>The third candle only needs a body longer than short, not the full long body some definitions require.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdleveningstarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdleveningstarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -38349,10 +39306,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdleveningstarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdleveningstarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -38945,6 +39902,23 @@ class Core {
           return Math.max(Near_avgPeriod, Equal_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlgapsidesidewhite}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlgapsidesidewhiteDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlgapsidesidewhiteImpl( int startIdx,
                                         int endIdx,
                                         double inOpen[],
@@ -39134,10 +40108,10 @@ class Core {
         * <li>Bulkowski's data shows the bullish form is rare (984 occurrences out of 4.7 million candle lines, frequency rank 73/103) but continues as labeled 66% of the time; the bearish form is rarer still (frequency rank 86/103) and its 56% continuation rate is "near random" — Bulkowski cautions the bearish sample is too thin to trust. (<a href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlgapsidesidewhiteLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlgapsidesidewhiteLookback} is a <b>success with no
+        * values</b> ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -39209,10 +40183,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlgapsidesidewhiteLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlgapsidesidewhiteLookback} is a <b>success with no
+        * values</b> ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -39783,6 +40757,23 @@ class Core {
           return Math.max(BodyDoji_avgPeriod, ShadowVeryShort_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlgravestonedoji}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlgravestonedojiDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlgravestonedojiImpl( int startIdx,
                                       int endIdx,
                                       double inOpen[],
@@ -39959,10 +40950,10 @@ class Core {
         * <li>Bulkowski's testing found the bearish reversal traders expect actually shows up only 51% of the time — essentially random — and it ranks 77th of 103 patterns for post-breakout performance. (<a href="https://thepatternsite.com/Gravestone.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlgravestonedojiLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlgravestonedojiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -40037,10 +41028,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlgravestonedojiLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlgravestonedojiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -40560,6 +41551,23 @@ class Core {
           return Math.max(Math.max(Math.max(BodyShort_avgPeriod, ShadowLong_avgPeriod), ShadowVeryShort_avgPeriod), Near_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlhammer}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlhammerDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlhammerImpl( int startIdx,
                               int endIdx,
                               double inOpen[],
@@ -40795,10 +41803,10 @@ class Core {
         * <li>Bulkowski's testing found the Hammer reverses a preceding downtrend about 60% of the time — in his words "not far from random (50%)" — and it ranks a modest 65th of 103 patterns for post-breakout performance. (<a href="https://thepatternsite.com/Hammer.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhammerLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhammerLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -40868,10 +41876,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhammerLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhammerLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -41536,6 +42544,23 @@ class Core {
           return Math.max(Math.max(Math.max(BodyShort_avgPeriod, ShadowLong_avgPeriod), ShadowVeryShort_avgPeriod), Near_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlhangingman}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlhangingmanDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlhangingmanImpl( int startIdx,
                                   int endIdx,
                                   double inOpen[],
@@ -41772,10 +42797,10 @@ class Core {
         * <li>Bulkowski's testing found this acts as a bullish continuation 59% of the time — the opposite of the bearish-reversal reading it's named for ("near random") — and it ranks 87th of 103 patterns for post-breakout performance. (<a href="https://thepatternsite.com/HangingMan.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhangingmanLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhangingmanLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -41847,10 +42872,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhangingmanLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhangingmanLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -42512,6 +43537,23 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlharami}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlharamiDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlharamiImpl( int startIdx,
                               int endIdx,
                               double inOpen[],
@@ -42716,10 +43758,10 @@ class Core {
         * <li>Bulkowski's testing found the bearish Harami actually acts as a bullish CONTINUATION 53% of the time — more often than it reverses the prior uptrend — rating the pattern "near random" overall (rank 72 of 103). (<a href="https://thepatternsite.com/HaramiBear.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlharamiLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlharamiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -42790,10 +43832,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlharamiLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlharamiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -43378,6 +44420,23 @@ class Core {
           return Math.max(BodyDoji_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlharamicross}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlharamicrossDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlharamicrossImpl( int startIdx,
                                    int endIdx,
                                    double inOpen[],
@@ -43579,10 +44638,10 @@ class Core {
         * <li>Bulkowski's testing found the bearish Harami Cross behaves opposite its textbook label even more strongly than the plain Harami: it acts as a bullish CONTINUATION 57% of the time rather than a bearish reversal, and the bullish Harami Cross likewise fails to reverse the downtrend 55% of the time. (<a href="https://thepatternsite.com/HaramiCrossBear.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlharamicrossLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlharamicrossLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -43654,10 +44713,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlharamicrossLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlharamicrossLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -44234,6 +45293,23 @@ class Core {
           return Math.max(BodyShort_avgPeriod, ShadowVeryLong_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlhighwave}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlhighwaveDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlhighwaveImpl( int startIdx,
                                 int endIdx,
                                 double inOpen[],
@@ -44406,10 +45482,10 @@ class Core {
         * <li>Bulkowski's testing found the High-Wave candle acts as a reversal only 51% of the time — statistically indistinguishable from random — which he notes actually agrees with the pattern's theoretical meaning of pure indecision. (<a href="https://thepatternsite.com/HighWave.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhighwaveLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhighwaveLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -44482,10 +45558,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhighwaveLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhighwaveLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -44997,6 +46073,23 @@ class Core {
           return 5 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlhikkake}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlhikkakeDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlhikkakeImpl( int startIdx,
                                int endIdx,
                                double inOpen[],
@@ -45207,10 +46300,10 @@ class Core {
         * <li>The name comes from the Japanese word for a deceptive move or "trap" — fitting, since the pattern exists to catch traders acting on a false breakout. Bulkowski's testing of the confirmed pattern found the trap itself barely beats a coin flip: the bullish variant continues as expected only 52% of the time and the bearish variant exactly 50% ("random"), both ranking in the bottom fifth (83rd-84th of 105) for post-breakout performance. (<a href="https://thepatternsite.com/HikkakeBull.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhikkakeLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhikkakeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -45280,10 +46373,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhikkakeLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhikkakeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -45805,6 +46898,23 @@ class Core {
           return Math.max(1, Near_avgPeriod) + 5 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlhikkakemod}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlhikkakemodDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlhikkakemodImpl( int startIdx,
                                   int endIdx,
                                   double inOpen[],
@@ -46061,10 +47171,10 @@ class Core {
         * <li>Does not verify the prior trend (downtrend for bullish, uptrend for bearish) that this reversal pattern assumes.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhikkakemodLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhikkakemodLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -46134,10 +47244,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhikkakemodLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhikkakemodLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -46764,6 +47874,23 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlhomingpigeon}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlhomingpigeonDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlhomingpigeonImpl( int startIdx,
                                     int endIdx,
                                     double inOpen[],
@@ -46944,10 +48071,10 @@ class Core {
         * <li>Despite the bullish-reversal label, Bulkowski's testing found this behaves as a bearish continuation 56% of the time — "near random" by his own description — though its overall post-breakout performance rank (21st of 103) is comparatively strong. (<a href="https://thepatternsite.com/HomingPigeon.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhomingpigeonLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhomingpigeonLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -47016,10 +48143,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlhomingpigeonLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlhomingpigeonLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -47565,6 +48692,23 @@ class Core {
           return Math.max(ShadowVeryShort_avgPeriod, Equal_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlidentical3crows}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlidentical3crowsDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlidentical3crowsImpl( int startIdx,
                                        int endIdx,
                                        double inOpen[],
@@ -47778,10 +48922,10 @@ class Core {
         * <li>Does not require the three bodies to be equal in size; 'identical' refers only to each candle opening at or near the previous candle's close.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlidentical3crowsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlidentical3crowsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -47851,10 +48995,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlidentical3crowsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlidentical3crowsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -48454,6 +49598,23 @@ class Core {
           return Math.max(Equal_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlinneck}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlinneckDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlinneckImpl( int startIdx,
                               int endIdx,
                               double inOpen[],
@@ -48635,10 +49796,10 @@ class Core {
         * <li>Bulkowski's testing found the bearish continuation holds only 53% of the time — "near random" — though its overall post-breakout performance still ranks a strong 17th of 103. (<a href="https://www.thepatternsite.com/InNeck.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlinneckLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlinneckLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -48710,10 +49871,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlinneckLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlinneckLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -49265,6 +50426,23 @@ class Core {
           return Math.max(Math.max(BodyShort_avgPeriod, ShadowLong_avgPeriod), ShadowVeryShort_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlinvertedhammer}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlinvertedhammerDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlinvertedhammerImpl( int startIdx,
                                       int endIdx,
                                       double inOpen[],
@@ -49470,10 +50648,10 @@ class Core {
         * <li>Despite the bullish-reversal label, Bulkowski's testing found this actually behaves as a bearish continuation 65% of the time — yet its overall post-breakout performance rank (6th of 103) is among the best of all candlestick patterns he studied. (<a href="https://thepatternsite.com/HammerInv.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlinvertedhammerLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlinvertedhammerLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -49543,10 +50721,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlinvertedhammerLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlinvertedhammerLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -50137,6 +51315,23 @@ class Core {
           return Math.max(ShadowVeryShort_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlkicking}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlkickingDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlkickingImpl( int startIdx,
                                int endIdx,
                                double inOpen[],
@@ -50334,10 +51529,10 @@ class Core {
         * <li>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time — both "near random" — and it's also one of the rarest patterns he tracked (frequency rank 100/103 bullish, 102/103 bearish). (<a href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlkickingLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlkickingLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -50406,10 +51601,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlkickingLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlkickingLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -50981,6 +52176,23 @@ class Core {
           return Math.max(ShadowVeryShort_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlkickingbylength}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlkickingbylengthDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlkickingbylengthImpl( int startIdx,
                                        int endIdx,
                                        double inOpen[],
@@ -51175,10 +52387,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cdlkickingbylength">ta-lib.org/functions/cdlkickingbylength</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlkickingbylengthLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlkickingbylengthLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -51245,10 +52457,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlkickingbylengthLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlkickingbylengthLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -51821,6 +53033,23 @@ class Core {
           return ShadowVeryShort_avgPeriod + 4 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlladderbottom}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlladderbottomDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlladderbottomImpl( int startIdx,
                                     int endIdx,
                                     double inOpen[],
@@ -51982,10 +53211,10 @@ class Core {
         * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time — "near random" — and it is extremely rare (451 occurrences out of 4.7 million candle lines), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlladderbottomLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlladderbottomLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -52057,10 +53286,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlladderbottomLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlladderbottomLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -52591,6 +53820,23 @@ class Core {
           return Math.max(BodyDoji_avgPeriod, ShadowLong_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdllongleggeddoji}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdllongleggeddojiDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdllongleggeddojiImpl( int startIdx,
                                       int endIdx,
                                       double inOpen[],
@@ -52762,10 +54008,10 @@ class Core {
         * <li>Bulkowski's testing found this continues in the direction of the prior trend only 51% of the time — statistically random — and ranks 37th of 103 patterns overall; in his words, "it means nothing." (<a href="https://thepatternsite.com/LongLegDoji.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdllongleggeddojiLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdllongleggeddojiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -52837,10 +54083,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdllongleggeddojiLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdllongleggeddojiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -53352,6 +54598,23 @@ class Core {
           return Math.max(BodyLong_avgPeriod, ShadowShort_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdllongline}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdllonglineDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdllonglineImpl( int startIdx,
                                 int endIdx,
                                 double inOpen[],
@@ -53518,10 +54781,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cdllongline">ta-lib.org/functions/cdllongline</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdllonglineLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdllonglineLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -53588,10 +54851,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdllonglineLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdllonglineLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -54101,6 +55364,23 @@ class Core {
           return Math.max(BodyLong_avgPeriod, ShadowVeryShort_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlmarubozu}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlmarubozuDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlmarubozuImpl( int startIdx,
                                 int endIdx,
                                 double inOpen[],
@@ -54270,10 +55550,10 @@ class Core {
         * <li>Despite the shape's strong-conviction reputation, Bulkowski's testing found a Marubozu continues in its expected direction only about 53% (black) to 56% (white) of the time — both "near random." (<a href="https://thepatternsite.com/BlackMarubozu.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmarubozuLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmarubozuLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -54342,10 +55622,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmarubozuLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmarubozuLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -54851,6 +56131,23 @@ class Core {
           return Equal_avgPeriod + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlmatchinglow}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlmatchinglowDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlmatchinglowImpl( int startIdx,
                                    int endIdx,
                                    double inOpen[],
@@ -55000,10 +56297,10 @@ class Core {
         * <li>Although classically read as a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found it actually acts as a bearish continuation 61% of the time — even so, it still ranks a strong 8th of 103 patterns for overall performance. (<a href="https://thepatternsite.com/MatchingLow.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmatchinglowLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmatchinglowLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -55072,10 +56369,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmatchinglowLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmatchinglowLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -55561,6 +56858,29 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 4 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlmathold}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInPenetration Max fraction of the 1st white body the reaction
+        *        days (3rd, 4th) may penetrate (default 0.5; minimum 0;
+        *        {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlmatholdDisplayShift( double optInPenetration, int outputIdx )
+       {
+          if( cdlmatholdLookback( optInPenetration ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlmatholdImpl( int startIdx,
                                int endIdx,
                                double inOpen[],
@@ -55786,10 +57106,10 @@ class Core {
         * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<a href="https://thepatternsite.com/MatHold.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmatholdLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmatholdLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -55865,10 +57185,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmatholdLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmatholdLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -56532,6 +57852,30 @@ class Core {
           return Math.max(Math.max(BodyDoji_avgPeriod, BodyLong_avgPeriod), BodyShort_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlmorningdojistar}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInPenetration Fraction of the 1st candle's real body the 3rd
+        *        close must exceed above close[i-2]; larger values demand deeper
+        *        penetration into the black body (default 0.3; minimum 0;
+        *        {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlmorningdojistarDisplayShift( double optInPenetration, int outputIdx )
+       {
+          if( cdlmorningdojistarLookback( optInPenetration ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlmorningdojistarImpl( int startIdx,
                                        int endIdx,
                                        double inOpen[],
@@ -56759,10 +58103,10 @@ class Core {
         * <li>A prior downtrend is not verified.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmorningdojistarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmorningdojistarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -56840,10 +58184,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmorningdojistarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmorningdojistarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -57495,6 +58839,29 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlmorningstar}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInPenetration Fraction of the 1st candle's body the 3rd close
+        *        must exceed above the 1st close; larger = deeper penetration required
+        *        (default 0.3; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlmorningstarDisplayShift( double optInPenetration, int outputIdx )
+       {
+          if( cdlmorningstarLookback( optInPenetration ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlmorningstarImpl( int startIdx,
                                    int endIdx,
                                    double inOpen[],
@@ -57703,10 +59070,10 @@ class Core {
         * <li>Bulkowski ranks the Morning Star unusually high — 6th of 103 for reversal rate (78%) and 12th of 103 for overall post-breakout performance — one of the few classic candle patterns whose textbook reputation his statistics confirm rather than debunk. (<a href="https://thepatternsite.com/MorningStar.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmorningstarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmorningstarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -57784,10 +59151,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlmorningstarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlmorningstarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -58380,6 +59747,23 @@ class Core {
           return Math.max(Equal_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlonneck}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlonneckDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlonneckImpl( int startIdx,
                               int endIdx,
                               double inOpen[],
@@ -58561,10 +59945,10 @@ class Core {
         * <li>Bulkowski's testing found the bearish continuation holds only 56% of the time, which he explicitly calls "near random." (<a href="https://thepatternsite.com/OnNeck.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlonneckLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlonneckLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -58634,10 +60018,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlonneckLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlonneckLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -59181,6 +60565,23 @@ class Core {
           return BodyLong_avgPeriod + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlpiercing}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlpiercingDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlpiercingImpl( int startIdx,
                                 int endIdx,
                                 double inOpen[],
@@ -59345,10 +60746,10 @@ class Core {
         * <li>A prior downtrend is not verified.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlpiercingLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlpiercingLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -59418,10 +60819,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlpiercingLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlpiercingLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -59924,6 +61325,23 @@ class Core {
           return Math.max(Math.max(BodyDoji_avgPeriod, ShadowLong_avgPeriod), Near_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlrickshawman}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlrickshawmanDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlrickshawmanImpl( int startIdx,
                                    int endIdx,
                                    double inOpen[],
@@ -60129,10 +61547,10 @@ class Core {
         * <li>Bulkowski's verdict: "The rickshaw man candle may look pretty on the chart but it has no investment implications that I have been able to find" — his testing shows it continues only 51% of the time, statistically random. (<a href="https://thepatternsite.com/RickshawMan.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlrickshawmanLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlrickshawmanLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -60203,10 +61621,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlrickshawmanLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlrickshawmanLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -60792,6 +62210,23 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 4 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlrisefall3methods}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlrisefall3methodsDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlrisefall3methodsImpl( int startIdx,
                                         int endIdx,
                                         double inOpen[],
@@ -61008,10 +62443,10 @@ class Core {
         * <li>Bulkowski's testing found Rising Three Methods continues 74% of the time (102 examples out of 4.7M candle lines) and Falling Three Methods continues 71% of the time (just 64 examples) — both act as classically labeled, but Bulkowski flags the samples as too thin to trust: Falling Three Methods is so rare he omitted its statistics from his book entirely. (<a href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlrisefall3methodsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlrisefall3methodsLookback} is a <b>success with no
+        * values</b> ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -61085,10 +62520,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlrisefall3methodsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlrisefall3methodsLookback} is a <b>success with no
+        * values</b> ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -61739,6 +63174,23 @@ class Core {
           return Math.max(Math.max(ShadowVeryShort_avgPeriod, BodyLong_avgPeriod), Equal_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlseparatinglines}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlseparatinglinesDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlseparatinglinesImpl( int startIdx,
                                        int endIdx,
                                        double inOpen[],
@@ -61949,10 +63401,10 @@ class Core {
         * <li>A prior trend is not verified, nor that the pattern aligns with it.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlseparatinglinesLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlseparatinglinesLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -62020,10 +63472,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlseparatinglinesLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlseparatinglinesLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -62636,6 +64088,23 @@ class Core {
           return Math.max(Math.max(BodyShort_avgPeriod, ShadowLong_avgPeriod), ShadowVeryShort_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlshootingstar}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlshootingstarDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlshootingstarImpl( int startIdx,
                                     int endIdx,
                                     double inOpen[],
@@ -62842,10 +64311,10 @@ class Core {
         * <li>Bulkowski found this reverses only 59% of the time — "near random," summarized in his words as "this candle looks better than it performs" — ranking 55th of 103 patterns. (<a href="https://thepatternsite.com/ShootingStar.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlshootingstarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlshootingstarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -62917,10 +64386,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlshootingstarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlshootingstarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -63512,6 +64981,23 @@ class Core {
           return Math.max(BodyShort_avgPeriod, ShadowShort_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlshortline}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlshortlineDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlshortlineImpl( int startIdx,
                                  int endIdx,
                                  double inOpen[],
@@ -63678,10 +65164,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cdlshortline">ta-lib.org/functions/cdlshortline</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlshortlineLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlshortlineLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -63747,10 +65233,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlshortlineLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlshortlineLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -64258,6 +65744,23 @@ class Core {
           return BodyShort_avgPeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlspinningtop}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlspinningtopDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlspinningtopImpl( int startIdx,
                                    int endIdx,
                                    double inOpen[],
@@ -64396,10 +65899,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cdlspinningtop">ta-lib.org/functions/cdlspinningtop</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlspinningtopLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlspinningtopLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -64465,10 +65968,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlspinningtopLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlspinningtopLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -64926,6 +66429,23 @@ class Core {
           return Math.max(Math.max(BodyLong_avgPeriod, BodyShort_avgPeriod), Math.max(ShadowVeryShort_avgPeriod, Near_avgPeriod)) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlstalledpattern}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlstalledpatternDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlstalledpatternImpl( int startIdx,
                                       int endIdx,
                                       double inOpen[],
@@ -65191,10 +66711,10 @@ class Core {
         * <li>Bulkowski's testing shows this classically-bearish pattern actually acts as a bullish continuation 77% of the time — the reverse of the label — because price tends to close above the pattern's top rather than turning down. (<a href="https://thepatternsite.com/Deliberation.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlstalledpatternLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlstalledpatternLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -65265,10 +66785,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlstalledpatternLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlstalledpatternLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -65982,6 +67502,23 @@ class Core {
           return Equal_avgPeriod + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlsticksandwich}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlsticksandwichDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlsticksandwichImpl( int startIdx,
                                      int endIdx,
                                      double inOpen[],
@@ -66136,10 +67673,10 @@ class Core {
         * <li>Although classically a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found it actually acts as a bearish continuation 62% of the time — despite that, it still ranks a respectable 14th of 103 patterns for overall performance. (<a href="https://thepatternsite.com/StickSandwich.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlsticksandwichLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlsticksandwichLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -66209,10 +67746,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlsticksandwichLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlsticksandwichLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -66719,6 +68256,23 @@ class Core {
           return Math.max(Math.max(BodyDoji_avgPeriod, ShadowVeryShort_avgPeriod), ShadowVeryLong_avgPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdltakuri}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdltakuriDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdltakuriImpl( int startIdx,
                               int endIdx,
                               double inOpen[],
@@ -66920,10 +68474,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cdltakuri">ta-lib.org/functions/cdltakuri</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdltakuriLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdltakuriLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -66995,10 +68549,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdltakuriLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdltakuriLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -67568,6 +69122,23 @@ class Core {
           return Near_avgPeriod + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdltasukigap}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdltasukigapDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdltasukigapImpl( int startIdx,
                                  int endIdx,
                                  double inOpen[],
@@ -67734,10 +69305,10 @@ class Core {
         * <li>Bulkowski's testing found the downside Tasuki Gap actually acts as a bullish REVERSAL 54% of the time — opposite its textbook bearish-continuation label — while the upside variant does continue as labeled, but only 57% of the time ("near random"). (<a href="https://thepatternsite.com/DownsideTasukiGap.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdltasukigapLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdltasukigapLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -67808,10 +69379,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdltasukigapLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdltasukigapLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -68340,6 +69911,23 @@ class Core {
           return Math.max(Equal_avgPeriod, BodyLong_avgPeriod) + 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlthrusting}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlthrustingDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlthrustingImpl( int startIdx,
                                  int endIdx,
                                  double inOpen[],
@@ -68525,10 +70113,10 @@ class Core {
         * <li>Bulkowski's testing found this classically-bearish continuation pattern actually acts as a bullish reversal 57% of the time — "near random" — though it ranks a strong 15th of 103 patterns for overall performance. (<a href="https://www.thepatternsite.com/Thrusting.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlthrustingLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlthrustingLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -68601,10 +70189,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlthrustingLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlthrustingLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -69152,6 +70740,23 @@ class Core {
           return BodyDoji_avgPeriod + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdltristar}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdltristarDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdltristarImpl( int startIdx,
                                int endIdx,
                                double inOpen[],
@@ -69317,10 +70922,10 @@ class Core {
         * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance — bullish 60% of the time (rank 28/103 overall, but rare: frequency rank 79/103) and bearish just 52% of the time (rank 76/103) — despite the "exhaustion signal" framing, one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdltristarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdltristarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -69391,10 +70996,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdltristarLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdltristarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -69918,6 +71523,23 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlunique3river}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlunique3riverDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlunique3riverImpl( int startIdx,
                                     int endIdx,
                                     double inOpen[],
@@ -70103,10 +71725,10 @@ class Core {
         * <li>Although classically a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found the opposite: it acts as a bearish continuation 60% of the time, ranking 60th of 103 patterns overall. (<a href="https://thepatternsite.com/Unique3RiverBottom.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlunique3riverLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlunique3riverLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -70177,10 +71799,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlunique3riverLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlunique3riverLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -70752,6 +72374,23 @@ class Core {
           return Math.max(BodyShort_avgPeriod, BodyLong_avgPeriod) + 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlupsidegap2crows}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlupsidegap2crowsDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlupsidegap2crowsImpl( int startIdx,
                                        int endIdx,
                                        double inOpen[],
@@ -70940,10 +72579,10 @@ class Core {
         * <li>Although classically a bearish reversal, Bulkowski's testing found this actually acts as a bullish continuation 60% of the time, and even when it does work "the price move is often lousy." (<a href="https://www.thepatternsite.com/UpGapTwoCrows.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlupsidegap2crowsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlupsidegap2crowsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -71014,10 +72653,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlupsidegap2crowsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlupsidegap2crowsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -71584,6 +73223,23 @@ class Core {
           return 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cdlxsidegap3methods}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cdlxsidegap3methodsDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cdlxsidegap3methodsImpl( int startIdx,
                                         int endIdx,
                                         double inOpen[],
@@ -71714,10 +73370,10 @@ class Core {
         * <li>Bulkowski's testing found BOTH directions of this pattern actually act as reversals more often than not, opposite the classic continuation label: the upside variant reverses bearish 59% of the time, the downside variant reverses bullish 62% of the time. (<a href="https://thepatternsite.com/UpGap3Methods.html">thepatternsite.com</a>)</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlxsidegap3methodsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlxsidegap3methodsLookback} is a <b>success with no
+        * values</b> ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -71790,10 +73446,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cdlxsidegap3methodsLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cdlxsidegap3methodsLookback} is a <b>success with no
+        * values</b> ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -72229,6 +73885,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ceil}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int ceilDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode ceilImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -72279,10 +73952,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ceil">ta-lib.org/functions/ceil</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ceilLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ceilLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -72334,10 +74007,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ceilLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ceilLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -72655,6 +74328,28 @@ class Core {
           }
           return optInTimePeriod - 1 ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cg}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the window (default 10; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cgDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( cgLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode cgImpl( int startIdx,
                        int endIdx,
@@ -73483,10 +75178,10 @@ class Core {
         * <li>Both sums are exact before the divide, so a window summing to exactly zero is always recognised and the value does not depend on where the call started. The exception is a window holding a non-finite value, a value with bits below 2^-1022 (every subnormal, and only values under about 2e-292), or values that together span more binary digits than the sums can hold exactly (97 at the default period, 84 at 1000, 58 at 100000): it is summed in floating point, oldest value first.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cgLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cgLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -73556,10 +75251,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cgLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cgLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -75041,6 +76736,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#chop}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the window (default 14; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int chopDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( chopLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode chopImpl( int startIdx,
                          int endIdx,
                          double inHigh[],
@@ -75239,10 +76956,10 @@ class Core {
         * <li>Dreiss's 3-bar smoothing of the index is not built in; apply a moving average to {@code outReal} to obtain it.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#chopLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#chopLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -75317,10 +77034,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#chopLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#chopLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -75882,6 +77599,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#choptr}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the window (default 14; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int choptrDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( choptrLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode choptrImpl( int startIdx,
                            int endIdx,
                            double inHigh[],
@@ -76083,10 +77822,10 @@ class Core {
         * <li>Dreiss's 3-bar smoothing of the index is not built in; apply a moving average to {@code outReal} to obtain it.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#choptrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#choptrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -76161,10 +77900,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#choptrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#choptrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -76758,6 +78497,35 @@ class Core {
            */
           return atrLookback(optInTimePeriod) + optInStopPeriod - 1 ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cksp}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window of the highest high and lowest low, and
+        *        smoothing period of the Average True Range (default 10; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMultiplier Multiplier applied to the Average True Range to
+        *        offset the first stops (default 1; minimum 0; {@link Core#REAL_DEFAULT}
+        *        selects the default).
+        * @param optInStopPeriod Window over which each first stop takes its extreme
+        *        (default 9; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int ckspDisplayShift( int optInTimePeriod, double optInMultiplier, int optInStopPeriod, int outputIdx )
+       {
+          if( ckspLookback( optInTimePeriod, optInMultiplier, optInStopPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode ckspImpl( int startIdx,
                          int endIdx,
@@ -77603,10 +79371,10 @@ class Core {
         * <li>Both lines inherit the Average True Range's warm-up, so a caller who wants them converged sets {@code TA_FUNC_UNST_ATR}, exactly as when calling that function directly.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ckspLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ckspLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -77701,10 +79469,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ckspLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ckspLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -78839,6 +80607,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cmf}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the window (default 20; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cmfDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( cmfLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cmfImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -79142,10 +80932,10 @@ class Core {
         * <li>The default period of 20 follows the original write-up, which describes 20 or 21 bars.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cmfLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cmfLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -79236,10 +81026,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cmfLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cmfLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -79835,6 +81625,28 @@ class Core {
           return retValue ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cmo}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Bars over which gains/losses are smoothed (default
+        *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cmoDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( cmoLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cmoImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -80071,10 +81883,10 @@ class Core {
         * <li>Gains and losses are smoothed with Wilder's method (as in RSI) rather than the simple period sums of Chande's original definition.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cmoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cmoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -80135,10 +81947,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cmoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cmoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -80626,6 +82438,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cmou}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of trailing price changes summed (default
+        *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cmouDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( cmouLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cmouImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -80908,10 +82742,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cmou">ta-lib.org/functions/cmou</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cmouLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cmouLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -80973,10 +82807,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cmouLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cmouLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -81591,6 +83425,32 @@ class Core {
           return optInROC2Period + optInWMAPeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#coppock}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInWMAPeriod Smoothing period for the ROC sum (default 10; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROC1Period Short rate-of-change period (default 11; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROC2Period Long rate-of-change period (default 14; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int coppockDisplayShift( int optInWMAPeriod, int optInROC1Period, int optInROC2Period, int outputIdx )
+       {
+          if( coppockLookback( optInWMAPeriod, optInROC1Period, optInROC2Period ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode coppockImpl( int startIdx,
                             int endIdx,
                             double inReal[],
@@ -81962,10 +83822,10 @@ class Core {
         * <li>First output at {@code max(optInROC1Period, optInROC2Period) + optInWMAPeriod - 1}. Not start-dependent: each output depends only on its finite trailing window.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#coppockLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#coppockLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -82032,10 +83892,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#coppockLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#coppockLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -82778,6 +84638,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#correl}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Rolling window length (default 30; range 1..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int correlDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( correlLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode correlImpl( int startIdx,
                            int endIdx,
                            double inReal0[],
@@ -83244,10 +85126,10 @@ class Core {
         * <li>When the correlation is undefined for a window (for example a constant series), the output is 0 rather than an error or NaN.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#correlLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#correlLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -83313,10 +85195,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#correlLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#correlLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -84332,6 +86214,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cos}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cosDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cosImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -84381,10 +86280,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cos">ta-lib.org/functions/cos</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cosLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cosLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -84438,10 +86337,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cosLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cosLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -84754,6 +86653,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cosh}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int coshDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode coshImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -84803,10 +86719,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/cosh">ta-lib.org/functions/cosh</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#coshLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#coshLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -84859,10 +86775,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#coshLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#coshLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -85201,6 +87117,33 @@ class Core {
           return retValue ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#crsi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Period of the RSI of the closes (default 3; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInStreakPeriod Period of the RSI of the up/down streak (default
+        *        2; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInRankPeriod Number of earlier one-bar returns each return is
+        *        ranked against (default 100; range 2..10000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int crsiDisplayShift( int optInTimePeriod, int optInStreakPeriod, int optInRankPeriod, int outputIdx )
+       {
+          if( crsiLookback( optInTimePeriod, optInStreakPeriod, optInRankPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode crsiImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -85431,10 +87374,10 @@ class Core {
         * <li>Finite input is a precondition. A NaN close does not propagate: the output stays finite and no error is reported, but the values that follow it are wrong.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#crsiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#crsiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -85511,10 +87454,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#crsiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#crsiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -86010,6 +87953,29 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cti}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of trailing values correlated against the
+        *        ramp (default 20; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int ctiDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( ctiLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode ctiImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -86366,10 +88332,10 @@ class Core {
         * <li>{@code optInTimePeriod} starts at 2, not 1: at {@code n = 1} the closed form {@code n²(n²−1)/12} is identically zero and every window is degenerate.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ctiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ctiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -86441,10 +88407,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ctiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ctiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -87229,6 +89195,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cumsum}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cumsumDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cumsumImpl( int startIdx,
                            int endIdx,
                            double inReal[],
@@ -87312,10 +89295,10 @@ class Core {
         * <li>The sum is uncompensated. A Kahan or Neumaier variant would diverge from {@code AD}'s own convention, which this follows.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cumsumLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cumsumLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -87378,10 +89361,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cumsumLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cumsumLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -87731,6 +89714,32 @@ class Core {
           return emaLookback(optInTimePeriod) + rocpLookback(optInROCPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#cvi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the exponential average of the
+        *        high-low spread (default 10; range 2..100000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param optInROCPeriod How many bars back the percent change reaches
+        *        (default 10; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int cviDisplayShift( int optInTimePeriod, int optInROCPeriod, int outputIdx )
+       {
+          if( cviLookback( optInTimePeriod, optInROCPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode cviImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -87952,10 +89961,10 @@ class Core {
         * <li>CVI inherits EMA's unstable period rather than owning one: {@code TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)} moves CVI's first output too.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cviLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cviLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -88038,10 +90047,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#cviLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#cviLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -88532,6 +90541,28 @@ class Core {
           return emaLookback(optInTimePeriod) * 2 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#dema}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing period for both EMA passes (default 30;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int demaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( demaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode demaImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -88774,10 +90805,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#demaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#demaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -88838,10 +90869,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#demaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#demaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -89327,6 +91358,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#div}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int divDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode divImpl( int startIdx,
                         int endIdx,
                         double inReal0[],
@@ -89382,10 +91430,10 @@ class Core {
         * <li>Zero divided by zero gives NaN; anything else divided by zero gives positive or negative infinity. Neither is reported as an error.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#divLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#divLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -89445,10 +91493,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#divLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#divLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -89779,6 +91827,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#donchian}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the extrema window (default 20;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int donchianDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( donchianLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 3 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode donchianImpl( int startIdx,
                              int endIdx,
                              double inHigh[],
@@ -90022,10 +92092,10 @@ class Core {
         * <li>No smoothing or recursion is involved, so there is no unstable period: outputs are exact from the first bar.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#donchianLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#donchianLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -90103,10 +92173,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#donchianLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#donchianLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -90705,6 +92775,7 @@ class Core {
      *  MMDDYY BY     Description
      *  -------------------------------------------------------------------
      *  090426 MF,CC  Initial version (#363).
+     *  100126 MF,CC  Display shift (#489).
      */
 
        /**
@@ -90732,6 +92803,37 @@ class Core {
            * then read inReal[-1].
            */
           return Math.max(optInTimePeriod - 1, optInTimePeriod / 2 + 1) ;
+
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#dpo}.
+        * <p>The values are never shifted: this describes the drawing only.
+        *
+        * @param optInTimePeriod Number of bars spanned by the moving average being
+        *        removed; the displacement is derived from it (default 20; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int dpoDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( dpoLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( optInTimePeriod == Integer.MIN_VALUE ) {
+             optInTimePeriod = 20;
+          } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          /* The value computed at a bar detrends the price this many bars back,
+           * which is where a chart draws it.
+           */
+          return -(optInTimePeriod / 2 + 1) ;
 
        }
        RetCode dpoImpl( int startIdx,
@@ -90880,14 +92982,14 @@ class Core {
         * href="https://ta-lib.org/functions/dpo">ta-lib.org/functions/dpo</a>.
         * <p><b>Notes</b>
         * <ul>
-        * <li>The value is emitted at the bar whose moving average produced it. Charting packages usually draw it {@code t} bars to the left instead, which is a plotting convention rather than a different series; a caller wanting that view shifts {@code outReal} itself.</li>
+        * <li>The value is emitted at the bar whose moving average produced it. Charting packages usually draw it {@code t} bars to the left instead, which is a plotting convention rather than a different series; a caller wanting that view shifts {@code outReal} itself, by the display shift the function reports, {@code -t}.</li>
         * <li>A causal variant, {@code P[i] - SMA(P, optInTimePeriod)[i - t]}, displaces the average instead of the price. It is a genuinely different series, not a re-indexing of this one, and is not implemented here.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#dpoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#dpoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -90949,17 +93051,17 @@ class Core {
         * href="https://ta-lib.org/functions/dpo">ta-lib.org/functions/dpo</a>.
         * <p><b>Notes</b>
         * <ul>
-        * <li>The value is emitted at the bar whose moving average produced it. Charting packages usually draw it {@code t} bars to the left instead, which is a plotting convention rather than a different series; a caller wanting that view shifts {@code outReal} itself.</li>
+        * <li>The value is emitted at the bar whose moving average produced it. Charting packages usually draw it {@code t} bars to the left instead, which is a plotting convention rather than a different series; a caller wanting that view shifts {@code outReal} itself, by the display shift the function reports, {@code -t}.</li>
         * <li>A causal variant, {@code P[i] - SMA(P, optInTimePeriod)[i - t]}, displaces the average instead of the price. It is a genuinely different series, not a re-indexing of this one, and is not implemented here.</li>
         * </ul>
         * <p>This is the {@code float[]} overload. The arithmetic is performed in
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#dpoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#dpoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -91429,6 +93531,28 @@ class Core {
              return 2 ;
           }
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#dx}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing period for the DM and TR sums (default
+        *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int dxDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( dxLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode dxImpl( int startIdx,
                        int endIdx,
@@ -91957,10 +94081,10 @@ class Core {
         * <li>When +DI and -DI sum to zero the value is undefined; the previous bar's DX is carried forward instead (the first such bar outputs zero).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#dxLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#dxLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -92034,10 +94158,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#dxLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#dxLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -92831,6 +94955,28 @@ class Core {
           return optInTimePeriod + this.unstablePeriod[FuncUnstId.EMA.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#efi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod EMA period applied to the force series (default 13;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int efiDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( efiLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode efiImpl( int startIdx,
                         int endIdx,
                         double inClose[],
@@ -93062,10 +95208,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/efi">ta-lib.org/functions/efi</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#efiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#efiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -93138,10 +95284,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#efiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#efiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -93688,6 +95834,29 @@ class Core {
           return optInTimePeriod - 1 + this.unstablePeriod[FuncUnstId.EMA.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ema}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the average; sets smoothing k =
+        *        2/(period+1) (default 30; range 1..100000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int emaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( emaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode emaImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -93848,10 +96017,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#emaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#emaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -93918,10 +96087,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#emaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#emaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -94356,6 +96525,32 @@ class Core {
           return 1 + smaLookback(optInTimePeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#emv}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of one-bar values in the simple moving
+        *        average (default 14; range 1..100000; {@code Integer.MIN_VALUE} selects
+        *        the default).
+        * @param optInVolumeDivisor Volume is divided by this before it forms the
+        *        box ratio (default 10000; minimum 1; {@link Core#REAL_DEFAULT} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int emvDisplayShift( int optInTimePeriod, double optInVolumeDivisor, int outputIdx )
+       {
+          if( emvLookback( optInTimePeriod, optInVolumeDivisor ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode emvImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -94589,10 +96784,10 @@ class Core {
         * <li>A period of 1 returns the unsmoothed one-bar values. Smoothing is a simple moving average; for an exponential one, apply {@code EMA} to this function's output at a period of 1.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#emvLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#emvLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -94677,10 +96872,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#emvLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#emvLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -95197,6 +97392,30 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#er}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of one-bar changes in the path sum
+        *        ({@code KAMA}'s {@code optInTimePeriod} is the same window, under its own
+        *        default) (default 10; range 2..100000; {@code Integer.MIN_VALUE} selects
+        *        the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int erDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( erLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode erImpl( int startIdx,
                        int endIdx,
                        double inReal[],
@@ -95470,10 +97689,10 @@ class Core {
         * <li>First output at index {@code P} ({@code P} one-bar changes need {@code P+1} prices). No unstable period, not start-dependent.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#erLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#erLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -95543,10 +97762,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#erLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#erLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -96122,6 +98341,28 @@ class Core {
           return emaLookback(optInTimePeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#eri}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the EMA of close (default 13;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int eriDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( eriLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode eriImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -96343,10 +98584,10 @@ class Core {
         * <li>No MAType parameter: every canonical source fixes the EMA, and a selectable average would invent a variant nobody ships.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#eriLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#eriLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -96422,10 +98663,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#eriLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#eriLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -96976,6 +99217,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#exp}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int expDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode expImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -97025,10 +99283,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/exp">ta-lib.org/functions/exp</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#expLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#expLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -97080,10 +99338,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#expLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#expLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -97394,6 +99652,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#floor}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int floorDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode floorImpl( int startIdx,
                           int endIdx,
                           double inReal[],
@@ -97444,10 +99719,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/floor">ta-lib.org/functions/floor</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#floorLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#floorLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -97499,10 +99774,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#floorLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#floorLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -97820,6 +100095,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#fosc}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the regression window (default 5;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int foscDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( foscLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode foscImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -98077,10 +100374,10 @@ class Core {
         * <li>The default window is Chande's own suggestion, shorter than the one TA-Lib's TSF and LINEARREG default to.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#foscLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#foscLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -98147,10 +100444,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#foscLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#foscLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -98734,6 +101031,32 @@ class Core {
           return optInLeftBars + optInRightBars ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#fractal}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInLeftBars Bars before the pivot that it must strictly dominate
+        *        (default 2; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInRightBars Bars after the pivot that it must strictly dominate,
+        *        and the delay before the verdict is reported (default 2; range 1..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int fractalDisplayShift( int optInLeftBars, int optInRightBars, int outputIdx )
+       {
+          if( fractalLookback( optInLeftBars, optInRightBars ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode fractalImpl( int startIdx,
                             int endIdx,
                             double inHigh[],
@@ -98942,10 +101265,10 @@ class Core {
         * <li>Each output is decided on its own side: a high tied with any other high in the window forces {@code outSwingHigh} to 0 while leaving {@code outSwingLow} free to fire 100, and the mirror holds. Only a window flat in both series emits 0 on both.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#fractalLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#fractalLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -99034,10 +101357,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#fractalLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#fractalLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -99617,6 +101940,29 @@ class Core {
           return optInTimePeriod + this.unstablePeriod[FuncUnstId.FRAMA.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#frama}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the window, split into two equal
+        *        halves (default 16; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int framaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( framaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode framaImpl( int startIdx,
                           int endIdx,
                           double inHigh[],
@@ -100045,10 +102391,10 @@ class Core {
         * <li>The period must be even; an odd period is rejected.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#framaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#framaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -100117,10 +102463,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#framaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#framaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -100820,6 +103166,23 @@ class Core {
           return this.unstablePeriod[FuncUnstId.HA.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ha}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int haDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 4 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode haImpl( int startIdx,
                        int endIdx,
                        double inOpen[],
@@ -101079,10 +103442,10 @@ class Core {
         * <li>Averaging four prices of one bar is also what <a href="https://ta-lib.org/functions/avgprice">{@code AVGPRICE}</a> computes, but it sums them in a different order, so the two can differ in the last bits.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#haLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#haLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -101179,10 +103542,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#haLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#haLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -101775,6 +104138,29 @@ class Core {
           sqrtPeriod = (int)Math.sqrt((double)optInTimePeriod);
           return wmaLookback(optInTimePeriod) + wmaLookback(sqrtPeriod) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#hma}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the full-period WMA; the half and
+        *        square-root periods derive from it (default 20; range 1..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int hmaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( hmaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode hmaImpl( int startIdx,
                         int endIdx,
@@ -102433,10 +104819,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#hmaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#hmaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -102514,10 +104900,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#hmaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#hmaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -104087,6 +106473,23 @@ class Core {
           return 32 + this.unstablePeriod[FuncUnstId.HT_DCPERIOD.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#htDcperiod}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int htDcperiodDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode htDcperiodImpl( int startIdx,
                                int endIdx,
                                double inReal[],
@@ -104722,10 +107125,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ht_dcperiod">ta-lib.org/functions/ht_dcperiod</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htDcperiodLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htDcperiodLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -104783,10 +107186,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htDcperiodLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htDcperiodLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -105893,6 +108296,23 @@ class Core {
           return 63 + this.unstablePeriod[FuncUnstId.HT_DCPHASE.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#htDcphase}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int htDcphaseDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode htDcphaseImpl( int startIdx,
                               int endIdx,
                               double inReal[],
@@ -106651,10 +109071,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ht_dcphase">ta-lib.org/functions/ht_dcphase</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htDcphaseLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htDcphaseLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -106714,10 +109134,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htDcphaseLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htDcphaseLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -108014,6 +110434,23 @@ class Core {
           return 32 + this.unstablePeriod[FuncUnstId.HT_PHASOR.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#htPhasor}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int htPhasorDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode htPhasorImpl( int startIdx,
                              int endIdx,
                              double inReal[],
@@ -108664,10 +111101,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ht_phasor">ta-lib.org/functions/ht_phasor</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htPhasorLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htPhasorLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -108733,10 +111170,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htPhasorLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htPhasorLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -109828,6 +112265,23 @@ class Core {
           return 63 + this.unstablePeriod[FuncUnstId.HT_SINE.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#htSine}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int htSineDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode htSineImpl( int startIdx,
                            int endIdx,
                            double inReal[],
@@ -110600,10 +113054,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ht_sine">ta-lib.org/functions/ht_sine</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htSineLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htSineLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -110666,10 +113120,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htSineLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htSineLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -112029,6 +114483,23 @@ class Core {
           return 63 + this.unstablePeriod[FuncUnstId.HT_TRENDLINE.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#htTrendline}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int htTrendlineDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode htTrendlineImpl( int startIdx,
                                 int endIdx,
                                 double inReal[],
@@ -112728,10 +115199,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ht_trendline">ta-lib.org/functions/ht_trendline</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htTrendlineLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htTrendlineLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -112787,10 +115258,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htTrendlineLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htTrendlineLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -114041,6 +116512,23 @@ class Core {
           return 63 + this.unstablePeriod[FuncUnstId.HT_TRENDMODE.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#htTrendmode}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int htTrendmodeDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode htTrendmodeImpl( int startIdx,
                                 int endIdx,
                                 double inReal[],
@@ -114939,10 +117427,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ht_trendmode">ta-lib.org/functions/ht_trendmode</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htTrendmodeLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htTrendmodeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -115000,10 +117488,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#htTrendmodeLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#htTrendmodeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -116547,6 +119035,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ibs}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int ibsDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode ibsImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -116630,10 +119135,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/ibs">ta-lib.org/functions/ibs</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ibsLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ibsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -116695,10 +119200,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ibsLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ibsLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -117084,6 +119589,29 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#imi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Rolling window length for the up/down body sums
+        *        (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int imiDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( imiLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode imiImpl( int startIdx,
                         int endIdx,
                         double inOpen[],
@@ -117200,10 +119728,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/imi">ta-lib.org/functions/imi</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#imiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#imiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -117263,10 +119791,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#imiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#imiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -117736,6 +120264,28 @@ class Core {
           return optInTimePeriod + this.unstablePeriod[FuncUnstId.KAMA.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#kama}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback window for the efficiency ratio (default
+        *        30; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int kamaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( kamaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode kamaImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -118154,10 +120704,10 @@ class Core {
         * <li>The output never leaves the range of the prices it has seen.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kamaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kamaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -118222,10 +120772,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kamaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kamaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -119082,6 +121632,33 @@ class Core {
           return (emaLookback > atrLookback) ? emaLookback : atrLookback ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#kc}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing period of the typical price moving
+        *        average (default 20; range 2..100000; {@code Integer.MIN_VALUE} selects
+        *        the default).
+        * @param optInATRPeriod Smoothing period of the Average True Range (default
+        *        10; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInNbDev Multiplier applied to the Average True Range (default 2;
+        *        {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int kcDisplayShift( int optInTimePeriod, int optInATRPeriod, double optInNbDev, int outputIdx )
+       {
+          if( kcLookback( optInTimePeriod, optInATRPeriod, optInNbDev ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 3 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode kcImpl( int startIdx,
                        int endIdx,
                        double inHigh[],
@@ -119288,10 +121865,10 @@ class Core {
         * <li>The centre line and the band are separate recursions, each with its own warm-up. They are entered at their own lookbacks, so a caller who wants either one converged sets that function's unstable period — {@code TA_FUNC_UNST_EMA} for the centre line, {@code TA_FUNC_UNST_ATR} for the band.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kcLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kcLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -119383,10 +121960,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kcLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kcLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -119926,6 +122503,12 @@ class Core {
         */
        public int kdjLookback( int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType )
        {
+          if( optInSlowK_MAType == null ) {
+             return -1;
+          }
+          if( optInSlowD_MAType == null ) {
+             return -1;
+          }
           if( optInFastK_Period == Integer.MIN_VALUE ) {
              optInFastK_Period = 9;
           } else if( optInFastK_Period < 1 || optInFastK_Period > 100000 ) {
@@ -119949,6 +122532,42 @@ class Core {
           }
           return stochLookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#kdj}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastK_Period Lookback window for the raw stochastic high-low
+        *        range (default 9; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSlowK_Period Smoothing period turning the raw stochastic into
+        *        K (default 3; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSlowK_MAType MA type used to smooth into K (default 13 = RMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param optInSlowD_Period Smoothing period for the D signal line (default
+        *        3; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowD_MAType MA type used for the D line (default 13 = RMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int kdjDisplayShift( int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType, int outputIdx )
+       {
+          if( kdjLookback( optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 3 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode kdjImpl( int startIdx,
                         int endIdx,
@@ -120115,10 +122734,10 @@ class Core {
         * <li>When the high-low range over the window is zero, the raw stochastic is set to 0 instead of being undefined.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kdjLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kdjLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -120226,10 +122845,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kdjLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kdjLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -120817,6 +123436,49 @@ class Core {
           }
           return legMax + optInSignalPeriod - 1 ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#kst}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInROC1Period Rate-of-change period of leg 1 (weight 1) (default
+        *        10; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROC2Period Rate-of-change period of leg 2 (weight 2) (default
+        *        15; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROC3Period Rate-of-change period of leg 3 (weight 3) (default
+        *        20; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROC4Period Rate-of-change period of leg 4 (weight 4) (default
+        *        30; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSMA1Period Simple-moving-average period smoothing leg 1
+        *        (default 10; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSMA2Period Simple-moving-average period smoothing leg 2
+        *        (default 10; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSMA3Period Simple-moving-average period smoothing leg 3
+        *        (default 10; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSMA4Period Simple-moving-average period smoothing leg 4
+        *        (default 15; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSignalPeriod Simple-moving-average period of the signal line
+        *        (default 9; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int kstDisplayShift( int optInROC1Period, int optInROC2Period, int optInROC3Period, int optInROC4Period, int optInSMA1Period, int optInSMA2Period, int optInSMA3Period, int optInSMA4Period, int optInSignalPeriod, int outputIdx )
+       {
+          if( kstLookback( optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInSMA1Period, optInSMA2Period, optInSMA3Period, optInSMA4Period, optInSignalPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode kstImpl( int startIdx,
                         int endIdx,
@@ -121424,10 +124086,10 @@ class Core {
         * <li>Pring's daily page uses a 10-day signal. The default signal period follows the charting platforms instead.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kstLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kstLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -121534,10 +124196,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kstLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kstLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -122593,6 +125255,12 @@ class Core {
         */
        public int kstextLookback( int optInROC1Period, int optInROC2Period, int optInROC3Period, int optInROC4Period, int optInMA1Period, int optInMA2Period, int optInMA3Period, int optInMA4Period, int optInSignalPeriod, MAType optInROCMAType, MAType optInSignalMAType )
        {
+          if( optInROCMAType == null ) {
+             return -1;
+          }
+          if( optInSignalMAType == null ) {
+             return -1;
+          }
           if( optInROC1Period == Integer.MIN_VALUE ) {
              optInROC1Period = 10;
           } else if( optInROC1Period < 1 || optInROC1Period > 100000 ) {
@@ -122661,6 +125329,52 @@ class Core {
           }
           return legMax + maLookback(optInSignalPeriod, optInSignalMAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#kstext}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInROC1Period Rate-of-change period of leg 1 (weight 1) (default
+        *        10; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROC2Period Rate-of-change period of leg 2 (weight 2) (default
+        *        15; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROC3Period Rate-of-change period of leg 3 (weight 3) (default
+        *        20; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROC4Period Rate-of-change period of leg 4 (weight 4) (default
+        *        30; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMA1Period Period of the MA smoothing leg 1 (default 10; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMA2Period Period of the MA smoothing leg 2 (default 10; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMA3Period Period of the MA smoothing leg 3 (default 10; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMA4Period Period of the MA smoothing leg 4 (default 15; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSignalPeriod Period of the signal-line MA (default 9; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInROCMAType MA type smoothing the four legs (default 0 = SMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param optInSignalMAType MA type for the signal line (default 0 = SMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int kstextDisplayShift( int optInROC1Period, int optInROC2Period, int optInROC3Period, int optInROC4Period, int optInMA1Period, int optInMA2Period, int optInMA3Period, int optInMA4Period, int optInSignalPeriod, MAType optInROCMAType, MAType optInSignalMAType, int outputIdx )
+       {
+          if( kstextLookback( optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode kstextImpl( int startIdx,
                            int endIdx,
@@ -123031,10 +125745,10 @@ class Core {
         * <li>The weights go with leg position, not with the length of the rate of change.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kstextLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kstextLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -123149,10 +125863,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kstextLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kstextLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -123819,6 +126533,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#kurtosis}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of trailing values in the window (default
+        *        30; range 4..10000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int kurtosisDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( kurtosisLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode kurtosisImpl( int startIdx,
                              int endIdx,
                              double inReal[],
@@ -124198,10 +126934,10 @@ class Core {
         * <li>The result is at most {@code n}, the value of one reading apart from {@code n−1} equal ones, so a window dominated by one outlier is legitimately far above 0.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kurtosisLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kurtosisLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -124271,10 +127007,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#kurtosisLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#kurtosisLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -125080,6 +127816,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#linearreg}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in each regression window (default
+        *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int linearregDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( linearregLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode linearregImpl( int startIdx,
                               int endIdx,
                               double inReal[],
@@ -125382,10 +128140,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/linearreg">ta-lib.org/functions/linearreg</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#linearregLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#linearregLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -125444,10 +128202,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#linearregLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#linearregLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -126195,6 +128953,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#linearregAngle}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of points in the regression window (default
+        *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int linearregAngleDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( linearregAngleLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode linearregAngleImpl( int startIdx,
                                    int endIdx,
                                    double inReal[],
@@ -126492,10 +129272,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/linearreg_angle">ta-lib.org/functions/linearreg_angle</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#linearregAngleLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#linearregAngleLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -126556,10 +129336,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#linearregAngleLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#linearregAngleLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -127298,6 +130078,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#linearregIntercept}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length of the regression (default 14; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int linearregInterceptDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( linearregInterceptLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode linearregInterceptImpl( int startIdx,
                                        int endIdx,
                                        double inReal[],
@@ -127594,10 +130396,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/linearreg_intercept">ta-lib.org/functions/linearreg_intercept</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#linearregInterceptLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#linearregInterceptLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -127656,10 +130458,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#linearregInterceptLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#linearregInterceptLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -128397,6 +131199,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#linearregSlope}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the regression window (default
+        *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int linearregSlopeDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( linearregSlopeLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode linearregSlopeImpl( int startIdx,
                                    int endIdx,
                                    double inReal[],
@@ -128688,10 +131512,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/linearreg_slope">ta-lib.org/functions/linearreg_slope</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#linearregSlopeLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#linearregSlopeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -128751,10 +131575,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#linearregSlopeLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#linearregSlopeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -129471,6 +132295,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ln}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int lnDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode lnImpl( int startIdx,
                        int endIdx,
                        double inReal[],
@@ -129524,10 +132365,10 @@ class Core {
         * <li>The logarithm is defined only for positive values: a negative input gives NaN, and a zero input gives negative infinity.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#lnLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#lnLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -129584,10 +132425,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#lnLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#lnLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -129899,6 +132740,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#log10}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int log10DisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode log10Impl( int startIdx,
                           int endIdx,
                           double inReal[],
@@ -129952,10 +132810,10 @@ class Core {
         * <li>The logarithm is defined only for positive values: a negative input gives NaN, and a zero input gives negative infinity.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#log10Lookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#log10Lookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -130011,10 +132869,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#log10Lookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#log10Lookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -130340,6 +133198,9 @@ class Core {
         */
        public int maLookback( int optInTimePeriod, MAType optInMAType )
        {
+          if( optInMAType == null ) {
+             return -1;
+          }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
              optInTimePeriod = 30;
           } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
@@ -130402,6 +133263,32 @@ class Core {
           }
           return retValue ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ma}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Averaging window length (default 30; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMAType Which moving-average algorithm to dispatch to (default
+        *        0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA,
+        *        7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA,
+        *        15=ALMA; {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int maDisplayShift( int optInTimePeriod, MAType optInMAType, int outputIdx )
+       {
+          if( maLookback( optInTimePeriod, optInMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode maImpl( int startIdx,
                        int endIdx,
@@ -130717,10 +133604,10 @@ class Core {
         * <li>{@code TA_MAType_DEFAULT} selects the documented default of the parameter it is passed to — SMA here, EMA for APO, PPO and PVO. Every function that takes an MAType parameter accepts it.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#maLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#maLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -130801,10 +133688,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#maLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#maLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -131986,6 +134873,32 @@ class Core {
           return emaLookback(optInSlowPeriod) + emaLookback(optInSignalPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#macd}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Period of the fast EMA (default 12; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowPeriod Period of the slow EMA (default 26; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSignalPeriod Smoothing period of the signal line (default 9;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int macdDisplayShift( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int outputIdx )
+       {
+          if( macdLookback( optInFastPeriod, optInSlowPeriod, optInSignalPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 3 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode macdImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -132344,10 +135257,10 @@ class Core {
         * <li>A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and the histogram is zero. Before 0.6.5 this parameter value produced misaligned output (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#macdLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#macdLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -132428,10 +135341,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#macdLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#macdLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -133056,6 +135969,15 @@ class Core {
         */
        public int macdextLookback( int optInFastPeriod, MAType optInFastMAType, int optInSlowPeriod, MAType optInSlowMAType, int optInSignalPeriod, MAType optInSignalMAType )
        {
+          if( optInFastMAType == null ) {
+             return -1;
+          }
+          if( optInSlowMAType == null ) {
+             return -1;
+          }
+          if( optInSignalMAType == null ) {
+             return -1;
+          }
           if( optInFastPeriod == Integer.MIN_VALUE ) {
              optInFastPeriod = 12;
           } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
@@ -133091,6 +136013,44 @@ class Core {
           /* Add to the largest MA lookback the signal line lookback */
           return lookbackLargest + maLookback(optInSignalPeriod, optInSignalMAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#macdext}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Period of the fast MA (default 12; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInFastMAType MA type for the fast MA (default 0 = SMA; values:
+        *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
+        *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param optInSlowPeriod Period of the slow MA (default 26; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowMAType MA type for the slow MA (default 0 = SMA; values:
+        *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
+        *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param optInSignalPeriod Period of the signal-line MA (default 9; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSignalMAType MA type for the signal line (default 0 = SMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int macdextDisplayShift( int optInFastPeriod, MAType optInFastMAType, int optInSlowPeriod, MAType optInSlowMAType, int optInSignalPeriod, MAType optInSignalMAType, int outputIdx )
+       {
+          if( macdextLookback( optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 3 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode macdextImpl( int startIdx,
                             int endIdx,
@@ -133391,10 +136351,10 @@ class Core {
         * <li>{@code TA_MAType_MAMA} ignores its period argument, so it always produces the same series regardless of the period requested. If both {@code optInFastMAType} and {@code optInSlowMAType} are set to MAMA, the fast and slow lines are therefore identical and MACD, Signal, and Hist are all zero at every bar. Select MAMA for only one side to get a meaningful spread.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#macdextLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#macdextLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -133496,10 +136456,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#macdextLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#macdextLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -134093,6 +137053,28 @@ class Core {
           return emaLookback(26) + emaLookback(optInSignalPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#macdfix}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInSignalPeriod Smoothing period for the signal line (default 9;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int macdfixDisplayShift( int optInSignalPeriod, int outputIdx )
+       {
+          if( macdfixLookback( optInSignalPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 3 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode macdfixImpl( int startIdx,
                             int endIdx,
                             double inReal[],
@@ -134400,10 +137382,10 @@ class Core {
         * <li>A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and the histogram is zero. Before 0.6.5 this parameter value produced misaligned output (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#macdfixLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#macdfixLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -134476,10 +137458,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#macdfixLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#macdfixLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -135091,6 +138073,32 @@ class Core {
            */
           return 32 + this.unstablePeriod[FuncUnstId.MAMA.ordinal()] ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#mama}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastLimit Upper bound on the adaptive smoothing factor
+        *        (default 0.5; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
+        *        default).
+        * @param optInSlowLimit Lower bound on the adaptive smoothing factor
+        *        (default 0.05; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int mamaDisplayShift( double optInFastLimit, double optInSlowLimit, int outputIdx )
+       {
+          if( mamaLookback( optInFastLimit, optInSlowLimit ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode mamaImpl( int startIdx,
                          int endIdx,
@@ -135831,10 +138839,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/mama">ta-lib.org/functions/mama</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#mamaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#mamaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -135905,10 +138913,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#mamaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#mamaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -137481,6 +140489,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#marketfi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int marketfiDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode marketfiImpl( int startIdx,
                              int endIdx,
                              double inHigh[],
@@ -137578,10 +140603,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/marketfi">ta-lib.org/functions/marketfi</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#marketfiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#marketfiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -137652,10 +140677,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#marketfiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#marketfiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -138063,6 +141088,31 @@ class Core {
           return emaLookback(optInFastPeriod) * 2 + (optInSlowPeriod - 1) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#massi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Number of bars in each of the two exponential
+        *        averages of the high-low range (default 9; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowPeriod Number of bars the ratio is summed over (default
+        *        25; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int massiDisplayShift( int optInFastPeriod, int optInSlowPeriod, int outputIdx )
+       {
+          if( massiLookback( optInFastPeriod, optInSlowPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode massiImpl( int startIdx,
                           int endIdx,
                           double inHigh[],
@@ -138384,10 +141434,10 @@ class Core {
         * <li>MASSI inherits EMA's unstable period rather than owning one, and inherits it twice: {@code TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, u)} moves the first output by 2u.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#massiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#massiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -138470,10 +141520,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#massiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#massiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -139040,6 +142090,9 @@ class Core {
         */
        public int mavpLookback( int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
        {
+          if( optInMAType == null ) {
+             return -1;
+          }
           if( optInMinPeriod == Integer.MIN_VALUE ) {
              optInMinPeriod = 2;
           } else if( optInMinPeriod < 1 || optInMinPeriod > 10000 ) {
@@ -139062,6 +142115,34 @@ class Core {
           }
           return maLookback(optInMaxPeriod, optInMAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#mavp}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInMinPeriod Lower clamp for the per-bar period (default 2; range
+        *        1..10000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMaxPeriod Upper clamp for the per-bar period (default 30;
+        *        range 1..10000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMAType Moving-average type applied (default 0 = SMA; values:
+        *        0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
+        *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int mavpDisplayShift( int optInMinPeriod, int optInMaxPeriod, MAType optInMAType, int outputIdx )
+       {
+          if( mavpLookback( optInMinPeriod, optInMaxPeriod, optInMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode mavpImpl( int startIdx,
                          int endIdx,
@@ -139506,12 +142587,13 @@ class Core {
         * <ul>
         * <li>Fractional per-bar periods are truncated to whole numbers before being clamped to the minimum and maximum period.</li>
         * <li>Period values of 1 perform no smoothing (the bar's output equals its input); the minimum allowed period is 1 since 0.6.5.</li>
+        * <li>{@code optInMinPeriod} must not exceed {@code optInMaxPeriod}; a larger minimum is rejected.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#mavpLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#mavpLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -139582,15 +142664,16 @@ class Core {
         * <ul>
         * <li>Fractional per-bar periods are truncated to whole numbers before being clamped to the minimum and maximum period.</li>
         * <li>Period values of 1 perform no smoothing (the bar's output equals its input); the minimum allowed period is 1 since 0.6.5.</li>
+        * <li>{@code optInMinPeriod} must not exceed {@code optInMaxPeriod}; a larger minimum is rejected.</li>
         * </ul>
         * <p>This is the {@code float[]} overload. The arithmetic is performed in
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#mavpLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#mavpLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -140197,6 +143280,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#max}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length in bars (default 30; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int maxDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( maxLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode maxImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -140459,10 +143564,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/max">ta-lib.org/functions/max</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#maxLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#maxLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -140519,10 +143624,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#maxLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#maxLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -140997,6 +144102,29 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#maxindex}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length over which the max is located
+        *        (default 30; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int maxindexDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( maxindexLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode maxindexImpl( int startIdx,
                              int endIdx,
                              double inReal[],
@@ -141155,10 +144283,10 @@ class Core {
         * <li>When several bars in a window share the highest value, the index of one of them is returned — not necessarily the first or the last.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#maxindexLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#maxindexLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -141223,10 +144351,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#maxindexLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#maxindexLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -141695,6 +144823,28 @@ class Core {
           return optInTimePeriod - 1 + this.unstablePeriod[FuncUnstId.MCGD.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#mcgd}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod The N of the step's denominator (default 14; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int mcgdDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( mcgdLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode mcgdImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -141861,10 +145011,10 @@ class Core {
         * <li>Some implementations write the step's denominator as {@code 0.6 * P * (x / MD)^4}. That is this function at a period of {@code 0.6 * P}, when that is an integer.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#mcgdLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#mcgdLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -141935,10 +145085,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#mcgdLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#mcgdLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -142348,6 +145498,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#median}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of trailing values in the window (default
+        *        30; range 2..10000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int medianDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( medianLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode medianImpl( int startIdx,
                            int endIdx,
                            double inReal[],
@@ -142754,10 +145926,10 @@ class Core {
         * <li>Every input value must be finite. A NaN makes every comparison against it false, which breaks the order the window is kept in, and the output can stay wrong long after the NaN has left the window.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#medianLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#medianLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -142828,10 +146000,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#medianLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#medianLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -143533,6 +146705,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#medprice}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int medpriceDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode medpriceImpl( int startIdx,
                              int endIdx,
                              double inHigh[],
@@ -143593,10 +146782,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/medprice">ta-lib.org/functions/medprice</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#medpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#medpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -143654,10 +146843,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#medpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#medpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -144011,6 +147200,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#mfi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback window for summing money flow (default 14;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int mfiDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( mfiLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode mfiImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -144334,10 +147545,10 @@ class Core {
         * <li>A window in which no bar contributed any money flow — every typical price unchanged, or no volume traded — leaves the index undefined (0/0); 0 is returned. The result does not otherwise depend on the size of the money flow: scaling every volume, or quoting the instrument in a different unit, leaves the index unchanged.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#mfiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#mfiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -144409,10 +147620,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#mfiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#mfiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -145036,6 +148247,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#midpoint}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback window length (default 14; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int midpointDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( midpointLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode midpointImpl( int startIdx,
                              int endIdx,
                              double inReal[],
@@ -145371,10 +148604,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/midpoint">ta-lib.org/functions/midpoint</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#midpointLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#midpointLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -145432,10 +148665,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#midpointLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#midpointLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -145995,6 +149228,29 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#midprice}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length over which the high/low extremes are
+        *        taken (default 14; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int midpriceDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( midpriceLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode midpriceImpl( int startIdx,
                              int endIdx,
                              double inHigh[],
@@ -146336,10 +149592,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/midprice">ta-lib.org/functions/midprice</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#midpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#midpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -146400,10 +149656,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#midpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#midpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -146976,6 +150232,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#min}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the trailing window (default 30;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int minDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( minLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode minImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -147236,10 +150514,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/min">ta-lib.org/functions/min</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -147295,10 +150573,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -147771,6 +151049,29 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#minindex}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length over which the minimum is located
+        *        (default 30; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int minindexDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( minindexLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode minindexImpl( int startIdx,
                              int endIdx,
                              double inReal[],
@@ -147929,10 +151230,10 @@ class Core {
         * <li>When several bars in a window share the lowest value, the index of one of them is returned — not necessarily the first or the last.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minindexLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minindexLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -147997,10 +151298,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minindexLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minindexLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -148465,6 +151766,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#minmax}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Rolling window length (default 30; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int minmaxDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( minmaxLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode minmaxImpl( int startIdx,
                            int endIdx,
                            double inReal[],
@@ -148809,10 +152132,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/minmax">ta-lib.org/functions/minmax</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minmaxLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minmaxLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -148877,10 +152200,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minmaxLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minmaxLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -149469,6 +152792,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#minmaxindex}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length in bars (default 30; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int minmaxindexDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( minmaxindexLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode minmaxindexImpl( int startIdx,
                                 int endIdx,
                                 double inReal[],
@@ -149680,10 +153025,10 @@ class Core {
         * <li>When several bars in a window share the extreme value, the index of one of them is returned — not necessarily the first or the last.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minmaxindexLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minmaxindexLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -149751,10 +153096,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minmaxindexLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minmaxindexLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -150343,6 +153688,28 @@ class Core {
           }
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#minusDi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing/lookback period for -DM and TR (default
+        *        14; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int minusDiDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( minusDiLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode minusDiImpl( int startIdx,
                             int endIdx,
                             double inHigh[],
@@ -150892,10 +154259,10 @@ class Core {
         * <li>Wilder's original integer rounding is not applied (it was removed as unreliable when values are near 1).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minusDiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minusDiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -150967,10 +154334,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minusDiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minusDiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -151947,6 +155314,28 @@ class Core {
           }
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#minusDm}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Wilder smoothing period (default 14; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int minusDmDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( minusDmLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode minusDmImpl( int startIdx,
                             int endIdx,
                             double inHigh[],
@@ -152289,10 +155678,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/minus_dm">ta-lib.org/functions/minus_dm</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minusDmLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minusDmLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -152356,10 +155745,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#minusDmLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#minusDmLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -153078,6 +156467,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#mom}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback distance in bars (default 10; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int momDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( momLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode momImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -153205,10 +156616,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/mom">ta-lib.org/functions/mom</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#momLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#momLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -153267,10 +156678,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#momLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#momLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -153671,6 +157082,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#mult}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int multDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode multImpl( int startIdx,
                          int endIdx,
                          double inReal0[],
@@ -153730,10 +157158,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/mult">ta-lib.org/functions/mult</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#multLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#multLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -153789,10 +157217,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#multLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#multLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -154146,6 +157574,29 @@ class Core {
           return optInTimePeriod + this.unstablePeriod[FuncUnstId.NATR.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#natr}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing period for the true range average
+        *        (default 14; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int natrDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( natrLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode natrImpl( int startIdx,
                          int endIdx,
                          double inHigh[],
@@ -154492,10 +157943,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/natr">ta-lib.org/functions/natr</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#natrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#natrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -154561,10 +158012,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#natrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#natrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -155165,6 +158616,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#nvi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int nviDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode nviImpl( int startIdx,
                         int endIdx,
                         double inClose[],
@@ -155284,10 +158752,10 @@ class Core {
         * <li>The index compounds, so it has no upper bound. If a run of large rises ever pushes it past the largest representable number, the last representable value is carried forward instead of returning infinity. Real price series stay far away from that.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#nviLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#nviLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -155347,10 +158815,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#nviLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#nviLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -155778,6 +159246,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#obv}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int obvDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode obvImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -155857,10 +159342,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/obv">ta-lib.org/functions/obv</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#obvLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#obvLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -155914,10 +159399,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#obvLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#obvLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -156280,6 +159765,9 @@ class Core {
         */
        public int percentbLookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
        {
+          if( optInMAType == null ) {
+             return -1;
+          }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
              optInTimePeriod = 20;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
@@ -156300,6 +159788,36 @@ class Core {
           }
           return bbandsLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#percentb}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Periods for the MA and standard deviation (default
+        *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInNbDevUp Standard-deviation multiplier for the upper band
+        *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInNbDevDn Standard-deviation multiplier for the lower band
+        *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInMAType Moving-average type for the middle band (default 0 =
+        *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int percentbDisplayShift( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, int outputIdx )
+       {
+          if( percentbLookback( optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode percentbImpl( int startIdx,
                              int endIdx,
@@ -156831,10 +160349,10 @@ class Core {
         * <li>PERCENTB is bit for bit {@code (inReal - lower) / (upper - lower)} computed from BBANDS' own outputs, and 0.5 wherever those two bands are equal.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#percentbLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#percentbLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -156913,10 +160431,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#percentbLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#percentbLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -157446,6 +160964,30 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#percentile}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the trailing window (default 100;
+        *        range 2..10000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInPercentile Percentage position within the sorted window
+        *        (default 50; range 0..100; {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int percentileDisplayShift( int optInTimePeriod, double optInPercentile, int outputIdx )
+       {
+          if( percentileLookback( optInTimePeriod, optInPercentile ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode percentileImpl( int startIdx,
                                int endIdx,
                                double inReal[],
@@ -157825,10 +161367,10 @@ class Core {
         * <li>Every input value in the window must be finite. A NaN makes every comparison against it false, which breaks the ordering the rank index is read from.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#percentileLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#percentileLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -157901,10 +161443,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#percentileLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#percentileLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -158570,6 +162112,29 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#percentrank}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of preceding values the current value is
+        *        ranked against (default 100; range 2..10000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int percentrankDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( percentrankLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode percentrankImpl( int startIdx,
                                 int endIdx,
                                 double inReal[],
@@ -158700,10 +162265,10 @@ class Core {
         * <li>Finite input is a precondition. A NaN in the window fails every comparison, so it silently lowers the rank instead of propagating: the output stays finite and no error is reported.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#percentrankLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#percentrankLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -158778,10 +162343,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#percentrankLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#percentrankLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -159211,6 +162776,28 @@ class Core {
              return 1 ;
           }
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#plusDi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Wilder smoothing period (default 14; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int plusDiDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( plusDiLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode plusDiImpl( int startIdx,
                            int endIdx,
@@ -159761,10 +163348,10 @@ class Core {
         * <li>Wilder's original integer rounding of intermediate values is not applied (it was unreliable when values are near 1).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#plusDiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#plusDiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -159836,10 +163423,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#plusDiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#plusDiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -160818,6 +164405,28 @@ class Core {
           }
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#plusDm}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Wilder smoothing period (default 14; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int plusDmDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( plusDmLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode plusDmImpl( int startIdx,
                            int endIdx,
                            double inHigh[],
@@ -161160,10 +164769,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/plus_dm">ta-lib.org/functions/plus_dm</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#plusDmLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#plusDmLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -161227,10 +164836,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#plusDmLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#plusDmLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -161957,6 +165566,9 @@ class Core {
         */
        public int ppoLookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
        {
+          if( optInMAType == null ) {
+             return -1;
+          }
           if( optInFastPeriod == Integer.MIN_VALUE ) {
              optInFastPeriod = 12;
           } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
@@ -161973,6 +165585,34 @@ class Core {
           /* Lookback is driven by the slowest MA. */
           return maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ppo}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Period of the fast MA (default 12; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowPeriod Period of the slow MA (default 26; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMAType Moving average type used for both MAs (default 1 = EMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int ppoDisplayShift( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, int outputIdx )
+       {
+          if( ppoLookback( optInFastPeriod, optInSlowPeriod, optInMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode ppoImpl( int startIdx,
                         int endIdx,
@@ -162521,12 +166161,13 @@ class Core {
         * <p><b>Notes</b>
         * <ul>
         * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</li>
+        * <li>If the slow period is set smaller than the fast period, the two are swapped, as in {@code MACD}.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ppoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ppoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -162594,15 +166235,16 @@ class Core {
         * <p><b>Notes</b>
         * <ul>
         * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</li>
+        * <li>If the slow period is set smaller than the fast period, the two are swapped, as in {@code MACD}.</li>
         * </ul>
         * <p>This is the {@code float[]} overload. The arithmetic is performed in
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ppoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ppoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -163120,6 +166762,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#pvi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int pviDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode pviImpl( int startIdx,
                         int endIdx,
                         double inClose[],
@@ -163239,10 +166898,10 @@ class Core {
         * <li>The index compounds, so it has no upper bound. If a run of large rises ever pushes it past the largest representable number, the last representable value is carried forward instead of returning infinity. Real price series stay far away from that.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#pviLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#pviLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -163302,10 +166961,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#pviLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#pviLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -163739,6 +167398,9 @@ class Core {
         */
        public int pvoLookback( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
        {
+          if( optInMAType == null ) {
+             return -1;
+          }
           if( optInFastPeriod == Integer.MIN_VALUE ) {
              optInFastPeriod = 12;
           } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
@@ -163755,6 +167417,34 @@ class Core {
           /* Lookback is driven by the slowest MA. */
           return maLookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#pvo}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Period of the fast MA (default 12; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowPeriod Period of the slow MA (default 26; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMAType Moving average type used for both MAs (default 1 = EMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int pvoDisplayShift( int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, int outputIdx )
+       {
+          if( pvoLookback( optInFastPeriod, optInSlowPeriod, optInMAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode pvoImpl( int startIdx,
                         int endIdx,
@@ -164305,12 +167995,13 @@ class Core {
         * <p><b>Notes</b>
         * <ul>
         * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</li>
+        * <li>If the slow period is set smaller than the fast period, the two are swapped, as in {@code MACD}.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#pvoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#pvoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -164380,15 +168071,16 @@ class Core {
         * <p><b>Notes</b>
         * <ul>
         * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</li>
+        * <li>If the slow period is set smaller than the fast period, the two are swapped, as in {@code MACD}.</li>
         * </ul>
         * <p>This is the {@code float[]} overload. The arithmetic is performed in
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#pvoLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#pvoLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -164905,6 +168597,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#pvt}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int pvtDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode pvtImpl( int startIdx,
                         int endIdx,
                         double inClose[],
@@ -164996,10 +168705,10 @@ class Core {
         * <li>A bar whose previous close is exactly zero contributes nothing and the running total is carried forward unchanged, rather than dividing by zero. A flat stretch of the output can therefore mean either genuine zero net accumulation or a run of zero previous closes.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#pvtLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#pvtLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -165071,10 +168780,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#pvtLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#pvtLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -165448,6 +169157,30 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#qstick}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars averaged. Default 10, matching Tulip
+        *        Indicators and pandas-ta-classic. Other packages differ: TraderEvolution
+        *        documents 1, and AmiBroker community code commonly uses 8 (default 10;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int qstickDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( qstickLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode qstickImpl( int startIdx,
                            int endIdx,
                            double inOpen[],
@@ -165605,10 +169338,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/qstick">ta-lib.org/functions/qstick</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#qstickLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#qstickLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -165674,10 +169407,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#qstickLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#qstickLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -166132,6 +169865,29 @@ class Core {
           return optInTimePeriod - 1 + this.unstablePeriod[FuncUnstId.RMA.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#rma}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the seed window, and the
+        *        reciprocal of the smoothing factor (default 30; range 1..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rmaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( rmaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode rmaImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -166316,10 +170072,10 @@ class Core {
         * <li>Being recursive, an output depends on how much history precedes it: the same bar computed from an earlier start differs while the seed still carries weight, and that difference decays by a factor of {@code 1 - 1/N} per bar. The unstable period is how much of the warm-up to discard.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rmaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rmaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -166404,10 +170160,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rmaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rmaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -166830,6 +170586,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#roc}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback distance to the prior price (default 10;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rocDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( rocLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode rocImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -166969,10 +170747,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/roc">ta-lib.org/functions/roc</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rocLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rocLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -167032,10 +170810,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rocLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rocLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -167461,6 +171239,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#rocp}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback distance to the previous price (default
+        *        10; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rocpDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( rocpLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode rocpImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -167599,10 +171399,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/rocp">ta-lib.org/functions/rocp</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rocpLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rocpLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -167662,10 +171462,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rocpLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rocpLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -168093,6 +171893,29 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#rocr}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback distance in bars for the prior price
+        *        (default 10; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rocrDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( rocrLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode rocrImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -168231,10 +172054,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/rocr">ta-lib.org/functions/rocr</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rocrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rocrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -168294,10 +172117,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rocrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rocrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -168725,6 +172548,29 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#rocr100}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback distance (bars back) for the reference
+        *        price (default 10; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rocr100DisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( rocr100Lookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode rocr100Impl( int startIdx,
                             int endIdx,
                             double inReal[],
@@ -168864,10 +172710,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/rocr100">ta-lib.org/functions/rocr100</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rocr100Lookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rocr100Lookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -168928,10 +172774,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rocr100Lookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rocr100Lookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -169373,6 +173219,28 @@ class Core {
           return retValue ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#rsi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback for the gain/loss averaging (default 14;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rsiDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( rsiLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode rsiImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -169639,10 +173507,10 @@ class Core {
         * <li>After a move, an unchanged input holds the last value until the two averages decay to rounding residue: about a thousand unchanged bars at period 2, about ten thousand at period 14. The output then drifts and settles on 50. Input that had only risen or only fallen stays at 100 or 0, except at period 2.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rsiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rsiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -169704,10 +173572,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rsiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rsiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -170222,6 +174090,32 @@ class Core {
           }
           return optInStdDevPeriod - 1 + (optInTimePeriod - 1) + this.unstablePeriod[FuncUnstId.RVI.ordinal()] ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#rvi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Wilder smoothing period applied to both legs
+        *        (default 14; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInStdDevPeriod Number of trailing values the standard deviation
+        *        spans (default 10; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rviDisplayShift( int optInTimePeriod, int optInStdDevPeriod, int outputIdx )
+       {
+          if( rviLookback( optInTimePeriod, optInStdDevPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode rviImpl( int startIdx,
                         int endIdx,
@@ -170849,10 +174743,10 @@ class Core {
         * <li>Unrelated to the Relative Vigor Index, which several platforms also abbreviate RVI.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rviLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rviLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -170928,10 +174822,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rviLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rviLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -171800,6 +175694,32 @@ class Core {
           return rviLookback(optInTimePeriod, optInStdDevPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#rvir}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Wilder smoothing period applied to both legs of
+        *        both indices (default 14; range 1..100000; {@code Integer.MIN_VALUE}
+        *        selects the default).
+        * @param optInStdDevPeriod Number of trailing values each standard deviation
+        *        spans (default 10; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rvirDisplayShift( int optInTimePeriod, int optInStdDevPeriod, int outputIdx )
+       {
+          if( rvirLookback( optInTimePeriod, optInStdDevPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode rvirImpl( int startIdx,
                          int endIdx,
                          double inHigh[],
@@ -171960,10 +175880,10 @@ class Core {
         * <li>RVIR is the 1995 revision; <a href="https://ta-lib.org/functions/rvi">{@code RVI}</a> is the 1993 version.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rvirLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rvirLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -172038,10 +175958,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rvirLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rvirLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -172476,6 +176396,29 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#rvol}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of preceding bars averaged to form the
+        *        baseline (default 20; range 1..100000; {@code Integer.MIN_VALUE} selects
+        *        the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int rvolDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( rvolLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode rvolImpl( int startIdx,
                          int endIdx,
                          double inVolume[],
@@ -172647,10 +176590,10 @@ class Core {
         * <li>A window in which every bar traded nothing has a baseline of zero and no defined ratio: that element is ±Inf, or NaN when the current bar is also zero. Real volume is non-negative, so this only happens on a dead window — an instrument that did not trade at all, or a series carrying no volume, such as a cash-index feed.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rvolLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rvolLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -172722,10 +176665,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#rvolLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#rvolLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -173204,6 +177147,31 @@ class Core {
           return 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#sar}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInAcceleration Step added to the acceleration factor on each new
+        *        extreme point (default 0.02; minimum 0; {@link Core#REAL_DEFAULT} selects
+        *        the default).
+        * @param optInMaximum Ceiling on the acceleration factor (default 0.2;
+        *        minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int sarDisplayShift( double optInAcceleration, double optInMaximum, int outputIdx )
+       {
+          if( sarLookback( optInAcceleration, optInMaximum ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode sarImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -173623,10 +177591,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/sar">ta-lib.org/functions/sar</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sarLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -173692,10 +177660,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sarLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sarLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -174581,6 +178549,44 @@ class Core {
           return 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#sarext}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInStartValue Initial SAR/direction: 0 auto, &gt;0 start long at
+        *        value, &lt;0 start short at -value (default 0; {@link Core#REAL_DEFAULT}
+        *        selects the default).
+        * @param optInOffsetOnReverse Fractional offset applied to the stop on each
+        *        reversal (default 0; minimum 0; {@link Core#REAL_DEFAULT} selects the
+        *        default).
+        * @param optInAccelerationInitLong Initial acceleration factor when long
+        *        (default 0.02; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInAccelerationLong AF increment per new long extreme (default
+        *        0.02; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInAccelerationMaxLong Cap on the long acceleration factor
+        *        (default 0.2; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInAccelerationInitShort Initial acceleration factor when short
+        *        (default 0.02; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInAccelerationShort AF increment per new short extreme (default
+        *        0.02; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param optInAccelerationMaxShort Cap on the short acceleration factor
+        *        (default 0.2; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int sarextDisplayShift( double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort, int outputIdx )
+       {
+          if( sarextLookback( optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode sarextImpl( int startIdx,
                            int endIdx,
                            double inHigh[],
@@ -175163,10 +179169,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/sarext">ta-lib.org/functions/sarext</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sarextLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sarextLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -175251,10 +179257,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sarextLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sarextLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -176220,6 +180226,29 @@ class Core {
           return 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#si}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInLimitMove Limit move, the largest one-bar price move the index
+        *        is scaled against, in price units (default 3; minimum 0.00000001;
+        *        {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int siDisplayShift( double optInLimitMove, int outputIdx )
+       {
+          if( siLookback( optInLimitMove ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode siImpl( int startIdx,
                        int endIdx,
                        double inOpen[],
@@ -176404,10 +180433,10 @@ class Core {
         * <li>A bar that moves more than the limit move can read beyond -100 or +100; the output is not clamped.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#siLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#siLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -176486,10 +180515,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#siLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#siLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -176977,6 +181006,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#sin}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int sinDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode sinImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -177026,10 +181072,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/sin">ta-lib.org/functions/sin</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sinLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sinLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -177082,10 +181128,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sinLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sinLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -177397,6 +181443,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#sinh}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int sinhDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode sinhImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -177446,10 +181509,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/sinh">ta-lib.org/functions/sinh</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sinhLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sinhLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -177501,10 +181564,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sinhLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sinhLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -177824,6 +181887,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#sma}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the averaging window (default 30;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int smaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( smaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode smaImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -177962,10 +182047,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#smaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#smaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -178028,10 +182113,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#smaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#smaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -178516,6 +182601,36 @@ class Core {
            */
           return optInTimePeriod - 1 + emaLookback(optInSlowPeriod) + emaLookback(optInFastPeriod) + emaLookback(optInSignalPeriod) ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#smi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Period of the high/low range (default 13; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInFastPeriod Period of the second smoothing, applied to the
+        *        first (default 2; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSlowPeriod Period of the first smoothing, applied to the raw
+        *        momentum (default 25; range 2..100000; {@code Integer.MIN_VALUE} selects
+        *        the default).
+        * @param optInSignalPeriod Smoothing period of the signal line (default 9;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int smiDisplayShift( int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int outputIdx )
+       {
+          if( smiLookback( optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode smiImpl( int startIdx,
                         int endIdx,
@@ -179079,10 +183194,10 @@ class Core {
         * <li>One output range covers both outputs, so the SMI values consumed by the signal line's own warm-up are not published.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#smiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#smiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -179176,10 +183291,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#smiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#smiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -180067,6 +184182,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#sqrt}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int sqrtDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode sqrtImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -180120,10 +184252,10 @@ class Core {
         * <li>A negative input has no real square root, so those elements come out NaN.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sqrtLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sqrtLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -180176,10 +184308,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sqrtLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sqrtLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -180526,6 +184658,32 @@ class Core {
            */
           return emaLookback(optInSlowPeriod) + 2 * (optInCyclePeriod - 1) + this.unstablePeriod[FuncUnstId.STC.ordinal()] ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#stc}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastPeriod Period of the fast EMA (default 23; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInSlowPeriod Period of the slow EMA (default 50; range
+        *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInCyclePeriod Window of both stochastic stages (default 10;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int stcDisplayShift( int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, int outputIdx )
+       {
+          if( stcLookback( optInFastPeriod, optInSlowPeriod, optInCyclePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode stcImpl( int startIdx,
                         int endIdx,
@@ -181335,10 +185493,10 @@ class Core {
         * <li>Being recursive, an output depends on how much history precedes it. The unstable period warms the two smoothers; the EMA unstable period warms the MACD line.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stcLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stcLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -181410,10 +185568,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stcLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stcLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -182523,6 +186681,30 @@ class Core {
           return varLookback(optInTimePeriod, optInNbDev) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#stddev}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length (default 5; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInNbDev Multiplier applied to the standard deviation (default 1;
+        *        {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int stddevDisplayShift( int optInTimePeriod, double optInNbDev, int outputIdx )
+       {
+          if( stddevLookback( optInTimePeriod, optInNbDev ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode stddevImpl( int startIdx,
                            int endIdx,
                            double inReal[],
@@ -182651,10 +186833,10 @@ class Core {
         * <li>Uses population variance (divides by the period, not period minus one), so results differ slightly from the sample standard deviation used by some tools.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stddevLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stddevLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -182718,10 +186900,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stddevLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stddevLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -183149,6 +187331,12 @@ class Core {
         */
        public int stochLookback( int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType )
        {
+          if( optInSlowK_MAType == null ) {
+             return -1;
+          }
+          if( optInSlowD_MAType == null ) {
+             return -1;
+          }
           if( optInFastK_Period == Integer.MIN_VALUE ) {
              optInFastK_Period = 5;
           } else if( optInFastK_Period < 1 || optInFastK_Period > 100000 ) {
@@ -183179,6 +187367,43 @@ class Core {
           retValue += maLookback(optInSlowD_Period, optInSlowD_MAType);
           return retValue ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#stoch}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastK_Period Lookback window for the raw %K high-low range
+        *        (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSlowK_Period Smoothing period turning FastK into SlowK
+        *        (default 3; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSlowK_MAType MA type used to smooth into SlowK (default 0 =
+        *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param optInSlowD_Period Smoothing period for the SlowD signal line
+        *        (default 3; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInSlowD_MAType MA type used for the SlowD line (default 0 = SMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int stochDisplayShift( int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType, int outputIdx )
+       {
+          if( stochLookback( optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode stochImpl( int startIdx,
                           int endIdx,
@@ -183579,10 +187804,10 @@ class Core {
         * <li>When the high-low range over the window is zero, the raw stochastic is set to 0 instead of being undefined.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stochLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stochLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -183677,10 +187902,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stochLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stochLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -184523,6 +188748,9 @@ class Core {
         */
        public int stochfLookback( int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
        {
+          if( optInFastD_MAType == null ) {
+             return -1;
+          }
           if( optInFastK_Period == Integer.MIN_VALUE ) {
              optInFastK_Period = 5;
           } else if( optInFastK_Period < 1 || optInFastK_Period > 100000 ) {
@@ -184543,6 +188771,35 @@ class Core {
           retValue += maLookback(optInFastD_Period, optInFastD_MAType);
           return retValue ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#stochf}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFastK_Period Lookback window for the highest-high/lowest-low
+        *        of Fast-K (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects
+        *        the default).
+        * @param optInFastD_Period Smoothing period for the Fast-D line (default 3;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInFastD_MAType Moving-average type used to smooth Fast-D
+        *        (default 0 = SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA,
+        *        6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA,
+        *        14=VIDYA, 15=ALMA; {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int stochfDisplayShift( int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, int outputIdx )
+       {
+          if( stochfLookback( optInFastK_Period, optInFastD_Period, optInFastD_MAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode stochfImpl( int startIdx,
                            int endIdx,
@@ -184906,10 +189163,10 @@ class Core {
         * <li>When the high-low range over the window is zero, %K is set to 0 instead of being undefined.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stochfLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stochfLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -184993,10 +189250,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stochfLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stochfLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -185783,6 +190040,9 @@ class Core {
         */
        public int stochrsiLookback( int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
        {
+          if( optInFastD_MAType == null ) {
+             return -1;
+          }
           if( optInTimePeriod == Integer.MIN_VALUE ) {
              optInTimePeriod = 14;
           } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
@@ -185805,6 +190065,37 @@ class Core {
           retValue = rsiLookback(optInTimePeriod) + stochfLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
           return retValue ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#stochrsi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod RSI period (default 14; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param optInFastK_Period Lookback window for the RSI min/max stochastic
+        *        (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param optInFastD_Period Smoothing period for %D (default 3; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInFastD_MAType MA type used to smooth %D (default 0 = SMA;
+        *        values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
+        *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
+        *        {@code MAType.DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int stochrsiDisplayShift( int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, int outputIdx )
+       {
+          if( stochrsiLookback( optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode stochrsiImpl( int startIdx,
                              int endIdx,
@@ -186009,10 +190300,10 @@ class Core {
         * <li>When the RSI's recent range is zero, %K is set to 0 instead of being undefined.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stochrsiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stochrsiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -186095,10 +190386,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#stochrsiLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#stochrsiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -186594,6 +190885,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#sub}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int subDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode subImpl( int startIdx,
                         int endIdx,
                         double inReal0[],
@@ -186646,10 +190954,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/sub">ta-lib.org/functions/sub</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#subLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#subLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -186705,10 +191013,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#subLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#subLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -187039,6 +191347,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#sum}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length summed (default 30; range 2..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int sumDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( sumLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode sumImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -187165,10 +191495,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/sum">ta-lib.org/functions/sum</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sumLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sumLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -187223,10 +191553,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#sumLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#sumLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -187644,6 +191974,31 @@ class Core {
           return atrLookback(optInTimePeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#supertrend}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Smoothing period of the Average True Range (default
+        *        10; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInMultiplier Multiplier applied to the Average True Range to set
+        *        the band width (default 3; minimum 0; {@link Core#REAL_DEFAULT} selects
+        *        the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int supertrendDisplayShift( int optInTimePeriod, double optInMultiplier, int outputIdx )
+       {
+          if( supertrendLookback( optInTimePeriod, optInMultiplier ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode supertrendImpl( int startIdx,
                                int endIdx,
                                double inHigh[],
@@ -188015,10 +192370,10 @@ class Core {
         * <li>The band inherits the Average True Range's warm-up, so a caller who wants it converged sets {@code TA_FUNC_UNST_ATR}, exactly as when calling that function directly.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#supertrendLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#supertrendLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -188106,10 +192461,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#supertrendLookback} is a
-        * <b>success with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#supertrendLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -188853,6 +193208,31 @@ class Core {
           return 6 * (optInTimePeriod - 1) + this.unstablePeriod[FuncUnstId.T3.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#t3}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod EMA period for each of the six stages (default 5;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInVFactor Volume factor weighting the coefficients (0 = plain
+        *        triple EMA, higher = more DEMA-like sharpening) (default 0.7; range 0..1;
+        *        {@link Core#REAL_DEFAULT} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int t3DisplayShift( int optInTimePeriod, double optInVFactor, int outputIdx )
+       {
+          if( t3Lookback( optInTimePeriod, optInVFactor ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode t3Impl( int startIdx,
                        int endIdx,
                        double inReal[],
@@ -189174,10 +193554,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#t3Lookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#t3Lookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -189244,10 +193624,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#t3Lookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#t3Lookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -189817,6 +194197,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#tan}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int tanDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode tanImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -189866,10 +194263,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/tan">ta-lib.org/functions/tan</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#tanLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#tanLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -189923,10 +194320,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#tanLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#tanLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -190239,6 +194636,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#tanh}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int tanhDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode tanhImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -190288,10 +194702,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/tanh">ta-lib.org/functions/tanh</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#tanhLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#tanhLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -190344,10 +194758,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#tanhLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#tanhLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -190678,6 +195092,28 @@ class Core {
           return retValue * 3 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#tema}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod EMA period used for all three passes (default 30;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int temaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( temaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode temaImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -190954,10 +195390,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#temaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#temaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -191019,10 +195455,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#temaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#temaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -191541,6 +195977,23 @@ class Core {
           return 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#trange}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int trangeDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode trangeImpl( int startIdx,
                            int endIdx,
                            double inHigh[],
@@ -191678,10 +196131,10 @@ class Core {
         * <li>The first bar produces no value because it has no prior close; unlike some definitions, it does not fall back to the high-low range for that bar.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#trangeLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#trangeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -191746,10 +196199,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#trangeLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#trangeLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -192185,6 +196638,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#trima}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the averaging window (default 30;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int trimaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( trimaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode trimaImpl( int startIdx,
                           int endIdx,
                           double inReal[],
@@ -192600,10 +197075,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#trimaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#trimaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -192667,10 +197142,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#trimaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#trimaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -193666,6 +198141,29 @@ class Core {
           return emaLookback * 3 + rocrLookback(1) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#trix}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod EMA period used at each of the three smoothing
+        *        passes (default 30; range 1..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int trixDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( trixLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode trixImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -193898,10 +198396,10 @@ class Core {
         * <li>The final rate-of-change step yields 0 when the previous smoothed value is exactly zero, rather than being undefined.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#trixLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#trixLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -193966,10 +198464,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#trixLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#trixLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -194443,6 +198941,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#tsf}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the regression window (default
+        *        14; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int tsfDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( tsfLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode tsfImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -194745,10 +199265,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/tsf">ta-lib.org/functions/tsf</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#tsfLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#tsfLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -194808,10 +199328,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#tsfLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#tsfLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -195565,6 +200085,32 @@ class Core {
           return 1 + emaLookback(optInFirstPeriod) + emaLookback(optInSecondPeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#tsi}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInFirstPeriod Period of the first smoothing, applied to the raw
+        *        momentum (default 25; range 2..100000; {@code Integer.MIN_VALUE} selects
+        *        the default).
+        * @param optInSecondPeriod Period of the second smoothing, applied to the
+        *        first (default 13; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int tsiDisplayShift( int optInFirstPeriod, int optInSecondPeriod, int outputIdx )
+       {
+          if( tsiLookback( optInFirstPeriod, optInSecondPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode tsiImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -195889,10 +200435,10 @@ class Core {
         * <li>The parameters are named by the order they are applied in, not fast and slow. Blau's published pair applies the longer average first, the inverse of the differenced fast/slow pairs elsewhere in the library, so swapping them silently returns a different indicator with the same lookback.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#tsiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#tsiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -195973,10 +200519,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#tsiLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#tsiLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -196513,6 +201059,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#typprice}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int typpriceDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode typpriceImpl( int startIdx,
                              int endIdx,
                              double inHigh[],
@@ -196570,10 +201133,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/typprice">ta-lib.org/functions/typprice</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#typpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#typpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -196633,10 +201196,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#typpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#typpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -197001,6 +201564,32 @@ class Core {
           maxPeriod = Math.max(Math.max(optInTimePeriod1, optInTimePeriod2), optInTimePeriod3);
           return smaLookback(maxPeriod) + 1 ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#ultosc}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod1 Bars for one averaging window (default 7; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInTimePeriod2 Bars for another averaging window (default 14;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInTimePeriod3 Bars for another averaging window (default 28;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int ultoscDisplayShift( int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, int outputIdx )
+       {
+          if( ultoscLookback( optInTimePeriod1, optInTimePeriod2, optInTimePeriod3 ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode ultoscImpl( int startIdx,
                            int endIdx,
@@ -197528,10 +202117,10 @@ class Core {
         * <li>The three periods are sorted internally, so the 4/2/1 weighting always applies to the shortest, middle, and longest period regardless of the order in which you pass them.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ultoscLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ultoscLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -197607,10 +202196,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#ultoscLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#ultoscLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -198500,6 +203089,31 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#var}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Window length for the variance (default 5; range
+        *        1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInNbDev Deviation count accepted by the API but never used in
+        *        the computation (default 1; {@link Core#REAL_DEFAULT} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int varDisplayShift( int optInTimePeriod, double optInNbDev, int outputIdx )
+       {
+          if( varLookback( optInTimePeriod, optInNbDev ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode varImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -198803,10 +203417,10 @@ class Core {
         * <li>The deviation-count parameter is accepted but has no effect on the result.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#varLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#varLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -198871,10 +203485,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#varLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#varLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -199579,6 +204193,29 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#vhf}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of trailing closes spanned by the range
+        *        (default 28; range 2..100000; {@code Integer.MIN_VALUE} selects the
+        *        default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int vhfDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( vhfLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode vhfImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -199745,10 +204382,10 @@ class Core {
         * <li>Adam White later described an 18-bar VHF smoothed by a 6-bar moving average. That variant is not implemented here; apply a moving average to {@code outReal} to obtain it.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vhfLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vhfLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -199817,10 +204454,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vhfLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vhfLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -200317,6 +204954,30 @@ class Core {
           return optInCMOPeriod + this.unstablePeriod[FuncUnstId.VIDYA.ordinal()] ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#vidya}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod The EMA length whose alpha the CMO scales (default
+        *        12; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param optInCMOPeriod Number of trailing price changes in the CMO (default
+        *        9; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int vidyaDisplayShift( int optInTimePeriod, int optInCMOPeriod, int outputIdx )
+       {
+          if( vidyaLookback( optInTimePeriod, optInCMOPeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode vidyaImpl( int startIdx,
                           int endIdx,
                           double inReal[],
@@ -200706,10 +205367,10 @@ class Core {
         * <li>As an {@code MA} type, the one period is n and the CMO period is (3n + 2) / 4 in integer division, Chande's 12:9 ratio.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vidyaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vidyaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -200781,10 +205442,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vidyaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vidyaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -201533,6 +206194,28 @@ class Core {
           return optInTimePeriod ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#vortex}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the rolling sums (default 14;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int vortexDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( vortexLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 2 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode vortexImpl( int startIdx,
                            int endIdx,
                            double inHigh[],
@@ -201885,10 +206568,10 @@ class Core {
         * <li>Not start-dependent: each output depends only on the finite trailing window. No unstable period.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vortexLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vortexLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -201967,10 +206650,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vortexLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vortexLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -202788,6 +207471,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#vwap}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int vwapDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode vwapImpl( int startIdx,
                          int endIdx,
                          double inHigh[],
@@ -202986,10 +207686,10 @@ class Core {
         * <li>A bar whose price or volume is not a finite number cannot be weighted, so it is left out of the average entirely and repeats the previous value. It is skipped, not absorbed: the running average stays usable and resumes on the next bar that can be weighted, rather than being held at one stale value for the remainder of the range.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vwapLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vwapLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -203070,10 +207770,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vwapLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vwapLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -203715,6 +208415,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#vwma}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the weighting window (default 30;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int vwmaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( vwmaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode vwmaImpl( int startIdx,
                          int endIdx,
                          double inReal[],
@@ -203965,10 +208687,10 @@ class Core {
         * <li>Volume is expected to be non-negative. Individual zero-volume bars are fine: a bar that did not trade simply carries no weight, and the average stays well defined as long as some bar in the window has volume. At a period of 2 or more, a window in which <i>every</i> volume is zero has no weights at all; the weighted mean is then undefined and that element is NaN, as it is in every other implementation. Series carrying no volume on any bar, such as cash-index feeds, are outside what a volume-weighted average can describe — use SMA or WMA there.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vwmaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vwmaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -204042,10 +208764,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#vwmaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#vwmaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -204628,6 +209350,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#wad}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int wadDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode wadImpl( int startIdx,
                         int endIdx,
                         double inHigh[],
@@ -204779,10 +209518,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/wad">ta-lib.org/functions/wad</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#wadLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#wadLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -204857,10 +209596,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#wadLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#wadLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -205296,6 +210035,23 @@ class Core {
           return 0 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#wclprice}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int wclpriceDisplayShift( int outputIdx )
+       {
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode wclpriceImpl( int startIdx,
                              int endIdx,
                              double inHigh[],
@@ -205353,10 +210109,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/wclprice">ta-lib.org/functions/wclprice</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#wclpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#wclpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -205416,10 +210172,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#wclpriceLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#wclpriceLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -205763,6 +210519,28 @@ class Core {
           }
           return optInTimePeriod - 1 ;
 
+       }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#willr}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Lookback bars for the high/low range (default 14;
+        *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int willrDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( willrLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
        }
        RetCode willrImpl( int startIdx,
                           int endIdx,
@@ -206164,10 +210942,10 @@ class Core {
         * <p>Formula and more info at <a
         * href="https://ta-lib.org/functions/willr">ta-lib.org/functions/willr</a>.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#willrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#willrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -206232,10 +211010,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#willrLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#willrLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -206859,6 +211637,28 @@ class Core {
           return optInTimePeriod - 1 ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#wma}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the weighting window (default 30;
+        *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int wmaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( wmaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode wmaImpl( int startIdx,
                         int endIdx,
                         double inReal[],
@@ -207161,10 +211961,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#wmaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#wmaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -207228,10 +212028,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#wmaLookback} is a <b>success with
-        * no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#wmaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -208156,6 +212956,29 @@ class Core {
           return (optInTimePeriod - 1) / 2 + emaLookback(optInTimePeriod) ;
 
        }
+       /**
+        * How many bars ahead (positive) or behind (negative) of the bar that
+        * computed it a chart draws one output of {@link Core#zlema}.
+        * <p>Every output of this function is drawn at its own bar, so the answer is
+        * 0.
+        *
+        * @param optInTimePeriod Number of bars in the exponential average; the
+        *        de-lag distance derives from it (default 30; range 1..100000;
+        *        {@code Integer.MIN_VALUE} selects the default).
+        * @param outputIdx Position of the output in the batch signature, from 0.
+        * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+        *        out of range or the index names no output.
+        */
+       public int zlemaDisplayShift( int optInTimePeriod, int outputIdx )
+       {
+          if( zlemaLookback( optInTimePeriod ) < 0 ) {
+             return Integer.MIN_VALUE;
+          }
+          if( outputIdx < 0 || outputIdx >= 1 ) {
+             return Integer.MIN_VALUE;
+          }
+          return 0;
+       }
        RetCode zlemaImpl( int startIdx,
                           int endIdx,
                           double inReal[],
@@ -208359,10 +213182,10 @@ class Core {
         * <li>A period of 1 performs no smoothing: the output is a copy of the input.</li>
         * </ul>
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#zlemaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#zlemaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -208444,10 +213267,10 @@ class Core {
         * {@code double} before being written to the {@code double[]} output, so a
         * result beyond {@code float} range is still representable.
         * <p>Values are written only where the indicator is defined. The returned
-        * {@link OutRange} says where they start and how many there are; nothing
-        * outside that range is touched, and the library never pads with NaN. A
-        * valid range that ends before {@link Core#zlemaLookback} is a <b>success
-        * with no values</b> ({@code count() == 0}), not an error.
+        * {@link OutRange} says where they start and how many there are, and the
+        * library never pads with NaN. A valid range that ends before
+        * {@link Core#zlemaLookback} is a <b>success with no values</b>
+        * ({@code count() == 0}), not an error.
         *
         * @param startIdx First bar of the requested range (inclusive).
         * @param endIdx Last bar of the requested range (inclusive).
@@ -208905,7 +213728,7 @@ class Core {
 
 public class TaCodegenServe {
     static Core core = new Core();
-    static final String SPLICED_GENCODE_DIGEST = "f9c11d0c801b72bd";
+    static final String SPLICED_GENCODE_DIGEST = "5107a47782f9bf97";
     static final int MAX_ARRAY_SIZE = 200000;
     static double[] refOpen = new double[MAX_ARRAY_SIZE];
     static double[] refHigh = new double[MAX_ARRAY_SIZE];
@@ -209489,10 +214312,10 @@ public class TaCodegenServe {
             new AbsIn[]{ new AbsIn(0,"inPriceHL",6) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period","Time period",20.0, 0,0,0,0,0,0, 2,100000,4,200,1, null) },
             new AbsOut[]{ new AbsOut(0,"outRealUpperBand",2048), new AbsOut(0,"outRealMiddleBand",1), new AbsOut(0,"outRealLowerBand",4096) }));
-        ABSTRACT.put("DPO", new AbsFunc("DPO", "Momentum Indicators", "Detrended Price Oscillator", 33554432,
+        ABSTRACT.put("DPO", new AbsFunc("DPO", "Momentum Indicators", "Detrended Price Oscillator", 33554434,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period","Time period",20.0, 0,0,0,0,0,0, 2,100000,10,60,5, null) },
-            new AbsOut[]{ new AbsOut(0,"outReal",1) }));
+            new AbsOut[]{ new AbsOut(0,"outReal",16385) }));
         ABSTRACT.put("DX", new AbsFunc("DX", "Momentum Indicators", "Directional Movement Index", 167772160,
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period","Time period",14.0, 0,0,0,0,0,0, 2,100000,4,200,1, null) },
@@ -210638,6 +215461,7 @@ public class TaCodegenServe {
         else if (json.contains("\"TA_FunctionDescriptionXML\"")) return handleFunctionDescriptionXML();
         else if (json.contains("\"abstract_call\"")) return handleAbstractCall(json);
         else if (json.contains("\"abstract_get_lookback\"")) return "{\"lookback\":" + computeLookback(jsonString(json, "funcName"), json) + "}";
+        else if (json.contains("\"abstract_get_display_shift\"")) return "{\"displayShift\":" + computeDisplayShift(jsonString(json, "funcName"), json) + "}";
         else {
             return "{\"error\":\"Unknown method\"}";
         }
@@ -245059,6 +249883,16 @@ public class TaCodegenServe {
             return absBind(f, json, null).lookback();
         } catch (RuntimeException e) {
             return -1;
+        }
+    }
+
+    static int computeDisplayShift(String funcName, String json) {
+        io.github.talib.metadata.FuncInfo f = io.github.talib.metadata.Functions.byName(funcName);
+        if (f == null) return Integer.MIN_VALUE;
+        try {
+            return absBind(f, json, null).displayShift(jsonInt(json, "outputIdx"));
+        } catch (RuntimeException e) {
+            return Integer.MIN_VALUE;
         }
     }
 

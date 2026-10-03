@@ -232,6 +232,9 @@ typedef enum
   TA_ABS_TST_FAIL_INDEX_RANGE           = 625,
   TA_ABS_TST_FAIL_HOLDER_NOT_REUSABLE   = 626,
   TA_ABS_TST_FAIL_NAME_CASE_FOLD        = 627,
+  TA_ABS_TST_FAIL_DISPLAY_SHIFT         = 628,
+  TA_ABS_TST_FAIL_DISPLAY_SHIFT_VACUOUS = 629,
+  TA_ABS_TST_FAIL_OUTPUT_ALIAS_VACUOUS  = 630,
 
   /* Error code related to internal tests. */
   TA_INTERNAL_CIRC_BUFF_FAIL_0      = 700,
@@ -354,6 +357,7 @@ typedef enum
   TA_ABSTRACT_FOR_EACH_MISMATCH      = 1201,
   TA_ABSTRACT_CALL_MISMATCH          = 1202,
   TA_ABSTRACT_SERVER_ERROR           = 1203,
+  TA_ABSTRACT_DISPLAY_SHIFT_MISMATCH = 1204,
 
   /* Server verify errors (server_verify.c) */
   TA_SV_RETCODE_MISMATCH             = 1300,
@@ -439,7 +443,7 @@ typedef enum
   TA_STREAM_FINITE_SETUP_FAILED      = 1594,
   TA_STREAM_FINITE_VACUOUS           = 1595,
 
-  /* Streaming short-history rejection (rule S7 / TA_INSUFFICIENT_HISTORY). */
+  /* Streaming short-history rejection (rule rS8 / TA_INSUFFICIENT_HISTORY). */
   TA_STREAM_SHORT_HISTORY_WRONG_CODE = 1596,
   TA_STREAM_SHORT_HISTORY_ACCEPTED   = 1597,
   TA_STREAM_SHORT_HISTORY_CONTROL    = 1598,
@@ -449,7 +453,7 @@ typedef enum
    * nothing else to do. Reported rather than passed silently. */
   TA_REGTEST_FILTER_MATCHED_NOTHING  = 1600,
 
-  /* Streaming empty-history rejection (rule S1 / TA_OUT_OF_RANGE_START_INDEX). */
+  /* Streaming empty-history rejection (rule rS1 / TA_OUT_OF_RANGE_START_INDEX). */
   TA_STREAM_EMPTY_HISTORY_WRONG_CODE = 1607,
   TA_STREAM_EMPTY_HISTORY_VACUOUS    = 1608,
 
@@ -468,14 +472,14 @@ typedef enum
   TA_QUOTE_UNIT_OUT_OF_RANGE         = 1624,
   TA_QUOTE_UNIT_VACUOUS              = 1625,
 
-  /* Batch tier rule B4: a required argument was not supplied. */
+  /* Batch tier rule rB4: a required argument was not supplied. */
   TA_BATCH_ARG_WRONG_CODE            = 1630,
   TA_BATCH_ARG_CONTROL               = 1631,
   TA_BATCH_ARG_VACUOUS               = 1632,
-  /* Rule B6a: declining a nullable output changed what the call produced. */
+  /* Rule rB7: declining a nullable output changed what the call produced. */
   TA_BATCH_ARG_NULLABLE_DIVERGED     = 1633,
 
-  /* Rule U3, stated absolutely: what ONE rejected Update costs. Driving two
+  /* Rule rU3, stated absolutely: what ONE rejected Update costs. Driving two
    * handles off one feed and comparing them is symmetric, so it is blind to any
    * change that moves both; these ids belong to the leg that demands the
    * numbers outright. */
@@ -555,6 +559,14 @@ typedef enum
    * server_verify answers TA_TEST_PASS when it cannot build the request, so a
    * comparison count that did not advance is the only witness. */
   TA_SV_ROUTED_VACUOUS               = 1700,
+
+  /* Stream handle calls given a NULL handle or out-pointer. */
+  TA_STREAM_NULL_CLOSE_FAILED        = 1701,
+  TA_STREAM_NULL_NOT_REJECTED        = 1702,
+  TA_STREAM_NULL_WROTE               = 1703,
+  TA_STREAM_NULL_ORIGINAL_MOVED      = 1704,
+  TA_STREAM_NULL_SETUP_FAILED        = 1705,
+  TA_STREAM_NULL_VACUOUS             = 1706,
 
   /* Error code related to bug fix documentented on SourceForge. */
   TA_TEST_FAIL_BUG1359452_1  = 2000,

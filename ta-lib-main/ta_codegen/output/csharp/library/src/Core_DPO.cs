@@ -54,6 +54,7 @@ public partial class Core
     *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
     *  090426 MF,CC  Initial version (#363).
+    *  100126 MF,CC  Display shift (#489).
     */
    /// <summary>
    /// Number of leading input bars <c>Dpo</c> consumes before it can produce its
@@ -81,6 +82,38 @@ public partial class Core
        * then read inReal[-1].
        */
       return MaxGt(optInTimePeriod - 1, optInTimePeriod / 2 + 1) ;
+
+   }
+   /// <summary>
+   /// How many bars ahead (positive) or behind (negative) of the bar that
+   /// computed it a chart draws one output of <c>Dpo</c>.
+   /// </summary>
+   /// <remarks>
+   /// The values are never shifted: this describes the drawing only.
+   /// </remarks>
+   /// <param name="optInTimePeriod">Number of bars spanned by the moving average being removed; the
+   /// displacement is derived from it (default 20; range 2..100000;
+   /// <c>int.MinValue</c> selects the default).</param>
+   /// <param name="outputIdx">Position of the output in the batch signature, from 0.</param>
+   /// <returns>The display shift, or <c>int.MinValue</c> if a parameter is out of range
+   /// or the index names no output.</returns>
+   public int DpoDisplayShift( int optInTimePeriod, int outputIdx )
+   {
+      if( DpoLookback( optInTimePeriod ) < 0 ) {
+         return int.MinValue;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 20;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         return int.MinValue;
+      }
+      if( outputIdx < 0 || outputIdx >= 1 ) {
+         return int.MinValue;
+      }
+      /* The value computed at a bar detrends the price this many bars back,
+       * which is where a chart draws it.
+       */
+      return -(optInTimePeriod / 2 + 1) ;
 
    }
    internal RetCode DpoImpl( int startIdx,
@@ -242,15 +275,15 @@ public partial class Core
    /// <see href="https://ta-lib.org/functions/dpo">ta-lib.org/functions/dpo</see>.
    /// </para>
    /// <list type="bullet">
-   /// <item><description>The value is emitted at the bar whose moving average produced it. Charting packages usually draw it <c>t</c> bars to the left instead, which is a plotting convention rather than a different series; a caller wanting that view shifts <c>outReal</c> itself.</description></item>
+   /// <item><description>The value is emitted at the bar whose moving average produced it. Charting packages usually draw it <c>t</c> bars to the left instead, which is a plotting convention rather than a different series; a caller wanting that view shifts <c>outReal</c> itself, by the display shift the function reports, <c>-t</c>.</description></item>
    /// <item><description>A causal variant, <c>P[i] - SMA(P, optInTimePeriod)[i - t]</c>, displaces the average instead of the price. It is a genuinely different series, not a re-indexing of this one, and is not implemented here.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>DpoLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>DpoLookback</c> is a <b>success with no values</b> (<c>Count == 0</c>),
+   /// not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -280,13 +313,11 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output partially overlaps an input. Computing wholly in place (an output
+   /// that IS an input) is allowed.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
@@ -324,7 +355,7 @@ public partial class Core
    /// <see href="https://ta-lib.org/functions/dpo">ta-lib.org/functions/dpo</see>.
    /// </para>
    /// <list type="bullet">
-   /// <item><description>The value is emitted at the bar whose moving average produced it. Charting packages usually draw it <c>t</c> bars to the left instead, which is a plotting convention rather than a different series; a caller wanting that view shifts <c>outReal</c> itself.</description></item>
+   /// <item><description>The value is emitted at the bar whose moving average produced it. Charting packages usually draw it <c>t</c> bars to the left instead, which is a plotting convention rather than a different series; a caller wanting that view shifts <c>outReal</c> itself, by the display shift the function reports, <c>-t</c>.</description></item>
    /// <item><description>A causal variant, <c>P[i] - SMA(P, optInTimePeriod)[i - t]</c>, displaces the average instead of the price. It is a genuinely different series, not a re-indexing of this one, and is not implemented here.</description></item>
    /// </list>
    /// <para>
@@ -335,10 +366,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>DpoLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>DpoLookback</c> is a <b>success with no values</b> (<c>Count == 0</c>),
+   /// not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -368,15 +399,13 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
-   /// a real input never share an element type in this overload, so the two can
-   /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output overlaps an input. An output and a real input never share an
+   /// element type in this overload, so the two can never be the same span:
+   /// there is no in-place case to allow, and any overlap of their byte ranges
+   /// is rejected.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Sma(int, int, ReadOnlySpan{double}, int, Span{double})"/>
@@ -747,7 +776,7 @@ public partial class Core
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public DpoStream DpoOpen( ReadOnlySpan<double> inReal, int optInTimePeriod )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "DPO open: history is empty", RetCode.OutOfRangeStartIndex);
@@ -782,7 +811,7 @@ public partial class Core
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public DpoStream DpoOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "DPO openAndFill: history is empty", RetCode.OutOfRangeStartIndex);

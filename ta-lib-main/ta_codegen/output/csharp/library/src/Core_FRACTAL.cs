@@ -85,6 +85,31 @@ public partial class Core
       return optInLeftBars + optInRightBars ;
 
    }
+   /// <summary>
+   /// How many bars ahead (positive) or behind (negative) of the bar that
+   /// computed it a chart draws one output of <c>Fractal</c>.
+   /// </summary>
+   /// <remarks>
+   /// Every output of this function is drawn at its own bar, so the answer is 0.
+   /// </remarks>
+   /// <param name="optInLeftBars">Bars before the pivot that it must strictly dominate (default 2; range
+   /// 1..100000; <c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInRightBars">Bars after the pivot that it must strictly dominate, and the delay before
+   /// the verdict is reported (default 2; range 1..100000; <c>int.MinValue</c>
+   /// selects the default).</param>
+   /// <param name="outputIdx">Position of the output in the batch signature, from 0.</param>
+   /// <returns>The display shift, or <c>int.MinValue</c> if a parameter is out of range
+   /// or the index names no output.</returns>
+   public int FractalDisplayShift( int optInLeftBars, int optInRightBars, int outputIdx )
+   {
+      if( FractalLookback( optInLeftBars, optInRightBars ) < 0 ) {
+         return int.MinValue;
+      }
+      if( outputIdx < 0 || outputIdx >= 2 ) {
+         return int.MinValue;
+      }
+      return 0;
+   }
    internal RetCode FractalImpl( int startIdx,
                                  int endIdx,
                                  ReadOnlySpan<double> inHigh,
@@ -124,7 +149,7 @@ public partial class Core
       } else if( optInRightBars < 1 || optInRightBars > 100000 ) {
          return RetCode.BadParam;
       }
-      if( outSwingHigh.Overlaps(outSwingLow) ) {
+      if( OutputsAlias(outSwingHigh, outSwingLow) ) {
          return RetCode.BadParam ;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingLow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingLow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) ) {
@@ -220,7 +245,7 @@ public partial class Core
       } else if( optInRightBars < 1 || optInRightBars > 100000 ) {
          return RetCode.BadParam;
       }
-      if( outSwingHigh.Overlaps(outSwingLow) ) {
+      if( OutputsAlias(outSwingHigh, outSwingLow) ) {
          return RetCode.BadParam ;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingLow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingLow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) ) {
@@ -299,10 +324,10 @@ public partial class Core
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>FractalLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>FractalLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -340,13 +365,11 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output partially overlaps an input. Computing wholly in place (an output
+   /// that IS an input) is allowed.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Aroon(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double}, Span{double})"/>
@@ -407,10 +430,10 @@ public partial class Core
    /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
-   /// <see cref="OutRange"/> says where they start and how many there are;
-   /// nothing outside that range is touched, and the library never pads with
-   /// NaN. A valid range that ends before <c>FractalLookback</c> is a <b>success
-   /// with no values</b> (<c>Count == 0</c>), not an error.
+   /// <see cref="OutRange"/> says where they start and how many there are, and
+   /// the library never pads with NaN. A valid range that ends before
+   /// <c>FractalLookback</c> is a <b>success with no values</b> (<c>Count ==
+   /// 0</c>), not an error.
    /// </para>
    /// <para>
    /// Every exception it throws, except the runtime's own
@@ -448,15 +471,13 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. An empty span — which is what a null array becomes, since a span
-   /// cannot be null — is rejected on the same terms and no others: it is too
-   /// short whenever the range produces a value, and fine when it produces none,
-   /// and on an output this function documents as declinable it is how you
-   /// decline.</description></item>
-   /// <item><description>Two output buffers overlap, or an output overlaps an input. An output and
-   /// a real input never share an element type in this overload, so the two can
-   /// never be the same span: there is no in-place case to allow, and any
-   /// overlap of their byte ranges is rejected.</description></item>
+   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
+   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
+   /// output overlaps an input. An output and a real input never share an
+   /// element type in this overload, so the two can never be the same span:
+   /// there is no in-place case to allow, and any overlap of their byte ranges
+   /// is rejected.</description></item>
    /// </list>
    /// </exception>
    /// <seealso cref="Core.Aroon(int, int, ReadOnlySpan{double}, ReadOnlySpan{double}, int, Span{double}, Span{double})"/>
@@ -909,7 +930,7 @@ public partial class Core
    /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public FractalStream FractalOpen( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int optInLeftBars, int optInRightBars )
    {
       if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "FRACTAL open: history is empty", RetCode.OutOfRangeStartIndex);
@@ -952,7 +973,7 @@ public partial class Core
    /// writes, or an output array aliases an input or another output.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules S1 and S2).</exception>
+   /// two index faults an opener can have (rules rS1 and rS2).</exception>
    public FractalStream FractalOpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int optInLeftBars, int optInRightBars, Span<int> outSwingHigh, Span<int> outSwingLow )
    {
       if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "FRACTAL openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
@@ -962,7 +983,7 @@ public partial class Core
       RequireHistoryLength("FRACTAL", "openAndFill", "inLow", inLow.Length, inHigh.Length);
       RequireFillLength("FRACTAL", "openAndFill", "outSwingHigh", outSwingHigh.Length, guardOutLen);
       RequireFillLength("FRACTAL", "openAndFill", "outSwingLow", outSwingLow.Length, guardOutLen);
-      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingLow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingLow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || outSwingHigh.Overlaps(outSwingLow) ) {
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingLow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSwingLow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || OutputsAlias(outSwingHigh, outSwingLow) ) {
          throw StreamFailure("FRACTAL", "openAndFill", RetCode.BadParam);
       }
       return FractalOpenAndFillInternal(inHigh, inLow, 0, optInLeftBars, optInRightBars, out _, out _, outSwingHigh, outSwingLow);
