@@ -10,6 +10,7 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  092826 MF,CC  First version (issue #464).
+ *  100226 MF,CC  #497. An odd period is refused before the range is written.
  */
 
    /**
@@ -117,11 +118,11 @@
       expScale = -4.6 / 0.6931471805599453;
       /* -4.6/ln(2): alpha = exp(-4.6*(D-1)) with D-1 = log2((R1+R2)/R). */
       /* Id, Type, Static Size */
-      outBegIdx.value = 0;
-      outNBElement.value = 0;
       if( optInTimePeriod % 2 != 0 ) {
          return RetCode.BAD_PARAM ;
       }
+      outBegIdx.value = 0;
+      outNBElement.value = 0;
       lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.FRAMA.ordinal()];
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -332,11 +333,11 @@
          return RetCode.BAD_PARAM;
       }
       expScale = -4.6 / 0.6931471805599453;
-      outBegIdx.value = 0;
-      outNBElement.value = 0;
       if( optInTimePeriod % 2 != 0 ) {
          return RetCode.BAD_PARAM ;
       }
+      outBegIdx.value = 0;
+      outNBElement.value = 0;
       lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.FRAMA.ordinal()];
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -507,8 +508,8 @@
     *        halves (default 16; range 2..100000; {@code Integer.MIN_VALUE} selects the
     *        default).
     * @param outReal Adaptive moving average line. Must hold at least
-    *        {@code endIdx - max(startIdx, framaLookback(...)) + 1} values, the count
-    *        the call produces (none when that is not positive).
+    *        {@code endIdx - max(startIdx, framaLookback(...)) + 1} values, and never
+    *        be empty: an empty array is an absent output.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
@@ -579,8 +580,8 @@
     *        halves (default 16; range 2..100000; {@code Integer.MIN_VALUE} selects the
     *        default).
     * @param outReal Adaptive moving average line. Must hold at least
-    *        {@code endIdx - max(startIdx, framaLookback(...)) + 1} values, the count
-    *        the call produces (none when that is not positive).
+    *        {@code endIdx - max(startIdx, framaLookback(...)) + 1} values, and never
+    *        be empty: an empty array is an absent output.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
@@ -973,11 +974,11 @@
       expScale = -4.6 / 0.6931471805599453;
       /* -4.6/ln(2): alpha = exp(-4.6*(D-1)) with D-1 = log2((R1+R2)/R). */
       /* Id, Type, Static Size */
-      outBegIdx.value = 0;
-      outNBElement.value = 0;
       if( optInTimePeriod % 2 != 0 ) {
          return RetCode.BAD_PARAM ;
       }
+      outBegIdx.value = 0;
+      outNBElement.value = 0;
       lookbackTotal = optInTimePeriod + this.unstablePeriod[FuncUnstId.FRAMA.ordinal()];
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;

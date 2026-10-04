@@ -473,10 +473,8 @@ static ErrorNumber testStreamShortHistory( void )
 
    /* Rule rS2, the other half of the history bound: `historyLen - 1` is the
     * implied `endIdx`, so a history longer than INDEX_MAX + 1 leaves the index
-    * domain. Only C can be probed cheaply -- it takes `historyLen` as a bare
-    * `int`, so the rejection answers before a bar is read; the other three
-    * derive it from the array and would need a 100 000 001-element one. The
-    * legal upper edge is out of reach here for the same reason. */
+    * domain. C takes `historyLen` as a bare `int`, so the rejection answers
+    * before a bar is read and no array of that length is needed. */
    {
       TA_SMA_Stream *st = NULL;
       static double out[512];
@@ -556,18 +554,28 @@ static ErrorNumber testStreamShortHistory( void )
  * same argument shapes, so the streaming openers are driven from here rather
  * than from a gate of their own.
  */
+#define ARG_RANGE_SENTINEL (-7654321)
 static int bacReject, bacAccept;
 static int s4Reject, s4Accept;
 static int s6Probe;
 static int u6aUpd;
 
+/* A rejected call leaves the range pair in scope as it was. */
 #define BAC_REJECT( name, call )                                               \
    do {                                                                        \
-      TA_RetCode rc__ = (call);                                                \
+      TA_RetCode rc__;                                                         \
+      beg = nb = ARG_RANGE_SENTINEL;                                           \
+      rc__ = (call);                                                           \
       if( rc__ != TA_BAD_PARAM )                                               \
       {                                                                        \
          printf( "\nFailed: %s returned %d, expected TA_BAD_PARAM (%d)\n",     \
                  name, (int)rc__, (int)TA_BAD_PARAM );                         \
+         return TA_BATCH_ARG_WRONG_CODE;                                       \
+      }                                                                        \
+      if( beg != ARG_RANGE_SENTINEL || nb != ARG_RANGE_SENTINEL )              \
+      {                                                                        \
+         printf( "\nFailed: %s was rejected and wrote the range (%d, %d)\n",   \
+                 name, beg, nb );                                              \
          return TA_BATCH_ARG_WRONG_CODE;                                       \
       }                                                                        \
       bacReject++;                                                             \
@@ -585,13 +593,22 @@ static int u6aUpd;
       bacAccept++;                                                             \
    } while(0)
 
+/* A rejected call leaves the range pair in scope as it was. */
 #define S4_REJECT( name, call )                                                \
    do {                                                                        \
-      TA_RetCode rc__ = (call);                                                \
+      TA_RetCode rc__;                                                         \
+      beg = nb = ARG_RANGE_SENTINEL;                                           \
+      rc__ = (call);                                                           \
       if( rc__ != TA_BAD_PARAM )                                               \
       {                                                                        \
          printf( "\nFailed: %s returned %d, expected TA_BAD_PARAM (%d)\n",     \
                  name, (int)rc__, (int)TA_BAD_PARAM );                         \
+         return TA_BATCH_ARG_WRONG_CODE;                                       \
+      }                                                                        \
+      if( beg != ARG_RANGE_SENTINEL || nb != ARG_RANGE_SENTINEL )              \
+      {                                                                        \
+         printf( "\nFailed: %s was rejected and wrote the range (%d, %d)\n",   \
+                 name, beg, nb );                                              \
          return TA_BATCH_ARG_WRONG_CODE;                                       \
       }                                                                        \
       s4Reject++;                                                              \
@@ -1321,8 +1338,8 @@ static ErrorNumber testEnumValueContract( void )
     * into a table this file cannot see -- but TA_SetRetCodeInfo answers
     * "TA_UNKNOWN_ERR" for anything absent from that table, so probing the value
     * space finds a code that was added to the csv and never pinned here. The
-    * 5000-5999 band reports TA_INTERNAL_ERROR for all 1000 values, so only its
-    * first needs a row. */
+    * 5000-5999 band needs one row for its 1000 values: each must be named
+    * TA_INTERNAL_ERROR, which is how a caller holding an id reads it back. */
    {
       unsigned long v;
       for( v = 0; v <= 0xFFFFUL; v++ )
@@ -1331,9 +1348,17 @@ static ErrorNumber testEnumValueContract( void )
          unsigned int p;
          int pinned = 0;
 
-         if( v > 5000 && v <= 5999 ) continue;   /* one code, whole band */
-
          TA_SetRetCodeInfo( (TA_RetCode)v, &info );
+         if( v >= 5000 && v <= 5999 )
+         {
+            if( strcmp( info.enumStr, "TA_INTERNAL_ERROR" ) != 0 )
+            {
+               printf( "\nFailed: TA_SetRetCodeInfo names %lu %s, expected TA_INTERNAL_ERROR\n"
+                       "        for every value from 5000 to 5999.\n", v, info.enumStr );
+               return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
+            }
+            if( v > 5000 ) continue;
+         }
          if( v != 0xFFFFUL && strcmp( info.enumStr, "TA_UNKNOWN_ERR" ) == 0 )
             continue;                            /* not a defined code */
 
@@ -1345,6 +1370,22 @@ static ErrorNumber testEnumValueContract( void )
             printf( "\nFailed: TA_RetCode %lu (%s) is defined but not pinned. Add its\n"
                     "        row to retCodePins[] (append only -- never renumber).\n",
                     v, info.enumStr );
+            return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
+         }
+      }
+   }
+
+   /* The walk stops at 0xFFFF; a value past either end of it is not a code. */
+   {
+      static const int notACode[] = { -1, INT_MIN, 0x10000, INT_MAX };
+      for( i=0; i < sizeof(notACode)/sizeof(notACode[0]); i++ )
+      {
+         TA_RetCodeInfo info;
+         TA_SetRetCodeInfo( (TA_RetCode)notACode[i], &info );
+         if( strcmp( info.enumStr, "TA_UNKNOWN_ERR" ) != 0 )
+         {
+            printf( "\nFailed: TA_SetRetCodeInfo names %d %s, expected TA_UNKNOWN_ERR\n",
+                    notACode[i], info.enumStr );
             return TA_INTERNAL_ENUM_CONTRACT_FAIL_3;
          }
       }
@@ -1369,8 +1410,7 @@ static ErrorNumber testEnumValueContract( void )
        * before it consults the table at all, so this check cannot see that row
        * -- it would compare the trap's "TA_INTERNAL_ERROR" against the pin's
        * identical text whether the csv row exists, is renamed, or is deleted.
-       * Skipped rather than left to pass vacuously. The band itself is pinned by
-       * the probe above, which walks the whole value space.
+       * Skipped rather than left to pass vacuously.
        */
       if( retCodePins[i].shipped >= 5000 && retCodePins[i].shipped <= 5999 )
          continue;
@@ -1620,6 +1660,91 @@ static ErrorNumber testUnstablePeriodBounds( void )
       return TA_INTERNAL_UNST_BOUND_FAIL_3;
    }
 
+   /* TA_Initialize leaves every unstable period at 0 and every candle setting
+    * at its default, whatever was there. TA_Shutdown resets them too, so only
+    * an initialization over dirty settings can tell the two apart.
+    */
+   {
+      TA_CandleSetting afterInit[TA_NB_CANDLE_SETTING];
+      unsigned int id;
+
+      if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_Shadows, 7, 2.5 ) != TA_SUCCESS ||
+          TA_Initialize() != TA_SUCCESS )
+      {
+         printf( "\nFailed: could not initialize over changed settings\n" );
+         return TA_INTERNAL_INIT_RESET_FAIL;
+      }
+      for( id = 0; id < TA_FUNC_UNST_COUNT; id++ )
+      {
+         if( TA_GetUnstablePeriod( (TA_FuncUnstId)id ) != 0 )
+         {
+            printf( "\nFailed: unstable period %u is %u after TA_Initialize, expected 0\n",
+                    id, TA_GetUnstablePeriod( (TA_FuncUnstId)id ) );
+            return TA_INTERNAL_INIT_RESET_FAIL;
+         }
+      }
+      memcpy( afterInit, TA_Globals->candleSettings, sizeof(afterInit) );
+      if( TA_RestoreCandleDefaultSettings( TA_AllCandleSettings ) != TA_SUCCESS )
+         return TA_INTERNAL_INIT_RESET_FAIL;
+      for( id = 0; id < TA_NB_CANDLE_SETTING; id++ )
+      {
+         const TA_CandleSetting *def = &TA_Globals->candleSettings[id];
+         if( afterInit[id].settingType != def->settingType ||
+             afterInit[id].rangeType   != def->rangeType   ||
+             afterInit[id].avgPeriod   != def->avgPeriod   ||
+             afterInit[id].factor      != def->factor )
+         {
+            printf( "\nFailed: candle setting %u is not at its default after TA_Initialize\n", id );
+            return TA_INTERNAL_INIT_RESET_FAIL;
+         }
+      }
+   }
+
+   /* Both lifecycle calls are idempotent: a repeated call of either succeeds
+    * and leaves every setting at its default, settings changed in between
+    * included. The contract still asks for one call of each.
+    */
+   {
+      unsigned int id;
+      int pass;
+      for( pass = 0; pass < 2; pass++ )
+      {
+         TA_RetCode first, second;
+         TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 5 );
+         TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_Shadows, 7, 2.5 );
+         first = pass == 0 ? TA_Initialize() : TA_Shutdown();
+         TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 5 );
+         TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_Shadows, 7, 2.5 );
+         second = pass == 0 ? TA_Initialize() : TA_Shutdown();
+         if( first != TA_SUCCESS || second != TA_SUCCESS )
+         {
+            printf( "\nFailed: TA_%s answered %d then %d, expected TA_SUCCESS twice\n",
+                    pass == 0 ? "Initialize" : "Shutdown", (int)first, (int)second );
+            return TA_INTERNAL_INIT_RESET_FAIL;
+         }
+         for( id = 0; id < TA_FUNC_UNST_COUNT; id++ )
+         {
+            if( TA_GetUnstablePeriod( (TA_FuncUnstId)id ) != 0 )
+            {
+               printf( "\nFailed: unstable period %u is %u after a repeated TA_%s\n",
+                       id, TA_GetUnstablePeriod( (TA_FuncUnstId)id ),
+                       pass == 0 ? "Initialize" : "Shutdown" );
+               return TA_INTERNAL_INIT_RESET_FAIL;
+            }
+         }
+         if( TA_Globals->candleSettings[TA_BodyDoji].rangeType != TA_RangeType_HighLow ||
+             TA_Globals->candleSettings[TA_BodyDoji].avgPeriod != 10 ||
+             TA_Globals->candleSettings[TA_BodyDoji].factor != 0.1 )
+         {
+            printf( "\nFailed: BodyDoji is not at its default after a repeated TA_%s\n",
+                    pass == 0 ? "Initialize" : "Shutdown" );
+            return TA_INTERNAL_INIT_RESET_FAIL;
+         }
+      }
+      if( TA_Initialize() != TA_SUCCESS )
+         return TA_INTERNAL_INIT_RESET_FAIL;
+   }
+
    /* Pairs with the allocLib() above (as testCircularBuffer does) -- shutting
     * down zeroes TA_Globals, so the periods set here cannot leak into any
     * later test.
@@ -1852,18 +1977,35 @@ static ErrorNumber testCandleSettingsBounds( void )
       return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
    }
 
-   /* factor takes any finite value -- it scales a threshold, never an index --
-    * but not NaN, which silences every comparison it feeds. Both halves are
-    * asserted: a guard written as a range check would accept NaN (every
-    * comparison against it is false), and one written as `!(factor > 0)` would
-    * refuse the legal negative.
+   /* factor is finite and not negative. Each refusal is asserted on its own:
+    * a guard written as `factor < 0` accepts NaN, one written as
+    * `!(factor >= 0)` accepts +Inf, and one written as `!(factor > 0)` refuses
+    * the legal zero.
     */
    if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, NAN ) != TA_BAD_PARAM )
    {
       printf( "\nFailed: TA_SetCandleSettings accepted a NaN factor\n" );
       return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
    }
-   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, -1.0 ) != TA_SUCCESS ||
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, INFINITY ) != TA_BAD_PARAM ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, -INFINITY ) != TA_BAD_PARAM )
+   {
+      printf( "\nFailed: TA_SetCandleSettings accepted an infinite factor\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
+   }
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, -1.0 ) != TA_BAD_PARAM ||
+       TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, -1e-300 ) != TA_BAD_PARAM )
+   {
+      printf( "\nFailed: TA_SetCandleSettings accepted a negative factor\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
+   }
+   /* Before any accepted write, which would cover a value a refusal stored. */
+   if( checkDoji( inOpen, inHigh, inLow, inClose ) != nbHitDefault )
+   {
+      printf( "\nFailed: a TA_SetCandleSettings that refused its arguments still stored one\n" );
+      return TA_INTERNAL_CANDLE_BOUND_FAIL_2;
+   }
+   if( TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, 1e300 ) != TA_SUCCESS ||
        TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_HighLow, 10, 0.0 ) != TA_SUCCESS )
    {
       printf( "\nFailed: TA_SetCandleSettings refused a legal factor\n" );
@@ -1875,9 +2017,7 @@ static ErrorNumber testCandleSettingsBounds( void )
       return TA_INTERNAL_CANDLE_BOUND_FAIL_1;
    }
 
-   /* Nothing above was stored: the defaults are still in force, and the tiers
-    * still agree.
-    */
+   /* The restore brought the default back, and the tiers still agree. */
    if( checkDoji( inOpen, inHigh, inLow, inClose ) != nbHitDefault )
    {
       printf( "\nFailed: a rejected TA_SetCandleSettings still changed the setting\n" );

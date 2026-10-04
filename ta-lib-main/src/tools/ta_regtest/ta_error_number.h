@@ -235,6 +235,12 @@ typedef enum
   TA_ABS_TST_FAIL_DISPLAY_SHIFT         = 628,
   TA_ABS_TST_FAIL_DISPLAY_SHIFT_VACUOUS = 629,
   TA_ABS_TST_FAIL_OUTPUT_ALIAS_VACUOUS  = 630,
+  TA_ABS_TST_FAIL_REJECTED_CALL         = 631,
+  TA_ABS_TST_FAIL_REJECTED_CALL_VACUOUS = 632,
+  TA_ABS_TST_FAIL_LOOKBACK_SETTINGS         = 633,
+  TA_ABS_TST_FAIL_LOOKBACK_SETTINGS_VACUOUS = 634,
+  TA_ABS_TST_FAIL_FIRST_BAR                 = 635,
+  TA_ABS_TST_FAIL_FIRST_BAR_VACUOUS         = 636,
 
   /* Error code related to internal tests. */
   TA_INTERNAL_CIRC_BUFF_FAIL_0      = 700,
@@ -277,6 +283,7 @@ typedef enum
   TA_INTERNAL_COMPAT_NOOP_FAIL_0    = 737,
   TA_INTERNAL_COMPAT_NOOP_FAIL_1    = 738,
   TA_INTERNAL_COMPAT_NOOP_FAIL_2    = 739,
+  TA_INTERNAL_INIT_RESET_FAIL       = 740,
 
   /* Error code related to CSI data source tests. */
   TA_CSI_ADDDATASOURCE_FAILED    = 800,
@@ -367,6 +374,8 @@ typedef enum
   TA_SV_LOOKBACK_PARITY_MISMATCH     = 1304,  /* issue #256: one server's own
                                                   lookback tier disagrees with its
                                                   own batch tier */
+  TA_SV_LOOKBACK_VALUE_MISMATCH      = 1305,  /* a server's lookback is not the
+                                                  C library's under the same settings */
 
   /* Single-precision (TA_S_) vector-arithmetic overflow guard (PR #33) */
   TA_S_OVERFLOW_BAD_RETCODE          = 1400,
@@ -435,6 +444,8 @@ typedef enum
   TA_CDLSET_VACUOUS_NO_MOVE          = 1584,
   TA_CDLSET_VACUOUS_NO_SYNC          = 1585,
   TA_CDLSET_NOT_RESTORED             = 1586,
+  TA_CDL_VALUE_SET_FAIL              = 1587,
+  TA_CDL_VALUE_SET_VACUOUS           = 1588,
 
   /* Streaming non-finite input rejection (the boundary contract). */
   TA_STREAM_FINITE_BAR_ACCEPTED      = 1591,
@@ -567,6 +578,16 @@ typedef enum
   TA_STREAM_NULL_ORIGINAL_MOVED      = 1704,
   TA_STREAM_NULL_SETUP_FAILED        = 1705,
   TA_STREAM_NULL_VACUOUS             = 1706,
+
+  /* A function with no stream, or one missing from the stream table. */
+  TA_OPEN_CONTRACT_NOT_STREAMING     = 1707,
+
+  /* Raising an unstable period: lookback growth and the values that remain. */
+  TA_UNSTABLE_SHIFT_FAIL             = 1708,
+  TA_UNSTABLE_SHIFT_VACUOUS          = 1709,
+
+  /* A call that was rejected wrote *outBegIdx or *outNBElement. */
+  TA_REJECTED_CALL_WROTE_RANGE       = 1710,
 
   /* Error code related to bug fix documentented on SourceForge. */
   TA_TEST_FAIL_BUG1359452_1  = 2000,

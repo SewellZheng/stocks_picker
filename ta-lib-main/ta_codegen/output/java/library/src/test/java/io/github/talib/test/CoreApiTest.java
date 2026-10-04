@@ -378,12 +378,19 @@ public class CoreApiTest {
             () -> Core.builder().candleSetting(
                 CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, Double.NaN),
             "NaN factor -> IAE");
-        // A negative factor is legal: it scales a threshold nothing can fall
-        // below, so the pattern simply never matches — a plausible thing to ask
-        // for, unlike NaN.
+        for (double bad : new double[] {
+                -1.0, -1e-300, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY }) {
+            checkThrows(IllegalArgumentException.class,
+                () -> Core.builder().candleSetting(
+                    CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, bad),
+                "factor " + bad + " -> IAE");
+        }
+        // The edges of the accepted range.
         check(Core.builder().candleSetting(
-                  CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, -1.0) != null,
-              "a negative factor is accepted");
+                  CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, 0.0) != null
+              && Core.builder().candleSetting(
+                  CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, 1e300) != null,
+              "a zero and a large factor are accepted");
         // Core.unstablePeriod(id) reads; CoreBuilder.unstablePeriod(id, period)
         // writes. Same name, different class and arity — the immutable Core has
         // no writer for a `get` prefix to disambiguate against.
@@ -404,6 +411,7 @@ public class CoreApiTest {
             "FuncUnstId.ALL is pinned at 65535 and every other id indexes the table by its value");
         check(CandleSettingType.ALL_CANDLE_SETTINGS.ordinal() == 11,
             "ALL_CANDLE_SETTINGS is pinned at C's 11");
+
     }
 
     /**
@@ -492,6 +500,43 @@ public class CoreApiTest {
         check(allIntact, "a rejected wildcard leaves every slot at its previous value");
     }
 
+    /**
+     * A refused candle setter leaves the builder as it was. Each refused call
+     * carries values that would stop the doji from firing had they been stored.
+     */
+    static void aRejectedCandleSettingWritesNothing() {
+        int n = 60;
+        double[] open = new double[n], high = new double[n], low = new double[n], close = new double[n];
+        for (int i = 0; i < n; i++) {
+            open[i] = 100.0;
+            close[i] = 100.5;
+            high[i] = 101.0;
+            low[i] = 99.0;
+        }
+        final CoreBuilder b = Core.builder()
+            .candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, 1.0e9);
+        checkThrows(IllegalArgumentException.class,
+            () -> b.candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, 10, Double.NaN),
+            "a NaN factor is refused");
+        checkThrows(IllegalArgumentException.class,
+            () -> b.candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, -1, 0.0),
+            "a negative avgPeriod is refused");
+        checkThrows(IllegalArgumentException.class,
+            () -> b.candleSetting(CandleSettingType.BODY_DOJI, RangeType.HIGH_LOW, Core.INDEX_MAX + 1, 0.0),
+            "an avgPeriod above INDEX_MAX is refused");
+        checkThrows(IllegalArgumentException.class,
+            () -> b.candleSetting(CandleSettingType.ALL_CANDLE_SETTINGS, RangeType.HIGH_LOW, 10, 0.0),
+            "the wildcard is refused by the single-setting setter");
+
+        int[] outD = new int[n], outT = new int[n];
+        OutRange rD = Core.DEFAULT.cdldoji(0, n - 1, open, high, low, close, outD);
+        OutRange rT = b.build().cdldoji(0, n - 1, open, high, low, close, outT);
+        check(!rD.isEmpty() && outD[rD.count() - 1] == 0,
+              "control: at the default setting this candle is not a doji");
+        check(!rT.isEmpty() && outT[rT.count() - 1] == 100,
+              "the setting made before the refused calls is still the one built");
+    }
+
     public static void main(String[] args) throws Exception {
         defaultsAreDefaults();
         builderSetsOnePeriod();
@@ -508,6 +553,7 @@ public class CoreApiTest {
         compatibilityIsGone();
         misuseThrows();
         unstablePeriodBoundIsABoundNotAnOffByOne();
+        aRejectedCandleSettingWritesNothing();
         sharedAcrossThreads();
 
         if (failures == 0) {

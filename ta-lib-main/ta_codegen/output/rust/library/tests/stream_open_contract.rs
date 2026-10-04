@@ -13,10 +13,6 @@
 //! Rule rS5 — the fill output's capacity — is here too, for the same reason:
 //! the servers hand every opener an output the length of the whole history, so
 //! nothing cross-language reaches a short one.
-//!
-//! Rules rS4 (an absent argument) and rS2 (a history past `INDEX_MAX`) are not
-//! here: a slice cannot be absent, and provoking rS2 needs a 100 000 001-element
-//! allocation.
 
 #![allow(non_snake_case)]
 
@@ -50,6 +46,35 @@ fn an_empty_history_is_an_index_fault() {
     assert_eq!(
         core.mavp_open(&empty, &empty, 2, 30, MAType::SMA).err(),
         Some(RetCode::OutOfRangeStartIndex)
+    );
+}
+
+/// A history one bar longer than the index domain holds. The allocation is
+/// zeroed and never read, so no memory is committed for it; keep the length
+/// check ahead of every read of the series or this test starts costing 800 MB.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn a_history_past_the_index_domain_is_an_index_fault() {
+    let core = Core::new();
+    let long = vec![0.0_f64; Core::INDEX_MAX + 2];
+    let mut out = [0.0_f64; 8];
+
+    assert_eq!(core.sma_open(&long, 30).err(), Some(RetCode::OutOfRangeEndIndex));
+    assert_eq!(
+        core.sma_open_and_fill(&long, 30, &mut out).err(),
+        Some(RetCode::OutOfRangeEndIndex)
+    );
+    assert_eq!(
+        core.cdldoji_open(&long, &long, &long, &long).err(),
+        Some(RetCode::OutOfRangeEndIndex)
+    );
+    assert_eq!(
+        core.ma_open(&long, 30, MAType::EMA).err(),
+        Some(RetCode::OutOfRangeEndIndex)
+    );
+    assert_eq!(
+        core.mavp_open(&long, &long, 2, 30, MAType::SMA).err(),
+        Some(RetCode::OutOfRangeEndIndex)
     );
 }
 
@@ -191,8 +216,7 @@ fn a_short_history_reaches_the_warm_up_check_not_the_capacity_one() {
     let lb = core.sma_lookback(30).expect("valid");
     // A full-size output is the only shape that can observe a write: the
     // capacity bound floors at zero here, so the body runs with the caller's
-    // buffer bound and rejects from inside it. That is #389's class, and it is
-    // asserted before the empty-output probe below, which can only panic.
+    // buffer bound and rejects from inside it. That is #389's class.
     const SENTINEL: f64 = -777.0;
     let mut armed = vec![SENTINEL; data.len()];
     assert_eq!(
@@ -201,11 +225,18 @@ fn a_short_history_reaches_the_warm_up_check_not_the_capacity_one() {
     );
     assert!(armed.iter().all(|v| *v == SENTINEL), "a rejection from inside the body wrote nothing");
 
+    let mut one = [0.0_f64; 1];
+    assert_eq!(
+        core.sma_open_and_fill(&data[..lb], 30, &mut one).err(),
+        Some(RetCode::InsufficientHistory),
+        "a history one short of lookback + 1 is rS8 for any output that is there"
+    );
+
+    // An empty output is an absent one, short history or not.
     let mut nothing: [f64; 0] = [];
     assert_eq!(
         core.sma_open_and_fill(&data[..lb], 30, &mut nothing).err(),
-        Some(RetCode::InsufficientHistory),
-        "a history one short of lookback + 1 is rS8, whatever the output holds"
+        Some(RetCode::BadParam)
     );
 }
 

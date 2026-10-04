@@ -81,6 +81,7 @@
 #include "codegen_pipe.h"
 #include "ta_abstract.h"
 #include "../ta_alloc_check.h"
+#include "../../ta_common/ta_global.h"   /* reads the candle settings in force */
 static CodegenPipe *g_abstractPipe = NULL;
 /* Which language the attached server is ("c"/"rust"/"java"/"csharp"), so a
  * per-backend carve-out can name its backend instead of applying to all four. */
@@ -106,6 +107,22 @@ static long long g_dsBoundRejected = 0;
 static long long g_dsFlagged = 0;
 static long long g_dsNonZero = 0;
 static long long g_dsServer = 0;
+/* Rejected batch calls found to leave the output buffers untouched, where the
+ * rejected value lies inside its declared range: a rejection the function body
+ * makes itself, after the generated argument checks. At a bound, and one step
+ * above the lower bound. */
+static long long g_rejectedAtBoundClean = 0;
+static long long g_rejectedAboveMinClean = 0;
+/* What a setting may move; see abstract_lookback_under_settings. Candlestick
+ * functions whose lookback follows an averaging period, functions whose
+ * lookback moved while their display shifts were compared, lookbacks that
+ * grew by an unstable period, then by an averaging period, at the ceiling,
+ * and the ceiling reached again with an integer parameter at its maximum. */
+static long long g_lsCdlMoved = 0;
+static long long g_lsShiftLive = 0;
+static long long g_lsCeilingUnst = 0;
+static long long g_lsCeilingCandle = 0;
+static long long g_lsCeilingAtMax = 0;
 /* Self-checks, mirroring --xlang-hash's oorNotRejected / sentNotDefault. Both
  * classes assert only "C and the server agree" on their own; if C stopped
  * rejecting, or stopped substituting, the two tiers would be wrong TOGETHER and
@@ -163,6 +180,9 @@ void test_abstract_set_server(CodegenPipe *cp, const char *lang)
    g_d2NonFinite = g_d2NonFiniteFuncs = 0;
    g_dsAnswered = g_dsRejected = g_dsParamRejected = g_dsBoundRejected = 0;
    g_dsFlagged = g_dsNonZero = g_dsServer = 0;
+   g_rejectedAtBoundClean = g_rejectedAboveMinClean = 0;
+   g_lsCdlMoved = g_lsShiftLive = g_lsCeilingUnst = g_lsCeilingCandle = 0;
+   g_lsCeilingAtMax = 0;
    g_d2OorNotRejected = g_d2SentNotDefault = 0;
    if( cp )
    {
@@ -1528,6 +1548,12 @@ static ErrorNumber abstract_check_display_shift( const char *funcName,
     int idx, paramsRejected;
 
     if( TA_GetLookback(paramHolder, &lookback) != TA_SUCCESS ) lookback = -1;
+    if( lookback < -1 )
+    {
+        printf("  Failed [%s]: lookback %d is neither a count nor the rejection signal -1\n",
+               funcName, (int)lookback);
+        return TA_ABS_TST_FAIL_DISPLAY_SHIFT;
+    }
     paramsRejected = lookback < 0;
 
     for( idx = -1; idx <= (int)funcInfo->nbOutput; idx++ )
@@ -1632,15 +1658,202 @@ static ErrorNumber abstract_check_display_shift( const char *funcName,
     return TA_TEST_PASS;
 }
 
+/* A call the library rejects for its arguments must not have stored anything:
+ * no output buffer, and neither half of the range pair, which the guard every
+ * TA_CallFunc of the suite goes through judges.
+ */
+#define REJECT_PAINT_REAL (-1.2345678901234e300)
+#define REJECT_PAINT_INT  ((int)0x5A5AA5A5)
+static ErrorNumber abstract_rejected_call_writes_nothing( const char *funcName,
+                                                          TA_ParamHolder *paramHolder,
+                                                          int size, const char *what )
+{
+    const double paintReal = REJECT_PAINT_REAL;
+    TA_Integer beg = 0, nb = 0;
+    long judged = regtest_rejected_calls_judged();
+    long wrote = regtest_rejected_calls_wrote_range();
+    TA_RetCode rc;
+    unsigned int o, j;
+
+    for( o = 0; o < 10; o++ )
+        for( j = 0; j < 2000; j++ )
+        {
+            output[o][j] = paintReal;
+            output_int[o][j] = REJECT_PAINT_INT;
+        }
+
+    rc = TA_CallFunc(paramHolder, 0, size - 1, &beg, &nb);
+    if( rc != TA_BAD_PARAM )
+    {
+        printf("  Failed [%s]: the lookback rejects %s but the call returned %d, "
+               "expected TA_BAD_PARAM\n", funcName, what, (int)rc);
+        return TA_ABS_TST_FAIL_REJECTED_CALL;
+    }
+    if( regtest_rejected_calls_judged() != judged + 1 ||
+        regtest_rejected_calls_wrote_range() != wrote )
+    {
+        printf("  Failed [%s]: the call rejected for %s wrote the range, or the "
+               "range was not looked at\n", funcName, what);
+        return TA_ABS_TST_FAIL_REJECTED_CALL;
+    }
+    for( o = 0; o < 10; o++ )
+        for( j = 0; j < 2000; j++ )
+            if( memcmp(&output[o][j], &paintReal, sizeof(double)) != 0
+                || output_int[o][j] != REJECT_PAINT_INT )
+            {
+                printf("  Failed [%s]: the call rejected for %s wrote output buffer "
+                       "%u at index %u\n", funcName, what, o, j);
+                return TA_ABS_TST_FAIL_REJECTED_CALL;
+            }
+    return TA_TEST_PASS;
+}
+
+/* What a setting may and may not move, at the declared default parameters.
+ *
+ * A candle range type or factor moves no lookback. A candle averaging period
+ * moves only the lookback of a candlestick function or a gate fixture, by
+ * exactly what was added or not at all.
+ * No setting moves a display shift: they are read with every candle component
+ * and every unstable period changed. With every unstable period and averaging
+ * period at TA_INDEX_MAX a lookback is still a count: it only grows.
+ *
+ * Leaves the settings as it found them, on failure too.
+ */
+#define LS_BUMP 7
+static ErrorNumber abstract_lookback_under_settings( const char *funcName,
+                                                     const TA_FuncHandle *handle,
+                                                     const TA_FuncInfo *funcInfo,
+                                                     TA_ParamHolder *paramHolder )
+{
+    TA_CandleSetting savedCandle[TA_NB_CANDLE_SETTING];
+    unsigned int savedUnst[TA_FUNC_UNST_COUNT];
+    TA_Integer shift0[10];
+    TA_Integer base = -1, got = -1;
+    const char *bad = NULL;
+    int isCdl = (funcInfo->flags & TA_FUNC_FLG_CANDLESTICK) != 0;
+    /* A gate fixture may read a candle setting without being a candlestick. */
+    int readsCandle = isCdl || strncmp(funcName, "SYNTH", 5) == 0;
+    unsigned int k, o;
+    int pass;
+
+    memcpy(savedCandle, TA_Globals->candleSettings, sizeof(savedCandle));
+    memcpy(savedUnst, TA_Globals->unstablePeriod, sizeof(savedUnst));
+
+    TA_GetLookback(paramHolder, &base);
+    for( o = 0; o < funcInfo->nbOutput && o < 10; o++ )
+        TA_GetDisplayShift(paramHolder, o, &shift0[o]);
+
+    /* Range type and factor alone. */
+    for( k = 0; k < TA_NB_CANDLE_SETTING; k++ )
+        TA_SetCandleSettings( savedCandle[k].settingType,
+                              (TA_RangeType)((savedCandle[k].rangeType + 1) % 3),
+                              savedCandle[k].avgPeriod, savedCandle[k].factor * 3.7 );
+    TA_GetLookback(paramHolder, &got);
+    if( got != base )
+        bad = "a candle range type or factor moved the lookback";
+
+    /* Averaging periods as well. */
+    for( k = 0; k < TA_NB_CANDLE_SETTING; k++ )
+        TA_SetCandleSettings( savedCandle[k].settingType,
+                              (TA_RangeType)((savedCandle[k].rangeType + 1) % 3),
+                              savedCandle[k].avgPeriod + LS_BUMP, savedCandle[k].factor * 3.7 );
+    TA_GetLookback(paramHolder, &got);
+    if( !bad && got != base && !( readsCandle && got == base + LS_BUMP ) )
+        bad = readsCandle ? "a candle averaging period moved the lookback by another amount"
+                          : "a candle averaging period moved the lookback of a function that "
+                            "is not a candlestick";
+    if( !bad && got != base && isCdl )
+        g_lsCdlMoved++;
+
+    /* Display shifts, with an unstable period in force as well. */
+    TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, LS_BUMP);
+    TA_GetLookback(paramHolder, &got);
+    for( o = 0; !bad && o < funcInfo->nbOutput && o < 10; o++ )
+    {
+        TA_Integer shift = 0;
+        TA_GetDisplayShift(paramHolder, o, &shift);
+        if( shift != shift0[o] )
+            bad = "a setting moved a display shift";
+    }
+    if( !bad && got != base )
+        g_lsShiftLive++;
+
+    /* The ceiling, at the default parameters and with every integer range at
+     * its maximum. Zero settings first: a combination the function rejects
+     * there has no lookback to compare. */
+    for( pass = 0; !bad && pass < 2; pass++ )
+    {
+        TA_Integer atZero = -1, atCeiling = -1;
+        int raised = 0;
+
+        for( k = 0; pass == 1 && k < funcInfo->nbOptInput; k++ )
+        {
+            const TA_OptInputParameterInfo *oi;
+            TA_GetOptInputParameterInfo(handle, k, &oi);
+            if( oi->type == TA_OptInput_IntegerRange && oi->dataSet )
+            {
+                TA_SetOptInputParamInteger(paramHolder, k,
+                                           ((const TA_IntegerRange *)oi->dataSet)->max);
+                raised++;
+            }
+        }
+        if( pass == 1 && raised == 0 )
+            break;   /* no integer parameter: the defaults again */
+        memcpy(TA_Globals->candleSettings, savedCandle, sizeof(savedCandle));
+        TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, 0);
+        TA_GetLookback(paramHolder, &atZero);
+        TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, (unsigned int)TA_INDEX_MAX);
+        TA_GetLookback(paramHolder, &atCeiling);
+        if( atZero >= 0 && atCeiling < atZero )
+            bad = "the lookback shrank with every unstable period at TA_INDEX_MAX";
+        else if( atZero >= 0 && !isCdl && atCeiling - atZero >= TA_INDEX_MAX )
+        {
+            if( pass == 0 ) g_lsCeilingUnst++;
+            else            g_lsCeilingAtMax++;
+        }
+        TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, 0);
+        for( k = 0; k < TA_NB_CANDLE_SETTING; k++ )
+            TA_SetCandleSettings( savedCandle[k].settingType, savedCandle[k].rangeType,
+                                  TA_INDEX_MAX, savedCandle[k].factor );
+        TA_GetLookback(paramHolder, &atCeiling);
+        if( !bad && atZero >= 0 && atCeiling < atZero )
+            bad = "the lookback shrank with every candle averaging period at TA_INDEX_MAX";
+        else if( !bad && pass == 0 && atZero >= 0 && atCeiling - atZero >= TA_INDEX_MAX / 2 )
+            g_lsCeilingCandle++;
+    }
+
+    for( k = 0; k < funcInfo->nbOptInput; k++ )
+    {
+        const TA_OptInputParameterInfo *oi;
+        TA_GetOptInputParameterInfo(handle, k, &oi);
+        if( oi->type == TA_OptInput_IntegerRange )
+            TA_SetOptInputParamInteger(paramHolder, k, (TA_Integer)oi->defaultValue);
+    }
+    memcpy(TA_Globals->candleSettings, savedCandle, sizeof(savedCandle));
+    memcpy(TA_Globals->unstablePeriod, savedUnst, sizeof(savedUnst));
+
+    if( bad )
+    {
+        printf("  Failed [%s]: %s\n", funcName, bad);
+        return TA_ABS_TST_FAIL_LOOKBACK_SETTINGS;
+    }
+    return TA_TEST_PASS;
+}
+
 /* The display shift at parameter vectors built from the declared domains: every
- * slot at a non-default value, then each integer range at both bounds and one
- * step outside each. Needs no server, so a bare run reaches rejected
- * parameters on integer-only functions; the bounds are what make a shift that
- * depends on its parameters answer something other than its default.
+ * slot at a non-default value, then each integer range at both bounds, one
+ * step outside each and one step above the lower one. Needs no server, so a
+ * bare run reaches rejected parameters on integer-only functions; the bounds
+ * are what make a shift that depends on its parameters answer something other
+ * than its default.
+ *
+ * The step above the lower bound flips a period's parity, which is where
+ * FRAMA refuses a value inside its declared range. Every vector the lookback
+ * rejects is also called, to see that the rejection wrote nothing.
  */
 static ErrorNumber ds_param_vectors( const char *funcName, const TA_FuncHandle *handle,
                                      const TA_FuncInfo *funcInfo,
-                                     TA_ParamHolder *paramHolder )
+                                     TA_ParamHolder *paramHolder, int size )
 {
     double base[D2_MAX_OPT], vec[D2_MAX_OPT];
     const TA_OptInputParameterInfo *oi;
@@ -1658,13 +1871,22 @@ static ErrorNumber ds_param_vectors( const char *funcName, const TA_FuncHandle *
         vec[k] = d2_non_default(oi, k);
     }
     d2_set_opts(paramHolder, handle, funcInfo, vec);
+    {
+        TA_Integer lookback = -1;
+        if( TA_GetLookback(paramHolder, &lookback) == TA_SUCCESS && lookback < 0 )
+        {
+            e = abstract_rejected_call_writes_nothing(funcName, paramHolder, size,
+                                                      "its non-default parameters");
+            if( e != TA_TEST_PASS ) return e;
+        }
+    }
     e = abstract_check_display_shift(funcName, handle, funcInfo, paramHolder, vec, 1);
 
     for( k = 0; e == TA_TEST_PASS && k < funcInfo->nbOptInput; k++ )
     {
         const TA_IntegerRange *r;
-        double probe[4];
-        int nbProbe = 0;
+        double probe[5];
+        int nbProbe = 0, aboveMin = -1;
 
         TA_GetOptInputParameterInfo(handle, k, &oi);
         r = (const TA_IntegerRange *)oi->dataSet;
@@ -1674,6 +1896,11 @@ static ErrorNumber ds_param_vectors( const char *funcName, const TA_FuncHandle *
         probe[nbProbe++] = (double)r->max;
         if( r->min > INT_MIN ) probe[nbProbe++] = (double)r->min - 1.0;
         if( r->max < INT_MAX ) probe[nbProbe++] = (double)r->max + 1.0;
+        if( r->min + 1 < r->max )
+        {
+            aboveMin = nbProbe;
+            probe[nbProbe++] = (double)r->min + 1.0;
+        }
 
         for( b = 0; e == TA_TEST_PASS && b < nbProbe; b++ )
         {
@@ -1683,7 +1910,16 @@ static ErrorNumber ds_param_vectors( const char *funcName, const TA_FuncHandle *
             vec[k] = probe[b];
             d2_set_opts(paramHolder, handle, funcInfo, vec);
             if( TA_GetLookback(paramHolder, &lookback) == TA_SUCCESS && lookback < 0 )
+            {
                 g_dsBoundRejected++;
+                e = abstract_rejected_call_writes_nothing(funcName, paramHolder, size,
+                                                          oi->paramName);
+                if( e != TA_TEST_PASS ) break;
+                if( b == aboveMin )
+                    g_rejectedAboveMinClean++;
+                else if( probe[b] >= (double)r->min && probe[b] <= (double)r->max )
+                    g_rejectedAtBoundClean++;
+            }
             e = abstract_check_display_shift(funcName, handle, funcInfo, paramHolder, vec, 1);
         }
     }
@@ -2310,6 +2546,28 @@ ErrorNumber test_abstract( void )
       return TA_ABS_TST_FAIL_DISPLAY_SHIFT_VACUOUS;
    }
 
+   if( g_lsCdlMoved == 0 || g_lsShiftLive == 0 || g_lsCeilingUnst == 0 ||
+       g_lsCeilingCandle == 0 || g_lsCeilingAtMax == 0 )
+   {
+      printf( "  Failed: the settings sweep saw %lld candlestick lookback(s) follow an "
+              "averaging period, compared display shifts on %lld function(s) whose "
+              "lookback moved, and reached the ceiling through an unstable period %lld "
+              "time(s), through an averaging period %lld, and with an integer parameter "
+              "at its maximum %lld\n",
+              g_lsCdlMoved, g_lsShiftLive, g_lsCeilingUnst, g_lsCeilingCandle,
+              g_lsCeilingAtMax );
+      return TA_ABS_TST_FAIL_LOOKBACK_SETTINGS_VACUOUS;
+   }
+
+   if( g_rejectedAtBoundClean == 0 || g_rejectedAboveMinClean == 0 )
+   {
+      printf( "  Failed: the calls rejected inside a declared range and checked for an "
+              "untouched output buffer were %lld at a bound and %lld one step above "
+              "the lower bound\n",
+              g_rejectedAtBoundClean, g_rejectedAboveMinClean );
+      return TA_ABS_TST_FAIL_REJECTED_CALL_VACUOUS;
+   }
+
    if( g_abstractPipe )
    {
 
@@ -2824,7 +3082,9 @@ static ErrorNumber callWithDefaults( const char *funcName, const double *input, 
          /* C-only, so unlike the sweep above it runs with no server pipe. */
          srvErr = d2_nonfinite_params( funcName, handle, funcInfo, paramHolder, size );
          if( srvErr == TA_TEST_PASS )
-            srvErr = ds_param_vectors( funcName, handle, funcInfo, paramHolder );
+            srvErr = ds_param_vectors( funcName, handle, funcInfo, paramHolder, size );
+         if( srvErr == TA_TEST_PASS )
+            srvErr = abstract_lookback_under_settings( funcName, handle, funcInfo, paramHolder );
          if( srvErr != TA_TEST_PASS )
          {
             TA_ParamHolderFree( paramHolder );
@@ -3080,6 +3340,7 @@ static int indexRangeNbFuncs;        /* functions enumerated                 */
 static int indexRangeNbChecked;      /* rows actually run                    */
 static int indexRangeNbAccept;       /* boundary-accept rows actually run    */
 static int indexRangeNbNoProbe;      /* functions with no usable probe       */
+static long indexRangeNbRangeKept;   /* rows whose range pair was held to its sentinel */
 
 /* The boundary-accept row needs an optional-parameter value the prologue is
  * CERTAIN to reject, because the row's safety depends on it: the call is made
@@ -3141,6 +3402,7 @@ static ErrorNumber checkIndexRangeRejected( const TA_FuncInfo *funcInfo )
    TA_RetCode retCode;
    unsigned int i, c, badParamIdx = 0;
    int outBegIdx, outNbElement;
+   long judged, wrote;
    int badInt = 0, badIsReal = 0;
    double badReal = 0.0;
    int haveProbe = indexRangeBadOptValue( funcInfo, &badParamIdx,
@@ -3203,9 +3465,17 @@ static ErrorNumber checkIndexRangeRejected( const TA_FuncInfo *funcInfo )
             TA_SetOptInputParamInteger( paramHolder, badParamIdx, badInt );
       }
 
+      judged = regtest_rejected_calls_judged();
+      wrote = regtest_rejected_calls_wrote_range();
       retCode = TA_CallFunc( paramHolder, tc->startIdx, tc->endIdx,
                              &outBegIdx, &outNbElement );
       TA_ParamHolderFree( paramHolder );
+      if( regtest_rejected_calls_wrote_range() != wrote )
+      {
+         printf( "  INDEX RANGE [%s]: %s wrote the range\n", funcInfo->name, tc->what );
+         return TA_ABS_TST_FAIL_INDEX_RANGE;
+      }
+      indexRangeNbRangeKept += regtest_rejected_calls_judged() - judged;
 
       if( retCode != tc->expected )
       {
@@ -3251,6 +3521,9 @@ static void testIndexRange( const TA_FuncInfo *funcInfo, void *opaqueData )
  * they are still compared for collateral damage. */
 
 #define IO_ALIAS_SIZE    252
+/* Bars past endIdx: an output placed on an input must leave them as they were. */
+#define IO_ALIAS_TAIL    16
+#define IO_ALIAS_END     (IO_ALIAS_SIZE - 1 - IO_ALIAS_TAIL)
 #define IO_ALIAS_MAX_IN  4
 #define IO_ALIAS_MAX_OUT 4
 
@@ -3377,7 +3650,7 @@ static ErrorNumber checkInPlaceAliasCorrect( const TA_FuncInfo *funcInfo )
       else
          TA_SetOutputParamRealPtr( paramHolder, k, &ioAliasRefOut[k][0] );
    }
-   retCode = TA_CallFunc( paramHolder, 0, IO_ALIAS_SIZE-1, &refBegIdx, &refNbElement );
+   retCode = TA_CallFunc( paramHolder, 0, IO_ALIAS_END, &refBegIdx, &refNbElement );
    TA_ParamHolderFree( paramHolder );
    if( retCode != TA_SUCCESS )
    {
@@ -3449,7 +3722,7 @@ static ErrorNumber checkInPlaceAliasCorrect( const TA_FuncInfo *funcInfo )
                else
                   TA_SetOutputParamRealPtr( paramHolder, k, &ioAliasOut[k][0] );
             }
-            retCode = TA_CallFunc( paramHolder, 0, IO_ALIAS_SIZE-1,
+            retCode = TA_CallFunc( paramHolder, 0, IO_ALIAS_END,
                                    &outBegIdx, &outNbElement );
             TA_ParamHolderFree( paramHolder );
 
@@ -3504,6 +3777,14 @@ static ErrorNumber checkInPlaceAliasCorrect( const TA_FuncInfo *funcInfo )
                   }
                }
             }
+            if( memcmp( &ioAliasScratch[IO_ALIAS_END + 1], &series[IO_ALIAS_END + 1],
+                        IO_ALIAS_TAIL * sizeof(double) ) != 0 )
+            {
+               printf( "  IN-PLACE ALIAS [%s]: out%u <- in%u.%s: an element past endIdx was written\n",
+                       funcInfo->name, o, i,
+                       inputInfo->type == TA_Input_Real ? "real" : compName[c] );
+               errNumber = TA_ABS_TST_FAIL_INPLACE_ALIAS;
+            }
             if( refNbElement > 0 )
                ioAliasNbChecked++;
          }
@@ -3517,6 +3798,182 @@ static void testInPlaceAlias( const TA_FuncInfo *funcInfo, void *opaqueData )
    ErrorNumber *errorNumber = (ErrorNumber *)opaqueData;
    ErrorNumber err = checkInPlaceAliasCorrect( funcInfo );
    /* Keep enumerating on failure so one run reports every offender. */
+   if( err != TA_TEST_PASS && *errorNumber == TA_TEST_PASS )
+      *errorNumber = err;
+}
+
+/* A batch call reads no bar before max(startIdx, lookback) - lookback.
+ *
+ * Every component of every input is overwritten below that bar, with NaN and
+ * with a large finite value, and the call must answer as it did on the clean
+ * series, bit for bit. An address sanitizer cannot see this: an earlier bar is
+ * inside the allocation. The control poisons one bar more, which most functions
+ * do read.
+ */
+#define FIRST_BAR_MAX_PREFIX 96
+static int firstBarNbCompared;   /* functions with at least one compared call */
+static int firstBarNbLive;       /* of those, the ones the control changed */
+
+static void firstBarPoison( int nbBars, double value, double saved[][6][FIRST_BAR_MAX_PREFIX] )
+{
+   int slot, c, j;
+   for( slot = 0; slot < IO_ALIAS_MAX_IN; slot++ )
+      for( c = 0; c < 6; c++ )
+         for( j = 0; j < nbBars; j++ )
+         {
+            if( saved ) saved[slot][c][j] = ioAliasData[slot][c][j];
+            ioAliasData[slot][c][j] = value;
+         }
+}
+
+static void firstBarRestore( int nbBars, double saved[][6][FIRST_BAR_MAX_PREFIX] )
+{
+   int slot, c, j;
+   for( slot = 0; slot < IO_ALIAS_MAX_IN; slot++ )
+      for( c = 0; c < 6; c++ )
+         for( j = 0; j < nbBars; j++ )
+            ioAliasData[slot][c][j] = saved[slot][c][j];
+}
+
+/* 1 when the call over [startIdx, last bar] answers exactly as the reference. */
+static int firstBarSameAnswer( const TA_FuncInfo *funcInfo, TA_ParamHolder *paramHolder,
+                               int startIdx, TA_RetCode refRc, int refBeg, int refNb )
+{
+   const TA_OutputParameterInfo *outInfo;
+   TA_Integer beg = -1, nb = -1;
+   TA_RetCode rc = TA_CallFunc( paramHolder, startIdx, IO_ALIAS_SIZE - 1, &beg, &nb );
+   unsigned int k;
+
+   if( rc != refRc || beg != refBeg || nb != refNb )
+      return 0;
+   for( k = 0; k < funcInfo->nbOutput; k++ )
+   {
+      TA_GetOutputParameterInfo( funcInfo->handle, k, &outInfo );
+      if( outInfo->type == TA_Output_Integer
+          ? memcmp( ioAliasOutInt[k], ioAliasRefOutInt[k], sizeof(int) * (size_t)refNb ) != 0
+          : memcmp( ioAliasOut[k], ioAliasRefOut[k], sizeof(double) * (size_t)refNb ) != 0 )
+         return 0;
+   }
+   return 1;
+}
+
+static ErrorNumber checkNoBarBeforeTheFirst( const TA_FuncInfo *funcInfo )
+{
+   static double saved[IO_ALIAS_MAX_IN][6][FIRST_BAR_MAX_PREFIX];
+   static const double poison[2] = { (double)NAN, 7.3e30 };
+   static const int past[2] = { 1, 41 };
+   const TA_OutputParameterInfo *outInfo;
+   TA_ParamHolder *paramHolder;
+   ErrorNumber errNumber = TA_TEST_PASS;
+   int compared = 0, live = 0;
+   unsigned int k, unst;
+   int s, p;
+
+   if( funcInfo->nbInput > IO_ALIAS_MAX_IN || funcInfo->nbOutput > IO_ALIAS_MAX_OUT )
+   {
+      printf( "  FIRST BAR [%s]: gate capacity exceeded (%u inputs, %u outputs)\n",
+              funcInfo->name, funcInfo->nbInput, funcInfo->nbOutput );
+      return TA_ABS_TST_FAIL_FIRST_BAR;
+   }
+   if( TA_ParamHolderAlloc( funcInfo->handle, &paramHolder ) != TA_SUCCESS )
+      return TA_ABS_TST_FAIL_PARAMHOLDERALLOC;
+   if( ioAliasSetInputs( paramHolder, funcInfo, -1, -1 ) != TA_SUCCESS )
+   {
+      TA_ParamHolderFree( paramHolder );
+      return TA_ABS_TST_FAIL_PARAMREALPTR;
+   }
+
+   for( unst = 0; unst <= 5 && errNumber == TA_TEST_PASS; unst += 5 )
+   {
+      TA_Integer lookback = -1;
+
+      TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, unst );
+      if( TA_GetLookback( paramHolder, &lookback ) != TA_SUCCESS || lookback < 0 )
+      {
+         printf( "  FIRST BAR [%s]: no lookback at the default parameters\n", funcInfo->name );
+         errNumber = TA_ABS_TST_FAIL_FIRST_BAR;
+         break;
+      }
+      for( s = 0; s < 2 && errNumber == TA_TEST_PASS; s++ )
+      {
+         int startIdx = lookback + past[s];
+         int unread = startIdx - lookback;   /* bars [0, unread) */
+         TA_Integer refBeg = -1, refNb = -1;
+         TA_RetCode refRc;
+
+         if( startIdx > IO_ALIAS_SIZE - 1 || unread + 1 > FIRST_BAR_MAX_PREFIX )
+            continue;
+
+         for( k = 0; k < funcInfo->nbOutput; k++ )
+         {
+            TA_GetOutputParameterInfo( funcInfo->handle, k, &outInfo );
+            if( outInfo->type == TA_Output_Integer )
+               TA_SetOutputParamIntegerPtr( paramHolder, k, &ioAliasRefOutInt[k][0] );
+            else
+               TA_SetOutputParamRealPtr( paramHolder, k, &ioAliasRefOut[k][0] );
+         }
+         refRc = TA_CallFunc( paramHolder, startIdx, IO_ALIAS_SIZE - 1, &refBeg, &refNb );
+         if( refRc != TA_SUCCESS || refBeg != startIdx || refNb <= 0 )
+         {
+            printf( "  FIRST BAR [%s]: the reference call from bar %d answered rc=%d "
+                    "begIdx=%d count=%d\n", funcInfo->name, startIdx, (int)refRc,
+                    (int)refBeg, (int)refNb );
+            errNumber = TA_ABS_TST_FAIL_FIRST_BAR;
+            break;
+         }
+         for( k = 0; k < funcInfo->nbOutput; k++ )
+         {
+            TA_GetOutputParameterInfo( funcInfo->handle, k, &outInfo );
+            if( outInfo->type == TA_Output_Integer )
+               TA_SetOutputParamIntegerPtr( paramHolder, k, &ioAliasOutInt[k][0] );
+            else
+               TA_SetOutputParamRealPtr( paramHolder, k, &ioAliasOut[k][0] );
+         }
+
+         for( p = 0; p < 2; p++ )
+         {
+            int same;
+            firstBarPoison( unread, poison[p], saved );
+            same = firstBarSameAnswer( funcInfo, paramHolder, startIdx, refRc, refBeg, refNb );
+            firstBarRestore( unread, saved );
+            if( !same )
+            {
+               printf( "  FIRST BAR [%s]: a call from bar %d (lookback %d, unstable %u) "
+                       "changed when bars 0 to %d were overwritten\n",
+                       funcInfo->name, startIdx, (int)lookback, unst, unread - 1 );
+               errNumber = TA_ABS_TST_FAIL_FIRST_BAR;
+               break;
+            }
+            compared++;
+         }
+
+         firstBarPoison( unread + 1, poison[0], saved );
+         if( !firstBarSameAnswer( funcInfo, paramHolder, startIdx, refRc, refBeg, refNb ) )
+            live = 1;
+         firstBarRestore( unread + 1, saved );
+      }
+   }
+
+   TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 0 );
+   TA_ParamHolderFree( paramHolder );
+   if( errNumber == TA_TEST_PASS && compared > 0 )
+   {
+      firstBarNbCompared++;
+      firstBarNbLive += live;
+   }
+   return errNumber;
+}
+
+static void countFunctions( const TA_FuncInfo *funcInfo, void *opaqueData )
+{
+   (void)funcInfo;
+   (*(int *)opaqueData)++;
+}
+
+static void testNoBarBeforeTheFirst( const TA_FuncInfo *funcInfo, void *opaqueData )
+{
+   ErrorNumber *errorNumber = (ErrorNumber *)opaqueData;
+   ErrorNumber err = checkNoBarBeforeTheFirst( funcInfo );
    if( err != TA_TEST_PASS && *errorNumber == TA_TEST_PASS )
       *errorNumber = err;
 }
@@ -3987,6 +4444,7 @@ static ErrorNumber test_default_calls(void)
    {
       indexRangeNbFuncs = indexRangeNbChecked = 0;
       indexRangeNbAccept = indexRangeNbNoProbe = 0;
+      indexRangeNbRangeKept = 0;
       TA_ForEachFunc( testIndexRange, &errNumber );
       /* Exact accounting rather than a round floor. Every function runs the six
        * always-applicable rows, and the boundary-accept row either ran or was
@@ -4009,6 +4467,13 @@ static ErrorNumber test_default_calls(void)
                  indexRangeNbAccept, indexRangeNbNoProbe );
          errNumber = TA_ABS_TST_FAIL_INDEX_RANGE;
       }
+      /* Every row is a rejection, so every row's range pair was judged. */
+      if( errNumber == TA_TEST_PASS && indexRangeNbRangeKept != indexRangeNbChecked )
+      {
+         printf( "Failed: index-range gate judged the range pair of %ld of %d rows\n",
+                 indexRangeNbRangeKept, indexRangeNbChecked );
+         errNumber = TA_ABS_TST_FAIL_INDEX_RANGE;
+      }
    }
 
    /* In-place (input==output) aliasing must be bitwise-correct (issue #130). */
@@ -4024,6 +4489,23 @@ static ErrorNumber test_default_calls(void)
          printf( "Failed: in-place alias gate vacuous (%d pairs checked)\n",
                  ioAliasNbChecked );
          errNumber = TA_ABS_TST_FAIL_INPLACE_ALIAS_VACUOUS;
+      }
+   }
+
+   /* Reuses the series the in-place sweep built just above. */
+   if( errNumber == TA_TEST_PASS )
+   {
+      int nbFunc = 0;
+      firstBarNbCompared = firstBarNbLive = 0;
+      TA_ForEachFunc( testNoBarBeforeTheFirst, &errNumber );
+      TA_ForEachFunc( countFunctions, &nbFunc );
+      if( errNumber == TA_TEST_PASS &&
+          ( firstBarNbCompared != nbFunc || firstBarNbLive * 2 <= firstBarNbCompared ) )
+      {
+         printf( "Failed: the first-bar sweep compared %d of %d function(s), and the "
+                 "control of one more overwritten bar changed %d of them\n",
+                 firstBarNbCompared, nbFunc, firstBarNbLive );
+         errNumber = TA_ABS_TST_FAIL_FIRST_BAR_VACUOUS;
       }
    }
 

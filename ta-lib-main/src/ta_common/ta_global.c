@@ -53,6 +53,8 @@
  *  081126 KL,MF,CC Validate every TA_SetCandleSettings argument, not just the
  *                settingType (#185)
  *  100126 MF,CC Pre-load the candle defaults, also after TA_Shutdown.
+ *  100226 MF,CC A candle factor is finite and not negative (#497).
+ *  100226 MF,CC TA_Initialize and TA_Shutdown are idempotent (#497).
  */
 
 /* Description:
@@ -60,12 +62,12 @@
  */
 
 /**** Headers ****/
+#include <float.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include "ta_common.h"
-#include "ta_magic_nb.h"
 #include "ta_global.h"
 #include "ta_func.h"
 
@@ -130,9 +132,6 @@ TA_RetCode TA_Initialize( void )
     * variables of all other modules...
     */
    memset( TA_Globals, 0, sizeof( TA_LibcPriv ) );
-   TA_Globals->magicNb = TA_LIBC_PRIV_MAGIC_NB;
-
-   /*** At this point, TA_Shutdown can be called to clean-up. ***/
 
    /* Set the default value to global variables. The return is checked: it is
     * how the defaults table's own completeness guard reaches a caller, and a
@@ -147,10 +146,7 @@ TA_RetCode TA_Initialize( void )
 
 TA_RetCode TA_Shutdown( void )
 {
-   if( TA_Globals->magicNb != TA_LIBC_PRIV_MAGIC_NB )
-      return TA_LIB_NOT_INITIALIZE;
-
-   /* Initialize to all zero to make sure we invalidate that object. */
+   /* Idempotent, like TA_Initialize: every call leaves the defaults in force. */
    memset( TA_Globals, 0, sizeof( TA_LibcPriv ) );
 
    return TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
@@ -193,12 +189,10 @@ TA_RetCode TA_SetCandleSettings( TA_CandleSettingType settingType,
     if( avgPeriod < 0 || avgPeriod > TA_INDEX_MAX )
         return TA_BAD_PARAM;
 
-    /* factor scales a threshold, never an index, so any finite value is legal.
-     * A negative one is legal too: with a positive average, every test that a
-     * range is above the threshold passes and every test that it is at or
-     * below fails. NaN is refused because it silences every comparison it
-     * feeds without being asked to. */
-    if( factor != factor )
+    /* factor scales a threshold: finite and not negative. NaN silences every
+     * comparison it feeds, an infinity times a zero average is NaN, and a
+     * negative threshold is below every range. Written so that NaN fails it. */
+    if( !(factor >= 0.0 && factor <= DBL_MAX) )
         return TA_BAD_PARAM;
 
     TA_Globals->candleSettings[settingType].settingType = settingType;

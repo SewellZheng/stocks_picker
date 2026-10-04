@@ -55,6 +55,7 @@
  *  052603 MF     Adapt code to compile with .NET Managed C++
  *  070526 MF,CC  Speed optimization: delegate to the single-pass MACD
  *                when all three MA types are EMA (bit-exact).
+ *  100226 MF,CC  #497. The consistency exit leaves the range untouched.
  */
 
 // Import types from parent module
@@ -217,7 +218,7 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx - _assertStart < outMACD.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outMACDSignal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outMACDHist.len());
-        if (!outMACD.is_empty() && !outMACDSignal.is_empty() && outMACD.as_ptr() == outMACDSignal.as_ptr()) || (!outMACD.is_empty() && !outMACDHist.is_empty() && outMACD.as_ptr() == outMACDHist.as_ptr()) || (!outMACDSignal.is_empty() && !outMACDHist.is_empty() && outMACDSignal.as_ptr() == outMACDHist.as_ptr()) {
+        if (outMACD.as_ptr() == outMACDSignal.as_ptr()) || (outMACD.as_ptr() == outMACDHist.as_ptr()) || (outMACDSignal.as_ptr() == outMACDHist.as_ptr()) {
             return RetCode::BadParam;
         }
         let mut startIdx = startIdx;
@@ -305,8 +306,6 @@ impl Core {
         retCode = RetCode::Success;
         // Parano tests. Will be removed eventually.
         if outBegIdx1 != tempInteger || outBegIdx2 != tempInteger || outNbElement1 != outNbElement2 || outNbElement1 != endIdx - startIdx + 1 + lookbackSignal {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
             return RetCode::BadParam;
         }
         // Calculate (fast MA) - (slow MA).
@@ -397,7 +396,8 @@ impl Core {
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
     /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
-    /// range. Sizing every output slice to the input length is always sufficient.
+    /// range. An empty output slice is refused on every range, one that produces nothing included.
+    /// Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -454,13 +454,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
-        if outMACD.len() < _guardOutLen {
+        if outMACD.is_empty() || outMACD.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outMACDSignal.len() < _guardOutLen {
+        if outMACDSignal.is_empty() || outMACDSignal.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outMACDHist.len() < _guardOutLen {
+        if outMACDHist.is_empty() || outMACDHist.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -671,8 +671,6 @@ impl Core {
         retCode = RetCode::Success;
         // Parano tests. Will be removed eventually.
         if outBegIdx1 != tempInteger || outBegIdx2 != tempInteger || outNbElement1 != outNbElement2 || outNbElement1 != endIdx - startIdx + 1 + lookbackSignal {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
             return Err(RetCode::BadParam);
         }
         // Calculate (fast MA) - (slow MA).
@@ -837,13 +835,13 @@ impl Core {
         }
         let _guardLb = self.macdext_lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType)?;
         let _guardOutLen = inReal.len().saturating_sub(_guardLb);
-        if outMACD.len() < _guardOutLen {
+        if outMACD.is_empty() || outMACD.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outMACDSignal.len() < _guardOutLen {
+        if outMACDSignal.is_empty() || outMACDSignal.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outMACDHist.len() < _guardOutLen {
+        if outMACDHist.is_empty() || outMACDHist.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;

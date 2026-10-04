@@ -281,9 +281,9 @@ fn c_batch_prologues(c: &str) -> Vec<&str> {
 /// optional parameter outside its documented domain, and only then rB4, a required
 /// argument that was not supplied.
 ///
-/// The parameter rule leads because it is the one every backend can express: a
-/// Rust slice and a C# span cannot be absent, so rB4 is C's and Java's alone, and
-/// putting it last is what lets a multi-fault call report the same condition in
+/// The parameter rule leads because every backend states it the same way, where
+/// "absent" is spelled per language (`NULL`, `null`, an empty slice or span), and
+/// putting rB4 last is what lets a multi-fault call report the same condition in
 /// all four.
 ///
 /// Structural, and it has to be: rB3 and rB4 both answer `TA_BAD_PARAM`, so no
@@ -380,7 +380,7 @@ fn c_batch_prologue_orders_parameters_before_presence() {
 /// *const i32` is a type error, so a cross-typed pair contributes no term and a
 /// function whose outputs are all cross-typed gets no guard at all. (C can and
 /// does compare them, through `const void *`: rationale rB6 in
-/// `docs/error-handling-spec.md`. The rule differs per backend, so do not read
+/// `docs/spec-conformance.md`. The rule differs per backend, so do not read
 /// this as a statement about the library.) Without the skip, reconstructing the
 /// guard reads a correctly-absent term as a missing one.
 fn same_typed_outputs(a: &ir::Output, b: &ir::Output) -> bool {
@@ -388,10 +388,7 @@ fn same_typed_outputs(a: &ir::Output, b: &ir::Output) -> bool {
 }
 
 fn rust_alias_guard(func: &ir::FuncDef) -> Option<String> {
-    // Both operands non-empty: two zero-length slices cannot clobber each other,
-    // and every unallocated `Vec` hands out the same dangling pointer, so a bare
-    // `as_ptr()` comparison rejected a call rules rW2 and rB5 both permit
-    // (Appendix D item 11, #262). A nullable output is an `Option` and
+    // A nullable output is an `Option` and
     // contributes a term only when it was supplied (rule rB7).
     let mut pairs: Vec<String> = Vec::new();
     for i in 0..func.outputs.len() {
@@ -402,19 +399,19 @@ fn rust_alias_guard(func: &ir::FuncDef) -> Option<String> {
             }
             pairs.push(match (a.is_nullable(), b.is_nullable()) {
                 (false, false) => format!(
-                    "(!{0}.is_empty() && !{1}.is_empty() && {0}.as_ptr() == {1}.as_ptr())",
+                    "({0}.as_ptr() == {1}.as_ptr())",
                     a.name, b.name
                 ),
                 (true, false) => format!(
-                    "{0}.as_deref().is_some_and(|a| !a.is_empty() && !{1}.is_empty() && a.as_ptr() == {1}.as_ptr())",
+                    "{0}.as_deref().is_some_and(|a| a.as_ptr() == {1}.as_ptr())",
                     a.name, b.name
                 ),
                 (false, true) => format!(
-                    "{1}.as_deref().is_some_and(|b| !{0}.is_empty() && !b.is_empty() && {0}.as_ptr() == b.as_ptr())",
+                    "{1}.as_deref().is_some_and(|b| {0}.as_ptr() == b.as_ptr())",
                     a.name, b.name
                 ),
                 (true, true) => format!(
-                    "{0}.as_deref().zip({1}.as_deref()).is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.as_ptr() == b.as_ptr())",
+                    "{0}.as_deref().zip({1}.as_deref()).is_some_and(|(a, b)| a.as_ptr() == b.as_ptr())",
                     a.name, b.name
                 ),
             });
@@ -443,7 +440,7 @@ fn rust_cross_typed_term(a: &ir::Output, b: &ir::Output) -> String {
 /// Rust is the one backend where the order between those last two is
 /// *observable*, and it had them the wrong way round (#261). Here rB5 is an
 /// `assert!` rather than a returned code (rationale rB5 in
-/// `docs/error-handling-spec.md`: the LLVM proof that elides the per-access bounds
+/// `docs/spec-conformance.md`: the LLVM proof that elides the per-access bounds
 /// checks), so a call that is both undersized and aliased answered `BadParam`
 /// where the specified order makes it a panic. C, Java and C# answer
 /// `TA_BAD_PARAM` for either, so no order is owed there.
@@ -649,9 +646,12 @@ fn rust_public_entry_orders_the_argument_contract() {
         }
         for output in &func.outputs {
             let needle = if output.is_nullable() {
-                format!("if {}.as_deref().is_some_and(|o| o.len() < _guardOutLen) {{", output.name)
+                format!(
+                    "if {}.as_deref().is_some_and(|o| o.is_empty() || o.len() < _guardOutLen) {{",
+                    output.name
+                )
             } else {
-                format!("if {}.len() < _guardOutLen {{", output.name)
+                format!("if {0}.is_empty() || {0}.len() < _guardOutLen {{", output.name)
             };
             let at = section
                 .find(&needle)

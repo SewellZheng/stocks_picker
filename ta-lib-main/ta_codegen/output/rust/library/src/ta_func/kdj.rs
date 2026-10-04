@@ -202,7 +202,7 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx - _assertStart < outK.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outD.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outJ.len());
-        if (!outK.is_empty() && !outD.is_empty() && outK.as_ptr() == outD.as_ptr()) || (!outK.is_empty() && !outJ.is_empty() && outK.as_ptr() == outJ.as_ptr()) || (!outD.is_empty() && !outJ.is_empty() && outD.as_ptr() == outJ.as_ptr()) {
+        if (outK.as_ptr() == outD.as_ptr()) || (outK.as_ptr() == outJ.as_ptr()) || (outD.as_ptr() == outJ.as_ptr()) {
             return RetCode::BadParam;
         }
         let mut startIdx = startIdx;
@@ -293,7 +293,8 @@ impl Core {
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
     /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
-    /// range. Sizing every output slice to the input length is always sufficient.
+    /// range. An empty output slice is refused on every range, one that produces nothing included.
+    /// Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -369,13 +370,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
-        if outK.len() < _guardOutLen {
+        if outK.is_empty() || outK.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outD.len() < _guardOutLen {
+        if outD.is_empty() || outD.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outJ.len() < _guardOutLen {
+        if outJ.is_empty() || outJ.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -684,13 +685,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
-        if outK.len() < _guardOutLen {
+        if outK.is_empty() || outK.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outD.len() < _guardOutLen {
+        if outD.is_empty() || outD.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outJ.len() < _guardOutLen {
+        if outJ.is_empty() || outJ.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;

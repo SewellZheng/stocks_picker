@@ -57,6 +57,7 @@ public partial class Core
     *  052603 MF     Adapt code to compile with .NET Managed C++
     *  070526 MF,CC  Speed optimization: delegate to the single-pass MACD
     *                when all three MA types are EMA (bit-exact).
+    *  100226 MF,CC  #497. The consistency exit leaves the range untouched.
     */
    /// <summary>
    /// Number of leading input bars <c>Macdext</c> consumes before it can produce
@@ -315,8 +316,6 @@ public partial class Core
       retCode = RetCode.Success;
       /* Parano tests. Will be removed eventually. */
       if( outBegIdx1 != tempInteger || outBegIdx2 != tempInteger || outNbElement1 != outNbElement2 || outNbElement1 != endIdx - startIdx + 1 + lookbackSignal ) {
-         outBegIdx = 0;
-         outNBElement = 0;
          return RetCode.BadParam ;
       }
       /* Calculate (fast MA) - (slow MA). */
@@ -456,8 +455,6 @@ public partial class Core
       outNbElement2 = _xr2.Count;
       retCode = RetCode.Success;
       if( outBegIdx1 != tempInteger || outBegIdx2 != tempInteger || outNbElement1 != outNbElement2 || outNbElement1 != endIdx - startIdx + 1 + lookbackSignal ) {
-         outBegIdx = 0;
-         outNBElement = 0;
          return RetCode.BadParam ;
       }
       for( i = 0; i < outNbElement1; i += 1 ) {
@@ -526,14 +523,14 @@ public partial class Core
    /// 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA; <c>MAType.DEFAULT</c> (or
    /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <param name="outMACD">MACD line: fast MA minus slow MA. Must hold at least <c>endIdx -
-   /// max(startIdx, MacdextLookback(...)) + 1</c> values, the count the call
-   /// produces (none when that is not positive).</param>
+   /// max(startIdx, MacdextLookback(...)) + 1</c> values, and never be empty: an
+   /// empty span is an absent output.</param>
    /// <param name="outMACDSignal">Signal line: MA of the MACD line. Must hold at least <c>endIdx -
-   /// max(startIdx, MacdextLookback(...)) + 1</c> values, the count the call
-   /// produces (none when that is not positive).</param>
+   /// max(startIdx, MacdextLookback(...)) + 1</c> values, and never be empty: an
+   /// empty span is an absent output.</param>
    /// <param name="outMACDHist">Histogram: MACD minus signal. Must hold at least <c>endIdx - max(startIdx,
-   /// MacdextLookback(...)) + 1</c> values, the count the call produces (none
-   /// when that is not positive).</param>
+   /// MacdextLookback(...)) + 1</c> values, and never be empty: an empty span is
+   /// an absent output.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -547,8 +544,10 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
-   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// same. A null array arrives as an empty span, and an empty span is an
+   /// absent argument: for an input, or an output that cannot be declined, it is
+   /// rejected even when the call would produce nothing.</description></item>
+   /// <item><description>Two outputs overlap or are one array
    /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
    /// output partially overlaps an input. Computing wholly in place (an output
    /// that IS an input) is allowed.</description></item>
@@ -577,8 +576,11 @@ public partial class Core
       int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
       int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       RequireLength("MACDEXT", "inReal", inReal.Length, guardInLen);
+      if( guardStart >= 0 ) RequirePresent("MACDEXT", "outMACD", outMACD.Length);
       RequireLength("MACDEXT", "outMACD", outMACD.Length, guardOutLen);
+      if( guardStart >= 0 ) RequirePresent("MACDEXT", "outMACDSignal", outMACDSignal.Length);
       RequireLength("MACDEXT", "outMACDSignal", outMACDSignal.Length, guardOutLen);
+      if( guardStart >= 0 ) RequirePresent("MACDEXT", "outMACDHist", outMACDHist.Length);
       RequireLength("MACDEXT", "outMACDHist", outMACDHist.Length, guardOutLen);
       RetCode retCode = MacdextImpl(startIdx, endIdx, inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, out int outBegIdx, out int outNBElement, outMACD, outMACDSignal, outMACDHist);
       if( retCode != RetCode.Success ) {
@@ -643,14 +645,14 @@ public partial class Core
    /// 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA; <c>MAType.DEFAULT</c> (or
    /// <c>(MAType)int.MinValue</c>) selects the default).</param>
    /// <param name="outMACD">MACD line: fast MA minus slow MA. Must hold at least <c>endIdx -
-   /// max(startIdx, MacdextLookback(...)) + 1</c> values, the count the call
-   /// produces (none when that is not positive).</param>
+   /// max(startIdx, MacdextLookback(...)) + 1</c> values, and never be empty: an
+   /// empty span is an absent output.</param>
    /// <param name="outMACDSignal">Signal line: MA of the MACD line. Must hold at least <c>endIdx -
-   /// max(startIdx, MacdextLookback(...)) + 1</c> values, the count the call
-   /// produces (none when that is not positive).</param>
+   /// max(startIdx, MacdextLookback(...)) + 1</c> values, and never be empty: an
+   /// empty span is an absent output.</param>
    /// <param name="outMACDHist">Histogram: MACD minus signal. Must hold at least <c>endIdx - max(startIdx,
-   /// MacdextLookback(...)) + 1</c> values, the count the call produces (none
-   /// when that is not positive).</param>
+   /// MacdextLookback(...)) + 1</c> values, and never be empty: an empty span is
+   /// an absent output.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -664,8 +666,10 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
-   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// same. A null array arrives as an empty span, and an empty span is an
+   /// absent argument: for an input, or an output that cannot be declined, it is
+   /// rejected even when the call would produce nothing.</description></item>
+   /// <item><description>Two outputs overlap or are one array
    /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
    /// output overlaps an input. An output and a real input never share an
    /// element type in this overload, so the two can never be the same span:
@@ -696,8 +700,11 @@ public partial class Core
       int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
       int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       RequireLength("MACDEXT", "inReal", inReal.Length, guardInLen);
+      if( guardStart >= 0 ) RequirePresent("MACDEXT", "outMACD", outMACD.Length);
       RequireLength("MACDEXT", "outMACD", outMACD.Length, guardOutLen);
+      if( guardStart >= 0 ) RequirePresent("MACDEXT", "outMACDSignal", outMACDSignal.Length);
       RequireLength("MACDEXT", "outMACDSignal", outMACDSignal.Length, guardOutLen);
+      if( guardStart >= 0 ) RequirePresent("MACDEXT", "outMACDHist", outMACDHist.Length);
       RequireLength("MACDEXT", "outMACDHist", outMACDHist.Length, guardOutLen);
       RetCode retCode = MacdextImpl(startIdx, endIdx, inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, out int outBegIdx, out int outNBElement, outMACD, outMACDSignal, outMACDHist);
       if( retCode != RetCode.Success ) {
@@ -1029,8 +1036,6 @@ public partial class Core
       retCode = RetCode.Success;
       /* Parano tests. Will be removed eventually. */
       if( outBegIdx1 != tempInteger || outBegIdx2 != tempInteger || outNbElement1 != outNbElement2 || outNbElement1 != endIdx - startIdx + 1 + lookbackSignal ) {
-         outBegIdx = 0;
-         outNBElement = 0;
          return RetCode.BadParam ;
       }
       /* Calculate (fast MA) - (slow MA). */
@@ -1194,7 +1199,10 @@ public partial class Core
       RequireFillLength("MACDEXT", "openAndFill", "outMACD", outMACD.Length, guardOutLen);
       RequireFillLength("MACDEXT", "openAndFill", "outMACDSignal", outMACDSignal.Length, guardOutLen);
       RequireFillLength("MACDEXT", "openAndFill", "outMACDHist", outMACDHist.Length, guardOutLen);
-      if( outMACD.Overlaps(inReal) || outMACDSignal.Overlaps(inReal) || outMACDHist.Overlaps(inReal) || OutputsAlias(outMACD, outMACDSignal) || OutputsAlias(outMACD, outMACDHist) || OutputsAlias(outMACDSignal, outMACDHist) ) {
+      if( SameBuffer(outMACD, inReal) || SameBuffer(outMACDSignal, inReal) || SameBuffer(outMACDHist, inReal) || SameBuffer(outMACD, outMACDSignal) || SameBuffer(outMACD, outMACDHist) || SameBuffer(outMACDSignal, outMACDHist) ) {
+         throw StreamFailure("MACDEXT", "openAndFill", RetCode.BadParam);
+      }
+      if( guardOutLen > 0 && ( outMACD.Overlaps(inReal) || outMACDSignal.Overlaps(inReal) || outMACDHist.Overlaps(inReal) || OutputsAlias(outMACD, outMACDSignal) || OutputsAlias(outMACD, outMACDHist) || OutputsAlias(outMACDSignal, outMACDHist) ) ) {
          throw StreamFailure("MACDEXT", "openAndFill", RetCode.BadParam);
       }
       return MacdextOpenAndFillInternal(inReal, 0, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, out _, out _, outMACD, outMACDSignal, outMACDHist);

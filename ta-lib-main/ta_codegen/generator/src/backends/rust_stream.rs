@@ -801,10 +801,15 @@ fn open_fill_capacity_guards(func: &FuncDef, with_pair: bool) -> String {
     let nullable = super::common::nullable_output_names(func);
     for out in &func.outputs {
         // A declined output has no capacity to check (rule rB7 on this tier).
+        // An empty one is absent, which is what keeps it ahead of the history
+        // check on a history too short to open.
         let cond = if nullable.contains(&out.name) {
-            format!("{}.as_deref().is_some_and(|o| o.len() < _guardOutLen)", out.name)
+            format!(
+                "{}.as_deref().is_some_and(|o| o.is_empty() || o.len() < _guardOutLen)",
+                out.name
+            )
         } else {
-            format!("{}.len() < _guardOutLen", out.name)
+            format!("{0}.is_empty() || {0}.len() < _guardOutLen", out.name)
         };
         let _ = writeln!(
             s,
@@ -1407,7 +1412,7 @@ fn finite_bar_check(func: &FuncDef, indent: &str) -> String {
 
 /// Rule rU4 — the opener's index-pair check read on a live handle, one bar at a
 /// time. Why a sub-handle cannot answer it before its parent: rationale rU4 in
-/// `docs/error-handling-spec.md`.
+/// `docs/spec-conformance.md`.
 ///
 /// `>` and not `>=`: an opener may legally take `INDEX_MAX + 1` bars (rule rS2),
 /// so a handle can be born holding the last bar in the domain and it is the NEXT

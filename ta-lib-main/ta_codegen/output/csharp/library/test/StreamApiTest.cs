@@ -188,8 +188,6 @@ public static class StreamApiTest
         Check(Bits(peeked) == Bits(committed), "Peek returns exactly what the next Update returns");
         Check(Bits(s.Value) != Bits(before), "Update does move Value (the Peek check above is not vacuous)");
 
-        // Repeated peeks are idempotent, which is what makes the shared
-        // per-thread scratch safe to reuse.
         double p1 = s.Peek(closes[lookback + 2]);
         double p2 = s.Peek(closes[lookback + 2]);
         Check(Bits(p1) == Bits(p2), "Peek is idempotent");
@@ -520,6 +518,57 @@ public static class StreamApiTest
             "SupertrendOpenAndFill's int direction output sharing memory with its real trend output is rejected");
     }
 
+    /// <summary>
+    /// A partial overlap is C#'s own check, so it must not change which code a
+    /// call with another fault gets: it runs after the history check, where C
+    /// and Java, which cannot see it, answer InsufficientHistory. The same buffer,
+    /// one start address as C compares, is every language's rule and stays ahead.
+    /// </summary>
+    private static void APartialOverlapIsCheckedAfterTheHistory()
+    {
+        var core = new Core();
+        double[] buf = Closes(120);
+        int lb = core.SmaLookback(30);
+
+        // Output on input.
+        CheckRetCode(() => core.SmaOpenAndFill(buf.AsSpan(0, lb), 30, buf.AsSpan(1, lb)),
+            RetCode.InsufficientHistory, "a partial overlap on a history too short to open");
+        CheckRetCode(() => core.SmaOpenAndFill(buf.AsSpan(0, lb + 10), 30, buf.AsSpan(1, lb + 10)),
+            RetCode.BadParam, "a partial overlap on a history long enough to open");
+        CheckRetCode(() => core.SmaOpenAndFill(buf.AsSpan(0, lb), 30, buf.AsSpan(0, 5)),
+            RetCode.BadParam, "an output starting on the input, short history");
+
+        // The hand-rolled MA opener carries the same split.
+        int maLb = core.MaLookback(30, MAType.EMA);
+        CheckRetCode(() => core.MaOpenAndFill(buf.AsSpan(0, maLb), 30, MAType.EMA, buf.AsSpan(1, maLb)),
+            RetCode.InsufficientHistory, "MA: a partial overlap on a history too short to open");
+        CheckRetCode(() => core.MaOpenAndFill(buf.AsSpan(0, maLb), 30, MAType.EMA, buf.AsSpan(0, 5)),
+            RetCode.BadParam, "MA: an output starting on the input, short history");
+
+        // Output on output.
+        double[] hlc = Closes(64);
+        double[] outs = new double[200];
+        int acLb = core.AccbandsLookback(20);
+        double[] shortHlc = Closes(acLb);
+        CheckRetCode(() => core.AccbandsOpenAndFill(shortHlc, shortHlc, shortHlc, 20,
+                outs.AsSpan(0, 50), outs.AsSpan(1, 50), outs.AsSpan(100, 50)),
+            RetCode.InsufficientHistory, "two outputs overlapping in part, short history");
+        CheckRetCode(() => core.AccbandsOpenAndFill(hlc, hlc, hlc, 20,
+                outs.AsSpan(0, 50), outs.AsSpan(1, 50), outs.AsSpan(100, 50)),
+            RetCode.BadParam, "two outputs overlapping in part, history long enough");
+        CheckRetCode(() => core.AccbandsOpenAndFill(shortHlc, shortHlc, shortHlc, 20,
+                outs.AsSpan(0, 50), outs.AsSpan(0, 40), outs.AsSpan(100, 50)),
+            RetCode.BadParam, "two outputs starting at one address, short history");
+
+        // Cross-typed: an int output laid over a real input from its second element.
+        int dojiLb = core.CdldojiLookback();
+        double[] ohlc = Closes(dojiLb + 40);
+        CheckRetCode(() => core.CdldojiOpenAndFill(ohlc.AsSpan(0, dojiLb), ohlc.AsSpan(0, dojiLb),
+                ohlc.AsSpan(0, dojiLb), ohlc.AsSpan(0, dojiLb),
+                MemoryMarshal.Cast<double, int>(ohlc.AsSpan(1, dojiLb))),
+            RetCode.InsufficientHistory, "an int output over a real input in part, short history");
+    }
+
     /// <summary>Empty spans — which is what a null array becomes — are named.</summary>
     /// <remarks>The public openers are the only place this is checked — the
     /// composition seam and the internal cores are reached only with arrays the
@@ -572,6 +621,42 @@ public static class StreamApiTest
             {
                 _failures++;
                 Console.WriteLine("  FAIL: a null output pre-empted the empty history");
+            }
+        }
+    }
+
+    /// <summary>A history one bar longer than the index domain holds.</summary>
+    /// <remarks>The span claims that length over a single element, so nothing
+    /// is allocated. It is safe only while the opener refuses the length before
+    /// it reads a bar, which is the order under test.</remarks>
+    private static void AHistoryPastTheIndexDomainIsAnIndexFault()
+    {
+        var core = new Core();
+        double one = 100.0;
+        var outReal = new double[8];
+        int tooLong = Core.IndexMax + 2;
+
+        for (int leg = 0; leg < 3; leg++)
+        {
+            string what = leg == 0 ? "SmaOpen" : leg == 1 ? "SmaOpenAndFill" : "MaOpen";
+            _checks++;
+            try
+            {
+                ReadOnlySpan<double> history = MemoryMarshal.CreateReadOnlySpan(ref one, tooLong);
+                if (leg == 0) core.SmaOpen(history, 14);
+                else if (leg == 1) core.SmaOpenAndFill(history, 14, outReal);
+                else core.MaOpen(history, 14, MAType.EMA);
+                _failures++;
+                Console.WriteLine("  FAIL: " + what + " accepted a history past IndexMax + 1");
+            }
+            catch (Exception e)
+            {
+                if ((e as ITALibFailure)?.RetCode != RetCode.OutOfRangeEndIndex)
+                {
+                    _failures++;
+                    Console.WriteLine("  FAIL: " + what + " on a history past IndexMax + 1 carried "
+                        + (e as ITALibFailure)?.RetCode + " (" + e.GetType().Name + ")");
+                }
             }
         }
     }
@@ -759,11 +844,13 @@ public static class StreamApiTest
             "each output is bounded separately");
         _s5++;
 
-        // A history too short to produce anything is still rS8, whatever the
-        // output holds: the bound floors at zero rather than going negative.
+        // A history too short to produce anything is still rS8 for any output
+        // that is there: the bound floors at zero rather than going negative.
         CheckThrows<InsufficientHistoryException>(
-            () => core.SmaOpenAndFill(closes.AsSpan(0, 29), 30, Span<double>.Empty),
+            () => core.SmaOpenAndFill(closes.AsSpan(0, 29), 30, new double[1]),
             "a short history reaches the warm-up check, not the capacity one");
+        CheckRetCode(() => core.SmaOpenAndFill(closes.AsSpan(0, 29), 30, Span<double>.Empty),
+            RetCode.BadParam, "an empty output is absent, short history or not");
 
         // The floors for this method and the declined-output one live in Run(),
         // where a deleted CALL cannot take its own floor with it.
@@ -2070,7 +2157,9 @@ public static class StreamApiTest
         MisuseThrowsTheDocumentedException();
         OpenAndFillRejectsAliasing();
         CrossTypedOpenAndFillOverlapIsRejected();
+        APartialOverlapIsCheckedAfterTheHistory();
         NullArgumentsAreNamed();
+        AHistoryPastTheIndexDomainIsAnIndexFault();
         OpenersCheckTheirArguments();
         AnEmptyHistoryOutranksAnEmptyArgument();
         TheFillOutputBoundFromBothSides();

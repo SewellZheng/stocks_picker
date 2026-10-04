@@ -1569,6 +1569,9 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            throw new TALibArgumentException(funcName + \": \" + argName\n");
     s.push_str("                + \" has length \" + actual + \", needs \" + required, RetCode.BAD_PARAM);\n");
     s.push_str("        }\n");
+    s.push_str("        if (actual == 0) {\n");
+    s.push_str("            throw new TALibArgumentException(funcName + \": \" + argName + \" is empty\", RetCode.BAD_PARAM);\n");
+    s.push_str("        }\n");
     s.push_str("    }\n\n");
     s.push_str("    static void requireIndexRange(String funcName, int startIdx, int endIdx) {\n");
     s.push_str("        if (startIdx < 0 || startIdx > INDEX_MAX) {\n");
@@ -1876,8 +1879,8 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // reports its RetCode; this server has no such library to ask, so it spells
     // out the same domain TA_SetCandleSettings enforces — settingType names a
     // single setting (the AllCandleSettings wildcard is NOT a target), rangeType
-    // is 0..2, avgPeriod is a lookback and bounded like one, and factor is any
-    // non-NaN value. Every check precedes the write, so a rejected call leaves
+    // is 0..2, avgPeriod is a lookback and bounded like one, and factor is
+    // finite and not negative. Every check precedes the write, so a rejected call leaves
     // all eleven settings as they were (#186).
     s.push_str("        else if (json.contains(\"\\\"set_candle_settings\\\"\")) {\n");
     s.push_str("            rideGen++;\n");
@@ -1895,7 +1898,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            if (avgPeriod < 0 || avgPeriod > Core.INDEX_MAX) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting\\\"}\";\n");
     s.push_str("            }\n");
-    s.push_str("            if (Double.isNaN(factor)) {\n");
+    s.push_str("            if (!(factor >= 0.0 && factor <= Double.MAX_VALUE)) {\n");
     s.push_str("                return \"{\\\"error\\\":\\\"Invalid candle setting\\\"}\";\n");
     s.push_str("            }\n");
     s.push_str("            core.candleSettings[settingType] =\n");
@@ -2396,12 +2399,31 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         }
     }
 
+    /* The shipped registry takes the shipped Core, not this file's twin, so the
+       settings this server holds are carried onto one. A holder bound to the
+       default Core would answer every request at the default settings. */
+    static io.github.talib.Core absCore() {
+        io.github.talib.CoreBuilder b = io.github.talib.Core.builder();
+        for (io.github.talib.FuncUnstId id : io.github.talib.FuncUnstId.values()) {
+            if (id != io.github.talib.FuncUnstId.ALL) {
+                b.unstablePeriod(id, core.unstablePeriod[id.value()]);
+            }
+        }
+        io.github.talib.CandleSettingType[] types = io.github.talib.CandleSettingType.values();
+        io.github.talib.RangeType[] ranges = io.github.talib.RangeType.values();
+        for (int i = 0; i < core.candleSettings.length; i++) {
+            CandleSetting s = core.candleSettings[i];
+            b.candleSetting(types[i], ranges[s.rangeType.ordinal()], s.avgPeriod, s.factor);
+        }
+        return b.build();
+    }
+
     /* Binds every declared parameter of `f` from the request. `outs` receives the
        output arrays when the caller needs them back; pass null for the lookback
        tier, which binds none. */
     static io.github.talib.metadata.ParamHolder absBind(
             io.github.talib.metadata.FuncInfo f, String json, Object[] outs) {
-        io.github.talib.metadata.ParamHolder h = f.newCall();
+        io.github.talib.metadata.ParamHolder h = f.newCall(absCore());
         int startIdx = jsonInt(json, "startIdx");
         int endIdx = jsonInt(json, "endIdx");
         int n = endIdx - startIdx + 1;
@@ -4695,11 +4717,9 @@ full-range value comparison sends one (slack is legal). Sizing every call one wa
 would silently drop the other property.\n\
 FLOORED AT ONE, deliberately. Zero is what the formula gives for a rejected call\n\
 (the lookback is -1, or usize::MAX in Rust, for an out-of-range parameter) and\n\
-for a range shorter than the lookback, where the output bound switches off and\n\
-the spec says any length will do, including none. Sizing to zero here would put\n\
-every multi-output function on the empty-buffer aliasing edge of\n\
-error-handling-spec Appendix D item 11 (fixed), which each backend's own suite\n\
-probes.\n\
+for a range shorter than the lookback, where the output bound switches off.\n\
+An empty output is an absent one, so sizing to zero here would turn the second\n\
+into a rejection of the buffer.\n\
 The C server keeps its MAX_ARRAY_SIZE statics: C is handed bare pointers, has no\n\
 sizes and cannot make the check, so an exact buffer would test nothing there.";
 

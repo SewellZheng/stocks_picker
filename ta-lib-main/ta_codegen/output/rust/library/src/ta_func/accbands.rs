@@ -158,7 +158,7 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx - _assertStart < outRealUpperBand.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outRealMiddleBand.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outRealLowerBand.len());
-        if (!outRealUpperBand.is_empty() && !outRealMiddleBand.is_empty() && outRealUpperBand.as_ptr() == outRealMiddleBand.as_ptr()) || (!outRealUpperBand.is_empty() && !outRealLowerBand.is_empty() && outRealUpperBand.as_ptr() == outRealLowerBand.as_ptr()) || (!outRealMiddleBand.is_empty() && !outRealLowerBand.is_empty() && outRealMiddleBand.as_ptr() == outRealLowerBand.as_ptr()) {
+        if (outRealUpperBand.as_ptr() == outRealMiddleBand.as_ptr()) || (outRealUpperBand.as_ptr() == outRealLowerBand.as_ptr()) || (outRealMiddleBand.as_ptr() == outRealLowerBand.as_ptr()) {
             return RetCode::BadParam;
         }
         let mut startIdx = startIdx;
@@ -309,7 +309,8 @@ impl Core {
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
     /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
-    /// range. Sizing every output slice to the input length is always sufficient.
+    /// range. An empty output slice is refused on every range, one that produces nothing included.
+    /// Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -371,13 +372,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
-        if outRealUpperBand.len() < _guardOutLen {
+        if outRealUpperBand.is_empty() || outRealUpperBand.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outRealMiddleBand.len() < _guardOutLen {
+        if outRealMiddleBand.is_empty() || outRealMiddleBand.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outRealLowerBand.len() < _guardOutLen {
+        if outRealLowerBand.is_empty() || outRealLowerBand.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -762,13 +763,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
-        if outRealUpperBand.len() < _guardOutLen {
+        if outRealUpperBand.is_empty() || outRealUpperBand.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outRealMiddleBand.len() < _guardOutLen {
+        if outRealMiddleBand.is_empty() || outRealMiddleBand.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outRealLowerBand.len() < _guardOutLen {
+        if outRealLowerBand.is_empty() || outRealLowerBand.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;

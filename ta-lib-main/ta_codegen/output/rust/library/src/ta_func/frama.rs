@@ -52,6 +52,7 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  092826 MF,CC  First version (issue #464).
+ *  100226 MF,CC  #497. An odd period is refused before the range is written.
  */
 
 // Import types from parent module
@@ -216,11 +217,11 @@ impl Core {
         expScale = -4.6 / 0.6931471805599453;
         // -4.6/ln(2): alpha = exp(-4.6*(D-1)) with D-1 = log2((R1+R2)/R).
         // Id, Type, Static Size
-        (*outBegIdx) = 0;
-        (*outNBElement) = 0;
         if optInTimePeriod % 2 != 0 {
             return RetCode::BadParam;
         }
+        (*outBegIdx) = 0;
+        (*outNBElement) = 0;
         lookbackTotal = (optInTimePeriod + self.unstable_period[FuncUnstId::FRAMA as usize]) as usize;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
@@ -418,7 +419,8 @@ impl Core {
     ///
     /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
     /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
-    /// range. Sizing every output slice to the input length is always sufficient.
+    /// range. An empty output slice is refused on every range, one that produces nothing included.
+    /// Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -471,7 +473,7 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
-        if outReal.len() < _guardOutLen {
+        if outReal.is_empty() || outReal.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -667,11 +669,11 @@ impl Core {
         expScale = -4.6 / 0.6931471805599453;
         // -4.6/ln(2): alpha = exp(-4.6*(D-1)) with D-1 = log2((R1+R2)/R).
         // Id, Type, Static Size
-        (*outBegIdx) = 0;
-        (*outNBElement) = 0;
         if optInTimePeriod % 2 != 0 {
             return Err(RetCode::BadParam);
         }
+        (*outBegIdx) = 0;
+        (*outNBElement) = 0;
         lookbackTotal = (optInTimePeriod + self.unstable_period[FuncUnstId::FRAMA as usize]) as usize;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
@@ -926,7 +928,7 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
-        if outReal.len() < _guardOutLen {
+        if outReal.is_empty() || outReal.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;

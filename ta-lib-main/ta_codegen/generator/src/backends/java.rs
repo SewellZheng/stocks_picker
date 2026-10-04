@@ -781,8 +781,8 @@ fn body_name(base: &str) -> String {
 /// rB3 decision on the same parameters.
 ///
 /// The `_assertStart > endIdx ||` escape is applied to the OUTPUT bound only. A
-/// range that ends before the lookback produces no values, so any output length will
-/// do — including none. The input bound does NOT take the escape: `endIdx` past
+/// range that ends before the lookback produces no values, so an output owes no
+/// length beyond not being empty. The input bound does NOT take the escape: `endIdx` past
 /// the end of the series the caller supplied is a caller bug in every range, and
 /// the only reason C answers it with `TA_SUCCESS` is that it has no size to check
 /// against. Reporting it beats an empty `OutRange` that reads as "no data yet".
@@ -1217,7 +1217,7 @@ fn gen_func_inner(
         // the same object, so there is nothing to detect. (`double[] == int[]`
         // is also "incomparable types", but that is not the reason — the stream
         // tier spells the same compare through `(Object)` casts and it is dead
-        // there too.) Rationale rB6 in docs/error-handling-spec.md, #262.
+        // there too.) Rationale rB6 in docs/spec-conformance.md, #262.
         if func.outputs.len() >= 2 {
             let mut pairs: Vec<String> = Vec::new();
             for i in 0..func.outputs.len() {

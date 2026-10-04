@@ -1020,8 +1020,8 @@ fn gen_func_inner(
 
         // Optional parameter validation (default + range). Ahead of every
         // argument-presence check: a parameter domain is language-neutral, an
-        // absent argument is not (Rust slices and C# spans cannot be absent), so
-        // putting the shared rule first is what lets all four backends agree on
+        // absent argument is spelled per language (an empty slice or span in
+        // Rust and C#), so putting the shared rule first is what lets all four backends agree on
         // which condition a multi-fault call reports.
         out.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
 
@@ -1054,7 +1054,7 @@ fn gen_func_inner(
         // A CROSS-TYPED pair is compared too, through `const void *`: `double * ==
         // int *` is the constraint violation, not the question, and the cast is
         // well defined. Reachable since SUPERTREND (#272) made the corpus mix the
-        // two. Rationale rB6 in docs/error-handling-spec.md, #262.
+        // two. Rationale rB6 in docs/spec-conformance.md, #262.
         if func.outputs.len() >= 2 {
             let mut pairs: Vec<String> = Vec::new();
             for i in 0..func.outputs.len() {

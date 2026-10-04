@@ -287,8 +287,8 @@ public partial class Core
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="outInteger">+100 when the piercing pattern is detected; 0 otherwise. Always bullish,
    /// never emits -100. Must hold at least <c>endIdx - max(startIdx,
-   /// CdlpiercingLookback(...)) + 1</c> values, the count the call produces
-   /// (none when that is not positive).</param>
+   /// CdlpiercingLookback(...)) + 1</c> values, and never be empty: an empty
+   /// span is an absent output.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -302,8 +302,10 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
-   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// same. A null array arrives as an empty span, and an empty span is an
+   /// absent argument: for an input, or an output that cannot be declined, it is
+   /// rejected even when the call would produce nothing.</description></item>
+   /// <item><description>Two outputs overlap or are one array
    /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
    /// output partially overlaps an input. Computing wholly in place (an output
    /// that IS an input) is allowed.</description></item>
@@ -327,6 +329,7 @@ public partial class Core
       RequireLength("CDLPIERCING", "inHigh", inHigh.Length, guardInLen);
       RequireLength("CDLPIERCING", "inLow", inLow.Length, guardInLen);
       RequireLength("CDLPIERCING", "inClose", inClose.Length, guardInLen);
+      if( guardStart >= 0 ) RequirePresent("CDLPIERCING", "outInteger", outInteger.Length);
       RequireLength("CDLPIERCING", "outInteger", outInteger.Length, guardOutLen);
       RetCode retCode = CdlpiercingImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
@@ -375,8 +378,8 @@ public partial class Core
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="outInteger">+100 when the piercing pattern is detected; 0 otherwise. Always bullish,
    /// never emits -100. Must hold at least <c>endIdx - max(startIdx,
-   /// CdlpiercingLookback(...)) + 1</c> values, the count the call produces
-   /// (none when that is not positive).</param>
+   /// CdlpiercingLookback(...)) + 1</c> values, and never be empty: an empty
+   /// span is an absent output.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -390,8 +393,10 @@ public partial class Core
    /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
    /// cannot hold the values produced. Declared, not read: a few candlestick
    /// patterns take an OHLC series they never index, and it is required all the
-   /// same. A null input array arrives as an empty span and is rejected as one.</description></item>
-   /// <item><description>Two outputs overlap or are one array, a zero-length array included
+   /// same. A null array arrives as an empty span, and an empty span is an
+   /// absent argument: for an input, or an output that cannot be declined, it is
+   /// rejected even when the call would produce nothing.</description></item>
+   /// <item><description>Two outputs overlap or are one array
    /// (<see href="https://ta-lib.org/spec/errors/#rb6">rule rB6</see>), or an
    /// output overlaps an input. An output and a real input never share an
    /// element type in this overload, so the two can never be the same span:
@@ -417,6 +422,7 @@ public partial class Core
       RequireLength("CDLPIERCING", "inHigh", inHigh.Length, guardInLen);
       RequireLength("CDLPIERCING", "inLow", inLow.Length, guardInLen);
       RequireLength("CDLPIERCING", "inClose", inClose.Length, guardInLen);
+      if( guardStart >= 0 ) RequirePresent("CDLPIERCING", "outInteger", outInteger.Length);
       RequireLength("CDLPIERCING", "outInteger", outInteger.Length, guardOutLen);
       RetCode retCode = CdlpiercingImpl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
@@ -867,7 +873,10 @@ public partial class Core
       RequireHistoryLength("CDLPIERCING", "openAndFill", "inLow", inLow.Length, inOpen.Length);
       RequireHistoryLength("CDLPIERCING", "openAndFill", "inClose", inClose.Length, inOpen.Length);
       RequireFillLength("CDLPIERCING", "openAndFill", "outInteger", outInteger.Length, guardOutLen);
-      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
+      if( SameBuffer(System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger), System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || SameBuffer(System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger), System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || SameBuffer(System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger), System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || SameBuffer(System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger), System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
+         throw StreamFailure("CDLPIERCING", "openAndFill", RetCode.BadParam);
+      }
+      if( guardOutLen > 0 && ( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) ) {
          throw StreamFailure("CDLPIERCING", "openAndFill", RetCode.BadParam);
       }
       return CdlpiercingOpenAndFillInternal(inOpen, inHigh, inLow, inClose, 0, out _, out _, outInteger);

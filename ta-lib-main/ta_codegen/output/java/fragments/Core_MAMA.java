@@ -847,13 +847,13 @@
     *        (default 0.05; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
     *        default).
     * @param outMAMA Adaptive moving average (fast line) Must hold at least
-    *        {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, the count
-    *        the call produces (none when that is not positive).
+    *        {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, and never be
+    *        empty: an empty array is an absent output.
     * @param outFAMA Following adaptive moving average, using half the alpha
     *        (slow line) Pass {@code null} to decline it: it is still computed where
     *        the algorithm needs it, but nothing is written out. Supplied, it must hold
-    *        at least {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, the
-    *        count the call produces (none when that is not positive).
+    *        at least {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, and
+    *        never be empty.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
@@ -921,13 +921,13 @@
     *        (default 0.05; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
     *        default).
     * @param outMAMA Adaptive moving average (fast line) Must hold at least
-    *        {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, the count
-    *        the call produces (none when that is not positive).
+    *        {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, and never be
+    *        empty: an empty array is an absent output.
     * @param outFAMA Following adaptive moving average, using half the alpha
     *        (slow line) Pass {@code null} to decline it: it is still computed where
     *        the algorithm needs it, but nothing is written out. Supplied, it must hold
-    *        at least {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, the
-    *        count the call produces (none when that is not positive).
+    *        at least {@code endIdx - max(startIdx, mamaLookback(...)) + 1} values, and
+    *        never be empty.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is

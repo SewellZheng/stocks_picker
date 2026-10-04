@@ -683,7 +683,7 @@ fn test_mama_nullable_fama_is_declinable_at_the_opener_in_every_backend() {
         "Rust: the opener family takes Option, `mut` on the transcription alone"
     );
     assert!(
-        rust.contains("if outFAMA.as_deref().is_some_and(|o| o.len() < _guardOutLen) {"),
+        rust.contains("if outFAMA.as_deref().is_some_and(|o| o.is_empty() || o.len() < _guardOutLen) {"),
         "Rust: rS5 bounds a nullable output only where it was supplied"
     );
     assert!(

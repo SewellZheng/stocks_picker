@@ -17,6 +17,7 @@
  *                used, and bound it so an off-contract period cannot overflow.
  *  080326 MF,CC  Split the size temp from the cast-fed period temp (#160).
  *  092526 MF,CC  #442. Allocate the multi-period buffers on that path only.
+ *  100226 MF,CC  #497. An inverted window is refused with the range untouched.
  */
 
    /**
@@ -152,8 +153,6 @@
        * results. Reject it cleanly instead of returning garbage.
        */
       if( optInMinPeriod > optInMaxPeriod ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
          return RetCode.BAD_PARAM ;
       }
       /* Identify the minimum number of price bar needed
@@ -269,8 +268,6 @@
        * If you delete this, delete the clamps and the comments together.
        */
       if( maxUsed < minUsed || maxUsed - minUsed > 100000 ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
          return RetCode.BAD_PARAM ;
       }
       if( minUsed == maxUsed ) {
@@ -408,8 +405,6 @@
          optInMAType = MAType.SMA;
       }
       if( optInMinPeriod > optInMaxPeriod ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
          return RetCode.BAD_PARAM ;
       }
       lookbackTotal = maLookback(optInMaxPeriod, optInMAType);
@@ -468,8 +463,6 @@
          }
       }
       if( maxUsed < minUsed || maxUsed - minUsed > 100000 ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
          return RetCode.BAD_PARAM ;
       }
       if( minUsed == maxUsed ) {
@@ -556,8 +549,8 @@
     *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @param outReal variable-period moving average. Must hold at least
-    *        {@code endIdx - max(startIdx, mavpLookback(...)) + 1} values, the count
-    *        the call produces (none when that is not positive).
+    *        {@code endIdx - max(startIdx, mavpLookback(...)) + 1} values, and never be
+    *        empty: an empty array is an absent output.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
@@ -636,8 +629,8 @@
     *        10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA, 14=VIDYA, 15=ALMA;
     *        {@code MAType.DEFAULT} selects the default).
     * @param outReal variable-period moving average. Must hold at least
-    *        {@code endIdx - max(startIdx, mavpLookback(...)) + 1} values, the count
-    *        the call produces (none when that is not positive).
+    *        {@code endIdx - max(startIdx, mavpLookback(...)) + 1} values, and never be
+    *        empty: an empty array is an absent output.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is

@@ -210,7 +210,8 @@ public sealed partial class Core
      *
      * A result ABOVE endIdx is not an error: the range ends before the
      * lookback, so the call produces no values. That switches the OUTPUT bound
-     * off -- any length will do, including none -- but not the input bound. An
+     * off -- any length will do but none, which RequirePresent refuses -- and
+     * not the input bound. An
      * endIdx past the end of the series the caller supplied is a caller bug in
      * any range; C answers it with TA_SUCCESS only because it has no size to
      * check against.
@@ -258,6 +259,17 @@ public sealed partial class Core
         }
     }
 
+    /* An output that cannot be declined is absent when its span is empty, a
+     * null array included, whatever the call would have written. */
+    internal static void RequirePresent(string funcName, string argName, int actual)
+    {
+        if (actual == 0)
+        {
+            throw new TALibArgumentException(
+                funcName + ": " + argName + " is empty", argName, RetCode.BadParam);
+        }
+    }
+
     /* Rules rB6 and rS6: whether two outputs are one buffer. Overlaps is false
      * whenever a side is empty, so one zero-length buffer passed twice is caught
      * by its reference. A null array converts to a span with a null reference,
@@ -272,6 +284,20 @@ public sealed partial class Core
         return a.IsEmpty && b.IsEmpty && !Unsafe.IsNullRef(ref start)
             && Unsafe.AreSame(ref start, ref MemoryMarshal.GetReference(b));
     }
+
+    /* Rule rS6 at an opener: the same buffer, as C compares it, is one start
+     * address. A null reference is no buffer, and an empty span beside a
+     * non-empty one is a declined output, not that buffer. */
+    internal static bool SameBuffer<T>(Span<T> a, ReadOnlySpan<T> b)
+        => SameStart(ref MemoryMarshal.GetReference(a), a.IsEmpty,
+                     ref MemoryMarshal.GetReference(b), b.IsEmpty);
+
+    internal static bool SameBuffer<T>(Span<T> a, Span<T> b)
+        => SameStart(ref MemoryMarshal.GetReference(a), a.IsEmpty,
+                     ref MemoryMarshal.GetReference(b), b.IsEmpty);
+
+    private static bool SameStart<T>(ref T a, bool aEmpty, ref T b, bool bEmpty)
+        => aEmpty == bEmpty && !Unsafe.IsNullRef(ref a) && Unsafe.AreSame(ref a, ref b);
 
     /* Rule rS5's bound: how many values an OpenAndFill writes.
      *
@@ -326,6 +352,14 @@ public sealed partial class Core
                 funcName + " " + verb + ": " + argName + " has length " + actual
                     + ", needs " + required,
                 argName, RetCode.BadParam);
+        }
+        /* Reached with required == 0 only, on a history too short to open: an
+         * empty output is absent, and that outranks the history check. A
+         * declinable one is not passed here when empty. */
+        if (actual == 0)
+        {
+            throw new TALibArgumentException(
+                funcName + " " + verb + ": " + argName + " is empty", argName, RetCode.BadParam);
         }
     }
 

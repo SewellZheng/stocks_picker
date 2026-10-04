@@ -1,4 +1,4 @@
-# API Error-Handling Conformance
+# Spec Conformance
 
 The caller-facing rules are published at https://ta-lib.org/spec/ (source
 `website/src/spec/`) under the `r` ids used below. The public pages hold only
@@ -22,10 +22,10 @@ adds a column; it does not change a rule.
 | — | Not applicable: the condition cannot be expressed in this backend's types. |
 | *(blank)* | Not yet verified. |
 
-`—` is not a pass. It means the language removes the failure mode (a Rust slice
-cannot be null, a C# `Span<T>` cannot be absent, an enum has no out-of-domain
-value), so there is nothing for the backend to check and nothing for a caller to
-hit.
+`—` is not a pass. It means the language removes the failure mode (safe Rust
+cannot pass one buffer twice, a Rust output that is not an `Option` cannot be
+omitted, an enum has no out-of-domain value), so there is nothing for the backend
+to check and nothing for a caller to hit.
 
 ## Conformance
 
@@ -51,24 +51,25 @@ retired footnote leaves a gap, so a citation of `[4]` keeps its meaning.
 | rB1 | [start index](https://ta-lib.org/spec/errors/#rb1) | ✅ | ✅ | ✅ | ✅ |
 | rB2 | [end index](https://ta-lib.org/spec/errors/#rb2) | ✅ | ✅ | ✅ | ✅ |
 | rB3 | [parameter value](https://ta-lib.org/spec/errors/#rb3) | ✅ | ✅ | ✅ | ✅ |
-| rB4 | [absent argument](https://ta-lib.org/spec/errors/#rb4) | ✅ | —<br>[1] | ✅ | —<br>[2] |
+| rB4 | [absent argument](https://ta-lib.org/spec/errors/#rb4) | ✅ | ✅<br>[1] | ✅ | ✅<br>[2] |
 | rB5 | [buffer length](https://ta-lib.org/spec/errors/#rb5) | ⚠️<br>[3] | ✅ | ✅ | ✅ |
 | rB6 | [one buffer, two outputs](https://ta-lib.org/spec/errors/#rb6) | ✅ | ✅ | ✅ | ✅ |
-| rB7 | [omitted output](https://ta-lib.org/spec/errors/#rb7) | ✅ | —<br>[20] | ✅ | —<br>[20] |
+| rB7 | [omitted output](https://ta-lib.org/spec/errors/#rb7) | ✅ | —<br>[20] | ✅ | ✅<br>[2] |
 | rB8 | [allocation failure](https://ta-lib.org/spec/errors/#rb8) | ⚠️<br>[23] | ⚠️<br>[23] | ⚠️<br>[23] | ⚠️<br>[23] |
 | rB9 | [internal error](https://ta-lib.org/spec/errors/#rb9) | ⚠️<br>[21] | ⚠️<br>[21] | ⚠️<br>[21] | ⚠️<br>[21] |
 
-[1] Rust slices cannot be null, and what C writes through a pointer (the
-index/count pair, a stream handle) is returned instead.
+[1] Rust slices cannot be null: an empty one is the absent argument. What C
+writes through a pointer (the index/count pair, a stream handle) is returned
+instead.
 
-[2] C# `Span<T>` cannot be absent. A null array converts to an empty span, so
-absence surfaces as a zero length: rB5 in the batch tier, rS1 for a stream's
-history. A zero-length output is rS5's case.
+[2] A C# span cannot be null. A null array converts to an empty span, and an
+empty span is the absent argument: rB4 or rS4 for an input or for an output that
+cannot be declined, rS1 for a stream's history.
 
 [3] C has no sizes to check against: a property of the ABI, not a defect.
 
-[20] Rust takes a non-declinable output as `&mut [T]`, which cannot be omitted.
-C# has no check of its own (footnote [2]).
+[20] Rust takes a non-declinable output as `&mut [T]`, which cannot be omitted;
+an empty one is rB4.
 
 [21] Implemented, but the individual sites are not tested: no reachable input
 fires one (rationale rB9).
@@ -81,12 +82,12 @@ fires one (rationale rB9).
 | Rule | Topic | C | Rust | Java | C# |
 |---|---|:---:|:---:|:---:|:---:|
 | rS1 | [empty history](https://ta-lib.org/spec/streaming/#rs1) | ✅<br>[4] | ✅<br>[4] | ✅<br>[4] | ✅<br>[4] |
-| rS2 | [history too long](https://ta-lib.org/spec/streaming/#rs2) | ✅<br>[5] | ⚠️<br>[5] | ⚠️<br>[5] | ⚠️<br>[5] |
+| rS2 | [history too long](https://ta-lib.org/spec/streaming/#rs2) | ✅<br>[5] | ✅<br>[5] | ⚠️<br>[5] | ✅<br>[5] |
 | rS3 | [parameter value](https://ta-lib.org/spec/streaming/#rs3) | ✅ | ✅ | ✅ | ✅ |
-| rS4 | [absent argument](https://ta-lib.org/spec/streaming/#rs4) | ✅ | —<br>[1] | ✅ | —<br>[2] |
+| rS4 | [absent argument](https://ta-lib.org/spec/streaming/#rs4) | ✅ | ✅<br>[1] | ✅ | ✅<br>[2] |
 | rS5 | [buffer length](https://ta-lib.org/spec/streaming/#rs5) | ⚠️<br>[3] | ✅ | ✅ | ✅ |
 | rS6 | [aliasing](https://ta-lib.org/spec/streaming/#rs6) | ✅ | —<br>[22] | ✅ | ✅ |
-| rS7 | [declined output](https://ta-lib.org/spec/streaming/#rs7) | ✅ | —<br>[20] | ✅ | —<br>[20] |
+| rS7 | [declined output](https://ta-lib.org/spec/streaming/#rs7) | ✅ | —<br>[20] | ✅ | ✅<br>[2] |
 | rS8 | [short history](https://ta-lib.org/spec/streaming/#rs8) | ✅ | ✅ | ✅ | ✅ |
 
 The openers do not scan the history for non-finite values (rationale: finite
@@ -99,12 +100,17 @@ one. Java cannot read a length from an array that is not there. A Rust slice
 cannot be absent, and a C# null array arrives as an empty span, so rS1 is how an
 absent history is reported (footnote [2]).
 
-[5] Implemented in all four (the bound is in the opener's own prologue; Java and
-C# answer it from the same frame as rS1) but probed only in C, which takes
-`historyLen` as a bare `int`, so the rejection answers before a bar is read. The
-other three derive the length from the array they are handed, so provoking it
-needs a 100 000 001-element allocation; the legal upper edge, a history of
-exactly `INDEX_MAX + 1` bars, is out of reach everywhere for the same reason.
+[5] The bound is in each opener's own prologue (Java and C# answer it from the
+same frame as rS1). C takes `historyLen` as a bare `int`, so its probe needs no
+array. Rust probes it on a zeroed vector of `INDEX_MAX + 2` elements that is
+never read (`tests/stream_open_contract.rs`, 64-bit targets), and C# on a span
+that claims that length over one element (`StreamApiTest`); both rest on the
+length being refused before a bar is read. Java probes `Core.requireHistory`,
+the helper every public opener calls (`NoPhantomIoTest`), because an array of
+that length needs an 800 MB heap, so no Java opener is driven to it:
+`java_public_openers_check_arguments_then_the_index_pair` holds the call. The
+legal upper edge through an opener, a history of exactly `INDEX_MAX + 1` bars,
+is unprobed in all four.
 
 [22] Cannot be provoked. `OpenAndFill` takes each output as its own `&mut` slice,
 so two outputs, or an output and the input, cannot name the same buffer while the
@@ -145,8 +151,10 @@ emitted bodies, and drives a NULL handle and a NULL out-pointer through
 | rT4 | [reading](https://ta-lib.org/spec/settings-threads/#rt4) | ⚠️<br>[14] | ✅ | ✅ | ✅ |
 | rT5 | [range type](https://ta-lib.org/spec/settings-threads/#rt5) | ✅ | — | — | ✅ |
 | rT6 | [average period bound](https://ta-lib.org/spec/settings-threads/#rt6) | ✅ | ✅ | ✅ | ✅ |
-| rT7 | [NaN factor](https://ta-lib.org/spec/settings-threads/#rt7) | ✅ | ✅ | ✅ | ✅ |
+| rT7 | [factor domain](https://ta-lib.org/spec/settings-threads/#rt7) | ✅ | ✅ | ✅ | ✅ |
 | rT8 | [no change on refusal](https://ta-lib.org/spec/settings-threads/#rt8) | ✅ | ✅<br>[16] | ✅ | ✅ |
+| rT10 | [initial state](https://ta-lib.org/spec/settings-threads/#rt10) | ✅ | — | — | — |
+| rT11 | [threads in C](https://ta-lib.org/spec/settings-threads/#rt11) | ✅ | — | — | — |
 
 [13] The wildcard is a declared member, so it is rejected by value; a target
 outside the declared set is unrepresentable.
@@ -166,6 +174,41 @@ rejection.
 (regtest `--xlang-hash`); `aNullEnumLookbackIsMinusOne` in `BatchApiTest`
 (Java) for a null MA type.
 
+What enters a lookback, in C, in a bare run:
+
+- rL1's first bar: `checkNoBarBeforeTheFirst` (`test_abstract.c`) overwrites
+  every bar below `max(startIdx, lookback) - lookback` in every input of every
+  function, with NaN and with a large finite value, at unstable periods 0 and
+  5, and requires the same answer bit for bit. Its control overwrites one bar
+  more, which most functions read.
+- rL6: `test_func_unstable_shift` (`test_codegen.c`) raises each owner's id by
+  5, at the default parameters and with every integer parameter at its
+  minimum, and requires five more bars of lookback and the same remaining
+  values (the four DI/DM functions at period 1: no more bars). For every
+  function it sets every id above the lookback, at the default parameters,
+  with every integer parameter at its minimum and at each value of its list
+  parameters: a lookback that does not move must come with outputs that do
+  not move. `test_adx.c` pins the DI/DM rows,
+  `test_period_boundary.c` the DEMA, TEMA and period-1 MA stage counts, and
+  `test_kc.c` KC's longer path over a grid of two unstable periods.
+- rL5, rL7 and rL9: `abstract_lookback_under_settings` (`test_abstract.c`), for
+  every function at its default parameters: another range type and factor on
+  every candle setting moves no lookback; seven more bars on every averaging
+  period move a candlestick lookback by seven or not at all, and no other;
+  all three candle components plus an unstable period move no display shift;
+  with every
+  unstable period, then every averaging period, at `TA_INDEX_MAX` the lookback
+  only grows, at the integer parameters' maxima too.
+- rL2's signal: `abstract_check_display_shift` refuses a negative lookback
+  other than -1 on every vector it drives.
+
+rL4 under settings: `server_verify_lookback_value` compares each server's
+lookback with C's, for every function with every unstable period raised
+(`test_func_unstable_shift`) and for every candlestick function under each row
+of the candle settings matrix (`test_candlestick.c`), under regtest
+`--codegen`. The ports' display-shift calls are compared with C's at default
+settings only.
+
 ### rL11
 
 `abstract_check_display_shift` (`test_abstract.c`; against each server under
@@ -184,9 +227,61 @@ no phantom io and `--xlang-hash` for behaviour matching.
 rB6: `checkOutputAliasRejected` (`test_abstract.c`) sweeps every ordered output
 pair of every function, cross-typed pairs included, binding both onto one buffer
 and requiring `TA_BAD_PARAM`, once over the full range and once over a range
-that produces no values: C's form of one zero-length array passed as two outputs
-(Appendix D item 15), with the pair rebound apart as that leg's control.
-Java's and C#'s `BatchApiTest` pass one zero-length array as two outputs.
+that produces no values (Appendix D item 15), with the pair rebound apart as
+that leg's control. Java's and C#'s `BatchApiTest` pass one array as two outputs.
+
+rB4 and rS4, an empty argument: an output that cannot be declined is refused when
+empty, on a range that produces nothing and on a history too short to open, with
+a one-element control for each. Java `anEmptyOutputIsAnAbsentOne` and C#
+`AnEmptyOutputIsAnAbsentOne` (`BatchApiTest`), C# `StreamApiTest`, Rust
+`an_empty_output_is_an_absent_one` (`tests/nullable_outputs.rs`),
+`a_sub_lookback_range_frees_the_output_bound_and_not_the_input_bound`
+(`tests/empty_range.rs`) and the short-history test of
+`tests/stream_open_contract.rs`. The same tests refuse an empty declinable
+output in Java and Rust, with `null` and `None` as the controls that decline, and
+hold an empty span to declining in C#. An empty input was already refused by the
+length rule.
+
+rW7: `checkInPlaceAliasCorrect` (`test_abstract.c`),
+`anOutputOnItsInputAnswersTheSame` (Java's `MetadataTest`) and
+`AnOutputOnItsInputAnswersTheSame` (C#'s `MetadataTest`) place each real output
+on each real input component of every function and require the answer of the
+separate-buffer call bit for bit. The call ends 16 bars before the series does,
+and those bars must keep their input values.
+
+rP4: the float leg of regtest `--codegen` compares each server's float entry
+point with its own double one on the same widened inputs, bit for bit: C over
+the parameter sweep, Java and C# for every function at its default parameters
+and at the default sentinels. It runs with all three on x86-64 only. C is also
+held by `test_variants.c` in a bare run.
+
+rP5: `validate_inputs`, `try_inject_parameters` and `validate_outputs`
+(`docs_site.rs`) fail `generate` when a function page's Inputs, Parameters or
+Outputs list differs from the call signature in name or order.
+
+rW4's candlestick values: `test_candle_value_set` (`test_candlestick.c`) holds
+every value a candlestick function writes on its series to the published set,
+and requires each non-zero member to occur and most functions to fire. A
+pattern too rare to fire there is held to nothing.
+
+rE3 at a batch call: in C, `abstract_rejected_call_writes_nothing`
+(`test_abstract.c`) paints every output buffer, calls each parameter vector of
+its sweep that the lookback rejects and requires `TA_BAD_PARAM` with no element
+written. Its two floors count the vectors rejected inside their declared range,
+the rejections a C body makes itself after the generated checks: at a bound
+(MAVP's inverted window) and one step above the lower bound (FRAMA's odd
+period). Java's and C#'s `BatchApiTest` hold a canary after rB5. Rust has no
+run-time canary: the public entry makes every argument rejection before its one `_impl` call
+(`rust_public_entry_orders_the_argument_contract`), the parameter decision
+included, which it takes from the lookback, and no output is lent to anything
+ahead of that call. A code `_impl` returns is forwarded after the call; its own
+parameter rejections stay unreachable for as long as the lookback decides the
+same way (lookback rules above).
+
+rB9's band: `testEnumValueContract` (`test_internals.c`) requires
+`TA_SetRetCodeInfo` to name each value from 5000 to 5999 `TA_INTERNAL_ERROR`,
+and `TA_UNKNOWN_ERR` for every value from 0 to 0xFFFF that is not a pinned
+member and for four values outside that walk.
 
 ### Stream opening conditions
 
@@ -194,8 +289,7 @@ rS1, rS2, rS4, rS5, rS7 and rS8 are mapped below; rS3 is driven by the parameter
 leg of `test_open_contract.c` over the C openers; rS6 is mapped only for one buffer
 passed as two outputs: `testBatchArgumentContract` passes one buffer as
 ACCBANDS's first two `OpenAndFill` outputs on a history of lookback bars
-(`TA_BAD_PARAM`), with a separate-outputs control answering rS8; Java's and C#'s
-`BatchApiTest` do the same with one zero-length array.
+(`TA_BAD_PARAM`), with a separate-outputs control answering rS8.
 
 `testStreamShortHistory` drives rS1, rS2's rejecting side and rS8 in C: 9, 3 and 8
 rejections, with rS8's 16 controls. Three of rS1's cases are *also* an absent
@@ -203,8 +297,11 @@ argument, which is what makes them about the order and not only the code.
 `testBatchArgumentContract` drives rS4 with rB4's own argument shapes plus the
 handle: 12 rejections and 5 controls, counted apart from rB4's. `BatchApiTest`
 does the same for Java, and adds rS1's; `StreamApiTest` covers rS4 in C#, where
-the condition is a zero-length span and so is rS1. Rust cannot express rS4, and
-`tests/stream_open_contract.rs` covers rS1 there.
+the condition is a zero-length span and so is rS1. In Rust
+`tests/stream_open_contract.rs` covers rS1, rS2 and rS4's empty output. Java's `BatchApiTest`
+asserts `BAD_PARAM`, not only the exception type, at each rS4 rejection, at an
+`OpenAndFill` output placed on its input (rS6) and at a missing non-declinable
+output (rS7).
 
 `scripts/check_stream_retcodes.py` carries rS1 and rS8 over the whole generated
 corpus in all four backends; a probe names one function, and this is what covers
@@ -232,7 +329,7 @@ the history's length, that the bound REJECT rather than merely exist, and that a
 
 No cross-language gate reaches a declination: the JSON-RPC servers bind every
 declared output and floor its length at one, so a backend that went back to
-requiring `outFAMA`, or to rejecting distinct empty buffers, would stay green in
+requiring `outFAMA`, or to accepting an empty output, would stay green in
 `--codegen`, `--xlang-hash` and `--ref` alike. Each backend therefore carries
 its own probe: `testBatchArgumentContract` (C), `tests/nullable_outputs.rs` and
 `tests/stream_open_contract.rs` (Rust), `BatchApiTest` (Java) and `BatchApiTest`
@@ -253,7 +350,24 @@ nightly. rU5 itself is C's alone: `testBatchArgumentContract` drives all four
 open/update combinations, and the emitted shape is held on the PR gate by
 `test_a_nullable_output_is_declinable_at_update_in_c`.
 
-The empty triple of Appendix D item 11 is a probe in each backend's own suite.
+### rH3, rH6 and rH9
+
+`stream_verify`'s fork leg, in each language server and for every function,
+opens its original with `OpenAndFill` on the shortest history, updates it,
+forks it, calls `Advance` once on the fork, and feeds both to the end. Every
+bar of both must match batch, so a handle that came from `OpenAndFill` is held
+to rH1 under `Update` (rH3), and a counted bar reaches nothing a step reads
+(rH6); the fork reports one bar more than its original. MININDEX, MAXINDEX and
+MINMAXINDEX ride the same leg: their index after the counted bar is still the
+batch index over the bars fed.
+
+rH9: `test_open_contract.c` requires `TA_FUNC_FLG_STREAM` on every function
+`TA_ForEachFunc` lists and as many entries in the stream table.
+
+A bar whose output is not finite: `dz_stream` (`test_div_zero.c`) and the
+streaming halves of the Rust, Java and C# DivZero tests drive DIV, which
+carries the flag rW6 names, through `Peek` and `Update` and require success,
+the value and the bar count.
 
 ### rU3
 
@@ -276,7 +390,58 @@ as one exception class.
 ### Settings rules
 
 rT4's C getter: `test_internals.c`. rT8's Rust latch: verified by probe
-(footnote [16]).
+(footnote [16]). rT8's candle setter in Java: `aRejectedCandleSettingWritesNothing`
+(`CoreApiTest`), through CDLDOJI since Java's `Core` has no candle getter. rT2,
+rT4 and rT5 under a cast out of the enum in C#: `CandleMisuseThrows` and
+`MisuseThrows` (`CoreBuilderTest`). rT10: `testUnstablePeriodBounds`
+(`test_internals.c`) changes the settings and initializes over them.
+
+`TA_Initialize` and `TA_Shutdown` are idempotent (ruled 2026-10-02): a repeated
+call of either answers `TA_SUCCESS` and leaves every setting at its default,
+settings changed in between included. The public contract still asks for one
+call of each, so this is held to, not promised: `testUnstablePeriodBounds`
+calls each twice over changed settings. Nothing reads an initialized flag, so
+`TA_LIB_NOT_INITIALIZE` has no producer.
+
+rT11: `scripts/thread_sanitize.py` (nightly) builds the library and
+`scripts/thread_sanitize.c` with clang's ThreadSanitizer and runs eight threads
+through, for every function, its double and float batch entry points, its
+lookup by name, lookback and `TA_CallFunc`, and its `Open`, `OpenAndFill` and
+`Close`; then, for a spread of stream shapes, through `Peek`, `Update` and
+`Advance` on a handle of their own, and `Peek`, `Value`, `OutRange` and `Clone`
+on handles they share. The sanitizer's report is the test: a function-static
+counter, or a `Peek` that stores into its handle, returns the right values on
+every thread, so comparing answers finds neither. Not run on several threads:
+the `Update`, `Peek`, `Advance` and accessors of the functions outside that
+spread, and
+the fused clones gcc builds, since under clang the FMA dispatch compiles away.
+
+### Versions and determinism
+
+rV2: `testEnumValueContract` pins C's numbers. `MAType` reaches every language
+from `enums.yaml`, and `FuncUnstId` reaches C, Java and C# from it; Rust's
+`FuncUnstId` is a template that `generate` refuses when its member names or
+their order differ from `enums.yaml`, with its wildcard's number pinned by
+`rust_funcunstid_pins_the_all_sentinel`. `RangeType` and `CandleSettingType` are
+written by hand in C's header and in each port:
+`every_backend_candle_enum_member_carries_c_s_number` (generator suite) reads
+C's numbers from `ta_defs.h` and requires them of every Rust, Java and C#
+member.
+
+rV3: `rust_matype_emits_every_yaml_variant_and_its_frozen_shape` and
+`rust_template_enums_are_non_exhaustive` (generator suite).
+
+rD2's list of functions: `the_transcendental_list_is_what_the_sources_call`
+(generator suite) derives it from the indicator sources and requires the same
+set on the versions page and in `CODEGEN_TRANSCENDENTAL[]` (`test_codegen.c`),
+the list that moves a Java or C# comparison from bitwise to a tolerance.
+`test_elementary_math` (`test_1in_1out.c`) holds each elementary function to
+the host math library's routine of that name.
+
+The build-flags caller item: `the_three_build_systems_carry_the_same_flags`
+(generator suite) requires the statements that set `-ffp-contract=off`,
+`-fno-math-errno` and the two alignment flags in CMake, autotools and the
+generator, and `-ffast-math` and `-Ofast` in none.
 
 ## Rationale
 
@@ -294,14 +459,27 @@ invisible. The cross-language comparison covers the index codes
 
 ### rE3: checks precede writes
 
-C's `OpenAndFill`, rejected under rS8, writes 0 to `*outBegIdx` and
-`*outNBElement` before it returns: the transcribed body's empty-range exit
-does, and a composed opener's guard writes the caller's pair explicitly
-(`c_stream.rs`, "must ALSO zero the caller's real pair"), and C's MAVP and
-FRAMA zero the pair before rejecting a parameter. The public rE3 therefore
-promises only that no output buffer is written, and leaves C's range
-out-parameters unspecified after a failure. No source says whether a `TA_INTERNAL_ERROR` leaves the
-caller's buffers untouched, so rE3 promises nothing after rB9.
+The range out-parameters in C. The public rule is the weak one, to keep room
+to change: `*outBegIdx` and `*outNBElement` may or may not have been written
+when a call does not return `TA_SUCCESS`, so a caller reads them after
+`TA_SUCCESS` only. The library holds itself to more, and the suite tests it:
+
+- `TA_INSUFFICIENT_HISTORY` writes 0 to both. Nothing was output, and a caller
+  that skipped the return code reads an empty range instead of stale indices.
+- Every other rejection leaves both as the caller had them. The aim is one
+  write of the pair, at exit, on success; a body that still writes it earlier
+  does so after its last argument check.
+- Nothing holds after rB8 or rB9: some bodies zero the pair on those exits,
+  others leave it.
+
+Coverage, each call painting the pair with a sentinel first: every `TA_CallFunc`
+the suite makes (`regtest_guarded_call`, which `ta_test_priv.h` substitutes for
+it, failing the run at `freeLib`); the double and float entry of every function
+at each in-range parameter vector its body refuses (`test_variants.c`); every
+function's `OpenAndFill`, held to (0, 0) at each too-short history and to the
+sentinel at each out-of-range parameter (`test_open_contract.c`); FRAMA's and
+MAVP's `OpenAndFill` at the parameters their bodies refuse (`test_frama.c`,
+`test_mavp.c`); the absent-argument rows of `test_internals.c`.
 
 ### Messages
 
@@ -350,6 +528,23 @@ Known gap: Java's and C#'s MA stream throw a plain `IllegalStateException` /
 sub-stream", `Core_MA.java`, `Core_MA.cs`) with no code and no prefix.
 Unreachable by construction.
 
+### rB4, rS4: empty is absent
+
+An argument that cannot be declined is absent when it is `NULL` in C, null or
+zero-length in Java, zero-length in Rust and C#, and the call answers
+`TA_BAD_PARAM` at the absent check: after the index and parameter conditions,
+before any length (ruled 2026-10-02). A zero-length buffer is almost always a
+mistake, and a caller cannot cheaply tell whether a call will produce nothing.
+"No room is owed when nothing is written" protected no real use, and hid a null
+buffer behind a success or behind `TA_INSUFFICIENT_HISTORY`. C sees only `NULL`:
+a buffer of no capacity is invisible there, as every length is.
+
+Two things are not part of it. A stream's empty history answers rS1, which sits
+ahead of rS4 as `historyLen < 1` sits ahead of C's NULL checks. An empty span
+is how C# declines an output, the one case that is not refused: Java and Rust
+decline with `null` and `None`, so an empty declinable output is absent there
+like any other.
+
 ### rB5, rS5: C
 
 Measured with guard-paged buffers: an input that does not reach `endIdx`, or an
@@ -379,11 +574,13 @@ which is C, and C is the one language where the check is not merely expensive
 but not straightforwardly expressible. Java and Rust satisfy the stronger rule
 for free by making the state unreachable, which is not the same as enforcing it.
 
-Outputs must be different buffers in every language, a zero-length one included
-(ruled 2026-10-01, Appendix D item 15): rE2 then holds with no exception, and C
-and Java already compared identity whatever the length. Two distinct empty
-outputs are different buffers and never collide (item 11, #262). A call that
-is both undersized and identical answers rB5, the earlier rule (#261).
+Outputs must be different buffers in every language. An empty output that is
+not a declination is absent (rB4) and never reaches a verdict of the pair guard.
+In C# an empty span declines, and the guard still rejects one zero-length array
+passed as two declinable outputs (ruled 2026-10-01, Appendix D item 15), which
+no shipped function has; a span with a null reference is the only operand it
+skips. A call that is both undersized and identical answers rB5, the earlier
+rule (#261).
 
 Outputs of different element types can only be the same buffer through a
 reinterpreting cast. C compares both through `const void *` (well defined, not
@@ -402,14 +599,20 @@ C# detects more than the rule: its guard
 input/output overlap while allowing whole-buffer in place, `Overlaps` rejects a
 partial output/output overlap, and its `float` overload rejects any overlap
 between a `float` input and a `double` output (#386). Kept because it costs one
-call on a type that already answers the question. If uniformity is ever
+call on a type that already answers the question (ruled 2026-10-02), and made
+last so that a call with another fault answers the code C and Java give it: in
+the batch tier after the same-buffer guard, at an opener after the history
+check. The same buffer at an opener is one start address, as C compares it,
+and stays ahead of the history check in every language. If uniformity is ever
 preferred over the extra safety, removing it is the change, not adding the check
 elsewhere.
 
 rW7 is supported, not tolerated: several bodies are written for it and elect
 their scratch by testing for exactly that case. That election is why STOCH,
 STOCHF and KDJ leave intermediate values past `count` when their first output is
-in place.
+in place (ruled 2026-10-03: accepted). The scratch spans the values the
+smoothing consumes and never reaches past `endIdx`, which is the limit the
+public rule states.
 
 ### rB8: allocation failure
 
@@ -474,16 +677,15 @@ empty span over a real array decline alike there. That costs nothing: a declined
 output is written to no more than one that has nothing to hold, and the length
 check is still applied to a supplied output. Only the pair guard tells the two
 apart (next paragraph). Rust could have read a zero-length slice the same way,
-and does not: `Option` is the shape a Rust caller expects, it makes the
-declination visible at the call site, and it keeps `&mut []` for a non-nullable
-output a sizing mistake.
+and does not: `Option` is the shape a Rust caller expects, and it makes the
+declination visible at the call site.
 
 An omitted output is not an alias, so rB6's pair guard skips a pair whose
 operands are not both present. C and Java guard each nullable operand non-null
 before comparing (two `NULL`s compare equal), and C# skips a span whose
 reference is null, which is what a null array becomes; an empty span over a real
-array is still compared. Rust's guard requires both slices non-empty; safe code
-cannot pass one slice twice, so that is unobservable.
+array is still compared. Rust's guard compares the addresses of the slices supplied; safe
+code cannot pass one slice twice, so that is unobservable.
 
 A declined output is still computed, which is what MAMA needs: FAMA feeds the
 next bar. `MA`'s MAMA arm declines `outFAMA` outright in all four backends.
@@ -593,13 +795,14 @@ input while still reporting success. `INDEX_MAX` is the ceiling the index domain
 already enforces, and a warm-up longer than the largest addressable series could
 never produce output, so nothing legitimate is refused.
 
-### rT7: NaN only
+### rT7: finite and not negative
 
-A factor scales a threshold and never indexes anything, so an infinity cannot
-take a function off the end of its input. NaN is refused because it silences
-every comparison it feeds, which is indistinguishable from "this shape never
-occurs". This is the one check on a single value that treats NaN and ±Inf
-differently.
+A factor scales a threshold (ruled 2026-10-02). NaN silences every comparison it
+feeds, which is indistinguishable from "this shape never occurs". An infinity
+does the same on flat bars, where it multiplies a zero average into NaN. A
+negative threshold is below every range, so a test that a range exceeds it
+always passes and its opposite never does. None of the three is a threshold a
+caller means, and zero is the edge that is.
 
 ---
 
@@ -684,7 +887,7 @@ implemented but not covered by a CI probe; the rule's own footnote says which.
 | ~~8~~ | all | rS8 | *Fixed.* `TA_RetCode` had **no member** for "history shorter than the lookback", so C and Rust fell back to the catch-all and Java and C# borrowed `TA_OUT_OF_RANGE_END_INDEX`. `TA_INSUFFICIENT_HISTORY = 17` was appended and all four now report it, which leaves rS2 as the opening tier's only producer of `TA_OUT_OF_RANGE_END_INDEX`. |
 | ~~9~~ | Rust, Java, C# | rS5 | *Fixed.* `OpenAndFill` validated no output capacity, so an undersized output faulted inside the fill with the buffer already partly written. The public frame now bounds every output by `historyLen - <N>_Lookback(...)`. (C still cannot: no sizes.) |
 | ~~10~~ | C | | *Obsolete.* `TA_SetCompatibility` accepted any value; #388 removed the behaviour it selected, and the pair is kept declared and inert. |
-| ~~11~~ | C#, Rust | rB6 | *Fixed.* Two distinct **empty** output buffers were rejected as aliased in C# and Rust and accepted in C and Java, measured on `ACCBANDS(0, 251, …, optInTimePeriod 253, …)` with three distinct zero-length outputs. Both now accept them (#262). |
+| ~~11~~ | C#, Rust | rB6 | *Fixed.* Two distinct **empty** output buffers were rejected as aliased in C# and Rust and accepted in C and Java, measured on `ACCBANDS(0, 251, …, optInTimePeriod 253, …)` with three distinct zero-length outputs. Both then accepted them (#262). Superseded 2026-10-02: an empty output that cannot be declined is absent (rB4), so the call is refused in Rust, Java and C#. |
 | ~~13~~ | all | rS1 | *Fixed.* An empty history answered `TA_BAD_PARAM` where rS1 specifies `TA_OUT_OF_RANGE_START_INDEX`, and C checked argument presence ahead of the index pair. All four openers now answer the pair ahead of every presence check, except for the one check each language makes a precondition of reading the length (footnote [4]). |
 | ~~14~~ | Java | rL2, rL3, rL11 | *Fixed.* A lookback call did not check a null MA type: `maLookback(1, null)` returned 0 and `maLookback(2, null)` threw `NullPointerException` from its `switch`, and every lookback with an MA-type parameter did the same. Each now returns -1, as rB3 rejects the batch call. |
 | ~~15~~ | C# | rB6, rS6 | *Fixed.* One zero-length array passed as two outputs, on a range that produces no values, answered `TA_SUCCESS` in C# (`Overlaps` is false for an empty span) and `TA_BAD_PARAM` in C and Java. Ruled 2026-10-01: outputs must be different buffers in every language. C#'s batch and `OpenAndFill` guards now also reject two empty outputs on the same non-null reference. |

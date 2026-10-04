@@ -184,9 +184,12 @@ fn rust_public_fill_bounds_every_output_against_its_own_lookback() {
             // A `nullable` output is `Option<&mut [T]>` and is bounded only when
             // it was supplied (rule rB7); every other output is bounded flat.
             let needle = if out.is_nullable() {
-                format!("if {}.as_deref().is_some_and(|o| o.len() < _guardOutLen) {{", out.name)
+                format!(
+                    "if {}.as_deref().is_some_and(|o| o.is_empty() || o.len() < _guardOutLen) {{",
+                    out.name
+                )
             } else {
-                format!("if {}.len() < _guardOutLen {{", out.name)
+                format!("if {0}.is_empty() || {0}.len() < _guardOutLen {{", out.name)
             };
             let at_out = body.find(&needle).unwrap_or_else(|| {
                 panic!("{}: OpenAndFill does not bound `{}`", func.name, out.name)
@@ -748,6 +751,95 @@ fn every_open_pass_rejects_an_anchor_past_the_history() {
         );
     }
     assert!(checked > 600, "only {checked} bodies checked across four backends");
+}
+
+/// A C# opener refuses the same buffer ahead of the history check, as every
+/// language does, and a partial overlap, which only C# can see, only once the
+/// history is long enough: placed earlier it would change the code a call with a
+/// too-short history gets. The run-time rows are in `StreamApiTest`, which the PR
+/// gate compiles and does not run.
+#[test]
+fn csharp_openers_test_a_partial_overlap_after_the_history() {
+    let registry = make_registry();
+    let helpers = common::make_helpers();
+    let mut openers = 0usize;
+    for name in discover_indicators() {
+        let Some((func, enums)) = try_load_indicator(&name) else {
+            continue;
+        };
+        if func.outputs.is_empty() {
+            continue;
+        }
+        let full = backends::csharp::generate(&func, &enums, registry, helpers);
+        // The streaming section: the batch body's own overlap tests come first.
+        let Some(stream_at) = full.find("/**** Streaming API *****/") else {
+            continue;
+        };
+        let csharp = &full[stream_at..];
+        let Some(same) = csharp.find("if( SameBuffer(") else {
+            panic!("{}: no same-buffer reject at its opener", func.name);
+        };
+        let partial = ["if( guardOutLen > 0 && ( ", "Lookback("]
+            .iter()
+            .filter_map(|needle| csharp[same..].find(needle).map(|at| (needle, same + at)))
+            .find(|(needle, at)| {
+                **needle != "Lookback(" || csharp[*at..].lines().next().is_some_and(|l| l.contains(") && ( "))
+            });
+        let Some((_, at)) = partial else {
+            panic!("{}: the partial-overlap reject is not behind the history check", func.name);
+        };
+        let line = csharp[at..].lines().next().unwrap_or_default();
+        assert!(
+            line.contains("Overlaps(") || line.contains("OutputsAlias("),
+            "{}: the guarded line tests no overlap: `{line}`",
+            func.name
+        );
+        assert!(
+            !csharp[..same].contains(".Overlaps("),
+            "{}: an overlap test precedes the same-buffer reject",
+            func.name
+        );
+        openers += 1;
+    }
+    assert!(openers >= 200, "only {openers} openers checked");
+}
+
+/// C#'s batch entries refuse an empty output that cannot be declined, and only
+/// once the index and parameter rules have had their say: the run-time rows that
+/// prove both are in `BatchApiTest`, which the PR gate compiles and does not run.
+#[test]
+fn csharp_batch_entries_refuse_an_empty_output_behind_the_core_s_own_verdict() {
+    let registry = make_registry();
+    let helpers = common::make_helpers();
+    let mut outputs_pinned = 0usize;
+    let mut declinable_seen = 0usize;
+    for name in discover_indicators() {
+        let Some((func, enums)) = try_load_indicator(&name) else {
+            continue;
+        };
+        let csharp = backends::csharp::generate(&func, &enums, registry, helpers);
+        let f = &func.name;
+        for out in &func.outputs {
+            let n = &out.name;
+            let present = format!("if( guardStart >= 0 ) RequirePresent(\"{f}\", \"{n}\", {n}.Length);");
+            if out.is_nullable() {
+                declinable_seen += 1;
+                assert!(!csharp.contains(&present), "{f}: `{n}` may be declined and must not be required");
+                continue;
+            }
+            let pair = format!(
+                "{present}\n      RequireLength(\"{f}\", \"{n}\", {n}.Length, guardOutLen);"
+            );
+            // The double overload and the float one.
+            assert!(
+                csharp.matches(&pair).count() >= 2,
+                "{f}: `{n}` is not refused when empty on both batch entries, expected `{pair}`"
+            );
+            outputs_pinned += 1;
+        }
+    }
+    assert!(outputs_pinned >= 200, "only {outputs_pinned} outputs pinned");
+    assert!(declinable_seen > 0, "no declinable output was seen");
 }
 
 /// Every DECLARED input is checked in every backend (#260).

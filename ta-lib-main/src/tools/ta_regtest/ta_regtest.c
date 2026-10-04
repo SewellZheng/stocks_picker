@@ -276,8 +276,8 @@ static ErrorNumber regtest_main( int argc, char **argv )
       }
       TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
       fuzzRet = fuzz_ref( refVersion, functionFilter );
-      TA_Shutdown();
-      return fuzzRet;
+      retValue = freeLib();
+      return fuzzRet != TA_TEST_PASS ? fuzzRet : retValue;
    }
 
    /* Opt-in cross-language BITWISE parity gate (issue #113). Self-contained:
@@ -293,8 +293,8 @@ static ErrorNumber regtest_main( int argc, char **argv )
       }
       TA_RestoreCandleDefaultSettings( TA_AllCandleSettings );
       xlangRet = xlang_hash( functionFilter, codegenLanguageFilter );
-      TA_Shutdown();
-      return xlangRet;
+      retValue = freeLib();
+      return xlangRet != TA_TEST_PASS ? xlangRet : retValue;
    }
 
    /* Test utility like List/Stack/Dictionary/Memory Allocation etc... */
@@ -845,7 +845,8 @@ static ErrorNumber testTAFunction_ALL( void )
       } \
       }
    DO_TEST_LBL( test_func_1in_1out, "MATH,VECTOR,DCPERIOD/PHASE,TRENDLINE/MODE,"
-                                "HT_DCPERIOD,HT_DCPHASE,HT_TRENDLINE,HT_TRENDMODE,MEDPRICE",
+                                "HT_DCPERIOD,HT_DCPHASE,HT_TRENDLINE,HT_TRENDMODE,MEDPRICE,"
+                                "ACOS,ASIN,ATAN,COS,COSH,EXP,LN,LOG10,SIN,SINH,TAN,TANH",
                                 "Math, vector, Hilbert Transforms, MEDPRICE" );
    DO_TEST_LBL( test_func_ma,   "All Moving Averages,"
                                 "SMA,EMA,WMA,DEMA,TEMA,TRIMA,KAMA,MAMA,T3,MA",
@@ -975,6 +976,9 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST_LBL_NOSV( test_func_open_contract,
             "STREAM,OPEN,REJECT,CONTRACT",
             "Open rejection write contract" );
+   DO_TEST_LBL_NOSV( test_func_unstable_shift,
+            "UNSTABLE,LOOKBACK,SHIFT",
+            "Unstable period shift" );
 
    /* A filter that matched nothing must not read as success. The group tags are
     * hand-maintained and cover far fewer names than the library exports, so a
