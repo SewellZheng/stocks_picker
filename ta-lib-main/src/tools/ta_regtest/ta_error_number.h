@@ -565,6 +565,9 @@ typedef enum
   /* (#478) STC legs that ran while comparing nothing. */
   TA_STC_VACUOUS                     = 1693,
 
+  /* (#486) Swiss Army Knife legs that ran while comparing nothing. */
+  TA_SWAK_VACUOUS                    = 1694,
+
   /* One code for every suite that routes a fixed vector through server_verify
    * (#427), because it reports one failure and the message names the leg.
    * server_verify answers TA_TEST_PASS when it cannot build the request, so a
@@ -588,6 +591,11 @@ typedef enum
 
   /* A call that was rejected wrote *outBegIdx or *outNBElement. */
   TA_REJECTED_CALL_WROTE_RANGE       = 1710,
+
+  /* The metadata ride: a call's output against its function's metadata. */
+  TA_META_RIDE_MISMATCH              = 1711,
+  TA_META_RIDE_VACUOUS               = 1712,
+  TA_META_RIDE_UNREACHED             = 1713,
 
   /* Error code related to bug fix documentented on SourceForge. */
   TA_TEST_FAIL_BUG1359452_1  = 2000,

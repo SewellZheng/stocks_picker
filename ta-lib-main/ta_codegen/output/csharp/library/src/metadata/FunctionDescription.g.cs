@@ -1352,6 +1352,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1391,6 +1394,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1430,6 +1436,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1469,6 +1479,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1508,6 +1522,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1547,6 +1565,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1586,6 +1607,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1641,6 +1665,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1680,6 +1708,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1719,6 +1750,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1758,6 +1793,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1797,6 +1836,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1836,6 +1879,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1875,6 +1921,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1930,6 +1980,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1969,6 +2022,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bool</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2008,6 +2064,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2047,6 +2107,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bool</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2086,6 +2149,11 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
+					<Flag>Pattern Weak</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2141,6 +2209,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2196,6 +2267,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2235,6 +2309,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2274,6 +2352,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bool</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2313,6 +2394,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2352,6 +2436,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2391,6 +2478,11 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
+					<Flag>Pattern Weak</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2430,6 +2522,11 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
+					<Flag>Pattern Weak</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2469,6 +2566,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2508,6 +2608,11 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Pattern Confirm</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2547,6 +2652,11 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Pattern Confirm</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2586,6 +2696,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2625,6 +2738,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2664,6 +2780,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2703,6 +2822,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2742,6 +2864,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2781,6 +2907,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2820,6 +2950,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2859,6 +2992,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bool</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2898,6 +3034,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2937,6 +3077,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2976,6 +3120,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3031,6 +3178,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3086,6 +3236,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3141,6 +3294,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3180,6 +3336,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3219,6 +3378,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3258,6 +3420,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bool</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3297,6 +3462,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3336,6 +3505,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3375,6 +3548,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3414,6 +3590,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3453,6 +3632,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3492,6 +3674,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3531,6 +3716,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3570,6 +3758,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bool</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3609,6 +3800,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3648,6 +3843,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3687,6 +3885,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3726,6 +3928,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3765,6 +3970,9 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3804,6 +4012,10 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bull Bear</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4340,6 +4552,7 @@ public static class FunctionDescription
 		<GroupId>Math Transform</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5035,6 +5248,7 @@ public static class FunctionDescription
 		<GroupId>Math Transform</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5128,6 +5342,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Display Shift</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5173,6 +5388,10 @@ public static class FunctionDescription
 				<Name>outSwingHigh</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bool</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
+					<Flag>Display Shift</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -5180,6 +5399,10 @@ public static class FunctionDescription
 				<Name>outSwingLow</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Pattern Bool</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
+					<Flag>Display Shift</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8913,6 +9136,7 @@ public static class FunctionDescription
 		<GroupId>Math Transform</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -9604,6 +9828,232 @@ public static class FunctionDescription
 			<OutputArgument>
 				<Type>Integer Array</Type>
 				<Name>outTrend</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- SWAK_2PHP -->
+	<FinancialFunction>
+		<Abbreviation>SWAK_2PHP</Abbreviation>
+		<ShortDescription>Swiss Army Knife - Two-Pole High-Pass Filter</ShortDescription>
+		<GroupId>Cycle Indicators</GroupId>
+		<Flags>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Cutoff period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>10000</Maximum>
+					<SuggestedStart>5</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- SWAK_BP -->
+	<FinancialFunction>
+		<Abbreviation>SWAK_BP</Abbreviation>
+		<ShortDescription>Swiss Army Knife - Band-Pass Filter</ShortDescription>
+		<GroupId>Cycle Indicators</GroupId>
+		<Flags>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Center period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>5</Minimum>
+					<Maximum>2000</Maximum>
+					<SuggestedStart>5</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Delta</Name>
+				<ShortDescription>Half-bandwidth as a fraction of the center period</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>5.000000e-2</Minimum>
+					<Maximum>5.000000e-1</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>5.000000e-2</SuggestedStart>
+					<SuggestedEnd>5.000000e-1</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-2</SuggestedIncrement>
+				</Range>
+				<DefaultValue>1.000000e-1</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- SWAK_BUTTER -->
+	<FinancialFunction>
+		<Abbreviation>SWAK_BUTTER</Abbreviation>
+		<ShortDescription>Swiss Army Knife - Butterworth Filter</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Cutoff period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>10000</Maximum>
+					<SuggestedStart>5</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- SWAK_GAUSS -->
+	<FinancialFunction>
+		<Abbreviation>SWAK_GAUSS</Abbreviation>
+		<ShortDescription>Swiss Army Knife - Gaussian Filter</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Cutoff period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>10000</Maximum>
+					<SuggestedStart>5</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- SWAK_HP -->
+	<FinancialFunction>
+		<Abbreviation>SWAK_HP</Abbreviation>
+		<ShortDescription>Swiss Army Knife - High-Pass Filter</ShortDescription>
+		<GroupId>Cycle Indicators</GroupId>
+		<Flags>
+			<Flag>Unstable Period</Flag>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Cutoff period</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>5</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>5</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
 				</Flags>

@@ -45,13 +45,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  011505 AC   Creation
+ *  011505 AC     Creation
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -257,7 +260,6 @@ impl Core {
         // - two long shadows
         // - body near the midpoint of the high-low range
         // The meaning of "doji" and "near" is specified with TA_SetCandleSettings
-        // outInteger is always positive (1 to 100) but this does not mean it is bullish: rickshaw man shows uncertainty
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -373,8 +375,8 @@ impl Core {
     /// * `inHigh` — High price of each bar.
     /// * `inLow` — Low price of each bar.
     /// * `inClose` — Close price of each bar.
-    /// * `outInteger` — +100 when the pattern is present, 0 otherwise. Never -100; the code notes
-    ///   the positive value does NOT imply bullish, it signals uncertainty.
+    /// * `outInteger` — +100 when the pattern is present, 0 otherwise. Never -100; the positive
+    ///   value does not imply bullish, it signals uncertainty.
     ///
     /// # Returns
     ///
@@ -417,9 +419,8 @@ impl Core {
     /// )?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [0, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -865,7 +866,6 @@ impl Core {
         // - two long shadows
         // - body near the midpoint of the high-low range
         // The meaning of "doji" and "near" is specified with TA_SetCandleSettings
-        // outInteger is always positive (1 to 100) but this does not mean it is bullish: rickshaw man shows uncertainty
         outIdx = 0;
         loop {
             if (inClose[i] - inOpen[i]).abs() <= ((BodyDoji_factor) * (if (BodyDoji_avgPeriod) != 0 { (BodyDojiPeriodTotal) / (BodyDoji_avgPeriod as f64) } else { match BodyDoji_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) * (if (BodyDoji_rangeType) == 2 { 0.5 } else { 1.0 })) && // doji

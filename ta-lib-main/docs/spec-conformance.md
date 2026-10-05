@@ -259,10 +259,21 @@ rP5: `validate_inputs`, `try_inject_parameters` and `validate_outputs`
 (`docs_site.rs`) fail `generate` when a function page's Inputs, Parameters or
 Outputs list differs from the call signature in name or order.
 
-rW4's candlestick values: `test_candle_value_set` (`test_candlestick.c`) holds
-every value a candlestick function writes on its series to the published set,
-and requires each non-zero member to occur and most functions to fire. A
-pattern too rare to fire there is held to nothing.
+rW8: `check_flags` (`parser/yaml.rs`) fails `generate` on a pattern output
+whose flags break its rules, and `validate_output_values` (`docs_site.rs`) on an
+Output Values table that differs from the values the flags declare.
+`test_candle_value_set` (`test_candlestick.c`) holds every value a candlestick
+function writes on its series to the values its output's flags declare, a color
+output's sign to its candle's color, and each +-200 that follows an earlier
+value in the range to a live pattern of its sign that no 200 has confirmed; a
++-200 whose pattern may precede the range is held to nothing. An output declares
+level 200 exactly when `test_hikkake_predicate_coverage` proves it writes +-200.
+It requires each of
++-80, +-100 and +-200 to occur, a color output to fire, a 200 to be matched, and
+most functions to fire. That every declared value occurs is held per function
+by the MC/DC scenarios (`pb_check_mcdc`), whose firing cases must produce
+exactly the values of level 100 and 80 the output's flags declare, and by
+`test_hikkake_predicate_coverage` for the +-200 of CDLHIKKAKE and CDLHIKKAKEMOD.
 
 rE3 at a batch call: in C, `abstract_rejected_call_writes_nothing`
 (`test_abstract.c`) paints every output buffer, calls each parameter vector of
@@ -387,6 +398,71 @@ demands the refusal, the code, and that nothing moved. The code is asserted
 twice because the type cannot stand in for it: Java renders rS1's code and rU4's
 as one exception class.
 
+### Abstract API rules
+
+rA1: in C, `checkHolderErrorContract` (`test_abstract.c`) ends on a fully bound
+holder whose index or parameter the function refuses, which must come back as
+the function's code. In the ports, through a bound holder: a short input and a
+short output (`an_undersized_input_is_rejected_not_read_past`,
+`an_undersized_output_is_rejected_not_written_past`) and both index codes
+(`a_bound_holder_answers_the_batch_index_codes`) in Rust; `holderRejectsMisuse`
+(Java) and `BinderRejectsMisuse` (C#) send a short input, a short output, an end
+index below the start index and one array bound as two outputs. The generator's `rust_binder_calls_the_public_tier` pins that every
+Rust arm calls the public entry point. Across languages: under `--codegen`,
+`d2_param_vectors` sends each function's rejected parameter vectors through
+`abstract_call`. No output declined: `checkHolderErrorContract` leaves only the
+`TA_OUT_NULLABLE` output of each function that has one unbound (C, where an
+empty buffer cannot be spelled); `no_output_is_declined_through_a_holder`
+(Rust), `holderRejectsMisuse` (Java) and `BinderRejectsMisuse` (C#) bind MAMA's
+second output to an empty buffer.
+
+rA2: `testHolderStaysReusable` (C), `a_rejected_setter_leaves_the_holder_as_it_found_it`
+(Rust), `aRejectedSetterLeavesTheHolderAsItFoundIt` (Java),
+`ARejectedSetterLeavesTheCallAsItFoundIt` (C#), and the generator's
+`metadata_price_setter_validates_before_writing` for all four.
+
+rA3 in C: `checkHolderErrorContract` drives, for every function, each setter
+with a wrong index, a wrong kind and a NULL, `TA_CallFunc` with the inputs, then
+the outputs, unbound, with each NULL argument and with a holder the API did not
+make. `test_default_calls` then checks, once, the lookups by name, the two table
+frees, a handle the API did not give out, an absent one, and a parameter index
+that names nothing. In the ports: `the_setters_refuse_what_does_not_belong`
+(Rust), `holderRejectsMisuse` (Java) and `BinderRejectsMisuse` (C#), whose
+helpers also require the exception to be a `TALibArgumentException`. Across
+languages: under `--codegen`, `test_abstract.c` sends every function's
+`abstract_call` with input 0, then output 0, left unbound (`skipInput`,
+`skipOutput`) and requires C's code from each server. These tests pin today's
+codes, which is more than rA3 asks: a deliberate refinement changes them
+together.
+
+rA4: `checkFuncHandleFoldsCase` (C), `lookup_is_ascii_case_insensitive`,
+`the_fold_does_not_widen_what_resolves` and `unknown_name_is_none` (Rust),
+`byNameFoldsAsciiCase` and `registryIsComplete` (Java), `ByNameFoldsAsciiCase`
+and `CatalogueIsComplete` (C#).
+
+rA5: in C, `callWithDefaults` calls every function through a holder with no
+optional parameter set and, under `--codegen`, requires each server to give the
+same answer with the declared defaults bound. In the ports:
+`unset_matches_the_documented_default` (Rust), `callByNameMatchesTheTypedApi`
+and `choiceListSentinelMatchesTheDefault` (Java),
+`UnboundParametersTakeTheDocumentedDefault` (C#).
+
+rA6: `test_default_calls` (C, over `TA_ForEachFunc`),
+`every_function_binds_calls_and_agrees_with_its_lookback` (Rust),
+`callByNameMatchesTheTypedApi` (Java), `BothCallPathsAgree` (C#). Each walks the
+registry it tests. Across languages, under `--codegen`: `callWithDefaults` sends
+an `abstract_call` for every function C enumerates, which each server resolves
+in its shipped registry, and `abstract_verify_for_each_func` requires each
+server's enumeration to be C's, as a set (Java's server enumerates a table of
+its own).
+
+rA7: the generator's `the_spec_flag_catalog_is_complete` requires every flag
+member of the three ports to carry the value of the C `#define` its catalog row
+names. The same test holds the catalog itself, which is more than rA7 asks: a
+row for every flag `#define` of `ta_abstract.h`, no port flag without a row, no
+flag family beyond the four it reads, and "No function sets it" exactly on the
+flags no function carries.
+
 ### Settings rules
 
 rT4's C getter: `test_internals.c`. rT8's Rust latch: verified by probe
@@ -508,11 +584,11 @@ a buffer too short, which have no code of their own (and the second of which C
 cannot detect), answer `TA_BAD_PARAM`, which makes the mapping total over those
 two tiers.
 
-The settings builders and the abstraction layer raise plain platform types for
-their *own* refusals (an unbound slot, a wrong kind, a slot index out of range):
-neither is a function call, so neither has a `TA_RetCode` a caller would be
-recovering. The layer's *dispatch* calls the public entry point, so an
-indicator's rejection reaches the caller carrying its code in every backend.
+The settings builders raise plain platform types for their own refusals: they
+are not function calls, so they have no `TA_RetCode` a caller would be
+recovering. The Abstract API's refusals carry a code (rA3), and its
+*dispatch* calls the public entry point, so an indicator's rejection reaches the
+caller carrying its own code in every backend.
 
 C#'s rU4 is a `TALibArgumentException`, not the
 `TALibArgumentOutOfRangeException` its index codes take in batch: `Update` and
@@ -521,7 +597,7 @@ history series, the argument a caller can change, since an opener has no
 `startIdx`.
 
 A backend enum carrying a member it never produces is harmless; one missing a
-member it needs is not. Re-check whenever the abstraction layer is specified.
+member it needs is not.
 
 Known gap: Java's and C#'s MA stream throw a plain `IllegalStateException` /
 `InvalidOperationException` ("unreachable: open rejects arms without a
@@ -636,7 +712,7 @@ advanced (`TA_APO_StepImpl` steps its first sub-stream before the second can
 fail), which is why the public rH5 excludes rB9.
 
 `ta_codegen/input/internal_error_ids.yaml` maps a function-tier id back to the
-function and the state field it guards. The abstraction layer hand-allocates
+function and the state field it guards. The Abstract API hand-allocates
 ids 1 to 5, most of them shared by several sites (id 2 by 13 in `ta_abstract.c`),
 so an id there names a kind of check, not one guard.
 
@@ -853,13 +929,10 @@ committed and run.
 
 ## Appendix C: Not yet specified
 
-- **The abstraction layer's own surface**: handle lookup, unbound and mistyped
-  arguments. Two rules about the layer are settled and published,
-  [rM1](https://ta-lib.org/spec/errors/#rm1) and
-  [rM2](https://ta-lib.org/spec/errors/#rm2). The rest answers differently today
-  (C returns 10 or 11 for an unbound argument, C#'s `TryCall` the same codes,
-  C#'s `Call` and Java plain exceptions, Rust `BadParam`); the public page leaves
-  it unspecified.
+- **Which code the Abstract API answers for a given misuse**:
+  [rA3](https://ta-lib.org/spec/abstract/#ra3) names the set and leaves the choice
+  open, so a backend can become more specific. Today all four answer 10 for an
+  unbound input, 11 for an unbound output and 8 for a mistyped setter.
 - **JSON-RPC servers**: a test harness, not a shipped API. Their error behaviour
   is a property of the harness.
 

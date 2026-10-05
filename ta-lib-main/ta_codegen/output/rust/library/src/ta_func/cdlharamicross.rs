@@ -45,15 +45,18 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  102404 AC   Creation
- *  040309 AC   Increased flexibility to allow real bodies matching
- *              on one end (Greg Morris - "Candlestick charting explained")
+ *  102404 AC     Creation
+ *  040309 AC     Increased flexibility to allow real bodies matching
+ *                on one end (Greg Morris - "Candlestick charting explained")
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -222,9 +225,6 @@ impl Core {
         // - first candle: long white (black) real body
         // - second candle: doji totally engulfed by the first
         // The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-        // the user should consider that a harami cross is significant when it appears in a downtrend if bullish or
-        // in an uptrend when bearish, while this function does not consider the trend
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -374,7 +374,7 @@ impl Core {
     /// * `inClose` — Close price of each bar.
     /// * `outInteger` — +100/+80 when the first candle is black (bullish), -100/-80 when the
     ///   first candle is white (bearish), 0 otherwise. Magnitude 100 for strict containment inside
-    ///   the first body, 80 when one real-body end matches.
+    ///   the first body, 80 when one or both real-body ends match.
     ///
     /// # Returns
     ///
@@ -417,9 +417,8 @@ impl Core {
     /// )?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [-100, -80, 0, 80, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -786,9 +785,6 @@ impl Core {
         // - first candle: long white (black) real body
         // - second candle: doji totally engulfed by the first
         // The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-        // the user should consider that a harami cross is significant when it appears in a downtrend if bullish or
-        // in an uptrend when bearish, while this function does not consider the trend
         outIdx = 0;
         loop {
             if (inClose[i - 1] - inOpen[i - 1]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) // 1st: long

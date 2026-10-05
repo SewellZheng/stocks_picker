@@ -113,13 +113,13 @@ public enum FuncFlags : uint
     /// <summary>A streaming (one-bar-at-a-time) API exists for this function.</summary>
     Stream = 0x02000000,
 
-    /// <summary>The function consumes volume. No shipped function sets this bit.</summary>
+    /// <summary>Output is over the volume data. No shipped function sets this bit.</summary>
     VolumeUsed = 0x04000000,
 
-    /// <summary>Recursive: honours the unstable-period setting. See <see cref="FuncInfo.UnstableId"/>.</summary>
+    /// <summary>Owns an unstable-period id: <see cref="FuncInfo.UnstableId"/>.</summary>
     UnstablePeriod = 0x08000000,
 
-    /// <summary>The function recognises a candlestick pattern.</summary>
+    /// <summary>A candlestick pattern function: every integer output is a pattern output.</summary>
     Candlestick = 0x10000000,
 
     /// <summary>Output depends on where the caller started, so it never converges across ranges.</summary>
@@ -181,7 +181,7 @@ public enum OptInputFlags : uint
     Advanced = 0x01000000,
 }
 
-/// <summary>How an output is meant to be drawn, and whether it may be discarded. Values match C's <c>TA_OUT_*</c>.</summary>
+/// <summary>How an output is meant to be drawn, whether it may be discarded, and what its values can be. Values match C's <c>TA_OUT_*</c>. A pattern output writes 0 or a sign times a level: the sign flags give its signs, the level flags its levels (100 always).</summary>
 [Flags]
 public enum OutputFlags : uint
 {
@@ -203,22 +203,22 @@ public enum OutputFlags : uint
     /// <summary>Draw as a histogram.</summary>
     Histogram = 0x00000010,
 
-    /// <summary>0 = no pattern, 100 = pattern. No shipped function sets this bit.</summary>
+    /// <summary>0 is no pattern, 100 a pattern; no other value.</summary>
     PatternBool = 0x00000020,
 
-    /// <summary>-100 = bearish, 0 = none, 100 = bullish. No shipped function sets this bit.</summary>
+    /// <summary>The sign is a call: positive bullish, negative bearish.</summary>
     PatternBullBear = 0x00000040,
 
-    /// <summary>-200..-100 bearish, 100..200 bullish. No shipped function sets this bit.</summary>
-    PatternStrength = 0x00000080,
+    /// <summary>Adds level 200: this bar confirms the output's most recent earlier pattern.</summary>
+    PatternConfirm = 0x00000080,
 
-    /// <summary>The value is always at or above zero. No shipped function sets this bit.</summary>
+    /// <summary>Positive values occur.</summary>
     Positive = 0x00000100,
 
-    /// <summary>The value is always at or below zero. No shipped function sets this bit.</summary>
+    /// <summary>Negative values occur.</summary>
     Negative = 0x00000200,
 
-    /// <summary>Zero is a meaningful reference level. No shipped function sets this bit.</summary>
+    /// <summary>Zero occurs; on a pattern output, no pattern on this bar. An output setting any of the three sign flags declares all its signs; one setting none declares nothing.</summary>
     Zero = 0x00000400,
 
     /// <summary>An upper band or limit line.</summary>
@@ -227,11 +227,14 @@ public enum OutputFlags : uint
     /// <summary>A lower band or limit line.</summary>
     LowerLimit = 0x00001000,
 
-    /// <summary>Discardable: C accepts <c>NULL</c> for it. C# still requires an array.</summary>
+    /// <summary>The typed call lets the caller decline it. A <c>ParamHolder</c> still needs it bound.</summary>
     Nullable = 0x00002000,
 
     /// <summary>A chart draws it ahead of or behind the bar that computed it, by the bars the display-shift query reports. The values are never shifted.</summary>
     DisplayShift = 0x00004000,
+
+    /// <summary>Adds level 80: a weaker form of the pattern, on the same bar.</summary>
+    PatternWeak = 0x00008000,
 }
 
 /// <summary>What a required input carries. Mirrors C's <c>TA_InputParameterType</c>.</summary>

@@ -51,13 +51,13 @@ public final class FuncFlags {
    /** A streaming (one-bar-at-a-time) API exists. */
    public static final int STREAMING = 0x02000000;
 
-   /** Consumes volume. */
+   /** Output is over the volume data. */
    public static final int VOLUME_USED = 0x04000000;
 
-   /** Recursive: honours the unstable-period setting. */
+   /** Owns an unstable-period id. */
    public static final int UNSTABLE_PERIOD = 0x08000000;
 
-   /** A candlestick pattern. */
+   /** A candlestick pattern function: every integer output is a pattern output. */
    public static final int CANDLESTICK = 0x10000000;
 
    /** Output depends on where the caller started, so it never converges across ranges. */

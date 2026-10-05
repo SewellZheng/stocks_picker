@@ -47,13 +47,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  100204 AC   Creation
+ *  100204 AC     Creation
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 TA_LIB_API int TA_CDLDOJISTAR_Lookback( void )
@@ -149,11 +152,6 @@ TA_LIB_API TA_RetCode TA_CDLDOJISTAR( int    startIdx,
     * - first candle: long real body
     * - second candle: star (open gapping up in an uptrend or down in a downtrend) with a doji
     * The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-    * outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-    * it's defined bullish when the long candle is white and the star gaps up, bearish when the long candle
-    * is black and the star gaps down; the user should consider that a doji star is bullish when it appears
-    * in an uptrend and it's bearish when it appears in a downtrend, so to determine the bullishness or
-    * bearishness of the pattern the trend must be analyzed
     */
    outIdx = 0;
    do
@@ -419,11 +417,6 @@ static TA_RetCode TA_CDLDOJISTAR_OpenImpl( struct TA_CDLDOJISTAR_Stream **stream
        * - first candle: long real body
        * - second candle: star (open gapping up in an uptrend or down in a downtrend) with a doji
        * The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-       * outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-       * it's defined bullish when the long candle is white and the star gaps up, bearish when the long candle
-       * is black and the star gaps down; the user should consider that a doji star is bullish when it appears
-       * in an uptrend and it's bearish when it appears in a downtrend, so to determine the bullishness or
-       * bearishness of the pattern the trend must be analyzed
        */
       outIdx = 0;
       do

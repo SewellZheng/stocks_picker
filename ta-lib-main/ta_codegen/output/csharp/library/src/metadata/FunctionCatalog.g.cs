@@ -316,6 +316,11 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeSub(),
             MakeSum(),
             MakeSupertrend(),
+            MakeSwak2php(),
+            MakeSwakBp(),
+            MakeSwakButter(),
+            MakeSwakGauss(),
+            MakeSwakHp(),
             MakeT3(),
             MakeTan(),
             MakeTanh(),
@@ -993,7 +998,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdl2crowsLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdl2crowsDisplayShift(outputIdx),
@@ -1014,7 +1019,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdl3blackcrowsLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdl3blackcrowsDisplayShift(outputIdx),
@@ -1035,7 +1040,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdl3insideLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdl3insideDisplayShift(outputIdx),
@@ -1056,7 +1061,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdl3linestrikeLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdl3linestrikeDisplayShift(outputIdx),
@@ -1077,7 +1082,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdl3outsideLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdl3outsideDisplayShift(outputIdx),
@@ -1098,7 +1103,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdl3starsinsouthLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdl3starsinsouthDisplayShift(outputIdx),
@@ -1119,7 +1124,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdl3whitesoldiersLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdl3whitesoldiersDisplayShift(outputIdx),
@@ -1143,7 +1148,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlabandonedbabyLookback(c.RealOpt(0)),
         displayShift: static (core, c, outputIdx) => core.CdlabandonedbabyDisplayShift(c.RealOpt(0), outputIdx),
@@ -1164,7 +1169,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdladvanceblockLookback(),
         displayShift: static (core, c, outputIdx) => core.CdladvanceblockDisplayShift(outputIdx),
@@ -1185,7 +1190,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlbeltholdLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlbeltholdDisplayShift(outputIdx),
@@ -1206,7 +1211,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlbreakawayLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlbreakawayDisplayShift(outputIdx),
@@ -1227,7 +1232,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlclosingmarubozuLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlclosingmarubozuDisplayShift(outputIdx),
@@ -1248,7 +1253,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlconcealbabyswallLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlconcealbabyswallDisplayShift(outputIdx),
@@ -1269,7 +1274,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlcounterattackLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlcounterattackDisplayShift(outputIdx),
@@ -1293,7 +1298,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdldarkcloudcoverLookback(c.RealOpt(0)),
         displayShift: static (core, c, outputIdx) => core.CdldarkcloudcoverDisplayShift(c.RealOpt(0), outputIdx),
@@ -1314,7 +1319,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBool | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdldojiLookback(),
         displayShift: static (core, c, outputIdx) => core.CdldojiDisplayShift(outputIdx),
@@ -1335,7 +1340,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdldojistarLookback(),
         displayShift: static (core, c, outputIdx) => core.CdldojistarDisplayShift(outputIdx),
@@ -1356,7 +1361,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBool | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdldragonflydojiLookback(),
         displayShift: static (core, c, outputIdx) => core.CdldragonflydojiDisplayShift(outputIdx),
@@ -1377,7 +1382,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero | OutputFlags.PatternWeak),
         ],
         lookback: static (core, c) => core.CdlengulfingLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlengulfingDisplayShift(outputIdx),
@@ -1401,7 +1406,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdleveningdojistarLookback(c.RealOpt(0)),
         displayShift: static (core, c, outputIdx) => core.CdleveningdojistarDisplayShift(c.RealOpt(0), outputIdx),
@@ -1425,7 +1430,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdleveningstarLookback(c.RealOpt(0)),
         displayShift: static (core, c, outputIdx) => core.CdleveningstarDisplayShift(c.RealOpt(0), outputIdx),
@@ -1446,7 +1451,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlgapsidesidewhiteLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlgapsidesidewhiteDisplayShift(outputIdx),
@@ -1467,7 +1472,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBool | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlgravestonedojiLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlgravestonedojiDisplayShift(outputIdx),
@@ -1488,7 +1493,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlhammerLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlhammerDisplayShift(outputIdx),
@@ -1509,7 +1514,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlhangingmanLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlhangingmanDisplayShift(outputIdx),
@@ -1530,7 +1535,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero | OutputFlags.PatternWeak),
         ],
         lookback: static (core, c) => core.CdlharamiLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlharamiDisplayShift(outputIdx),
@@ -1551,7 +1556,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero | OutputFlags.PatternWeak),
         ],
         lookback: static (core, c) => core.CdlharamicrossLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlharamicrossDisplayShift(outputIdx),
@@ -1572,7 +1577,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlhighwaveLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlhighwaveDisplayShift(outputIdx),
@@ -1593,7 +1598,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.PatternConfirm | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlhikkakeLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlhikkakeDisplayShift(outputIdx),
@@ -1614,7 +1619,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.PatternConfirm | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlhikkakemodLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlhikkakemodDisplayShift(outputIdx),
@@ -1635,7 +1640,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlhomingpigeonLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlhomingpigeonDisplayShift(outputIdx),
@@ -1656,7 +1661,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdlidentical3crowsLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdlidentical3crowsDisplayShift(outputIdx),
@@ -1677,7 +1682,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlinneckLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlinneckDisplayShift(outputIdx),
@@ -1698,7 +1703,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlinvertedhammerLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlinvertedhammerDisplayShift(outputIdx),
@@ -1719,7 +1724,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlkickingLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlkickingDisplayShift(outputIdx),
@@ -1740,7 +1745,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlkickingbylengthLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlkickingbylengthDisplayShift(outputIdx),
@@ -1761,7 +1766,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlladderbottomLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlladderbottomDisplayShift(outputIdx),
@@ -1782,7 +1787,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBool | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdllongleggeddojiLookback(),
         displayShift: static (core, c, outputIdx) => core.CdllongleggeddojiDisplayShift(outputIdx),
@@ -1803,7 +1808,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdllonglineLookback(),
         displayShift: static (core, c, outputIdx) => core.CdllonglineDisplayShift(outputIdx),
@@ -1824,7 +1829,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlmarubozuLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlmarubozuDisplayShift(outputIdx),
@@ -1845,7 +1850,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlmatchinglowLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlmatchinglowDisplayShift(outputIdx),
@@ -1869,7 +1874,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlmatholdLookback(c.RealOpt(0)),
         displayShift: static (core, c, outputIdx) => core.CdlmatholdDisplayShift(c.RealOpt(0), outputIdx),
@@ -1893,7 +1898,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlmorningdojistarLookback(c.RealOpt(0)),
         displayShift: static (core, c, outputIdx) => core.CdlmorningdojistarDisplayShift(c.RealOpt(0), outputIdx),
@@ -1917,7 +1922,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlmorningstarLookback(c.RealOpt(0)),
         displayShift: static (core, c, outputIdx) => core.CdlmorningstarDisplayShift(c.RealOpt(0), outputIdx),
@@ -1938,7 +1943,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlonneckLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlonneckDisplayShift(outputIdx),
@@ -1959,7 +1964,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlpiercingLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlpiercingDisplayShift(outputIdx),
@@ -1980,7 +1985,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBool | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlrickshawmanLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlrickshawmanDisplayShift(outputIdx),
@@ -2001,7 +2006,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdlrisefall3methodsLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdlrisefall3methodsDisplayShift(outputIdx),
@@ -2022,7 +2027,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlseparatinglinesLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlseparatinglinesDisplayShift(outputIdx),
@@ -2043,7 +2048,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlshootingstarLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlshootingstarDisplayShift(outputIdx),
@@ -2064,7 +2069,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlshortlineLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlshortlineDisplayShift(outputIdx),
@@ -2085,7 +2090,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlspinningtopLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlspinningtopDisplayShift(outputIdx),
@@ -2106,7 +2111,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlstalledpatternLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlstalledpatternDisplayShift(outputIdx),
@@ -2127,7 +2132,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlsticksandwichLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlsticksandwichDisplayShift(outputIdx),
@@ -2148,7 +2153,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBool | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdltakuriLookback(),
         displayShift: static (core, c, outputIdx) => core.CdltakuriDisplayShift(outputIdx),
@@ -2169,7 +2174,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdltasukigapLookback(),
         displayShift: static (core, c, outputIdx) => core.CdltasukigapDisplayShift(outputIdx),
@@ -2190,7 +2195,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdlthrustingLookback(),
         displayShift: static (core, c, outputIdx) => core.CdlthrustingDisplayShift(outputIdx),
@@ -2211,7 +2216,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.CdltristarLookback(),
         displayShift: static (core, c, outputIdx) => core.CdltristarDisplayShift(outputIdx),
@@ -2232,7 +2237,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdlunique3riverLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdlunique3riverDisplayShift(outputIdx),
@@ -2253,7 +2258,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdlupsidegap2crowsLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdlupsidegap2crowsDisplayShift(outputIdx),
@@ -2274,7 +2279,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         optInputs: [],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line | OutputFlags.PatternBullBear | OutputFlags.Positive | OutputFlags.Negative | OutputFlags.Zero),
         ],
         lookback: static (core, c) => core.Cdlxsidegap3methodsLookback(),
         displayShift: static (core, c, outputIdx) => core.Cdlxsidegap3methodsDisplayShift(outputIdx),
@@ -2550,7 +2555,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "COSH",
         group: FunctionGroup.MathTransform,
         hint: "Vector Trigonometric Cosh",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -2909,7 +2914,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "EXP",
         group: FunctionGroup.MathTransform,
         hint: "Vector Arithmetic Exp",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -2975,7 +2980,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "FRACTAL",
         group: FunctionGroup.MomentumIndicators,
         hint: "Williams Fractal",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.DisplayShift,
         unstableId: null,
         inputs:
         [
@@ -2988,8 +2993,8 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         ],
         outputs:
         [
-            new OutputInfo(OutputKind.Integer, "outSwingHigh", OutputFlags.Line),
-            new OutputInfo(OutputKind.Integer, "outSwingLow", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outSwingHigh", OutputFlags.Line | OutputFlags.PatternBool | OutputFlags.Positive | OutputFlags.Zero | OutputFlags.DisplayShift),
+            new OutputInfo(OutputKind.Integer, "outSwingLow", OutputFlags.Line | OutputFlags.PatternBool | OutputFlags.Positive | OutputFlags.Zero | OutputFlags.DisplayShift),
         ],
         lookback: static (core, c) => core.FractalLookback(c.IntOpt(0), c.IntOpt(1)),
         displayShift: static (core, c, outputIdx) => core.FractalDisplayShift(c.IntOpt(0), c.IntOpt(1), outputIdx),
@@ -4776,7 +4781,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "SINH",
         group: FunctionGroup.MathTransform,
         hint: "Vector Trigonometric Sinh",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.NanInfOutput,
         unstableId: null,
         inputs:
         [
@@ -5072,6 +5077,127 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Supertrend(
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.RealOut(0), c.IntOut(1)));
+
+    private static FuncInfo MakeSwak2php() => new(
+        name: "SWAK_2PHP",
+        group: FunctionGroup.CycleIndicators,
+        hint: "Swiss Army Knife - Two-Pole High-Pass Filter",
+        flags: FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.SWAK_2PHP,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Cutoff period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 10000, 20, 5, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.Swak2phpLookback(c.IntOpt(0)),
+        displayShift: static (core, c, outputIdx) => core.Swak2phpDisplayShift(c.IntOpt(0), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Swak2php(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeSwakBp() => new(
+        name: "SWAK_BP",
+        group: FunctionGroup.CycleIndicators,
+        hint: "Swiss Army Knife - Band-Pass Filter",
+        flags: FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.SWAK_BP,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Center period", OptInputFlags.None, new OptInputDomain.IntegerRange(5, 2000, 20, 5, 200, 1)),
+            new OptInputInfo("optInDelta", "Delta", "Half-bandwidth as a fraction of the center period", OptInputFlags.None, new OptInputDomain.RealRange(0.05, 0.5, 2, 0.1, 0.05, 0.5, 0.05)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.SwakBpLookback(c.IntOpt(0), c.RealOpt(1)),
+        displayShift: static (core, c, outputIdx) => core.SwakBpDisplayShift(c.IntOpt(0), c.RealOpt(1), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.SwakBp(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOut(0)));
+
+    private static FuncInfo MakeSwakButter() => new(
+        name: "SWAK_BUTTER",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Swiss Army Knife - Butterworth Filter",
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.SWAK_BUTTER,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Cutoff period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 10000, 20, 5, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.SwakButterLookback(c.IntOpt(0)),
+        displayShift: static (core, c, outputIdx) => core.SwakButterDisplayShift(c.IntOpt(0), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.SwakButter(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeSwakGauss() => new(
+        name: "SWAK_GAUSS",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Swiss Army Knife - Gaussian Filter",
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.SWAK_GAUSS,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Cutoff period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 10000, 20, 5, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.SwakGaussLookback(c.IntOpt(0)),
+        displayShift: static (core, c, outputIdx) => core.SwakGaussDisplayShift(c.IntOpt(0), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.SwakGauss(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeSwakHp() => new(
+        name: "SWAK_HP",
+        group: FunctionGroup.CycleIndicators,
+        hint: "Swiss Army Knife - High-Pass Filter",
+        flags: FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.SWAK_HP,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Cutoff period", OptInputFlags.None, new OptInputDomain.IntegerRange(5, 100000, 20, 5, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.SwakHpLookback(c.IntOpt(0)),
+        displayShift: static (core, c, outputIdx) => core.SwakHpDisplayShift(c.IntOpt(0), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.SwakHp(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
 
     private static FuncInfo MakeT3() => new(
         name: "T3",

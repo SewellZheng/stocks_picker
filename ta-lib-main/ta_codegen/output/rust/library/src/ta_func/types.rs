@@ -16,6 +16,17 @@ pub enum RetCode {
     BadParam = 2,
     /// C parity only, never returned here: an allocation failure terminates the process (#178).
     AllocErr = 3,
+    /// Abstract API only: no function has the name looked up.
+    FuncNotFound = 5,
+    /// Abstract API only: a setter was given a value of another kind than
+    /// the slot it names.
+    InvalidParamHolderType = 8,
+    /// Abstract API only: the call was refused because a required input
+    /// is not bound. The function did not run.
+    InputNotAllInitialize = 10,
+    /// Abstract API only: the call was refused because an output is not
+    /// bound. The function did not run.
+    OutputNotAllInitialize = 11,
     /// The start index is out of range.
     OutOfRangeStartIndex = 12,
     /// The end index is out of range or less than start index.
@@ -32,7 +43,7 @@ pub enum RetCode {
 
 /// Where a successful call's output starts and how many values it wrote.
 ///
-/// Returned by every batch entry point and by the abstraction layer's
+/// Returned by every batch entry point and by the Abstract API's
 /// [`ParamHolder::call`](crate::abstract_api::ParamHolder::call). A valid range
 /// that ends before the function's lookback is a **success with no values**
 /// (`count == 0`), not an error — the same contract as C's `TA_SUCCESS` with
@@ -68,6 +79,10 @@ impl std::fmt::Display for RetCode {
         let s = match self {
             RetCode::Success => "success",
             RetCode::BadParam => "bad parameter",
+            RetCode::FuncNotFound => "no function has that name",
+            RetCode::InvalidParamHolderType => "value of the wrong kind for this slot",
+            RetCode::InputNotAllInitialize => "input not bound",
+            RetCode::OutputNotAllInitialize => "output not bound",
             RetCode::OutOfRangeStartIndex => "start index out of range",
             RetCode::OutOfRangeEndIndex => "end index out of range",
             RetCode::AllocErr => "allocation error",
@@ -79,7 +94,7 @@ impl std::fmt::Display for RetCode {
 }
 
 /// `RetCode` is the error type of every tier's `Result` — batch, streaming and
-/// the abstraction layer.
+/// the Abstract API.
 impl std::error::Error for RetCode {}
 
 /// Identifies functions that have an unstable period.
@@ -149,6 +164,16 @@ pub enum FuncUnstId {
     VIDYA,
     /// Unstable period of [`Core::stc`].
     STC,
+    /// Unstable period of [`Core::swak_gauss`].
+    SWAK_GAUSS,
+    /// Unstable period of [`Core::swak_butter`].
+    SWAK_BUTTER,
+    /// Unstable period of [`Core::swak_hp`].
+    SWAK_HP,
+    /// Unstable period of [`Core::swak_2php`].
+    SWAK_2PHP,
+    /// Unstable period of [`Core::swak_bp`].
+    SWAK_BP,
     /// Wildcard: set the unstable period for all functions at once.
     ///
     /// Pinned rather than sitting one past the last function id, so that adding
@@ -160,7 +185,7 @@ impl FuncUnstId {
     /// Size of the unstable-period table: one past the highest function id.
     /// [`FuncUnstId::ALL`] selects every slot and is not one. Mirrors C's
     /// `TA_FUNC_UNST_COUNT`.
-    pub(crate) const COUNT: usize = 31;
+    pub(crate) const COUNT: usize = 36;
 }
 
 /// What a candlestick setting measures a candle against. Mirrors the C
@@ -691,6 +716,9 @@ mod tests {
         // because nothing else in this crate compares the two vocabularies, and
         // the cross-language harness reads exactly this integer.
         assert_eq!(RetCode::InsufficientHistory.as_c_int(), 17);
+        assert_eq!(RetCode::InvalidParamHolderType.as_c_int(), 8);
+        assert_eq!(RetCode::InputNotAllInitialize.as_c_int(), 10);
+        assert_eq!(RetCode::OutputNotAllInitialize.as_c_int(), 11);
     }
 
     #[test]

@@ -700,6 +700,11 @@ static const UnstableLookup UNSTABLE_MAP[] = {
      * varies EMA's, so the sweep needs both rows. */
     {"STC",          TA_FUNC_UNST_STC},
     {"STC",          TA_FUNC_UNST_EMA},
+    {"SWAK_2PHP",    TA_FUNC_UNST_SWAK_2PHP},
+    {"SWAK_BP",      TA_FUNC_UNST_SWAK_BP},
+    {"SWAK_BUTTER",  TA_FUNC_UNST_SWAK_BUTTER},
+    {"SWAK_GAUSS",   TA_FUNC_UNST_SWAK_GAUSS},
+    {"SWAK_HP",      TA_FUNC_UNST_SWAK_HP},
     {"T3",           TA_FUNC_UNST_T3},
     /* EMA-derived: doRangeTest sweeps UNST_EMA, as the hand MA tests do. */
     {"DEMA",         TA_FUNC_UNST_EMA},
@@ -6863,7 +6868,9 @@ static const char *const CODEGEN_TRANSCENDENTAL[] = {
     "ACOS", "ALMA", "ASIN", "ATAN", "CHOP", "CHOPTR", "COS", "COSH", "EXP", "FRAMA",
     "HT_DCPERIOD", "HT_DCPHASE", "HT_PHASOR", "HT_SINE", "HT_TRENDLINE",
     "HT_TRENDMODE", "LINEARREG_ANGLE", "LN", "LOG10", "MAMA",
-    "SIN", "SINH", "TAN", "TANH",
+    "SIN", "SINH",
+    "SWAK_2PHP", "SWAK_BP", "SWAK_BUTTER", "SWAK_GAUSS", "SWAK_HP",
+    "TAN", "TANH",
 };
 
 int codegen_is_transcendental(const char *name)

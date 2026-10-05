@@ -45,13 +45,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  072404 AC   Creation
+ *  072404 AC     Creation
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -219,8 +222,6 @@ impl Core {
         // - short real body
         // - short upper and lower shadow
         // The meaning of "short" is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when white, negative (-1 to -100) when black;
-        // it does not mean bullish or bearish
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -352,9 +353,8 @@ impl Core {
     /// let out_range = core.cdlshortline(0, open.len() - 1, &open, &high, &low, &close, &mut out)?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [-100, 0, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -698,8 +698,6 @@ impl Core {
         // - short real body
         // - short upper and lower shadow
         // The meaning of "short" is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when white, negative (-1 to -100) when black;
-        // it does not mean bullish or bearish
         outIdx = 0;
         loop {
             if (inClose[i] - inOpen[i]).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) * (if (BodyShort_rangeType) == 2 { 0.5 } else { 1.0 })) && (inHigh[i] - (if inClose[i] >= inOpen[i] { inClose[i] } else { inOpen[i] })) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowPeriodTotal) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 })) && ((if inClose[i] >= inOpen[i] { inOpen[i] } else { inClose[i] }) - inLow[i]) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowPeriodTotal) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - (if (inClose[i]) >= (inOpen[i]) { (inClose[i]) } else { (inOpen[i]) })) + ((if (inClose[i]) >= (inOpen[i]) { (inOpen[i]) } else { (inClose[i]) }) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 })) {

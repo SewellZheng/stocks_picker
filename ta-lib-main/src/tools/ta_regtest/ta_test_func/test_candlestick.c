@@ -684,6 +684,12 @@ typedef TA_RetCode (*PbCdlFn)(int,int,const double*,const double*,const double*,
  * all -- see pb_check_mcdc_p below. */
 typedef TA_RetCode (*PbCdlFnP)(int,int,const double*,const double*,const double*,const double*,double,int*,int*,int*);
 
+/* Functions a pb_check tape proves to write +-200, which is what a
+ * TA_OUT_PATTERN_CONFIRM output must be (rule rW8). */
+#define PB_MAXCONFIRM 8
+static const char *pbConfirmProven[PB_MAXCONFIRM];
+static int         pbNbConfirmProven;
+
 static ErrorNumber pb_check( const char *name, PbCdlFn fn )
 {
    int out[PB_N], begIdx=0, nb=0, k, fails=0;
@@ -717,6 +723,12 @@ static ErrorNumber pb_check( const char *name, PbCdlFn fn )
       printf("  %s PREDICATE VACUOUS: missing an output class (+100=%d -100=%d +200=%d -200=%d)\n", name, s1,sn1,s2,sn2);
       return TA_TSTCDL_PREDICATE_VACUOUS;
    }
+   if( pbNbConfirmProven >= PB_MAXCONFIRM )
+   {
+      printf("  %s: more than %d confirming patterns; raise PB_MAXCONFIRM\n", name, PB_MAXCONFIRM);
+      return TA_TSTCDL_PREDICATE_VACUOUS;
+   }
+   pbConfirmProven[pbNbConfirmProven++] = name;
 
    /* Cross-language, same as pb_check_mcdc. These tapes are the ONLY bars in
     * the tree that reach the +/-200 confirmation arm, and until now they never
@@ -899,6 +911,32 @@ static ErrorNumber pb_check_totals( void )
       }
 
    return TA_TEST_PASS;
+}
+
+/* Functions whose detects and controls fired exactly the values of level 100
+ * and 80 their output's flags declare. */
+static int pbFlagClassChecked;
+
+/* The values of level 100 and 80 the output of `name` declares (rule rW8); -1
+ * when it cannot be looked up. A 200 confirms on a later bar, outside the one
+ * decision these scenarios exercise. */
+static int pb_flag_classes( const char *name, int want[4] )
+{
+   const TA_FuncHandle *handle;
+   const TA_OutputParameterInfo *info;
+   int n = 0, l;
+   static const int levels[2] = { 100, 80 };
+   if( TA_GetFuncHandle( name, &handle ) != TA_SUCCESS ||
+       TA_GetOutputParameterInfo( handle, 0, &info ) != TA_SUCCESS )
+      return -1;
+   for( l = 0; l < 2; l++ )
+   {
+      if( l == 1 && !(info->flags & TA_OUT_PATTERN_WEAK) )
+         break;
+      if( info->flags & TA_OUT_POSITIVE ) want[n++] =  levels[l];
+      if( info->flags & TA_OUT_NEGATIVE ) want[n++] = -levels[l];
+   }
+   return n;
 }
 
 /* The body shared by pb_check_mcdc and pb_check_mcdc_p -- everything past
@@ -1306,6 +1344,23 @@ static ErrorNumber pb_check_mcdc_finish( const char *name, TA_RetCode rc,
                 " -- a firing scenario is missing for one of its arms\n",
                 name, nCls, pbNbSigns);
          fails++;
+      }
+      else
+      {
+         int want[4], nWant = pb_flag_classes( name, want ), w, match = nWant == nCls;
+         for( w = 0; match && w < nWant; w++ )
+         {
+            for( j = 0; j < nCls && cls[j] != want[w]; j++ ) { }
+            match = j < nCls;
+         }
+         if( !match )
+         {
+            printf("  %s MC/DC: its scenarios fire %d value class(es), its output's flags "
+                   "declare %d of level 100 and 80\n", name, nCls, nWant);
+            fails++;
+         }
+         else
+            pbFlagClassChecked++;
       }
    }
 
@@ -11612,10 +11667,11 @@ static ErrorNumber test_candle_settings_matrix( const TA_History *history )
    return TA_TEST_PASS;
 }
 
-/* Every value a candlestick function writes is one of 0, +-80, +-100, +-200.
+/* Every value a candlestick function writes is one its output's flags declare
+ * (rule rW8), and a color output's sign is its candle's color.
  *
- * Each pattern writes its own literals, so nothing but a sweep holds the set
- * closed. The bars are quantized to half ticks, which is what makes equal
+ * Each pattern writes its own literals, so nothing but a sweep holds them to the
+ * metadata. The bars are quantized to half ticks, which is what makes equal
  * prices, and with them the engulfing and harami families' 80, occur at all.
  */
 #define CVS_NB_BAR  4000
@@ -11629,6 +11685,9 @@ typedef struct
    int nbFunc;                    /* candlestick functions, per series */
    int fired[CVS_MAX_FUNC];       /* non-zero values each one wrote, all series */
    long seen[6];                  /* +80, -80, +100, -100, +200, -200 */
+   long colorChecked;             /* non-zero values of color outputs, all series */
+   long confirmChecked;           /* +-200 values matched to their pattern */
+   long confirmFlagged;           /* outputs declaring level 200, all series */
 } CvsCtx;
 
 static double cvsOpen[CVS_NB_BAR], cvsHigh[CVS_NB_BAR], cvsLow[CVS_NB_BAR], cvsClose[CVS_NB_BAR];
@@ -11666,14 +11725,28 @@ static void cvs_build_series( unsigned int seed )
    }
 }
 
+/* Whether the output's flags declare v (rule rW8). */
+static int cvs_declared( TA_OutputFlags f, int v )
+{
+   int level = v < 0 ? -v : v;
+   if( v == 0 )
+      return (f & TA_OUT_ZERO) != 0;
+   if( !(f & (v > 0 ? TA_OUT_POSITIVE : TA_OUT_NEGATIVE)) )
+      return 0;
+   return level == 100 || (level == 80 && (f & TA_OUT_PATTERN_WEAK)) ||
+          (level == 200 && (f & TA_OUT_PATTERN_CONFIRM));
+}
+
 static void cvs_one_function( const TA_FuncInfo *funcInfo, void *opaque )
 {
    static const int legal[6] = { 80, -80, 100, -100, 200, -200 };
    CvsCtx *ctx = (CvsCtx *)opaque;
    TA_ParamHolder *paramHolder;
+   const TA_OutputParameterInfo *outInfo;
    TA_Integer begIdx = 0, nbElement = 0;
    TA_RetCode retCode;
-   int i, k;
+   TA_OutputFlags f;
+   int i, k, color, live = 0, nz = 0;
 
    if( ctx->error != TA_TEST_PASS || !(funcInfo->flags & TA_FUNC_FLG_CANDLESTICK) )
       return;
@@ -11691,6 +11764,24 @@ static void cvs_one_function( const TA_FuncInfo *funcInfo, void *opaque )
       ctx->error = TA_CDL_VALUE_SET_FAIL;
       return;
    }
+   TA_GetOutputParameterInfo( funcInfo->handle, 0, &outInfo );
+   f = outInfo->flags;
+   color = !(f & (TA_OUT_PATTERN_BOOL | TA_OUT_PATTERN_BULL_BEAR)) &&
+           (f & TA_OUT_ZERO) && (f & TA_OUT_POSITIVE) && (f & TA_OUT_NEGATIVE);
+   {
+      int p;
+      for( p = 0; p < pbNbConfirmProven && strcmp( pbConfirmProven[p], funcInfo->name ) != 0; p++ ) { }
+      if( (p < pbNbConfirmProven) != ((f & TA_OUT_PATTERN_CONFIRM) != 0) )
+      {
+         printf( "\nFail: TA_%s %s\n", funcInfo->name, (f & TA_OUT_PATTERN_CONFIRM)
+                 ? "declares level 200, but no scenario proves it writes +-200"
+                 : "does not declare level 200, but a scenario proves it writes +-200" );
+         TA_ParamHolderFree( paramHolder );
+         ctx->error = TA_CDL_VALUE_SET_FAIL;
+         return;
+      }
+      ctx->confirmFlagged += (f & TA_OUT_PATTERN_CONFIRM) != 0;
+   }
    TA_SetInputParamPricePtr( paramHolder, 0, cvsOpen, cvsHigh, cvsLow, cvsClose, NULL, NULL );
    TA_SetOutputParamIntegerPtr( paramHolder, 0, cvsOut );
    retCode = TA_CallFunc( paramHolder, 0, CVS_NB_BAR - 1, &begIdx, &nbElement );
@@ -11704,18 +11795,54 @@ static void cvs_one_function( const TA_FuncInfo *funcInfo, void *opaque )
    }
    for( i = 0; i < nbElement; i++ )
    {
-      if( cvsOut[i] == 0 )
-         continue;
-      for( k = 0; k < 6 && cvsOut[i] != legal[k]; k++ ) { }
-      if( k == 6 )
+      int bar = (int)begIdx + i;
+      if( !cvs_declared( f, cvsOut[i] ) )
       {
-         printf( "\nFail: TA_%s wrote %d at bar %d; a candlestick value is one of "
-                 "0, +-80, +-100, +-200\n", funcInfo->name, cvsOut[i], (int)begIdx + i );
+         printf( "\nFail: TA_%s wrote %d at bar %d, which its output's flags 0x%x do not "
+                 "declare\n", funcInfo->name, cvsOut[i], bar, (unsigned int)f );
          ctx->error = TA_CDL_VALUE_SET_FAIL;
          return;
       }
+      if( cvsOut[i] == 0 )
+         continue;
+      if( color )
+      {
+         if( (cvsOut[i] > 0) != (cvsClose[bar] >= cvsOpen[bar]) )
+         {
+            printf( "\nFail: TA_%s wrote %d at bar %d, against that candle's color\n",
+                    funcInfo->name, cvsOut[i], bar );
+            ctx->error = TA_CDL_VALUE_SET_FAIL;
+            return;
+         }
+         ctx->colorChecked++;
+      }
+      if( cvsOut[i] == 200 || cvsOut[i] == -200 )
+      {
+         /* The pattern it confirms may precede the range, so only an earlier
+          * value in the range can contradict it. */
+         if( live != 0 && (live > 0) != (cvsOut[i] > 0) )
+         {
+            printf( "\nFail: TA_%s wrote %d at bar %d, confirming a pattern of the "
+                    "other sign\n", funcInfo->name, cvsOut[i], bar );
+            ctx->error = TA_CDL_VALUE_SET_FAIL;
+            return;
+         }
+         if( live == 0 && nz > 0 )
+         {
+            printf( "\nFail: TA_%s wrote %d at bar %d with no pattern left to confirm\n",
+                    funcInfo->name, cvsOut[i], bar );
+            ctx->error = TA_CDL_VALUE_SET_FAIL;
+            return;
+         }
+         ctx->confirmChecked += live != 0;
+         live = 0;
+      }
+      else
+         live = cvsOut[i];
+      for( k = 0; k < 6 && cvsOut[i] != legal[k]; k++ ) { }
       ctx->seen[k]++;
       ctx->fired[ctx->nbFunc]++;
+      nz++;
    }
    ctx->nbFunc++;
 }
@@ -11746,6 +11873,27 @@ static ErrorNumber test_candle_value_set( void )
    {
       printf( "\nFail: only %d of %d candlestick function(s) wrote a non-zero value "
               "in the value-set sweep\n", nbFired, ctx.nbFunc );
+      return TA_CDL_VALUE_SET_VACUOUS;
+   }
+   if( pbFlagClassChecked != ctx.nbFunc )
+   {
+      printf( "\nFail: the MC/DC scenarios of %d of the %d candlestick functions fired "
+              "the values their flags declare\n", pbFlagClassChecked, ctx.nbFunc );
+      return TA_CDL_VALUE_SET_VACUOUS;
+   }
+   if( ctx.confirmFlagged == 0 )
+   {
+      printf( "\nFail: no candlestick output declares level 200\n" );
+      return TA_CDL_VALUE_SET_VACUOUS;
+   }
+   if( ctx.confirmChecked == 0 )
+   {
+      printf( "\nFail: no +-200 in the value-set sweep followed its pattern in the range\n" );
+      return TA_CDL_VALUE_SET_VACUOUS;
+   }
+   if( ctx.colorChecked == 0 )
+   {
+      printf( "\nFail: no color output wrote a non-zero value in the value-set sweep\n" );
       return TA_CDL_VALUE_SET_VACUOUS;
    }
    for( k = 0; k < 6; k++ )

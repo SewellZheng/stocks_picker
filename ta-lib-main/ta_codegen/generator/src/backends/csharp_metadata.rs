@@ -334,13 +334,13 @@ fn cd(v: f64) -> String {
 const FUNC_FLAGS: &[(&str, &str, &str)] = &[
     ("overlap", "Overlap", "Output is on the input's scale and overlays a price chart."),
     ("stream", "Stream", "A streaming (one-bar-at-a-time) API exists for this function."),
-    ("volume", "VolumeUsed", "The function consumes volume."),
+    ("volume", "VolumeUsed", "Output is over the volume data."),
     (
         "unstable_period",
         "UnstablePeriod",
-        "Recursive: honours the unstable-period setting. See <see cref=\"FuncInfo.UnstableId\"/>.",
+        "Owns an unstable-period id: <see cref=\"FuncInfo.UnstableId\"/>.",
     ),
-    ("candlestick", "Candlestick", "The function recognises a candlestick pattern."),
+    ("candlestick", "Candlestick", "A candlestick pattern function: every integer output is a pattern output."),
     (
         "path_dependent",
         "PathDependent",
@@ -376,24 +376,33 @@ const OUTPUT_FLAGS: &[(&str, &str, &str)] = &[
     ("dash_line", "DashLine", "Draw as a dashed line."),
     ("dot", "Dot", "Draw as unconnected dots."),
     ("histogram", "Histogram", "Draw as a histogram."),
-    ("pattern_bool", "PatternBool", "0 = no pattern, 100 = pattern."),
-    ("pattern_bull_bear", "PatternBullBear", "-100 = bearish, 0 = none, 100 = bullish."),
-    ("pattern_strength", "PatternStrength", "-200..-100 bearish, 100..200 bullish."),
-    ("positive", "Positive", "The value is always at or above zero."),
-    ("negative", "Negative", "The value is always at or below zero."),
-    ("zero", "Zero", "Zero is a meaningful reference level."),
+    ("pattern_bool", "PatternBool", "0 is no pattern, 100 a pattern; no other value."),
+    ("pattern_bull_bear", "PatternBullBear", "The sign is a call: positive bullish, negative bearish."),
+    (
+        "pattern_confirm",
+        "PatternConfirm",
+        "Adds level 200: this bar confirms the output's most recent earlier pattern.",
+    ),
+    ("positive", "Positive", "Positive values occur."),
+    ("negative", "Negative", "Negative values occur."),
+    (
+        "zero",
+        "Zero",
+        "Zero occurs; on a pattern output, no pattern on this bar. An output setting any of the three sign flags declares all its signs; one setting none declares nothing.",
+    ),
     ("upper_limit", "UpperLimit", "An upper band or limit line."),
     ("lower_limit", "LowerLimit", "A lower band or limit line."),
     (
         "nullable",
         "Nullable",
-        "Discardable: C accepts <c>NULL</c> for it. C# still requires an array.",
+        "The typed call lets the caller decline it. A <c>ParamHolder</c> still needs it bound.",
     ),
     (
         "display_shift",
         "DisplayShift",
         "A chart draws it ahead of or behind the bar that computed it, by the bars the display-shift query reports. The values are never shifted.",
     ),
+    ("pattern_weak", "PatternWeak", "Adds level 80: a weaker form of the pattern, on the same bar."),
 ];
 
 /// The six OHLCV components, with the bit `price_bundle` assigns each.
@@ -541,7 +550,7 @@ fn vocabulary(rows: &[FuncRow]) -> String {
     flags_enum(
         &mut s,
         "OutputFlags",
-        "How an output is meant to be drawn, and whether it may be discarded. Values match C's <c>TA_OUT_*</c>.",
+        "How an output is meant to be drawn, whether it may be discarded, and what its values can be. Values match C's <c>TA_OUT_*</c>. A pattern output writes 0 or a sign times a level: the sign flags give its signs, the level flags its levels (100 always).",
         OUTPUT_FLAGS,
         output_flag_bits,
         c.output,
@@ -1516,7 +1525,11 @@ public sealed record FuncInfo
     /// <summary>Begins a call against a specific <see cref="Core"/>.</summary>
     /// <param name="core">The core whose settings the call should use.</param>
     /// <returns>A fresh, unbound call.</returns>
-    public ParamHolder CreateCall(Core core) => new(this, core);
+    /// <exception cref="TALibArgumentException">Carrying
+    /// <see cref="RetCode.BadParam"/>: <paramref name="core"/> is null.</exception>
+    public ParamHolder CreateCall(Core core) => core is null
+        ? throw new TALibArgumentException($"{Name}: core is null", nameof(core), RetCode.BadParam)
+        : new(this, core);
 
     /// <summary>The function's name.</summary>
     /// <returns><see cref="Name"/>.</returns>
@@ -1621,22 +1634,30 @@ public sealed class ParamHolder
         PriceComponents.Close => 3,
         PriceComponents.Volume => 4,
         PriceComponents.OpenInterest => 5,
-        _ => throw new ArgumentException($"{c} is not a single price component", nameof(c)),
+        _ => throw new TALibArgumentException($"{c} is not a single price component", nameof(c), RetCode.BadParam),
     };
+
+    private void RequireNotNull([System.Diagnostics.CodeAnalysis.NotNull] object? argument, string name)
+    {
+        if (argument is null)
+        {
+            throw new TALibArgumentException($"{_info.Name}: {name} is null", name, RetCode.BadParam);
+        }
+    }
 
     private InputInfo CheckInput(int slot, InputKind expected)
     {
         if (slot < 0 || slot >= _info.Inputs.Length)
         {
-            throw new ArgumentOutOfRangeException(nameof(slot),
-                $"{_info.Name}: input {slot} is outside [0, {_info.Inputs.Length})");
+            throw new TALibArgumentException(
+                $"{_info.Name}: input {slot} is outside [0, {_info.Inputs.Length})", nameof(slot), RetCode.BadParam);
         }
 
         InputInfo info = _info.Inputs[slot];
         if (info.Kind != expected)
         {
-            throw new ArgumentException(
-                $"{_info.Name} input {slot} ({info.ParamName}) is {info.Kind}, not {expected}", nameof(slot));
+            throw new TALibArgumentException(
+                $"{_info.Name} input {slot} ({info.ParamName}) is {info.Kind}, not {expected}", nameof(slot), RetCode.InvalidParamHolderType);
         }
 
         return info;
@@ -1650,7 +1671,7 @@ public sealed class ParamHolder
     public ParamHolder SetInput(int slot, double[] series)
     {
         CheckInput(slot, InputKind.Real);
-        ArgumentNullException.ThrowIfNull(series);
+        RequireNotNull(series, nameof(series));
         _series[slot] = series;
         return this;
     }
@@ -1663,7 +1684,7 @@ public sealed class ParamHolder
     public ParamHolder SetInput(int slot, int[] series)
     {
         CheckInput(slot, InputKind.Integer);
-        ArgumentNullException.ThrowIfNull(series);
+        RequireNotNull(series, nameof(series));
         _intSeries[slot] = series;
         return this;
     }
@@ -1687,7 +1708,7 @@ public sealed class ParamHolder
     public ParamHolder SetPriceInput(int slot, PriceComponents component, double[] series)
     {
         InputInfo info = CheckInput(slot, InputKind.Price);
-        ArgumentNullException.ThrowIfNull(series);
+        RequireNotNull(series, nameof(series));
         _price[slot][ComponentIndex(component)] = series;
         return this;
     }
@@ -1725,8 +1746,8 @@ public sealed class ParamHolder
         {
             if (info.Requires(all[i]) && given[i] is null)
             {
-                throw new ArgumentException(
-                    $"{_info.Name} input {slot} ({info.ParamName}) requires {all[i]}", nameof(slot));
+                throw new TALibArgumentException(
+                    $"{_info.Name} input {slot} ({info.ParamName}) requires {all[i]}", nameof(slot), RetCode.BadParam);
             }
         }
 
@@ -1744,8 +1765,8 @@ public sealed class ParamHolder
     {
         if (index < 0 || index >= _info.OptInputs.Length)
         {
-            throw new ArgumentOutOfRangeException(nameof(index),
-                $"{_info.Name}: optional parameter {index} is outside [0, {_info.OptInputs.Length})");
+            throw new TALibArgumentException(
+                $"{_info.Name}: optional parameter {index} is outside [0, {_info.OptInputs.Length})", nameof(index), RetCode.BadParam);
         }
 
         return _info.OptInputs[index];
@@ -1761,9 +1782,9 @@ public sealed class ParamHolder
         OptInputInfo p = CheckOpt(index);
         if (p.Domain is not (OptInputDomain.IntegerRange or OptInputDomain.IntegerList))
         {
-            throw new ArgumentException(
+            throw new TALibArgumentException(
                 $"{_info.Name} parameter {index} ({p.ParamName}) is {p.Domain.GetType().Name}, not integral",
-                nameof(index));
+                nameof(index), RetCode.InvalidParamHolderType);
         }
 
         _intOpts[index] = value;
@@ -1780,9 +1801,9 @@ public sealed class ParamHolder
         OptInputInfo p = CheckOpt(index);
         if (p.Domain is not (OptInputDomain.RealRange or OptInputDomain.RealList))
         {
-            throw new ArgumentException(
+            throw new TALibArgumentException(
                 $"{_info.Name} parameter {index} ({p.ParamName}) is {p.Domain.GetType().Name}, not real",
-                nameof(index));
+                nameof(index), RetCode.InvalidParamHolderType);
         }
 
         _realOpts[index] = value;
@@ -1805,9 +1826,9 @@ public sealed class ParamHolder
         OptInputInfo p = CheckOpt(index);
         if (p.Domain is not OptInputDomain.IntegerList)
         {
-            throw new ArgumentException(
+            throw new TALibArgumentException(
                 $"{_info.Name} parameter {index} ({p.ParamName}) is {p.Domain.GetType().Name}, not a choice list",
-                nameof(index));
+                nameof(index), RetCode.InvalidParamHolderType);
         }
 
         _intOpts[index] = (int)value;
@@ -1821,12 +1842,12 @@ public sealed class ParamHolder
     /// <exception cref="ArgumentException">The row does not belong to this function.</exception>
     public ParamHolder SetOptInput(OptInputInfo parameter, double value)
     {
-        ArgumentNullException.ThrowIfNull(parameter);
+        RequireNotNull(parameter, nameof(parameter));
         int index = _info.OptInputs.IndexOf(parameter);
         if (index < 0)
         {
-            throw new ArgumentException(
-                $"{parameter.ParamName} is not a parameter of {_info.Name}", nameof(parameter));
+            throw new TALibArgumentException(
+                $"{parameter.ParamName} is not a parameter of {_info.Name}", nameof(parameter), RetCode.BadParam);
         }
 
         return parameter.Domain switch
@@ -1848,8 +1869,8 @@ public sealed class ParamHolder
     {
         if (double.IsNaN(value) || value < int.MinValue || value > int.MaxValue)
         {
-            throw new ArgumentOutOfRangeException(nameof(value),
-                $"{parameter.ParamName}: {value} is outside the range an integer parameter can hold");
+            throw new TALibArgumentException(
+                $"{parameter.ParamName}: {value} is outside the range an integer parameter can hold", nameof(value), RetCode.BadParam);
         }
 
         return (int)value;
@@ -1859,15 +1880,15 @@ public sealed class ParamHolder
     {
         if (index < 0 || index >= _info.Outputs.Length)
         {
-            throw new ArgumentOutOfRangeException(nameof(index),
-                $"{_info.Name}: output {index} is outside [0, {_info.Outputs.Length})");
+            throw new TALibArgumentException(
+                $"{_info.Name}: output {index} is outside [0, {_info.Outputs.Length})", nameof(index), RetCode.BadParam);
         }
 
         OutputInfo info = _info.Outputs[index];
         if (info.Kind != expected)
         {
-            throw new ArgumentException(
-                $"{_info.Name} output {index} ({info.ParamName}) is {info.Kind}, not {expected}", nameof(index));
+            throw new TALibArgumentException(
+                $"{_info.Name} output {index} ({info.ParamName}) is {info.Kind}, not {expected}", nameof(index), RetCode.InvalidParamHolderType);
         }
 
         return info;
@@ -1881,7 +1902,7 @@ public sealed class ParamHolder
     public ParamHolder SetOutput(int index, double[] buffer)
     {
         CheckOutput(index, OutputKind.Real);
-        ArgumentNullException.ThrowIfNull(buffer);
+        RequireNotNull(buffer, nameof(buffer));
         _realOuts[index] = buffer;
         return this;
     }
@@ -1894,7 +1915,7 @@ public sealed class ParamHolder
     public ParamHolder SetOutput(int index, int[] buffer)
     {
         CheckOutput(index, OutputKind.Integer);
-        ArgumentNullException.ThrowIfNull(buffer);
+        RequireNotNull(buffer, nameof(buffer));
         _intOuts[index] = buffer;
         return this;
     }
@@ -1977,20 +1998,48 @@ public sealed class ParamHolder
         return true;
     }
 
+    /* The typed method reads an empty span on a nullable output as declined,
+       and no output can be declined through a holder. Refuse it only where
+       that method refuses an empty span on any other output: an invalid range
+       or parameter must keep its own diagnosis. */
+    private void RequireNoDeclinedOutput(int startIdx, int endIdx)
+    {
+        if (Core.ClampedStart(startIdx, endIdx, Lookback()) < 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < _info.Outputs.Length; i++)
+        {
+            OutputInfo probe = _info.Outputs[i];
+            if ((probe.Flags & OutputFlags.Nullable) != 0
+                && (probe.Kind == OutputKind.Real ? _realOuts[i]!.Length : _intOuts[i]!.Length) == 0)
+            {
+                Core.RequirePresent(_info.Name, probe.ParamName, 0);
+            }
+        }
+    }
+
     /// <summary>Runs the function over <c>[startIdx, endIdx]</c>.</summary>
     /// <param name="startIdx">First input bar to compute.</param>
     /// <param name="endIdx">Last input bar to compute.</param>
     /// <returns>Where the output starts and how much there is.</returns>
-    /// <exception cref="ArgumentException">A required input or output was never
-    /// bound, or an argument is invalid — the same failures the typed method
-    /// reports.</exception>
+    /// <exception cref="TALibArgumentException">Carrying
+    /// <see cref="RetCode.InputNotAllInitialize"/> or
+    /// <see cref="RetCode.OutputNotAllInitialize"/>: a required input or output was
+    /// never bound, and the function did not run. Carrying
+    /// <see cref="RetCode.BadParam"/>: an output the typed method lets a caller
+    /// decline was bound to an empty array. Any other failure is the typed
+    /// method's own.</exception>
     public OutRange Call(int startIdx, int endIdx)
     {
         RetCode bound = BoundState(out string which);
         if (bound != RetCode.Success)
         {
-            throw new ArgumentException($"{_info.Name}: {which} was not set");
+            throw new TALibArgumentException($"{_info.Name}: {which} was not set", bound);
         }
+
+        RequireNoDeclinedOutput(startIdx, endIdx);
 
         // The function's OWN exception, not a relabelled code. Since #265 the
         // thunk calls the public overload, whose message names the buffer and
@@ -2009,7 +2058,9 @@ public sealed class ParamHolder
     /// <returns>The function's return code. An unbound input or output is reported
     /// as <see cref="RetCode.InputNotAllInitialize"/> /
     /// <see cref="RetCode.OutputNotAllInitialize"/>, the codes C returns for the
-    /// same condition — this method does not throw.</returns>
+    /// same condition, and an empty array bound to an output the typed method lets
+    /// a caller decline as <see cref="RetCode.BadParam"/>. This method does not
+    /// throw.</returns>
     public RetCode TryCall(int startIdx, int endIdx, out OutRange range)
     {
         RetCode bound = BoundState();
@@ -2021,6 +2072,7 @@ public sealed class ParamHolder
 
         try
         {
+            RequireNoDeclinedOutput(startIdx, endIdx);
             range = _info.Invoke(_core, this, startIdx, endIdx);
             return RetCode.Success;
         }

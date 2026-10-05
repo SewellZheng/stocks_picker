@@ -7,6 +7,7 @@ A 3-bar pattern: an inside bar followed by a false breakout, optionally later co
 ## Notes
 
 - The name comes from the Japanese word for a deceptive move or "trap" — fitting, since the pattern exists to catch traders acting on a false breakout. Bulkowski's testing of the confirmed pattern found the trap itself barely beats a coin flip: the bullish variant continues as expected only 52% of the time and the bearish variant exactly 50% ("random"), both ranking in the bottom fifth (83rd-84th of 105) for post-breakout performance. ([thepatternsite.com](https://thepatternsite.com/HikkakeBull.html))
+- A bar that is both a new setup and the confirmation of an earlier one reports the new setup; the earlier one ends unconfirmed.
 
 ## Inputs
 
@@ -23,11 +24,11 @@ A 3-bar pattern: an inside bar followed by a false breakout, optionally later co
 
 | Value | Meaning |
 |-------|---------|
-| -200 | Bearish Hikkake confirmed — price breaks down through the setup's low within 3 bars, validating the trap and the move lower |
+| -200 | Bearish Hikkake confirmed: within 3 bars, a close below the inside bar's low validates the trap and the move lower |
 | -100 | Bearish Hikkake — a false upside breakout from a tight, inside-bar range traps buyers before price turns back down |
-| 0 | No pattern, and no trap awaiting confirmation |
+| 0 | No pattern on this bar; a setup may still be awaiting confirmation |
 | 100 | Bullish Hikkake — a false downside breakout from a tight, inside-bar range traps sellers before price turns back up |
-| 200 | Bullish Hikkake confirmed — price breaks up through the setup's high within 3 bars, validating the trap and the move higher |
+| 200 | Bullish Hikkake confirmed: within 3 bars, a close above the inside bar's high validates the trap and the move higher |
 
 ## Aliases
 

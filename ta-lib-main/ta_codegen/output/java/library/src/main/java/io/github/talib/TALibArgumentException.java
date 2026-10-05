@@ -43,7 +43,9 @@ package io.github.talib;
 /**
  * An argument was rejected: an optional parameter outside its documented range,
  * two outputs sharing one array, or an array too short for the values the call
- * would read or write.
+ * would read or write. Also what the {@code io.github.talib.metadata} binder
+ * throws for a misuse of its own, carrying {@code BAD_PARAM} or an Abstract API
+ * code.
  *
  * <p>An {@link IllegalArgumentException}, which is what the API documents and
  * what a caller catches; the {@link RetCode} says which condition it was.
@@ -53,7 +55,8 @@ public class TALibArgumentException extends IllegalArgumentException implements 
 
    private final RetCode retCode;
 
-   TALibArgumentException(String message, RetCode retCode) {
+   /** Public for the {@code io.github.talib.metadata} package, which throws it too. */
+   public TALibArgumentException(String message, RetCode retCode) {
       super(message);
       this.retCode = retCode;
    }

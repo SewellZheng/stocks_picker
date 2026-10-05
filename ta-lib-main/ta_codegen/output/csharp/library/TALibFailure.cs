@@ -53,9 +53,8 @@ namespace TALib;
 /// checks C cannot make (they report the catch-all, the code C uses for an
 /// argument it can detect) — and <b>lossless</b>: distinct codes never share one
 /// thrown representation.</para>
-/// <para>Outside it, deliberately: <see cref="CoreBuilder"/> and the
-/// <c>TALib.Metadata</c> binder still raise plain .NET types. Neither is an
-/// indicator call, so neither has a <see cref="TALib.RetCode"/> to carry.</para>
+/// <para>The <c>TALib.Metadata</c> binder reports through it too. Outside it,
+/// deliberately: <see cref="CoreBuilder"/>, which is not an indicator call.</para>
 /// </remarks>
 public interface ITALibFailure
 {
@@ -65,7 +64,9 @@ public interface ITALibFailure
 
 /// <summary>An argument was rejected: an optional parameter outside its
 /// documented range, two outputs sharing one buffer, or a span too short for the
-/// values the call would read or write.</summary>
+/// values the call would read or write. Also what the <c>TALib.Metadata</c>
+/// binder throws for a misuse of its own, carrying <c>BadParam</c> or an Abstract
+/// API code.</summary>
 public class TALibArgumentException : ArgumentException, ITALibFailure
 {
     private readonly RetCode _retCode;

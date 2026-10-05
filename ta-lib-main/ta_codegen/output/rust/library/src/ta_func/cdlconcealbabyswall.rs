@@ -45,13 +45,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  022705 AC   Creation
+ *  022705 AC     Creation
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -281,10 +284,7 @@ impl Core {
         // - second candle: black marubozu (very short shadows)
         // - third candle: black candle that opens gapping down but has an upper shadow that extends into the prior body
         // - fourth candle: black candle that completely engulfs the third candle, including the shadows
-        // The meanings of "very short shadow" are specified with TA_SetCandleSettings;
-        // outInteger is positive (1 to 100): concealing baby swallow is always bullish;
-        // the user should consider that concealing baby swallow is significant when it appears in downtrend, while
-        // this function does not consider it
+        // The meanings of "very short shadow" are specified with TA_SetCandleSettings
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -463,9 +463,8 @@ impl Core {
     /// )?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [0, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -760,10 +759,7 @@ impl Core {
         // - second candle: black marubozu (very short shadows)
         // - third candle: black candle that opens gapping down but has an upper shadow that extends into the prior body
         // - fourth candle: black candle that completely engulfs the third candle, including the shadows
-        // The meanings of "very short shadow" are specified with TA_SetCandleSettings;
-        // outInteger is positive (1 to 100): concealing baby swallow is always bullish;
-        // the user should consider that concealing baby swallow is significant when it appears in downtrend, while
-        // this function does not consider it
+        // The meanings of "very short shadow" are specified with TA_SetCandleSettings
         outIdx = 0;
         loop {
             if (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { -1 }) == -1 && // 1st black

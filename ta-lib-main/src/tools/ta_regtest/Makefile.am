@@ -6,6 +6,7 @@ noinst_PROGRAMS = ta_regtest
 ta_regtest_SOURCES = ta_regtest.c \
 	test_data.c \
 	test_util.c \
+	meta_ride.c \
 	test_abstract.c \
 	codegen_pipe.c \
 	test_codegen.c \
@@ -80,6 +81,7 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_vidya.c \
 	ta_test_func/test_alma.c \
 	ta_test_func/test_stc.c \
+	ta_test_func/test_swak.c \
 	ta_test_func/test_fractal.c \
 	ta_test_func/test_ha.c \
 	ta_test_func/test_tsi.c \

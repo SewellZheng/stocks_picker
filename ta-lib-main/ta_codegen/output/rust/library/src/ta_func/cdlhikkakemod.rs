@@ -51,13 +51,14 @@
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  122605 AC   Creation
- *  071226 MF,CC Streaming-friendly rewrite: carry the confirmation state
- *               (countdown + cached 3rd-candle high/low) instead of the absolute
- *               bar index, so the per-bar logic reads no cursor. Bit-identical
- *               batch results (verified vs v0.6.4).
+ *  122605 AC     Creation
+ *  071226 MF,CC  Streaming-friendly rewrite: carry the confirmation state
+ *                (countdown + cached 3rd-candle high/low) instead of the absolute
+ *                bar index, so the per-bar logic reads no cursor. Bit-identical
+ *                batch results (verified vs v0.6.4).
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -310,15 +311,8 @@ impl Core {
         // - second candle: candle with range less than first candle and close near the bottom (near the top)
         // - third candle: lower high and higher low than 2nd
         // - fourth candle: lower high and lower low (higher high and higher low) than 3rd
-        // outInteger[hikkake bar] is positive (1 to 100) or negative (-1 to -100) meaning bullish or bearish hikkake
         // Confirmation could come in the next 3 days with:
         // - a day that closes higher than the high (lower than the low) of the 3rd candle
-        // outInteger[confirmationbar] is equal to 100 + the bullish hikkake result or -100 - the bearish hikkake result
-        // Note: if confirmation and a new hikkake come at the same bar, only the new hikkake is reported (the new hikkake
-        // overwrites the confirmation of the old hikkake);
-        // the user should consider that modified hikkake is a reversal pattern, while hikkake could be both a reversal
-        // or a continuation pattern, so bullish (bearish) modified hikkake is significant when appearing in a downtrend
-        // (uptrend)
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -473,7 +467,7 @@ impl Core {
     /// * `inLow` — Low price of each bar.
     /// * `inClose` — Close price of each bar.
     /// * `outInteger` — +100 bullish hikkake bar, -100 bearish; +200 confirmed bullish, -200
-    ///   confirmed bearish (confirmation adds another +/-100); 0 otherwise.
+    ///   confirmed bearish; 0 otherwise.
     ///
     /// # Returns
     ///
@@ -516,9 +510,8 @@ impl Core {
     /// )?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [-200, -100, 0, 100, 200].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -841,15 +834,8 @@ impl Core {
         // - second candle: candle with range less than first candle and close near the bottom (near the top)
         // - third candle: lower high and higher low than 2nd
         // - fourth candle: lower high and lower low (higher high and higher low) than 3rd
-        // outInteger[hikkake bar] is positive (1 to 100) or negative (-1 to -100) meaning bullish or bearish hikkake
         // Confirmation could come in the next 3 days with:
         // - a day that closes higher than the high (lower than the low) of the 3rd candle
-        // outInteger[confirmationbar] is equal to 100 + the bullish hikkake result or -100 - the bearish hikkake result
-        // Note: if confirmation and a new hikkake come at the same bar, only the new hikkake is reported (the new hikkake
-        // overwrites the confirmation of the old hikkake);
-        // the user should consider that modified hikkake is a reversal pattern, while hikkake could be both a reversal
-        // or a continuation pattern, so bullish (bearish) modified hikkake is significant when appearing in a downtrend
-        // (uptrend)
         outIdx = 0;
         loop {
             if inHigh[i - 2] < inHigh[i - 3] &&

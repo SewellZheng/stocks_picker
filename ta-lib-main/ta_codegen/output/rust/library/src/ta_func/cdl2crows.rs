@@ -45,13 +45,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  121104 AC   Creation
+ *  121104 AC     Creation
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -186,9 +189,6 @@ impl Core {
         // - gap between the first and the second candle's real bodies
         // - third candle: black candle that opens within the second real body and closes within the first real body
         // The meaning of "long" is specified with TA_SetCandleSettings
-        // outInteger is negative (-1 to -100): two crows is always bearish;
-        // the user should consider that two crows is significant when it appears in an uptrend, while this function
-        // does not consider the trend
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -338,9 +338,8 @@ impl Core {
     /// let out_range = core.cdl2crows(0, open.len() - 1, &open, &high, &low, &close, &mut out)?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [-100, 0].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -615,9 +614,6 @@ impl Core {
         // - gap between the first and the second candle's real bodies
         // - third candle: black candle that opens within the second real body and closes within the first real body
         // The meaning of "long" is specified with TA_SetCandleSettings
-        // outInteger is negative (-1 to -100): two crows is always bearish;
-        // the user should consider that two crows is significant when it appears in an uptrend, while this function
-        // does not consider the trend
         outIdx = 0;
         loop {
             if (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { -1 }) == 1 &&  // 1st: white

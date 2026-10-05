@@ -53,11 +53,11 @@ pub enum MAType {
 impl TryFrom<i32> for MAType {
     type Error = RetCode;
 
-    /// Convert a raw parameter value, as the abstract layer and the JSON-RPC
+    /// Convert a raw parameter value, as the Abstract API and the JSON-RPC
     /// server hold it.
     ///
     /// `i32::MIN` — C's `TA_INTEGER_DEFAULT` — resolves to the `DEFAULT`
-    /// member, so a value arriving through the abstract layer still selects
+    /// member, so a value arriving through the Abstract API still selects
     /// that parameter's documented default exactly as it does in C. Every
     /// other out-of-domain value is `BadParam`, which is what keeps the
     /// rejection in this crate rather than in a caller that wraps it.
@@ -305,6 +305,11 @@ mod stochrsi;
 mod sub;
 mod sum;
 mod supertrend;
+mod swak_2php;
+mod swak_bp;
+mod swak_butter;
+mod swak_gauss;
+mod swak_hp;
 mod t3;
 mod tan;
 mod tanh;
@@ -530,6 +535,11 @@ pub use stochrsi::StochrsiStream;
 pub use sub::SubStream;
 pub use sum::SumStream;
 pub use supertrend::SupertrendStream;
+pub use swak_2php::Swak2phpStream;
+pub use swak_bp::SwakBpStream;
+pub use swak_butter::SwakButterStream;
+pub use swak_gauss::SwakGaussStream;
+pub use swak_hp::SwakHpStream;
 pub use t3::T3Stream;
 pub use tan::TanStream;
 pub use tanh::TanhStream;

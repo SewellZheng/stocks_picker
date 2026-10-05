@@ -47,15 +47,18 @@ public partial class Core
     *  Initial  Name/description
     *  -------------------------------------------------------------------
     *  AC       Angelo Ciceri
+    *  MF       Mario Fortier
+    *  CC       Claude Code (AI assistant)
     *
     *
     * Change history:
     *
-    *  MMDDYY BY   Description
+    *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
-    *  102404 AC   Creation
-    *  040309 AC   Increased flexibility to allow real bodies matching
-    *              on one end (Greg Morris - "Candlestick charting explained")
+    *  102404 AC     Creation
+    *  040309 AC     Increased flexibility to allow real bodies matching
+    *                on one end (Greg Morris - "Candlestick charting explained")
+    *  100426 MF,CC  Remove the outInteger comment, which misstated the values
     */
    /// <summary>
    /// Number of leading input bars <c>Cdlharamicross</c> consumes before it can
@@ -167,9 +170,6 @@ public partial class Core
        * - first candle: long white (black) real body
        * - second candle: doji totally engulfed by the first
        * The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-       * outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-       * the user should consider that a harami cross is significant when it appears in a downtrend if bullish or
-       * in an uptrend when bearish, while this function does not consider the trend
        */
       outIdx = 0;
       do {
@@ -329,9 +329,10 @@ public partial class Core
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="outInteger">+100/+80 when the first candle is black (bullish), -100/-80 when the first
    /// candle is white (bearish), 0 otherwise. Magnitude 100 for strict
-   /// containment inside the first body, 80 when one real-body end matches. Must
-   /// hold at least <c>endIdx - max(startIdx, CdlharamicrossLookback(...)) +
-   /// 1</c> values, and never be empty: an empty span is an absent output.</param>
+   /// containment inside the first body, 80 when one or both real-body ends
+   /// match. Must hold at least <c>endIdx - max(startIdx,
+   /// CdlharamicrossLookback(...)) + 1</c> values, and never be empty: an empty
+   /// span is an absent output.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -421,9 +422,10 @@ public partial class Core
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="outInteger">+100/+80 when the first candle is black (bullish), -100/-80 when the first
    /// candle is white (bearish), 0 otherwise. Magnitude 100 for strict
-   /// containment inside the first body, 80 when one real-body end matches. Must
-   /// hold at least <c>endIdx - max(startIdx, CdlharamicrossLookback(...)) +
-   /// 1</c> values, and never be empty: an empty span is an absent output.</param>
+   /// containment inside the first body, 80 when one or both real-body ends
+   /// match. Must hold at least <c>endIdx - max(startIdx,
+   /// CdlharamicrossLookback(...)) + 1</c> values, and never be empty: an empty
+   /// span is an absent output.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -804,9 +806,6 @@ public partial class Core
        * - first candle: long white (black) real body
        * - second candle: doji totally engulfed by the first
        * The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-       * outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-       * the user should consider that a harami cross is significant when it appears in a downtrend if bullish or
-       * in an uptrend when bearish, while this function does not consider the trend
        */
       outIdx = 0;
       do {
@@ -971,8 +970,9 @@ public partial class Core
    /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="outInteger">+100/+80 when the first candle is black (bullish), -100/-80 when the first
    /// candle is white (bearish), 0 otherwise. Magnitude 100 for strict
-   /// containment inside the first body, 80 when one real-body end matches. Must
-   /// hold at least <c>historyLen - CdlharamicrossLookback(...)</c> values.</param>
+   /// containment inside the first body, 80 when one or both real-body ends
+   /// match. Must hold at least <c>historyLen - CdlharamicrossLookback(...)</c>
+   /// values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CdlharamicrossLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series

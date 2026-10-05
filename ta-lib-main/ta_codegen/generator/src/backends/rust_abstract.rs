@@ -290,9 +290,13 @@ fn emit_api(
     o.push_str("    if let Some(id) = get_func_handle_exact(name) {\n        return Some(id);\n    }\n");
     o.push_str("    FUNCS.iter().find(|f| f.name.eq_ignore_ascii_case(name)).map(|f| f.id)\n}\n\n");
 
-    o.push_str("/// C-style variant returning the familiar `RetCode` error channel.\n");
+    o.push_str(
+        "/// [`get_func_handle`] with C's codes: [`RetCode::FuncNotFound`] for an unknown\n\
+         /// name, [`RetCode::BadParam`] for an empty one.\n",
+    );
     o.push_str("pub fn get_func_handle_rc(name: &str) -> Result<FuncId, crate::RetCode> {\n");
-    o.push_str("    get_func_handle(name).ok_or(crate::RetCode::BadParam)\n}\n\n");
+    o.push_str("    if name.is_empty() {\n        return Err(crate::RetCode::BadParam);\n    }\n");
+    o.push_str("    get_func_handle(name).ok_or(crate::RetCode::FuncNotFound)\n}\n\n");
 
     o.push_str("/// Function metadata for a handle (infallible — `FuncId` cannot be invalid).\n");
     o.push_str("#[inline] pub fn get_func_info(handle: FuncId) -> &'static FuncInfo { handle.info() }\n");
@@ -336,8 +340,9 @@ pub trait OptValue: sealed::Sealed {
     /// Bind `self` to optional parameter `index` of `holder`.
     ///
     /// # Errors
-    /// [`RetCode::BadParam`] if the index is out of range or the parameter's
-    /// domain does not take this type.
+    /// [`RetCode::BadParam`] if the index is out of range,
+    /// [`RetCode::InvalidParamHolderType`] if the parameter's domain does not
+    /// take this type.
     fn bind(self, holder: &mut ParamHolder<'_>, index: usize) -> Result<(), RetCode>;
 }
 
@@ -349,7 +354,7 @@ impl OptValue for i32 {
                 holder.int_opt[index] = self;
                 Ok(())
             }
-            _ => Err(RetCode::BadParam),
+            _ => Err(RetCode::InvalidParamHolderType),
         }
     }
 }
@@ -362,7 +367,7 @@ impl OptValue for f64 {
                 holder.real_opt[index] = self;
                 Ok(())
             }
-            _ => Err(RetCode::BadParam),
+            _ => Err(RetCode::InvalidParamHolderType),
         }
     }
 }
@@ -429,13 +434,14 @@ impl<'a> ParamHolder<'a> {
 
     fn check_input(&self, slot: usize, want: InputType) -> Result<(), RetCode> {
         let info = self.func.info().inputs.get(slot).ok_or(RetCode::BadParam)?;
-        if info.kind == want { Ok(()) } else { Err(RetCode::BadParam) }
+        if info.kind == want { Ok(()) } else { Err(RetCode::InvalidParamHolderType) }
     }
 
     /// Bind a real input series.
     ///
     /// # Errors
-    /// [`RetCode::BadParam`] if the slot is out of range or is not a real input.
+    /// [`RetCode::BadParam`] if the slot is out of range,
+    /// [`RetCode::InvalidParamHolderType`] if it is not a real input.
     pub fn set_input(&mut self, slot: usize, series: &'a [f64]) -> Result<&mut Self, RetCode> {
         self.check_input(slot, InputType::Real)?;
         self.real_in[slot] = Some(series);
@@ -445,7 +451,8 @@ impl<'a> ParamHolder<'a> {
     /// Bind an integer input series.
     ///
     /// # Errors
-    /// [`RetCode::BadParam`] if the slot is out of range or is not an integer input.
+    /// [`RetCode::BadParam`] if the slot is out of range,
+    /// [`RetCode::InvalidParamHolderType`] if it is not an integer input.
     pub fn set_int_input(&mut self, slot: usize, series: &'a [i32]) -> Result<&mut Self, RetCode> {
         self.check_input(slot, InputType::Integer)?;
         self.int_in[slot] = Some(series);
@@ -462,8 +469,9 @@ impl<'a> ParamHolder<'a> {
     /// -- the holder-reusability rule the `call` tier states for itself.
     ///
     /// # Errors
-    /// [`RetCode::BadParam`] if the slot is out of range, is not a price input, or
-    /// a component the function *does* consume was left `None`.
+    /// [`RetCode::BadParam`] if the slot is out of range or a component the
+    /// function *does* consume was left `None`,
+    /// [`RetCode::InvalidParamHolderType`] if it is not a price input.
     pub fn set_price_input(
         &mut self,
         slot: usize,
@@ -489,8 +497,9 @@ impl<'a> ParamHolder<'a> {
     /// Bind an optional parameter. Takes an `i32` or an `f64`; see [`OptValue`].
     ///
     /// # Errors
-    /// [`RetCode::BadParam`] if the index is out of range or the value's type does
-    /// not match the parameter's domain.
+    /// [`RetCode::BadParam`] if the index is out of range,
+    /// [`RetCode::InvalidParamHolderType`] if the value's type does not match the
+    /// parameter's domain.
     pub fn set_opt_input<V: OptValue>(&mut self, index: usize, value: V) -> Result<&mut Self, RetCode> {
         value.bind(self, index)?;
         Ok(self)
@@ -499,10 +508,11 @@ impl<'a> ParamHolder<'a> {
     /// Bind a real output buffer.
     ///
     /// # Errors
-    /// [`RetCode::BadParam`] if the index is out of range or is not a real output.
+    /// [`RetCode::BadParam`] if the index is out of range,
+    /// [`RetCode::InvalidParamHolderType`] if it is not a real output.
     pub fn set_output(&mut self, index: usize, out: &'a mut [f64]) -> Result<&mut Self, RetCode> {
         let info = self.func.info().outputs.get(index).ok_or(RetCode::BadParam)?;
-        if info.kind != OutputType::Real { return Err(RetCode::BadParam); }
+        if info.kind != OutputType::Real { return Err(RetCode::InvalidParamHolderType); }
         self.real_out[index] = Some(out);
         Ok(self)
     }
@@ -510,10 +520,11 @@ impl<'a> ParamHolder<'a> {
     /// Bind an integer output buffer.
     ///
     /// # Errors
-    /// [`RetCode::BadParam`] if the index is out of range or is not an integer output.
+    /// [`RetCode::BadParam`] if the index is out of range,
+    /// [`RetCode::InvalidParamHolderType`] if it is not an integer output.
     pub fn set_int_output(&mut self, index: usize, out: &'a mut [i32]) -> Result<&mut Self, RetCode> {
         let info = self.func.info().outputs.get(index).ok_or(RetCode::BadParam)?;
-        if info.kind != OutputType::Integer { return Err(RetCode::BadParam); }
+        if info.kind != OutputType::Integer { return Err(RetCode::InvalidParamHolderType); }
         self.int_out[index] = Some(out);
         Ok(self)
     }
@@ -741,7 +752,7 @@ mod binder_tests {
                           Some(&close), Some(&close), Some(&close)).unwrap();
         h.set_output(0, &mut a).unwrap();
         h.set_output(2, &mut c).unwrap();
-        assert_eq!(h.call(0, N - 1), Err(RetCode::BadParam), "output 1 is unbound");
+        assert_eq!(h.call(0, N - 1), Err(RetCode::OutputNotAllInitialize), "output 1 is unbound");
         h.set_output(1, &mut b).unwrap();
         assert!(h.call(0, N - 1).is_ok(), "the corrected holder still works");
     }
@@ -750,7 +761,7 @@ mod binder_tests {
     /// half of the rule the test above pins for a rejected call (#266).
     ///
     /// The sharp case is a RE-bind, not a first bind: on a fresh holder the
-    /// partial write is masked, because the arm's `.ok_or(BadParam)?` reports the
+    /// partial write is masked, because the call reports the
     /// component that was never set. Over a bundle that already works, an
     /// interleaved check-and-write committed the components ahead of the
     /// offending one and left the rest holding the previous bundle, so the next
@@ -833,6 +844,48 @@ mod binder_tests {
         );
     }
 
+    #[test]
+    fn a_bound_holder_answers_the_batch_index_codes() {
+        let core = Core::new();
+        let close = series(0.0);
+        let mut out = vec![0.0; N];
+        let mut h = FuncId::SMA.new_call(&core);
+        h.set_input(0, &close).unwrap();
+        h.set_output(0, &mut out).unwrap();
+        assert_eq!(h.call(1, 0).err(), Some(RetCode::OutOfRangeEndIndex));
+        assert_eq!(
+            h.call(Core::INDEX_MAX + 1, Core::INDEX_MAX + 1).err(),
+            Some(RetCode::OutOfRangeStartIndex)
+        );
+        assert!(h.call(0, N - 1).is_ok(), "the holder still computes");
+    }
+
+    /// MAMA's second output is one the typed call takes `None` for.
+    #[test]
+    fn no_output_is_declined_through_a_holder() {
+        let core = Core::new();
+        let close = series(0.0);
+        let mut mama = vec![0.0; N];
+        let mut fama = vec![0.0; N];
+        let mut empty: [f64; 0] = [];
+        {
+            let mut h = FuncId::MAMA.new_call(&core);
+            h.set_input(0, &close).unwrap();
+            h.set_output(0, &mut mama).unwrap();
+            assert_eq!(h.call(0, N - 1).err(), Some(RetCode::OutputNotAllInitialize));
+            h.set_output(1, &mut empty).unwrap();
+            assert_eq!(h.call(0, N - 1).err(), Some(RetCode::BadParam));
+            assert_eq!(h.call(0, 0).err(), Some(RetCode::BadParam), "a range that produces no values");
+            assert_eq!(h.call(1, 0).err(), Some(RetCode::OutOfRangeEndIndex));
+        }
+        assert!(mama.iter().all(|v| *v == 0.0), "a refused call writes nothing");
+        let mut h = FuncId::MAMA.new_call(&core);
+        h.set_input(0, &close).unwrap();
+        h.set_output(0, &mut mama).unwrap();
+        h.set_output(1, &mut fama).unwrap();
+        assert!(h.call(0, N - 1).is_ok_and(|r| r.count > 0));
+    }
+
     /// Type mismatches and out-of-range indices are refused rather than silently bound.
     #[test]
     fn the_setters_refuse_what_does_not_belong() {
@@ -841,12 +894,19 @@ mod binder_tests {
         let mut out = vec![0.0; N];
         let mut h = FuncId::SMA.new_call(&core);
         assert_eq!(h.set_input(9, &close).err(), Some(RetCode::BadParam));
-        assert_eq!(h.set_opt_input(0, 1.5_f64).err(), Some(RetCode::BadParam));
+        assert_eq!(h.set_opt_input(0, 1.5_f64).err(), Some(RetCode::InvalidParamHolderType));
         assert_eq!(h.set_opt_input(9, 30_i32).err(), Some(RetCode::BadParam));
         let mut wrong_kind = [0i32; 4];
-        assert_eq!(h.set_int_output(0, &mut wrong_kind).err(), Some(RetCode::BadParam));
+        assert_eq!(h.set_int_output(0, &mut wrong_kind).err(), Some(RetCode::InvalidParamHolderType));
         h.set_output(0, &mut out).unwrap();
-        assert_eq!(h.call(0, N - 1).err(), Some(RetCode::BadParam)); // input still unbound
+        assert_eq!(h.call(0, N - 1).err(), Some(RetCode::InputNotAllInitialize)); // input still unbound
+        // C's order: an unbound slot is reported ahead of a bad range or parameter.
+        assert_eq!(h.call(N, 0).err(), Some(RetCode::InputNotAllInitialize));
+        let mut bb = FuncId::BBANDS.new_call(&core);
+        bb.set_opt_input(3, 99_i32).unwrap();
+        assert_eq!(bb.call(0, N - 1).err(), Some(RetCode::InputNotAllInitialize));
+        bb.set_input(0, &close).unwrap();
+        assert_eq!(bb.call(0, N - 1).err(), Some(RetCode::OutputNotAllInitialize));
     }
 }
 "#;
@@ -932,16 +992,13 @@ fn emit_binder(
          \x20   /// # Errors\n\
          \x20   /// [`RetCode::OutOfRangeStartIndex`] if `start_idx` exceeds\n\
          \x20   /// [`Core::INDEX_MAX`], [`RetCode::OutOfRangeEndIndex`] if `end_idx` exceeds\n\
-         \x20   /// it or is below `start_idx`, and [`RetCode::BadParam`] if a required\n\
-         \x20   /// input or output was never bound, if the function rejects its\n\
-         \x20   /// parameters, or if a bound buffer is too short: every input must\n\
+         \x20   /// it or is below `start_idx`, [`RetCode::InputNotAllInitialize`] or\n\
+         \x20   /// [`RetCode::OutputNotAllInitialize`] if a required input or output\n\
+         \x20   /// was never bound, and [`RetCode::BadParam`] if the function rejects\n\
+         \x20   /// its parameters or a bound buffer is too short: every input must\n\
          \x20   /// cover `end_idx`, and every output must hold the count actually\n\
          \x20   /// produced, `end_idx - max(start_idx, lookback) + 1`.\n\
          \x20   pub fn call(&mut self, start_idx: usize, end_idx: usize) -> Result<OutRange, RetCode> {\n\
-         \x20       if start_idx > Core::INDEX_MAX { return Err(RetCode::OutOfRangeStartIndex); }\n\
-         \x20       if end_idx > Core::INDEX_MAX || end_idx < start_idx {\n\
-         \x20           return Err(RetCode::OutOfRangeEndIndex);\n\
-         \x20       }\n\
          \x20       // The buffer bounds are the PUBLIC entry point's, which every arm\n\
          \x20       // below calls (#265). This tier used to hand `_Impl` a hand-rolled\n\
          \x20       // output check of its own, `end_idx - start_idx + 1` -- the width of\n\
@@ -961,6 +1018,13 @@ fn emit_binder(
     o.push_str(
         "        };\n\
          \x20       if rc == RetCode::Success { Ok(OutRange { beg_idx: beg, count: nb }) } else { Err(rc) }\n\
+         \x20   }\n\n\
+         \x20   fn check_range(start_idx: usize, end_idx: usize) -> Result<(), RetCode> {\n\
+         \x20       if start_idx > Core::INDEX_MAX { return Err(RetCode::OutOfRangeStartIndex); }\n\
+         \x20       if end_idx > Core::INDEX_MAX || end_idx < start_idx {\n\
+         \x20           return Err(RetCode::OutOfRangeEndIndex);\n\
+         \x20       }\n\
+         \x20       Ok(())\n\
          \x20   }\n}\n",
     );
 
@@ -1078,22 +1142,6 @@ fn emit_call_arm(
     let snake = super::common::snake_words(&f.name);
     let _ = writeln!(o, "            FuncId::{} => {{", f.name);
 
-    // Enum conversions happen FIRST, before any output is `take`n. A `?` after
-    // the take would leave the holder without its output bindings, so a caller
-    // that bound a bad value and then corrected it would get BadParam forever --
-    // C keeps the holder reusable, and so must this.
-    let mut enum_binds: HashMap<String, String> = HashMap::new();
-    for (i, opt) in f.opt_inputs.iter().enumerate() {
-        if let Some(ty) = enum_params.get(&f.name).and_then(|m| m.get(&opt.param_name)) {
-            let bind = format!("e{i}");
-            let _ = writeln!(
-                o,
-                "                let {bind} = {ty}::try_from(self.int_opt[{i}])?;"
-            );
-            enum_binds.insert(opt.param_name.clone(), bind);
-        }
-    }
-
     let mut args: Vec<String> = vec!["start_idx".into(), "end_idx".into()];
     for (slot, inp) in f.inputs.iter().enumerate() {
         match inp.kind {
@@ -1102,7 +1150,7 @@ fn emit_call_arm(
                     let idx = *c as usize;
                     let _ = writeln!(
                         o,
-                        "                let i{slot}_{idx} = self.price[{slot}][{idx}].ok_or(RetCode::BadParam)?;"
+                        "                let i{slot}_{idx} = self.price[{slot}][{idx}].ok_or(RetCode::InputNotAllInitialize)?;"
                     );
                     args.push(format!("i{slot}_{idx}"));
                 }
@@ -1110,32 +1158,21 @@ fn emit_call_arm(
             InputKind::Real => {
                 let _ = writeln!(
                     o,
-                    "                let i{slot} = self.real_in[{slot}].ok_or(RetCode::BadParam)?;"
+                    "                let i{slot} = self.real_in[{slot}].ok_or(RetCode::InputNotAllInitialize)?;"
                 );
                 args.push(format!("i{slot}"));
             }
             InputKind::Integer => {
                 let _ = writeln!(
                     o,
-                    "                let i{slot} = self.int_in[{slot}].ok_or(RetCode::BadParam)?;"
+                    "                let i{slot} = self.int_in[{slot}].ok_or(RetCode::InputNotAllInitialize)?;"
                 );
                 args.push(format!("i{slot}"));
             }
         }
     }
 
-    for (i, opt) in f.opt_inputs.iter().enumerate() {
-        args.push(match enum_binds.get(&opt.param_name) {
-            Some(bind) => bind.clone(),
-            None => opt_arg(f, opt, i, enum_params),
-        });
-    }
-    // Every output's presence, decided before the first `take`. With more than
-    // one output a `?` between the takes would return with the earlier ones
-    // already out of the holder and never put back, and the next `call` would
-    // then answer `BadParam` forever on a binding the caller can see is there.
-    // Same reasoning as the enum conversions above; C keeps the holder reusable.
-    if f.outputs.len() > 1 {
+    {
         let bound: Vec<String> = f
             .outputs
             .iter()
@@ -1150,9 +1187,33 @@ fn emit_call_arm(
             .collect();
         let _ = writeln!(
             o,
-            "                if {} {{ return Err(RetCode::BadParam); }}",
+            "                if {} {{ return Err(RetCode::OutputNotAllInitialize); }}",
             bound.join(" || ")
         );
+    }
+
+    // C's order: the bindings, then the range, then the parameters. Every `?`
+    // sits before the first `take`: one after it would return with an output
+    // out of the holder and never put back, and the next `call` would refuse a
+    // binding the caller can see is there.
+    o.push_str("                Self::check_range(start_idx, end_idx)?;\n");
+    let mut enum_binds: HashMap<String, String> = HashMap::new();
+    for (i, opt) in f.opt_inputs.iter().enumerate() {
+        if let Some(ty) = enum_params.get(&f.name).and_then(|m| m.get(&opt.param_name)) {
+            let bind = format!("e{i}");
+            let _ = writeln!(
+                o,
+                "                let {bind} = {ty}::try_from(self.int_opt[{i}])?;"
+            );
+            enum_binds.insert(opt.param_name.clone(), bind);
+        }
+    }
+
+    for (i, opt) in f.opt_inputs.iter().enumerate() {
+        args.push(match enum_binds.get(&opt.param_name) {
+            Some(bind) => bind.clone(),
+            None => opt_arg(f, opt, i, enum_params),
+        });
     }
 
     for (k, out) in f.outputs.iter().enumerate() {
@@ -1162,7 +1223,7 @@ fn emit_call_arm(
         };
         let _ = writeln!(
             o,
-            "                let mut o{k} = self.{arr}[{k}].take().ok_or(RetCode::BadParam)?;"
+            "                let mut o{k} = self.{arr}[{k}].take().ok_or(RetCode::OutputNotAllInitialize)?;"
         );
         // The abstract tier always supplies every declared output, so a
         // `nullable` one (rule rB7, `TA_OUT_NULLABLE`) is handed `Some(..)`
@@ -1253,7 +1314,10 @@ mod registry_tests {
     #[test]
     fn unknown_name_is_none() {
         assert_eq!(get_func_handle("definitely_not_a_ta_func"), None);
-        assert!(get_func_handle_rc("definitely_not_a_ta_func").is_err());
+        assert_eq!(get_func_handle_rc("definitely_not_a_ta_func"), Err(crate::RetCode::FuncNotFound));
+        assert_eq!(get_func_handle_rc("1"), Err(crate::RetCode::FuncNotFound));
+        assert_eq!(get_func_handle_rc(""), Err(crate::RetCode::BadParam));
+        assert_eq!(get_func_handle_rc("sma"), Ok(FuncId::SMA));
     }
 
     /// #278: the lookup folds ASCII case, but every name it hands back
@@ -1363,7 +1427,7 @@ mod registry_tests {
 }
 "#;
 
-const HEADER: &str = r"//! TA-Lib function metadata registry — the Rust abstract / introspection layer.
+const HEADER: &str = r"//! TA-Lib function metadata registry: the Rust Abstract API.
 //!
 //! GENERATED by ta_codegen (`backends/rust_abstract.rs`) — do not edit by hand.
 //!
@@ -1382,11 +1446,11 @@ const HEADER: &str = r"//! TA-Lib function metadata registry — the Rust abstra
 //!
 //! ## Why name lookup uses a generated `match` (and not a hash map / `phf` / strcmp)
 //!  * Lookup is a **cold path** — function discovery at setup, never per-bar compute.
-//!  * rustc/LLVM lower a 161-arm `&str` `match` to a length-bucketed + leading-byte
+//!  * rustc/LLVM lower the `&str` `match` to a length-bucketed + leading-byte
 //!    dispatch (not a comparison chain): effectively O(1), entirely in `.rodata`,
 //!    zero allocation, zero dependencies.
 //!  * For reference, C's `TA_GetFuncHandle` is an O(n) linear `strcmp` within a
-//!    26-way first-letter bucket (up to 67 compares for the `CDL*` bucket) plus
+//!    26-way first-letter bucket plus
 //!    several pointer hops per entry. The generated `match` is strictly less work.
 //!  * `get_func_handle` tries this exact match first, and only falls back to an
 //!    O(n) ASCII case-insensitive scan over [`FUNCS`] on a miss (#278) — a cold
@@ -1515,7 +1579,7 @@ flag_newtype!(
     /// The function has an unstable initial period, settable through
     /// [`CoreBuilder::unstable_period`](crate::CoreBuilder::unstable_period).
     UNSTABLE_PERIOD = 0x0800_0000,
-    /// Output is a candlestick-pattern verdict.
+    /// A candlestick pattern function: every integer output is a pattern output.
     CANDLESTICK = 0x1000_0000,
     /// Output is path-dependent: built up from the first bar, so it depends on
     /// the requested `startIdx` and never converges across ranges — the same bar
@@ -1567,7 +1631,9 @@ flag_newtype!(
 });
 flag_newtype!(
     /// How an output should be drawn, and what its values can be
-    /// (C: the `TA_OUT_*` bits).
+    /// (C: the `TA_OUT_*` bits). A pattern output writes 0 or a sign times a
+    /// level: the sign flags give its signs, the level flags its levels (100
+    /// always).
     OutputFlags {
     /// Suggest displaying as a connected line.
     LINE = 0x0000_0001,
@@ -1579,30 +1645,35 @@ flag_newtype!(
     DOT = 0x0000_0008,
     /// Suggest displaying as a histogram.
     HISTO = 0x0000_0010,
-    /// The value says whether the pattern exists: non-zero yes, zero no.
+    /// 0 is no pattern, 100 a pattern; no other value.
     PATTERN_BOOL = 0x0000_0020,
-    /// Zero is no pattern, positive is bullish, negative is bearish.
+    /// The sign is a call: positive bullish, negative bearish.
     PATTERN_BULL_BEAR = 0x0000_0040,
-    /// Zero is neutral; `]0..100]` getting bullish, `]100..200]` bullish,
-    /// `[-100..0[` getting bearish, `[-200..-100[` bearish.
-    PATTERN_STRENGTH = 0x0000_0080,
-    /// The output can be positive.
+    /// Adds level 200: this bar confirms the output's most recent earlier
+    /// pattern.
+    PATTERN_CONFIRM = 0x0000_0080,
+    /// Positive values occur.
     POSITIVE = 0x0000_0100,
-    /// The output can be negative.
+    /// Negative values occur.
     NEGATIVE = 0x0000_0200,
-    /// The output can be zero.
+    /// Zero occurs; on a pattern output, no pattern on this bar. An output
+    /// setting any of the three sign flags declares all its signs; one setting
+    /// none declares nothing.
     ZERO = 0x0000_0400,
     /// The values represent an upper limit.
     UPPER_LIMIT = 0x0000_0800,
     /// The values represent a lower limit.
     LOWER_LIMIT = 0x0000_1000,
     /// The caller may discard this output — it is computed but need not be
-    /// kept. E.g. MAMA's FAMA line when only the MAMA line is wanted.
+    /// kept. E.g. MAMA's FAMA line when only the MAMA line is wanted. A
+    /// [`ParamHolder`] still needs it bound.
     NULLABLE = 0x0000_2000,
     /// A chart draws this output ahead of or behind the bar that computed it,
     /// by the bars [`ParamHolder::display_shift`] reports. The values are never
     /// shifted.
     DISPLAY_SHIFT = 0x0000_4000,
+    /// Adds level 80: a weaker form of the pattern, on the same bar.
+    PATTERN_WEAK = 0x0000_8000,
 });
 
 /// A required input parameter.
@@ -1645,7 +1716,7 @@ pub enum OptInputType {
         precision: u8,
         /// The value [`Core::REAL_DEFAULT`](crate::Core::REAL_DEFAULT) selects.
         default: f64,
-        /// Three values worth offering, from low to high.
+        /// A sweep worth offering: start, end, increment.
         suggested: (f64, f64, f64),
     },
     /// An integer parameter, valid anywhere in `min..=max`.
@@ -1656,7 +1727,7 @@ pub enum OptInputType {
         max: i32,
         /// The value [`Core::INTEGER_DEFAULT`](crate::Core::INTEGER_DEFAULT) selects.
         default: i32,
-        /// Three values worth offering, from low to high.
+        /// A sweep worth offering: start, end, increment.
         suggested: (i32, i32, i32),
     },
     /// A real parameter drawn from a closed list.

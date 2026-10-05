@@ -39,7 +39,7 @@
 package io.github.talib.metadata;
 
 /**
- * How an output is meant to be drawn, and whether it may be omitted. Values match C's {@code TA_OUT_*}. The old hand-written island stopped at {@code ZERO} and left consumers hardcoding the rest.
+ * How an output is meant to be drawn, whether it may be omitted, and what its values can be. Values match C's {@code TA_OUT_*}. A pattern output writes 0 or a sign times a level: the sign flags give its signs, the level flags its levels (100 always).
  */
 public final class OutputFlags {
 
@@ -60,22 +60,22 @@ public final class OutputFlags {
    /** Draw as a histogram. */
    public static final int HISTOGRAM = 0x00000010;
 
-   /** 0 = no pattern, 100 = pattern. */
+   /** 0 is no pattern, 100 a pattern; no other value. */
    public static final int PATTERN_BOOL = 0x00000020;
 
-   /** -100 = bearish, 0 = none, 100 = bullish. */
+   /** The sign is a call: positive bullish, negative bearish. */
    public static final int PATTERN_BULL_BEAR = 0x00000040;
 
-   /** -200..-100 = bearish, 100..200 = bullish. */
-   public static final int PATTERN_STRENGTH = 0x00000080;
+   /** Adds level 200: this bar confirms the output's most recent earlier pattern. */
+   public static final int PATTERN_CONFIRM = 0x00000080;
 
-   /** Always &gt;= 0. */
+   /** Positive values occur. */
    public static final int POSITIVE = 0x00000100;
 
-   /** Always &lt;= 0. */
+   /** Negative values occur. */
    public static final int NEGATIVE = 0x00000200;
 
-   /** Zero is a meaningful reference level. */
+   /** Zero occurs; on a pattern output, no pattern on this bar. An output setting any of the three sign flags declares all its signs; one setting none declares nothing. */
    public static final int ZERO = 0x00000400;
 
    /** An upper band/limit line. */
@@ -84,10 +84,17 @@ public final class OutputFlags {
    /** A lower band/limit line. */
    public static final int LOWER_LIMIT = 0x00001000;
 
-   /** Discardable: C accepts NULL for it. Java still requires an array. */
+   /** The typed call lets the caller decline it. A {@code ParamHolder} still needs it bound. */
    public static final int NULLABLE = 0x00002000;
 
    /** A chart draws it ahead of or behind the bar that computed it, by the bars {@code ParamHolder.displayShift} reports. The values are never shifted. */
    public static final int DISPLAY_SHIFT = 0x00004000;
+
+   /** Adds level 80: a weaker form of the pattern, on the same bar. */
+   public static final int PATTERN_WEAK = 0x00008000;
+
+   /** @deprecated Use {@link #PATTERN_CONFIRM}. */
+   @Deprecated(forRemoval = true)
+   public static final int PATTERN_STRENGTH = PATTERN_CONFIRM;
 
 }

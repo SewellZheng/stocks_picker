@@ -45,13 +45,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  011505 AC   Creation
+ *  011505 AC     Creation
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -285,9 +288,6 @@ impl Core {
         // - first candle: black (white) candle
         // - second candle: bullish (bearish) belt hold with the same open as the prior candle
         // The meaning of "long body" and "very short shadow" of the belt hold is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-        // the user should consider that separating lines is significant when coming in a trend and the belt hold has
-        // the same direction of the trend, while this function does not consider it
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -456,9 +456,8 @@ impl Core {
     /// )?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [-100, 0, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -896,9 +895,6 @@ impl Core {
         // - first candle: black (white) candle
         // - second candle: bullish (bearish) belt hold with the same open as the prior candle
         // The meaning of "long body" and "very short shadow" of the belt hold is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-        // the user should consider that separating lines is significant when coming in a trend and the belt hold has
-        // the same direction of the trend, while this function does not consider it
         outIdx = 0;
         loop {
             if (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { -1 }) == -(if inClose[i] >= inOpen[i] { 1 } else { -1 }) && // opposite candles

@@ -51,6 +51,7 @@ import io.github.talib.Core;
 import io.github.talib.MAType;
 import io.github.talib.OutRange;
 import io.github.talib.RetCode;
+import io.github.talib.TALibArgumentException;
 import io.github.talib.TALibFailure;
 import io.github.talib.metadata.FuncFlags;
 import io.github.talib.metadata.FunctionDescription;
@@ -552,34 +553,37 @@ public class MetadataTest {
         FuncInfo sma = Functions.byName("SMA");
         double[] out = new double[N];
 
-        checkThrows(IllegalArgumentException.class,
-            () -> sma.newCall().setInput(5, CLOSE), "input index out of range -> IAE");
-        checkThrows(IllegalArgumentException.class,
-            () -> sma.newCall().setOptInput(9, 30), "optInput index out of range -> IAE");
-        checkThrows(IllegalArgumentException.class,
-            () -> sma.newCall().setOutput(9, out), "output index out of range -> IAE");
-        checkThrows(IllegalArgumentException.class,
-            () -> sma.newCall().setOutput(0, out).call(0, N - 1), "unset input -> IAE");
-        checkThrows(IllegalArgumentException.class,
-            () -> sma.newCall().setInput(0, CLOSE).call(0, N - 1), "unset output -> IAE");
-        checkThrows(IllegalArgumentException.class,
-            () -> sma.newCall().setOptInput(0, 1.5), "wrong optInput type -> IAE");
+        checkRetCode(RetCode.BAD_PARAM,
+            () -> sma.newCall().setInput(5, CLOSE), "input index out of range -> BAD_PARAM");
+        checkRetCode(RetCode.BAD_PARAM,
+            () -> sma.newCall().setOptInput(9, 30), "optInput index out of range -> BAD_PARAM");
+        checkRetCode(RetCode.BAD_PARAM,
+            () -> sma.newCall().setOutput(9, out), "output index out of range -> BAD_PARAM");
+        checkRetCode(RetCode.INPUT_NOT_ALL_INITIALIZE,
+            () -> sma.newCall().setOutput(0, out).call(0, N - 1), "unset input -> INPUT_NOT_ALL_INITIALIZE");
+        checkRetCode(RetCode.OUTPUT_NOT_ALL_INITIALIZE,
+            () -> sma.newCall().setInput(0, CLOSE).call(0, N - 1), "unset output -> OUTPUT_NOT_ALL_INITIALIZE");
+        checkRetCode(RetCode.INVALID_PARAM_HOLDER_TYPE,
+            () -> sma.newCall().setOptInput(0, 1.5), "wrong optInput type -> INVALID_PARAM_HOLDER_TYPE");
 
         // A price-typed input must not accept a bare real series, and vice versa.
         FuncInfo stoch = Functions.byName("STOCH");
-        checkThrows(IllegalArgumentException.class,
-            () -> stoch.newCall().setInput(0, CLOSE), "real setter on a PRICE input -> IAE");
-        checkThrows(IllegalArgumentException.class,
+        checkRetCode(RetCode.INVALID_PARAM_HOLDER_TYPE,
+            () -> stoch.newCall().setInput(0, CLOSE), "real setter on a PRICE input -> INVALID_PARAM_HOLDER_TYPE");
+        checkRetCode(RetCode.INVALID_PARAM_HOLDER_TYPE,
             () -> sma.newCall().setPriceInput(0, OPEN, HIGH, LOW, CLOSE, VOLUME, OPENINT),
-            "price setter on a REAL input -> IAE");
-        checkThrows(IllegalArgumentException.class,
+            "price setter on a REAL input -> INVALID_PARAM_HOLDER_TYPE");
+        checkRetCode(RetCode.BAD_PARAM,
             () -> stoch.newCall().setPriceInput(0, OPEN, null, LOW, CLOSE, VOLUME, OPENINT),
-            "missing a required price component -> IAE");
+            "missing a required price component -> BAD_PARAM");
 
         // An integer output cannot be bound with a double[] array.
         FuncInfo doji = Functions.byName("CDLDOJI");
-        checkThrows(IllegalArgumentException.class,
-            () -> doji.newCall().setOutput(0, out), "double[] on an INTEGER output -> IAE");
+        checkRetCode(RetCode.INVALID_PARAM_HOLDER_TYPE,
+            () -> doji.newCall().setOutput(0, out), "double[] on an INTEGER output -> INVALID_PARAM_HOLDER_TYPE");
+
+        checkRetCode(RetCode.BAD_PARAM, () -> sma.newCall(null), "a null Core -> BAD_PARAM");
+
 
         /* A leg bound to a buffer SHORTER than the requested range -- absent is
            covered above, too short was covered nowhere until #265. Java answers
@@ -604,6 +608,40 @@ public class MetadataTest {
                             .setOutput(0, new double[N - lookback]).call(0, N - 1);
         check(exact.count() == N - lookback,
             "an output sized to the produced count is accepted (" + exact.count() + ")");
+
+        // The batch call's other conditions reach a fully bound holder too.
+        checkRetCode(RetCode.OUT_OF_RANGE_END_INDEX,
+            () -> sma.newCall().setInput(0, CLOSE).setOutput(0, new double[N]).call(1, 0),
+            "a bound holder, endIdx below startIdx -> OUT_OF_RANGE_END_INDEX");
+        double[] shared = new double[N];
+        checkRetCode(RetCode.BAD_PARAM,
+            () -> Functions.byName("BBANDS").newCall().setInput(0, CLOSE)
+                     .setOutput(0, shared).setOutput(1, shared).setOutput(2, new double[N])
+                     .call(0, N - 1),
+            "one array bound as two outputs -> BAD_PARAM");
+
+        // No output is declined through a holder. MAMA's second output is one the
+        // typed call takes null for.
+        FuncInfo mama = Functions.byName("MAMA");
+        check((mama.outputs().get(1).flags() & OutputFlags.NULLABLE) != 0, "MAMA's second output is declinable");
+        checkRetCode(RetCode.OUTPUT_NOT_ALL_INITIALIZE,
+            () -> mama.newCall().setInput(0, CLOSE).setOutput(0, new double[N]).call(0, N - 1),
+            "a declinable output left unbound -> OUTPUT_NOT_ALL_INITIALIZE");
+        checkRetCode(RetCode.BAD_PARAM,
+            () -> mama.newCall().setInput(0, CLOSE).setOutput(0, new double[N])
+                     .setOutput(1, new double[0]).call(0, N - 1),
+            "an empty array on a declinable output -> BAD_PARAM");
+        checkRetCode(RetCode.OUT_OF_RANGE_END_INDEX,
+            () -> mama.newCall().setInput(0, CLOSE).setOutput(0, new double[N])
+                     .setOutput(1, new double[0]).call(1, 0),
+            "and a bad range keeps its own code");
+        checkRetCode(RetCode.BAD_PARAM,
+            () -> mama.newCall().setInput(0, CLOSE).setOutput(0, new double[N])
+                     .setOutput(1, new double[0]).call(0, 0),
+            "a range that produces no values refuses it too");
+        check(mama.newCall().setInput(0, CLOSE).setOutput(0, new double[N])
+                  .setOutput(1, new double[N]).call(0, N - 1).count() > 0,
+            "control: the same call with both outputs sized succeeds");
     }
 
     /**
@@ -683,7 +721,11 @@ public class MetadataTest {
             failures++;
             System.out.println("  FAIL: " + what + " (no exception thrown)");
         } catch (RuntimeException e) {
-            if (!(e instanceof TALibFailure f) || f.retCode() != expected) {
+            // Every code but the two index codes is carried by a TALibArgumentException.
+            boolean argument = expected != RetCode.OUT_OF_RANGE_START_INDEX
+                && expected != RetCode.OUT_OF_RANGE_END_INDEX;
+            if (!(e instanceof TALibFailure f) || f.retCode() != expected
+                    || (argument && !(e instanceof TALibArgumentException))) {
                 failures++;
                 System.out.println("  FAIL: " + what + " (threw " + e.getClass().getName() + ")");
             }

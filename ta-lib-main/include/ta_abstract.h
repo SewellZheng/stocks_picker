@@ -190,7 +190,8 @@ typedef int TA_FuncFlags;
                                           * for these functions for allowing to set that
                                           * unstable period. See Documentation.
                                           */
-#define TA_FUNC_FLG_CANDLESTICK 0x10000000 /* Output shall be a candlestick */
+#define TA_FUNC_FLG_CANDLESTICK 0x10000000 /* A candlestick pattern function (CDL*): every
+                                          * integer output is a pattern output. */
 #define TA_FUNC_FLG_PATH_DEP  0x20000000 /* Output value is path-dependent: built
                                           * up from the first bar (a running
                                           * accumulation seeded there, or a
@@ -418,6 +419,11 @@ typedef int TA_OptInputFlags;
 
 /* The following are flags giving hint on what
  * could be done with the output.
+ *
+ * A pattern output writes 0 or sign x level. The sign flags give the signs
+ * and the level flags the levels (100 always): the values are every sign times
+ * every level, plus 0 when TA_OUT_ZERO is set. Reading them: rule rW8 of the
+ * TA-Lib specification.
  */
 typedef int TA_OutputFlags;
 #define TA_OUT_LINE              0x00000001 /* Suggest to display as a connected line. */
@@ -425,21 +431,28 @@ typedef int TA_OutputFlags;
 #define TA_OUT_DASH_LINE         0x00000004 /* Suggest to display as a 'dashed' line. */
 #define TA_OUT_DOT               0x00000008 /* Suggest to display with dots only. */
 #define TA_OUT_HISTO             0x00000010 /* Suggest to display as an histogram. */
-#define TA_OUT_PATTERN_BOOL      0x00000020 /* Indicates if pattern exists (!=0) or not (0) */
-#define TA_OUT_PATTERN_BULL_BEAR 0x00000040 /* =0 no pattern, > 0 bullish, < 0 bearish */
-#define TA_OUT_PATTERN_STRENGTH  0x00000080 /* =0 neutral, ]0..100] getting bullish, ]100..200] bullish, [-100..0[ getting bearish, [-200..100[ bearish */
-#define TA_OUT_POSITIVE          0x00000100 /* Output can be positive */
-#define TA_OUT_NEGATIVE          0x00000200 /* Output can be negative */
-#define TA_OUT_ZERO              0x00000400 /* Output can be zero */
+#define TA_OUT_PATTERN_BOOL      0x00000020 /* 0 = no pattern, 100 = pattern; no other value. */
+#define TA_OUT_PATTERN_BULL_BEAR 0x00000040 /* The sign is a call: + bullish, - bearish. */
+#define TA_OUT_PATTERN_CONFIRM   0x00000080 /* Adds level 200: this bar confirms the output's
+                                             * most recent earlier pattern. */
+#define TA_OUT_PATTERN_STRENGTH  TA_OUT_PATTERN_CONFIRM /* Deprecated name. */
+#define TA_OUT_POSITIVE          0x00000100 /* Positive values occur. */
+#define TA_OUT_NEGATIVE          0x00000200 /* Negative values occur. */
+#define TA_OUT_ZERO              0x00000400 /* 0 occurs; on a pattern output, no pattern on
+                                             * this bar. An output setting any of these three
+                                             * declares all its signs; one setting none, nothing. */
 #define TA_OUT_UPPER_LIMIT       0x00000800 /* Indicates that the values represent an upper limit. */
 #define TA_OUT_LOWER_LIMIT       0x00001000 /* Indicates that the values represent a lower limit. */
 #define TA_OUT_NULLABLE          0x00002000 /* The output pointer may be NULL: the caller can discard
                                              * this output (it is computed but not written). E.g. MAMA's
-                                             * FAMA line when only the MAMA line is wanted. */
+                                             * FAMA line when only the MAMA line is wanted. TA_CallFunc
+                                             * still needs it bound. */
 #define TA_OUT_DISPLAY_SHIFT     0x00004000 /* A chart draws this output ahead of or behind the bar
                                              * that computed it, by the number of bars
                                              * TA_GetDisplayShift reports. The values themselves are
                                              * never shifted. */
+#define TA_OUT_PATTERN_WEAK      0x00008000 /* Adds level 80: a weaker form of the pattern, on the
+                                             * same bar. */
 
 
 /* The following 3 structures will exist for each input, optional
@@ -526,11 +539,13 @@ TA_LIB_API TA_RetCode TA_GetOutputParameterInfo( const TA_FuncHandle *handle,
  * will always be used in that case.
  *
  * If there is an attempts to set a parameter with the wrong function
- * (and thus the wrong type), TA_BAD_PARAM will be immediatly returned.
+ * (and thus the wrong type), an error is immediatly returned.
  *
  * Although this mechanism looks complicated, it is written for being fairly solid.
  * If you provide a wrong parameter value, or wrong type, or wrong pointer etc. the
- * library shall return TA_BAD_PARAM or TA_BAD_OBJECT and not hang.
+ * library shall return an error and not hang. No TA function returns the codes
+ * 4 to 11 and 15 of TA_RetCode: one of them from TA_CallFunc means the call was
+ * refused here and the function did not run.
  */
 typedef struct TA_ParamHolder
 {

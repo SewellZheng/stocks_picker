@@ -67,6 +67,7 @@
 #include "ta_test_priv.h"
 #include "ta_utility.h"
 #include "ta_memory.h"
+#include "meta_ride.h"
 
 
 /**** External functions declarations. ****/
@@ -185,6 +186,7 @@ ErrorNumber allocLib()
 
 static long rejectedJudged;
 static long rejectedWroteRange;
+static long rideMismatchesReported;
 
 ErrorNumber freeLib()
 {
@@ -198,6 +200,14 @@ ErrorNumber freeLib()
    {
       printf( "TA_Shutdown failed [%d]\n", retCode );
       return TA_TESTUTIL_SHUTDOWN_FAILED;
+   }
+
+   if( meta_ride_mismatches() > rideMismatchesReported )
+   {
+      printf( "Failed: %ld call(s) contradicted their function's metadata\n",
+              meta_ride_mismatches() - rideMismatchesReported );
+      rideMismatchesReported = meta_ride_mismatches();
+      return TA_META_RIDE_MISMATCH;
    }
 
    if( rejectedWroteRange > 0 )
@@ -229,7 +239,10 @@ TA_RetCode regtest_guarded_call( const TA_ParamHolder *params,
    retCode = TA_CallFunc( params, startIdx, endIdx, outBegIdx, outNbElement );
 
    if( retCode == TA_SUCCESS )
+   {
+      meta_ride_call( params, startIdx, endIdx, *outBegIdx, *outNbElement );
       return retCode;
+   }
 
    /* Nothing is held after an allocation failure or an internal error. */
    if( retCode != TA_ALLOC_ERR && !( (int)retCode >= 5000 && (int)retCode <= 5999 ) )
@@ -1330,6 +1343,9 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
    /* STC's two stochastic stages amplify the slow EMA's transient: at 150
     * the sweep fails on every seed. */
    case TA_FUNC_UNST_STC:
+   /* SWAK_BP's pole radius is 0.97 at its defaults: the seed's transient is
+    * still 4% of its start at bar 100. */
+   case TA_FUNC_UNST_SWAK_BP:
       periodToIgnore = 200;
       break;
    default:

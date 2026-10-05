@@ -9,13 +9,14 @@
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  122605 AC   Creation
- *  071226 MF,CC Streaming-friendly rewrite: carry the confirmation state
- *               (countdown + cached 3rd-candle high/low) instead of the absolute
- *               bar index, so the per-bar logic reads no cursor. Bit-identical
- *               batch results (verified vs v0.6.4).
+ *  122605 AC     Creation
+ *  071226 MF,CC  Streaming-friendly rewrite: carry the confirmation state
+ *                (countdown + cached 3rd-candle high/low) instead of the absolute
+ *                bar index, so the per-bar logic reads no cursor. Bit-identical
+ *                batch results (verified vs v0.6.4).
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
    /**
@@ -153,15 +154,8 @@
        * - second candle: candle with range less than first candle and close near the bottom (near the top)
        * - third candle: lower high and higher low than 2nd
        * - fourth candle: lower high and lower low (higher high and higher low) than 3rd
-       * outInteger[hikkake bar] is positive (1 to 100) or negative (-1 to -100) meaning bullish or bearish hikkake
        * Confirmation could come in the next 3 days with:
        * - a day that closes higher than the high (lower than the low) of the 3rd candle
-       * outInteger[confirmationbar] is equal to 100 + the bullish hikkake result or -100 - the bearish hikkake result
-       * Note: if confirmation and a new hikkake come at the same bar, only the new hikkake is reported (the new hikkake
-       * overwrites the confirmation of the old hikkake);
-       * the user should consider that modified hikkake is a reversal pattern, while hikkake could be both a reversal
-       * or a continuation pattern, so bullish (bearish) modified hikkake is significant when appearing in a downtrend
-       * (uptrend)
        */
       outIdx = 0;
       do {
@@ -306,6 +300,7 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend (downtrend for bullish, uptrend for bearish) that this reversal pattern assumes.</li>
+    * <li>A bar that is both a new setup and the confirmation of an earlier one reports the new setup; the earlier one ends unconfirmed.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -320,8 +315,7 @@
     * @param inLow Low price of each bar.
     * @param inClose Close price of each bar.
     * @param outInteger +100 bullish hikkake bar, -100 bearish; +200 confirmed
-    *        bullish, -200 confirmed bearish (confirmation adds another +/-100); 0
-    *        otherwise. Must hold at least
+    *        bullish, -200 confirmed bearish; 0 otherwise. Must hold at least
     *        {@code endIdx - max(startIdx, cdlhikkakemodLookback(...)) + 1} values, and
     *        never be empty: an empty array is an absent output.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -376,6 +370,7 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend (downtrend for bullish, uptrend for bearish) that this reversal pattern assumes.</li>
+    * <li>A bar that is both a new setup and the confirmation of an earlier one reports the new setup; the earlier one ends unconfirmed.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -393,8 +388,7 @@
     * @param inLow Low price of each bar.
     * @param inClose Close price of each bar.
     * @param outInteger +100 bullish hikkake bar, -100 bearish; +200 confirmed
-    *        bullish, -200 confirmed bearish (confirmation adds another +/-100); 0
-    *        otherwise. Must hold at least
+    *        bullish, -200 confirmed bearish; 0 otherwise. Must hold at least
     *        {@code endIdx - max(startIdx, cdlhikkakemodLookback(...)) + 1} values, and
     *        never be empty: an empty array is an absent output.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -806,15 +800,8 @@
        * - second candle: candle with range less than first candle and close near the bottom (near the top)
        * - third candle: lower high and higher low than 2nd
        * - fourth candle: lower high and lower low (higher high and higher low) than 3rd
-       * outInteger[hikkake bar] is positive (1 to 100) or negative (-1 to -100) meaning bullish or bearish hikkake
        * Confirmation could come in the next 3 days with:
        * - a day that closes higher than the high (lower than the low) of the 3rd candle
-       * outInteger[confirmationbar] is equal to 100 + the bullish hikkake result or -100 - the bearish hikkake result
-       * Note: if confirmation and a new hikkake come at the same bar, only the new hikkake is reported (the new hikkake
-       * overwrites the confirmation of the old hikkake);
-       * the user should consider that modified hikkake is a reversal pattern, while hikkake could be both a reversal
-       * or a continuation pattern, so bullish (bearish) modified hikkake is significant when appearing in a downtrend
-       * (uptrend)
        */
       outIdx = 0;
       do {

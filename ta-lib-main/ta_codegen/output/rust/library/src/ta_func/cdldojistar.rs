@@ -45,13 +45,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  100204 AC   Creation
+ *  100204 AC     Creation
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -219,11 +222,6 @@ impl Core {
         // - first candle: long real body
         // - second candle: star (open gapping up in an uptrend or down in a downtrend) with a doji
         // The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-        // it's defined bullish when the long candle is white and the star gaps up, bearish when the long candle
-        // is black and the star gaps down; the user should consider that a doji star is bullish when it appears
-        // in an uptrend and it's bearish when it appears in a downtrend, so to determine the bullishness or
-        // bearishness of the pattern the trend must be analyzed
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -376,9 +374,8 @@ impl Core {
     /// let out_range = core.cdldojistar(0, open.len() - 1, &open, &high, &low, &close, &mut out)?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [-100, 0, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -736,11 +733,6 @@ impl Core {
         // - first candle: long real body
         // - second candle: star (open gapping up in an uptrend or down in a downtrend) with a doji
         // The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-        // it's defined bullish when the long candle is white and the star gaps up, bearish when the long candle
-        // is black and the star gaps down; the user should consider that a doji star is bullish when it appears
-        // in an uptrend and it's bearish when it appears in a downtrend, so to determine the bullishness or
-        // bearishness of the pattern the trend must be analyzed
         outIdx = 0;
         loop {
             if (inClose[i - 1] - inOpen[i - 1]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st: long real body

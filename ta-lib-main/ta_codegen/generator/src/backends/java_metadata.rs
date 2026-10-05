@@ -88,7 +88,7 @@ fn package_info() -> String {
          \x20* Runtime introspection: what the library's functions are, what they take,\n\
          \x20* and how to call one whose name is not known until run time.\n\
          \x20*\n\
-         \x20* <p>The Java face of the C library's {{@code ta_abstract}} layer, and\n\
+         \x20* <p>The Java face of the C library's {{@code ta_abstract}} interface, and\n\
          \x20* generated from the same definitions as the indicators themselves, so a\n\
          \x20* row here cannot describe a method that does not exist.\n\
          \x20*\n\
@@ -380,12 +380,18 @@ fn output_type_enum() -> String {
 }
 
 /// A `public static final int` constant block with a doc comment each.
-fn flag_class(name: &str, doc: &str, consts: &[(&str, u32, &str)]) -> String {
+fn flag_class(name: &str, doc: &str, consts: &[(&str, u32, &str)], deprecated: &[(&str, &str)]) -> String {
     let mut s = header("MF,CC");
     let _ = write!(s, "/**\n * {doc}\n */\npublic final class {name} {{\n\n");
     let _ = write!(s, "   private {name}() {{ }}\n\n");
     for (cname, bits, cdoc) in consts {
         let _ = write!(s, "   /** {cdoc} */\n   public static final int {cname} = 0x{bits:08X};\n\n");
+    }
+    for (old, new) in deprecated {
+        let _ = write!(
+            s,
+            "   /** @deprecated Use {{@link #{new}}}. */\n   @Deprecated(forRemoval = true)\n   public static final int {old} = {new};\n\n"
+        );
     }
     s.push_str("}\n");
     s
@@ -398,9 +404,9 @@ fn func_flags_class() -> String {
         &[
             ("OVERLAP_STUDY", 0x0100_0000, "Output overlays the price chart."),
             ("STREAMING", 0x0200_0000, "A streaming (one-bar-at-a-time) API exists."),
-            ("VOLUME_USED", 0x0400_0000, "Consumes volume."),
-            ("UNSTABLE_PERIOD", 0x0800_0000, "Recursive: honours the unstable-period setting."),
-            ("CANDLESTICK", 0x1000_0000, "A candlestick pattern."),
+            ("VOLUME_USED", 0x0400_0000, "Output is over the volume data."),
+            ("UNSTABLE_PERIOD", 0x0800_0000, "Owns an unstable-period id."),
+            ("CANDLESTICK", 0x1000_0000, "A candlestick pattern function: every integer output is a pattern output."),
             (
                 "PATH_DEPENDENT",
                 0x2000_0000,
@@ -425,6 +431,7 @@ fn func_flags_class() -> String {
                  output's display shift is 0.",
             ),
         ],
+        &[],
     )
 }
 
@@ -441,6 +448,7 @@ fn input_flags_class() -> String {
             ("PRICE_VOLUME", 0x0000_0010, "Volume."),
             ("PRICE_OPENINTEREST", 0x0000_0020, "Open interest."),
         ],
+        &[],
     )
 }
 
@@ -454,33 +462,43 @@ fn opt_input_flags_class() -> String {
             ("IS_CURRENCY", 0x0040_0000, "Expressed in currency."),
             ("ADVANCED", 0x0100_0000, "Advanced: hide from a basic UI."),
         ],
+        &[],
     )
 }
 
 fn output_flags_class() -> String {
     flag_class(
         "OutputFlags",
-        "How an output is meant to be drawn, and whether it may be omitted. Values match C's \
-         {@code TA_OUT_*}. The old hand-written island stopped at {@code ZERO} and left \
-         consumers hardcoding the rest.",
+        "How an output is meant to be drawn, whether it may be omitted, and what its values can be. \
+         Values match C's {@code TA_OUT_*}. A pattern output writes 0 or a sign times a level: the \
+         sign flags give its signs, the level flags its levels (100 always).",
         &[
             ("LINE", 0x0000_0001, "Draw as a continuous line."),
             ("DOT_LINE", 0x0000_0002, "Draw as a dotted line."),
             ("DASH_LINE", 0x0000_0004, "Draw as a dashed line."),
             ("DOT", 0x0000_0008, "Draw as unconnected dots."),
             ("HISTOGRAM", 0x0000_0010, "Draw as a histogram."),
-            ("PATTERN_BOOL", 0x0000_0020, "0 = no pattern, 100 = pattern."),
-            ("PATTERN_BULL_BEAR", 0x0000_0040, "-100 = bearish, 0 = none, 100 = bullish."),
-            ("PATTERN_STRENGTH", 0x0000_0080, "-200..-100 = bearish, 100..200 = bullish."),
-            ("POSITIVE", 0x0000_0100, "Always &gt;= 0."),
-            ("NEGATIVE", 0x0000_0200, "Always &lt;= 0."),
-            ("ZERO", 0x0000_0400, "Zero is a meaningful reference level."),
+            ("PATTERN_BOOL", 0x0000_0020, "0 is no pattern, 100 a pattern; no other value."),
+            ("PATTERN_BULL_BEAR", 0x0000_0040, "The sign is a call: positive bullish, negative bearish."),
+            (
+                "PATTERN_CONFIRM",
+                0x0000_0080,
+                "Adds level 200: this bar confirms the output's most recent earlier pattern.",
+            ),
+            ("POSITIVE", 0x0000_0100, "Positive values occur."),
+            ("NEGATIVE", 0x0000_0200, "Negative values occur."),
+            (
+                "ZERO",
+                0x0000_0400,
+                "Zero occurs; on a pattern output, no pattern on this bar. An output setting any of \
+                 the three sign flags declares all its signs; one setting none declares nothing.",
+            ),
             ("UPPER_LIMIT", 0x0000_0800, "An upper band/limit line."),
             ("LOWER_LIMIT", 0x0000_1000, "A lower band/limit line."),
             (
                 "NULLABLE",
                 0x0000_2000,
-                "Discardable: C accepts NULL for it. Java still requires an array.",
+                "The typed call lets the caller decline it. A {@code ParamHolder} still needs it bound.",
             ),
             (
                 "DISPLAY_SHIFT",
@@ -488,7 +506,9 @@ fn output_flags_class() -> String {
                 "A chart draws it ahead of or behind the bar that computed it, by the bars \
                  {@code ParamHolder.displayShift} reports. The values are never shifted.",
             ),
+            ("PATTERN_WEAK", 0x0000_8000, "Adds level 80: a weaker form of the pattern, on the same bar."),
         ],
+        &[("PATTERN_STRENGTH", "PATTERN_CONFIRM")],
     )
 }
 
@@ -577,6 +597,8 @@ fn function_info_record() -> String {
     let mut s = header("MF,CC");
     s.push_str(
         "import io.github.talib.Core;\n\
+         import io.github.talib.RetCode;\n\
+         import io.github.talib.TALibArgumentException;\n\
          import java.util.List;\n\n\
          /**\n\
          \x20* Everything the library knows about one indicator's guarded,\n\
@@ -609,14 +631,20 @@ fn function_info_record() -> String {
          \x20    * against {@link Core#DEFAULT}. See {@link ParamHolder}.\n\
          \x20    */\n\
          \x20   public ParamHolder newCall() {\n\
-         \x20      return new ParamHolder(this, Core.DEFAULT);\n\
+         \x20      return newCall(Core.DEFAULT);\n\
          \x20   }\n\
          \n\
          \x20   /**\n\
          \x20    * Begins a call to this function with arguments bound at run time,\n\
          \x20    * against a specific {@link Core}. See {@link ParamHolder}.\n\
+         \x20    *\n\
+         \x20    * @throws TALibArgumentException carrying {@link RetCode#BAD_PARAM} if\n\
+         \x20    *         {@code core} is null\n\
          \x20    */\n\
          \x20   public ParamHolder newCall(Core core) {\n\
+         \x20      if (core == null) {\n\
+         \x20         throw new TALibArgumentException(name + \": core is null\", RetCode.BAD_PARAM);\n\
+         \x20      }\n\
          \x20      return new ParamHolder(this, core);\n\
          \x20   }\n\
          }\n",
@@ -880,6 +908,8 @@ fn param_holder_class() -> String {
         r#"import io.github.talib.Core;
 import io.github.talib.MAType;
 import io.github.talib.OutRange;
+import io.github.talib.RetCode;
+import io.github.talib.TALibArgumentException;
 
 /**
  * Binds arguments to a function chosen at run time, then calls it.
@@ -900,10 +930,10 @@ import io.github.talib.OutRange;
  *
  * <p>Everything is validated against the {@link FuncInfo} row: an index out
  * of bounds, a type that does not match the declared parameter, or an unbound
- * input or output at {@link #call} time throws {@link IllegalArgumentException}. The
- * call itself then behaves exactly like the typed method — including throwing
- * on misuse and returning an empty {@link OutRange} when the range is shorter
- * than the lookback.
+ * input or output at {@link #call} time throws a {@link TALibArgumentException}
+ * carrying a {@link RetCode}. The call itself then behaves exactly
+ * like the typed method, including throwing on misuse and returning an empty
+ * {@link OutRange} when the range is shorter than the lookback.
  *
  * <p>Not thread-safe: confine one holder to one thread, or build one per call.
  */
@@ -949,14 +979,14 @@ public final class ParamHolder {
 
    private void checkInput(int idx, InputType expected) {
       if (idx < 0 || idx >= info.inputs().size()) {
-         throw new IllegalArgumentException(
-            info.name() + ": input index " + idx + " out of range [0, " + info.inputs().size() + ")");
+         throw new TALibArgumentException(
+            info.name() + ": input index " + idx + " out of range [0, " + info.inputs().size() + ")", RetCode.BAD_PARAM);
       }
       InputType actual = info.inputs().get(idx).type();
       if (actual != expected) {
-         throw new IllegalArgumentException(
+         throw new TALibArgumentException(
             info.name() + " input " + idx + " (" + info.inputs().get(idx).paramName()
-            + ") is " + actual + ", not " + expected);
+            + ") is " + actual + ", not " + expected, RetCode.INVALID_PARAM_HOLDER_TYPE);
       }
    }
 
@@ -989,8 +1019,8 @@ public final class ParamHolder {
       String[] names = { "open", "high", "low", "close", "volume", "openInterest" };
       for (int k = 0; k < c.length; k++) {
          if ((flags & bits[k]) != 0 && c[k] == null) {
-            throw new IllegalArgumentException(
-               info.name() + " input " + idx + " requires " + names[k]);
+            throw new TALibArgumentException(
+               info.name() + " input " + idx + " requires " + names[k], RetCode.BAD_PARAM);
          }
       }
       priceInputs[idx] = c;
@@ -999,9 +1029,9 @@ public final class ParamHolder {
 
    private void checkOpt(int idx, OptInputType... expected) {
       if (idx < 0 || idx >= info.optInputs().size()) {
-         throw new IllegalArgumentException(
+         throw new TALibArgumentException(
             info.name() + ": optInput index " + idx + " out of range [0, "
-            + info.optInputs().size() + ")");
+            + info.optInputs().size() + ")", RetCode.BAD_PARAM);
       }
       OptInputType actual = info.optInputs().get(idx).type();
       for (OptInputType e : expected) {
@@ -1009,9 +1039,9 @@ public final class ParamHolder {
             return;
          }
       }
-      throw new IllegalArgumentException(
+      throw new TALibArgumentException(
          info.name() + " optInput " + idx + " (" + info.optInputs().get(idx).paramName()
-         + ") is " + actual + ", not " + java.util.Arrays.toString(expected));
+         + ") is " + actual + ", not " + java.util.Arrays.toString(expected), RetCode.INVALID_PARAM_HOLDER_TYPE);
    }
 
    /** Binds an {@link OptInputType#INTEGER_RANGE} or {@link OptInputType#INTEGER_LIST} parameter. */
@@ -1037,8 +1067,8 @@ public final class ParamHolder {
                maTypeOpt(), never intOpt() -- but it broke the same rule
                setPriceInput breaks visibly: a rejected setter must leave the
                holder as it found it (issue #266). */
-            throw new IllegalArgumentException(
-               info.name() + " optInput " + idx + ": " + value + " is not a valid MAType ordinal");
+            throw new TALibArgumentException(
+               info.name() + " optInput " + idx + ": " + value + " is not a valid MAType ordinal", RetCode.BAD_PARAM);
          } else {
             maTypeOpts[idx] = all[value];
             intOpts[idx] = value;
@@ -1069,15 +1099,15 @@ public final class ParamHolder {
 
    private void checkOutput(int idx, OutputType expected) {
       if (idx < 0 || idx >= info.outputs().size()) {
-         throw new IllegalArgumentException(
+         throw new TALibArgumentException(
             info.name() + ": output index " + idx + " out of range [0, "
-            + info.outputs().size() + ")");
+            + info.outputs().size() + ")", RetCode.BAD_PARAM);
       }
       OutputType actual = info.outputs().get(idx).type();
       if (actual != expected) {
-         throw new IllegalArgumentException(
+         throw new TALibArgumentException(
             info.name() + " output " + idx + " (" + info.outputs().get(idx).paramName()
-            + ") is " + actual + ", not " + expected);
+            + ") is " + actual + ", not " + expected, RetCode.INVALID_PARAM_HOLDER_TYPE);
       }
    }
 
@@ -1134,7 +1164,9 @@ public final class ParamHolder {
     * <p>Unbound parameters that carry a documented default are filled in with it;
     * unbound inputs or outputs are an error.
     *
-    * @throws IllegalArgumentException if a required parameter was never bound
+    * @throws TALibArgumentException carrying {@link RetCode#INPUT_NOT_ALL_INITIALIZE}
+    *         or {@link RetCode#OUTPUT_NOT_ALL_INITIALIZE} if an input or output
+    *         was never bound
     */
    public OutRange call(int startIdx, int endIdx) {
       for (int i = 0; i < info.inputs().size(); i++) {
@@ -1144,16 +1176,16 @@ public final class ParamHolder {
             case PRICE -> priceInputs[i] != null;
          };
          if (!bound) {
-            throw new IllegalArgumentException(
-               info.name() + ": input " + i + " (" + info.inputs().get(i).paramName() + ") not set");
+            throw new TALibArgumentException(
+               info.name() + ": input " + i + " (" + info.inputs().get(i).paramName() + ") not set", RetCode.INPUT_NOT_ALL_INITIALIZE);
          }
       }
       for (int i = 0; i < info.outputs().size(); i++) {
          boolean bound = info.outputs().get(i).type() == OutputType.REAL
             ? realOutputs[i] != null : intOutputs[i] != null;
          if (!bound) {
-            throw new IllegalArgumentException(
-               info.name() + ": output " + i + " (" + info.outputs().get(i).paramName() + ") not set");
+            throw new TALibArgumentException(
+               info.name() + ": output " + i + " (" + info.outputs().get(i).paramName() + ") not set", RetCode.OUTPUT_NOT_ALL_INITIALIZE);
          }
       }
       resolveUnsetOptInputs();
@@ -1188,7 +1220,7 @@ public final class ParamHolder {
 
    private static <T> T require(T v, String what) {
       if (v == null) {
-         throw new IllegalArgumentException(info(what));
+         throw new TALibArgumentException(info(what), RetCode.BAD_PARAM);
       }
       return v;
    }
@@ -1236,6 +1268,8 @@ fn dispatch_class(rows: &[FuncRow]) -> String {
     s.push_str(
         r"import io.github.talib.Core;
 import io.github.talib.OutRange;
+import io.github.talib.RetCode;
+import io.github.talib.TALibArgumentException;
 
 /**
  * Routes a {@link ParamHolder} onto the typed method it names.
@@ -1300,7 +1334,7 @@ final class Dispatch {
 
     s.push_str(
         r#"         default:
-            throw new IllegalArgumentException("no such function: " + h.info().name());
+            throw new TALibArgumentException("no such function: " + h.info().name(), RetCode.INVALID_HANDLE);
       }
    }
 
@@ -1322,7 +1356,7 @@ final class Dispatch {
 
     s.push_str(
         r#"         default:
-            throw new IllegalArgumentException("no such function: " + h.info().name());
+            throw new TALibArgumentException("no such function: " + h.info().name(), RetCode.INVALID_HANDLE);
       }
    }
 
@@ -1342,7 +1376,7 @@ final class Dispatch {
 
     s.push_str(
         r#"         default:
-            throw new IllegalArgumentException("no such function: " + h.info().name());
+            throw new TALibArgumentException("no such function: " + h.info().name(), RetCode.INVALID_HANDLE);
       }
    }
 }

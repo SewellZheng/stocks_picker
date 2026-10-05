@@ -45,15 +45,18 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  102404 AC   Creation
- *  040309 AC   Increased flexibility to allow real bodies matching
- *              on one end (Greg Morris - "Candlestick charting explained")
+ *  102404 AC     Creation
+ *  040309 AC     Increased flexibility to allow real bodies matching
+ *                on one end (Greg Morris - "Candlestick charting explained")
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -147,12 +150,6 @@ impl Core {
         // Must have:
         // - first: black (white) real body
         // - second: white (black) real body that engulfs the prior real body
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish:
-        // - 100 is returned when the second candle's real body begins before and ends after the first candle's real body
-        // - 80 is returned when the two real bodies match on one end (Greg Morris contemplate this case in his book
-        //   "Candlestick charting explained")
-        // The user should consider that an engulfing must appear in a downtrend if bullish or in an uptrend if bearish,
-        // while this function does not consider it
         outIdx = 0;
         loop {
             if (if inClose[i] >= inOpen[i] { 1 } else { -1 }) == 1 &&
@@ -245,9 +242,8 @@ impl Core {
     /// let out_range = core.cdlengulfing(0, open.len() - 1, &open, &high, &low, &close, &mut out)?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [-100, -80, 0, 80, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -418,12 +414,6 @@ impl Core {
         // Must have:
         // - first: black (white) real body
         // - second: white (black) real body that engulfs the prior real body
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish:
-        // - 100 is returned when the second candle's real body begins before and ends after the first candle's real body
-        // - 80 is returned when the two real bodies match on one end (Greg Morris contemplate this case in his book
-        //   "Candlestick charting explained")
-        // The user should consider that an engulfing must appear in a downtrend if bullish or in an uptrend if bearish,
-        // while this function does not consider it
         outIdx = 0;
         loop {
             if (if inClose[i] >= inOpen[i] { 1 } else { -1 }) == 1 &&

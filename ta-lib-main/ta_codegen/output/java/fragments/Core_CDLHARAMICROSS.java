@@ -3,15 +3,18 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  102404 AC   Creation
- *  040309 AC   Increased flexibility to allow real bodies matching
- *              on one end (Greg Morris - "Candlestick charting explained")
+ *  102404 AC     Creation
+ *  040309 AC     Increased flexibility to allow real bodies matching
+ *                on one end (Greg Morris - "Candlestick charting explained")
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
    /**
@@ -118,9 +121,6 @@
        * - first candle: long white (black) real body
        * - second candle: doji totally engulfed by the first
        * The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-       * outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-       * the user should consider that a harami cross is significant when it appears in a downtrend if bullish or
-       * in an uptrend when bearish, while this function does not consider the trend
        */
       outIdx = 0;
       do {
@@ -265,8 +265,8 @@
     * @param inClose Close price of each bar.
     * @param outInteger +100/+80 when the first candle is black (bullish),
     *        -100/-80 when the first candle is white (bearish), 0 otherwise. Magnitude
-    *        100 for strict containment inside the first body, 80 when one real-body
-    *        end matches. Must hold at least
+    *        100 for strict containment inside the first body, 80 when one or both
+    *        real-body ends match. Must hold at least
     *        {@code endIdx - max(startIdx, cdlharamicrossLookback(...)) + 1} values,
     *        and never be empty: an empty array is an absent output.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -340,8 +340,8 @@
     * @param inClose Close price of each bar.
     * @param outInteger +100/+80 when the first candle is black (bullish),
     *        -100/-80 when the first candle is white (bearish), 0 otherwise. Magnitude
-    *        100 for strict containment inside the first body, 80 when one real-body
-    *        end matches. Must hold at least
+    *        100 for strict containment inside the first body, 80 when one or both
+    *        real-body ends match. Must hold at least
     *        {@code endIdx - max(startIdx, cdlharamicrossLookback(...)) + 1} values,
     *        and never be empty: an empty array is an absent output.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -708,9 +708,6 @@
        * - first candle: long white (black) real body
        * - second candle: doji totally engulfed by the first
        * The meaning of "doji" and "long" is specified with TA_SetCandleSettings
-       * outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish;
-       * the user should consider that a harami cross is significant when it appears in a downtrend if bullish or
-       * in an uptrend when bearish, while this function does not consider the trend
        */
       outIdx = 0;
       do {

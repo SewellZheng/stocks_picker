@@ -53,13 +53,14 @@ public partial class Core
     *
     * Change history:
     *
-    *  MMDDYY BY   Description
+    *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
-    *  122605 AC   Creation
-    *  071226 MF,CC Streaming-friendly rewrite: carry the confirmation state
-    *               (countdown + cached 3rd-candle high/low) instead of the absolute
-    *               bar index, so the per-bar logic reads no cursor. Bit-identical
-    *               batch results (verified vs v0.6.4).
+    *  122605 AC     Creation
+    *  071226 MF,CC  Streaming-friendly rewrite: carry the confirmation state
+    *                (countdown + cached 3rd-candle high/low) instead of the absolute
+    *                bar index, so the per-bar logic reads no cursor. Bit-identical
+    *                batch results (verified vs v0.6.4).
+    *  100426 MF,CC  Remove the outInteger comment, which misstated the values
     */
    /// <summary>
    /// Number of leading input bars <c>Cdlhikkakemod</c> consumes before it can
@@ -202,15 +203,8 @@ public partial class Core
        * - second candle: candle with range less than first candle and close near the bottom (near the top)
        * - third candle: lower high and higher low than 2nd
        * - fourth candle: lower high and lower low (higher high and higher low) than 3rd
-       * outInteger[hikkake bar] is positive (1 to 100) or negative (-1 to -100) meaning bullish or bearish hikkake
        * Confirmation could come in the next 3 days with:
        * - a day that closes higher than the high (lower than the low) of the 3rd candle
-       * outInteger[confirmationbar] is equal to 100 + the bullish hikkake result or -100 - the bearish hikkake result
-       * Note: if confirmation and a new hikkake come at the same bar, only the new hikkake is reported (the new hikkake
-       * overwrites the confirmation of the old hikkake);
-       * the user should consider that modified hikkake is a reversal pattern, while hikkake could be both a reversal
-       * or a continuation pattern, so bullish (bearish) modified hikkake is significant when appearing in a downtrend
-       * (uptrend)
        */
       outIdx = 0;
       do {
@@ -363,6 +357,7 @@ public partial class Core
    /// </para>
    /// <list type="bullet">
    /// <item><description>Does not verify the prior trend (downtrend for bullish, uptrend for bearish) that this reversal pattern assumes.</description></item>
+   /// <item><description>A bar that is both a new setup and the confirmation of an earlier one reports the new setup; the earlier one ends unconfirmed.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -384,9 +379,9 @@ public partial class Core
    /// <param name="inLow">Low price of each bar.</param>
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="outInteger">+100 bullish hikkake bar, -100 bearish; +200 confirmed bullish, -200
-   /// confirmed bearish (confirmation adds another +/-100); 0 otherwise. Must
-   /// hold at least <c>endIdx - max(startIdx, CdlhikkakemodLookback(...)) +
-   /// 1</c> values, and never be empty: an empty span is an absent output.</param>
+   /// confirmed bearish; 0 otherwise. Must hold at least <c>endIdx -
+   /// max(startIdx, CdlhikkakemodLookback(...)) + 1</c> values, and never be
+   /// empty: an empty span is an absent output.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -447,6 +442,7 @@ public partial class Core
    /// </para>
    /// <list type="bullet">
    /// <item><description>Does not verify the prior trend (downtrend for bullish, uptrend for bearish) that this reversal pattern assumes.</description></item>
+   /// <item><description>A bar that is both a new setup and the confirmation of an earlier one reports the new setup; the earlier one ends unconfirmed.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -474,9 +470,9 @@ public partial class Core
    /// <param name="inLow">Low price of each bar.</param>
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="outInteger">+100 bullish hikkake bar, -100 bearish; +200 confirmed bullish, -200
-   /// confirmed bearish (confirmation adds another +/-100); 0 otherwise. Must
-   /// hold at least <c>endIdx - max(startIdx, CdlhikkakemodLookback(...)) +
-   /// 1</c> values, and never be empty: an empty span is an absent output.</param>
+   /// confirmed bearish; 0 otherwise. Must hold at least <c>endIdx -
+   /// max(startIdx, CdlhikkakemodLookback(...)) + 1</c> values, and never be
+   /// empty: an empty span is an absent output.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -901,15 +897,8 @@ public partial class Core
        * - second candle: candle with range less than first candle and close near the bottom (near the top)
        * - third candle: lower high and higher low than 2nd
        * - fourth candle: lower high and lower low (higher high and higher low) than 3rd
-       * outInteger[hikkake bar] is positive (1 to 100) or negative (-1 to -100) meaning bullish or bearish hikkake
        * Confirmation could come in the next 3 days with:
        * - a day that closes higher than the high (lower than the low) of the 3rd candle
-       * outInteger[confirmationbar] is equal to 100 + the bullish hikkake result or -100 - the bearish hikkake result
-       * Note: if confirmation and a new hikkake come at the same bar, only the new hikkake is reported (the new hikkake
-       * overwrites the confirmation of the old hikkake);
-       * the user should consider that modified hikkake is a reversal pattern, while hikkake could be both a reversal
-       * or a continuation pattern, so bullish (bearish) modified hikkake is significant when appearing in a downtrend
-       * (uptrend)
        */
       outIdx = 0;
       do {
@@ -1073,8 +1062,8 @@ public partial class Core
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="outInteger">+100 bullish hikkake bar, -100 bearish; +200 confirmed bullish, -200
-   /// confirmed bearish (confirmation adds another +/-100); 0 otherwise. Must
-   /// hold at least <c>historyLen - CdlhikkakemodLookback(...)</c> values.</param>
+   /// confirmed bearish; 0 otherwise. Must hold at least <c>historyLen -
+   /// CdlhikkakemodLookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CdlhikkakemodLookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series

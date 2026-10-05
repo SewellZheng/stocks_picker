@@ -45,13 +45,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
- *  103004 AC   Creation
+ *  103004 AC     Creation
+ *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -256,9 +259,7 @@ impl Core {
         // - long upper shadow
         // - no, or very short, lower shadow
         // - gap down
-        // The meaning of "short", "very short" and "long" is specified with TA_SetCandleSettings;
-        // outInteger is positive (1 to 100): inverted hammer is always bullish;
-        // the user should consider that an inverted hammer must appear in a downtrend, while this function does not consider it
+        // The meaning of "short", "very short" and "long" is specified with TA_SetCandleSettings
         outIdx = 0;
         if i <= endIdx {
             let _wn: usize = endIdx - i + 1;
@@ -414,9 +415,8 @@ impl Core {
     /// )?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [0, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -864,9 +864,7 @@ impl Core {
         // - long upper shadow
         // - no, or very short, lower shadow
         // - gap down
-        // The meaning of "short", "very short" and "long" is specified with TA_SetCandleSettings;
-        // outInteger is positive (1 to 100): inverted hammer is always bullish;
-        // the user should consider that an inverted hammer must appear in a downtrend, while this function does not consider it
+        // The meaning of "short", "very short" and "long" is specified with TA_SetCandleSettings
         outIdx = 0;
         loop {
             if ((if c_max(inOpen[i], inClose[i]) < c_min(inOpen[i - 1], inClose[i - 1]) { 1 } else { 0 }) != 0) && // gap down

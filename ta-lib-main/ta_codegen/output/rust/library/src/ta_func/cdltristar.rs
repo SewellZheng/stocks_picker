@@ -46,6 +46,8 @@
  *  -------------------------------------------------------------------
  *  AC       Angelo Ciceri
  *  CSB      Christopher Barnhouse
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
@@ -53,6 +55,7 @@
  *  -------------------------------------------------------------------
  *  100204 AC      Creation
  *  051005 CSB,AC  Fix #1199526 for out-of-bound write in output.
+ *  100426 MF,CC   Remove the outInteger comment, which misstated the values
  */
 
 // Import types from parent module
@@ -184,7 +187,6 @@ impl Core {
         // - 3 consecutive doji days
         // - the second doji is a star
         // The meaning of "doji" is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish
         i = startIdx;
         outIdx = 0;
         if i <= endIdx {
@@ -345,9 +347,8 @@ impl Core {
     /// let out_range = core.cdltristar(0, open.len() - 1, &open, &high, &low, &close, &mut out)?;
     /// assert!(out_range.count > 0);
     /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
-    /// // a candlestick pattern reports 0 where it does not fire, and a signed
-    /// // strength -- negative bearish, positive bullish -- where it does
-    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
+    /// // a pattern output writes only the values its flags declare
+    /// assert!(out[..out_range.count].iter().all(|v| [-100, 0, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -625,7 +626,6 @@ impl Core {
         // - 3 consecutive doji days
         // - the second doji is a star
         // The meaning of "doji" is specified with TA_SetCandleSettings
-        // outInteger is positive (1 to 100) when bullish or negative (-1 to -100) when bearish
         i = startIdx;
         outIdx = 0;
         loop {

@@ -59,9 +59,8 @@ package io.github.talib;
  * C uses for an argument it can detect) — and <b>lossless</b>: distinct codes
  * never share one thrown representation.
  *
- * <p>Outside it, deliberately: {@link CoreBuilder} and the
- * {@code io.github.talib.metadata} binder still raise plain JDK types. Neither
- * is an indicator call, so neither has a {@link RetCode} to carry.
+ * <p>The {@code io.github.talib.metadata} binder reports through it too.
+ * Outside it, deliberately: {@link CoreBuilder}, which is not an indicator call.
  */
 public interface TALibFailure {
 

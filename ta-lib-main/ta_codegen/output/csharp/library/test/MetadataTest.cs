@@ -91,6 +91,28 @@ public static class MetadataTest
         }
     }
 
+    private static void CheckCode(RetCode expected, Action body, string what)
+    {
+        _checks++;
+        try
+        {
+            body();
+            _failures++;
+            Console.WriteLine($"  FAIL: {what} (nothing was thrown)");
+        }
+        catch (Exception e)
+        {
+            // Every code but the two index codes is carried by a TALibArgumentException.
+            bool argument = expected is not (RetCode.OutOfRangeStartIndex or RetCode.OutOfRangeEndIndex);
+            if (e is not ITALibFailure f || f.RetCode != expected
+                || (argument && e is not TALibArgumentException))
+            {
+                _failures++;
+                Console.WriteLine($"  FAIL: {what} (threw {e.GetType().Name})");
+            }
+        }
+    }
+
     private static void CheckThrows<TException>(Action body, string what)
         where TException : Exception
     {
@@ -539,9 +561,9 @@ public static class MetadataTest
         FuncInfo doji = FunctionCatalog.Default["CDLDOJI"];
         var buf = new double[N];
 
-        CheckThrows<ArgumentOutOfRangeException>(() => sma.CreateCall().SetInput(5, Close), "input index out of range");
-        CheckThrows<ArgumentOutOfRangeException>(() => sma.CreateCall().SetOptInput(9, 30), "parameter index out of range");
-        CheckThrows<ArgumentOutOfRangeException>(() => sma.CreateCall().SetOutput(9, buf), "output index out of range");
+        CheckThrows<ArgumentException>(() => sma.CreateCall().SetInput(5, Close), "input index out of range");
+        CheckThrows<ArgumentException>(() => sma.CreateCall().SetOptInput(9, 30), "parameter index out of range");
+        CheckThrows<ArgumentException>(() => sma.CreateCall().SetOutput(9, buf), "output index out of range");
         CheckThrows<ArgumentException>(() => sma.CreateCall().SetOptInput(0, 1.5), "a real value on an integer parameter");
         // The mirror of the line above, and the one that was missing: SMA's
         // optInTimePeriod is an IntegerRange, so a MAType must not bind to it.
@@ -576,11 +598,82 @@ public static class MetadataTest
         CheckThrows<ArgumentException>(
             () => sma.CreateCall().SetInput(0, Close).Call(0, N - 1), "an unbound output");
 
+        /* Every refusal of this tier carries a code. */
+        CheckCode(RetCode.BadParam, () => sma.CreateCall().SetInput(5, Close), "input index -> BadParam");
+        CheckCode(RetCode.BadParam, () => sma.CreateCall().SetOptInput(9, 30), "parameter index -> BadParam");
+        CheckCode(RetCode.BadParam, () => sma.CreateCall().SetOutput(9, buf), "output index -> BadParam");
+        CheckCode(RetCode.InvalidParamHolderType, () => sma.CreateCall().SetOptInput(0, 1.5), "wrong parameter kind -> InvalidParamHolderType");
+        CheckCode(RetCode.BadParam, () => sma.CreateCall().SetInput(0, (double[])null!), "null series -> BadParam");
+        CheckCode(RetCode.BadParam, () => sma.CreateCall().SetOutput(0, (double[])null!), "null buffer -> BadParam");
+        CheckCode(RetCode.InvalidParamHolderType, () => doji.CreateCall().SetOutput(0, buf), "wrong output kind -> InvalidParamHolderType");
+        CheckCode(RetCode.BadParam, () => sma.CreateCall(null!), "a null Core -> BadParam");
+        CheckCode(RetCode.InputNotAllInitialize,
+            () => sma.CreateCall().SetOutput(0, buf).Call(0, N - 1), "an unbound input -> InputNotAllInitialize");
+        CheckCode(RetCode.OutputNotAllInitialize,
+            () => sma.CreateCall().SetInput(0, Close).Call(0, N - 1), "an unbound output -> OutputNotAllInitialize");
+        CheckCode(RetCode.InputNotAllInitialize,
+            () => stoch.CreateCall().SetPriceInput(0, PriceComponents.High, High)
+                      .SetOutput(0, new double[N]).SetOutput(1, new double[N]).Call(0, N - 1),
+            "a price input bound in part -> InputNotAllInitialize");
+
+        /* The batch call's other conditions reach a fully bound call too. */
+        CheckCode(RetCode.OutOfRangeEndIndex,
+            () => sma.CreateCall().SetInput(0, Close).SetOutput(0, new double[N]).Call(1, 0),
+            "a bound call, endIdx below startIdx -> OutOfRangeEndIndex");
+        double[] shared = new double[N];
+        CheckCode(RetCode.BadParam,
+            () => FunctionCatalog.Default["BBANDS"].CreateCall().SetInput(0, Close)
+                      .SetOutput(0, shared).SetOutput(1, shared).SetOutput(2, new double[N])
+                      .Call(0, N - 1),
+            "one array bound as two outputs -> BadParam");
+
+        /* No output is declined through a holder. MAMA's second output is one
+           the typed method takes an empty span for. */
+        FuncInfo mama = FunctionCatalog.Default["MAMA"];
+        Check((mama.Outputs[1].Flags & OutputFlags.Nullable) != 0, "MAMA's second output is declinable");
+        CheckCode(RetCode.OutputNotAllInitialize,
+            () => mama.CreateCall().SetInput(0, Close).SetOutput(0, new double[N]).Call(0, N - 1),
+            "a declinable output left unbound -> OutputNotAllInitialize");
+        CheckCode(RetCode.BadParam,
+            () => mama.CreateCall().SetInput(0, Close).SetOutput(0, new double[N])
+                      .SetOutput(1, Array.Empty<double>()).Call(0, N - 1),
+            "an empty buffer on a declinable output -> BadParam");
+        CheckCode(RetCode.OutOfRangeEndIndex,
+            () => mama.CreateCall().SetInput(0, Close).SetOutput(0, new double[N])
+                      .SetOutput(1, Array.Empty<double>()).Call(1, 0),
+            "and a bad range keeps its own code");
+        CheckCode(RetCode.BadParam,
+            () => mama.CreateCall().SetInput(0, Close).SetOutput(0, new double[N])
+                      .SetOutput(1, Array.Empty<double>()).Call(0, 0),
+            "a range that produces no values refuses it too");
+        string diagnosis = "nothing was thrown";
+        try
+        {
+            mama.CreateCall().SetInput(0, Close).SetOptInput(0, 5.0).SetOutput(0, new double[N])
+                .SetOutput(1, Array.Empty<double>()).Call(0, N - 1);
+        }
+        catch (TALibArgumentException e)
+        {
+            diagnosis = e.Message;
+        }
+        Check(diagnosis.Contains("bad parameter", StringComparison.Ordinal),
+            $"a bad parameter outranks the empty buffer, as in the typed method ({diagnosis})");
+        double[] untouched = new double[N];
+        RetCode declined = mama.CreateCall().SetInput(0, Close).SetOutput(0, untouched)
+            .SetOutput(1, Array.Empty<double>()).TryCall(0, N - 1, out OutRange rDeclined);
+        Check(declined == RetCode.BadParam && rDeclined.Count == 0 && Array.TrueForAll(untouched, v => v == 0.0),
+            $"TryCall reports it as a code and writes nothing ({declined})");
+        Check(mama.CreateCall().SetInput(0, Close).SetOutput(0, new double[N])
+                  .SetOutput(1, new double[N]).TryCall(0, N - 1, out OutRange rBoth) == RetCode.Success
+              && rBoth.Count > 0,
+            "control: the same call with both outputs sized succeeds");
+
         /* TryCall advertises "failure as a code rather than an exception" and
            then threw from the binding it performs. It now reports the codes C
            returns for the same condition. This is load-bearing rather than
            cosmetic: the C# JSON-RPC server has no exception handling, so the first
            reject vector driven through the binder would terminate the process. */
+
         RetCode noInput = sma.CreateCall().SetOutput(0, new double[N]).TryCall(0, N - 1, out OutRange rNoIn);
         Check(noInput == RetCode.InputNotAllInitialize && rNoIn.Count == 0,
             $"TryCall reports an unbound input as a code ({noInput}), and does not throw");
@@ -623,13 +716,13 @@ public static class MetadataTest
            sentinel itself stays reachable: asking for the default is a legal
            request (issue #162). */
         OptInputInfo smaPeriod = sma.OptInputs[0];
-        CheckThrows<ArgumentOutOfRangeException>(
+        CheckThrows<ArgumentException>(
             () => sma.CreateCall().SetOptInput(smaPeriod, 1e18),
             "SetOptInput rejects a magnitude no integer parameter can hold");
-        CheckThrows<ArgumentOutOfRangeException>(
+        CheckThrows<ArgumentException>(
             () => sma.CreateCall().SetOptInput(smaPeriod, -1e18),
             "SetOptInput rejects the negative magnitude that saturates ONTO the sentinel");
-        CheckThrows<ArgumentOutOfRangeException>(
+        CheckThrows<ArgumentException>(
             () => sma.CreateCall().SetOptInput(smaPeriod, double.NaN), "SetOptInput rejects NaN");
         Check(sma.CreateCall().SetOptInput(smaPeriod, int.MinValue) is not null,
             "but the integer default sentinel is still a legal request");

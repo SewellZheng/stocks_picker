@@ -53,13 +53,14 @@ public partial class Core
     *
     * Change history:
     *
-    *  MMDDYY BY   Description
+    *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
-    *  120305 AC   Creation
-    *  071226 MF,CC Streaming-friendly rewrite: carry the confirmation state
-    *               (countdown + cached 2nd-candle high/low) instead of the absolute
-    *               bar index, so the per-bar logic reads no cursor. Bit-identical
-    *               batch results (verified vs v0.6.4).
+    *  120305 AC     Creation
+    *  071226 MF,CC  Streaming-friendly rewrite: carry the confirmation state
+    *                (countdown + cached 2nd-candle high/low) instead of the absolute
+    *                bar index, so the per-bar logic reads no cursor. Bit-identical
+    *                batch results (verified vs v0.6.4).
+    *  100426 MF,CC  Remove the outInteger comment, which misstated the values
     */
    /// <summary>
    /// Number of leading input bars <c>Cdlhikkake</c> consumes before it can
@@ -178,12 +179,8 @@ public partial class Core
        * Must have:
        * - first and second candle: inside bar (2nd has lower high and higher low than 1st)
        * - third candle: lower high and lower low than 2nd (higher high and higher low than 2nd)
-       * outInteger[hikkakebar] is positive (1 to 100) or negative (-1 to -100) meaning bullish or bearish hikkake
        * Confirmation could come in the next 3 days with:
        * - a day that closes higher than the high (lower than the low) of the 2nd candle
-       * outInteger[confirmationbar] is equal to 100 + the bullish hikkake result or -100 - the bearish hikkake result
-       * Note: if confirmation and a new hikkake come at the same bar, only the new hikkake is reported (the new hikkake
-       * overwrites the confirmation of the old hikkake)
        */
       outIdx = 0;
       do {
@@ -314,6 +311,7 @@ public partial class Core
    /// </para>
    /// <list type="bullet">
    /// <item><description>The name comes from the Japanese word for a deceptive move or "trap" — fitting, since the pattern exists to catch traders acting on a false breakout. Bulkowski's testing of the confirmed pattern found the trap itself barely beats a coin flip: the bullish variant continues as expected only 52% of the time and the bearish variant exactly 50% ("random"), both ranking in the bottom fifth (83rd-84th of 105) for post-breakout performance. (<see href="https://thepatternsite.com/HikkakeBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>A bar that is both a new setup and the confirmation of an earlier one reports the new setup; the earlier one ends unconfirmed.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -399,6 +397,7 @@ public partial class Core
    /// </para>
    /// <list type="bullet">
    /// <item><description>The name comes from the Japanese word for a deceptive move or "trap" — fitting, since the pattern exists to catch traders acting on a false breakout. Bulkowski's testing of the confirmed pattern found the trap itself barely beats a coin flip: the bullish variant continues as expected only 52% of the time and the bearish variant exactly 50% ("random"), both ranking in the bottom fifth (83rd-84th of 105) for post-breakout performance. (<see href="https://thepatternsite.com/HikkakeBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>A bar that is both a new setup and the confirmation of an earlier one reports the new setup; the earlier one ends unconfirmed.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -778,12 +777,8 @@ public partial class Core
        * Must have:
        * - first and second candle: inside bar (2nd has lower high and higher low than 1st)
        * - third candle: lower high and lower low than 2nd (higher high and higher low than 2nd)
-       * outInteger[hikkakebar] is positive (1 to 100) or negative (-1 to -100) meaning bullish or bearish hikkake
        * Confirmation could come in the next 3 days with:
        * - a day that closes higher than the high (lower than the low) of the 2nd candle
-       * outInteger[confirmationbar] is equal to 100 + the bullish hikkake result or -100 - the bearish hikkake result
-       * Note: if confirmation and a new hikkake come at the same bar, only the new hikkake is reported (the new hikkake
-       * overwrites the confirmation of the old hikkake)
        */
       outIdx = 0;
       do {
