@@ -178,7 +178,7 @@
 //! * [`TAN`](Core::tan) — Vector Trigonometric Tan
 //! * [`TANH`](Core::tanh) — Vector Trigonometric Tanh
 //!
-//! ## Momentum Indicators (58)
+//! ## Momentum Indicators (60)
 //!
 //! * [`AC`](Core::ac) — Accelerator/Decelerator Oscillator
 //! * [`ADX`](Core::adx) — Average Directional Movement Index
@@ -202,6 +202,7 @@
 //! * [`DX`](Core::dx) — Directional Movement Index
 //! * [`ER`](Core::er) — Kaufman Efficiency Ratio
 //! * [`ERI`](Core::eri) — Elder Ray Index (Bull Power / Bear Power)
+//! * [`FISHER`](Core::fisher) — Fisher Transform
 //! * [`FOSC`](Core::fosc) — Forecast Oscillator
 //! * [`FRACTAL`](Core::fractal) — Williams Fractal
 //! * [`IBS`](Core::ibs) — Internal Bar Strength
@@ -219,6 +220,7 @@
 //! * [`PLUS_DI`](Core::plus_di) — Plus Directional Indicator
 //! * [`PLUS_DM`](Core::plus_dm) — Plus Directional Movement
 //! * [`PPO`](Core::ppo) — Percentage Price Oscillator
+//! * [`PSO`](Core::pso) — Premier Stochastic Oscillator
 //! * [`QSTICK`](Core::qstick) — Qstick
 //! * [`ROC`](Core::roc) — Rate of change : ((price/prevPrice)-1)*100
 //! * [`ROCP`](Core::rocp) — Rate of change Percentage: (price-prevPrice)/prevPrice
@@ -363,7 +365,7 @@
 //! * [`TSF`](Core::tsf) — Time Series Forecast
 //! * [`VAR`](Core::var) — Variance
 //!
-//! ## Volatility Indicators (10)
+//! ## Volatility Indicators (11)
 //!
 //! * [`ADR`](Core::adr) — Average Day Range
 //! * [`ATR`](Core::atr) — Average True Range
@@ -372,6 +374,7 @@
 //! * [`MASSI`](Core::massi) — Mass Index
 //! * [`NATR`](Core::natr) — Normalized Average True Range
 //! * [`PERCENTB`](Core::percentb) — Bollinger Bands %B
+//! * [`ROGERSSATCHELL`](Core::rogerssatchell) — Rogers-Satchell Volatility
 //! * [`RVI`](Core::rvi) — Relative Volatility Index
 //! * [`RVIR`](Core::rvir) — Relative Volatility Index, refined high/low form
 //! * [`TRANGE`](Core::trange) — True Range

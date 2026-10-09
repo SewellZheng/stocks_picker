@@ -91,10 +91,12 @@ impl Core {
         } else if (((optInCMOPeriod) as i32) < 2) || (((optInCMOPeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
+        let mut root: usize = 0_usize;
+        root = ((optInCMOPeriod as f64).sqrt() as usize) as usize;
         if optInTimePeriod == 1 {
-            return Ok((self.unstable_period[FuncUnstId::VIDYA as usize]) as usize);
+            return Ok((self.unstable_count(FuncUnstId::VIDYA, 0, 0)) as usize);
         }
-        return Ok((optInCMOPeriod + self.unstable_period[FuncUnstId::VIDYA as usize]) as usize);
+        return Ok((optInCMOPeriod + self.unstable_count(FuncUnstId::VIDYA, (if 2 * 4 * (optInTimePeriod + 1) * ((root) as i32) > 100000000 { 100000000 } else { 2 * 4 * (optInTimePeriod + 1) * ((root) as i32) }), (if 2 * 8 * (optInTimePeriod + 1) * ((root) as i32) > 100000000 { 100000000 } else { 2 * 8 * (optInTimePeriod + 1) * ((root) as i32) }))) as usize);
     }
     /// Display shift of one output of [`Core::vidya`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -210,7 +212,7 @@ impl Core {
         // No smoothing at period 1: the output is a copy of the input, as MA gives
         // for every MAType. The unstable period still delays the first output.
         if optInTimePeriod == 1 {
-            lookbackTotal = (self.unstable_period[FuncUnstId::VIDYA as usize]) as usize;
+            lookbackTotal = self.vidya_lookback(optInTimePeriod, optInCMOPeriod).unwrap_or(usize::MAX);
             if startIdx < lookbackTotal {
                 startIdx = lookbackTotal;
             }
@@ -610,6 +612,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::vidya_open_internal`]
     /// (stride 0, scalar sink) and [`Core::vidya_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn vidya_open_impl(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, optInCMOPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<VidyaStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, vidya_open_impl_fma, vidya_open_impl_scalar, (inReal, startIdx, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.vidya_open_impl_scalar(inReal, startIdx, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn vidya_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, optInCMOPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<VidyaStream, RetCode> {
+        self.vidya_open_impl_scalar(inReal, startIdx, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn vidya_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInCMOPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<VidyaStream, RetCode> {
         if inReal.is_empty() {

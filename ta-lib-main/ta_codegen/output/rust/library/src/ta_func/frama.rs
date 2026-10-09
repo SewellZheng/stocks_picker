@@ -53,6 +53,8 @@
  *  -------------------------------------------------------------------
  *  092826 MF,CC  First version (issue #464).
  *  100226 MF,CC  #497. An odd period is refused before the range is written.
+ *  100726 MF,CC  #492. The Auto rule grows with the period and stops at the
+ *                slowest alpha's bound.
  */
 
 // Import types from parent module
@@ -85,12 +87,14 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
+        let mut root: usize = 0_usize;
+        root = ((optInTimePeriod as f64).sqrt() as usize) as usize;
         // The range check cannot demand an even period; without this the lookback
         // answers a usable number for a call that cannot run.
         if optInTimePeriod % 2 != 0 {
             return Err(RetCode::BadParam);
         }
-        return Ok((optInTimePeriod + self.unstable_period[FuncUnstId::FRAMA as usize]) as usize);
+        return Ok((optInTimePeriod + self.unstable_count(FuncUnstId::FRAMA, (if 9 * (4 + 4) * (((root + 2)) as i32) / 2 < 99 * 10 { 9 * (4 + 4) * (((root + 2)) as i32) / 2 } else { 99 * 10 }), (if 9 * (8 + 4) * (((root + 2)) as i32) / 2 < 99 * 19 { 9 * (8 + 4) * (((root + 2)) as i32) / 2 } else { 99 * 19 }))) as usize);
     }
     /// Display shift of one output of [`Core::frama`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -222,7 +226,7 @@ impl Core {
         }
         (*outBegIdx) = 0;
         (*outNBElement) = 0;
-        lookbackTotal = (optInTimePeriod + self.unstable_period[FuncUnstId::FRAMA as usize]) as usize;
+        lookbackTotal = self.frama_lookback(optInTimePeriod).unwrap_or(usize::MAX);
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -259,7 +263,7 @@ impl Core {
         }
         slot_Idx = 0;
         today = startIdx - lookbackTotal + 1;
-        seedIdx = startIdx - ((self.unstable_period[FuncUnstId::FRAMA as usize]) as usize) - 1;
+        seedIdx = startIdx - (lookbackTotal - ((optInTimePeriod) as usize)) - 1;
         // The first block's suffix reads must see a bar inside the window.
         i = 0;
         if i < half {
@@ -612,6 +616,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::frama_open_internal`]
     /// (stride 0, scalar sink) and [`Core::frama_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn frama_open_impl(
+        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<FramaStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, frama_open_impl_fma, frama_open_impl_scalar, (inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.frama_open_impl_scalar(inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn frama_open_impl_fma(
+        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<FramaStream, RetCode> {
+        self.frama_open_impl_scalar(inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn frama_open_impl_scalar(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<FramaStream, RetCode> {
         if inHigh.is_empty() {
@@ -674,7 +696,7 @@ impl Core {
         }
         (*outBegIdx) = 0;
         (*outNBElement) = 0;
-        lookbackTotal = (optInTimePeriod + self.unstable_period[FuncUnstId::FRAMA as usize]) as usize;
+        lookbackTotal = self.frama_lookback(optInTimePeriod)?;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -699,7 +721,7 @@ impl Core {
         maxIdx_slot = ((half) as usize) - 1;
         slot_Idx = 0;
         today = startIdx - lookbackTotal + 1;
-        seedIdx = startIdx - ((self.unstable_period[FuncUnstId::FRAMA as usize]) as usize) - 1;
+        seedIdx = startIdx - (lookbackTotal - ((optInTimePeriod) as usize)) - 1;
         // The first block's suffix reads must see a bar inside the window.
         i = 0;
         while i < half {

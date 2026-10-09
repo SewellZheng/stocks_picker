@@ -59,9 +59,10 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  092926 MF,CC  Initial version (#478).
+ *  100726 MF,CC  #492. The Auto rule takes the bars the shorter EMA count gives up.
  */
 
-TA_LIB_API int TA_STC_Lookback( int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod )
+TA_NOINLINE TA_LIB_API int TA_STC_Lookback( int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod )
 {
    int tempInteger;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
@@ -86,7 +87,7 @@ TA_LIB_API int TA_STC_Lookback( int optInFastPeriod, int optInSlowPeriod, int op
     * then one window per stochastic stage. The two 0.5 smoothers seed on
     * their first input, so they add only the unstable period.
     */
-   return TA_EMA_Lookback(optInSlowPeriod) + 2 * (optInCyclePeriod - 1) + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_STC,Stc);
+   return TA_EMA_Lookback(optInSlowPeriod) + 2 * (optInCyclePeriod - 1) + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_STC,Stc,(5 * 10 + 1) / 2 + 3 * (optInSlowPeriod + 1),(5 * 19 + 1) / 2 + 3 * (optInSlowPeriod + 1));
 }
 
 TA_LIB_API int TA_STC_DisplayShift( int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, int outputIdx )
@@ -131,6 +132,8 @@ TA_LIB_API TA_RetCode TA_STC( int    startIdx,
    double slowK;
    double tempReal;
    double lineValue;
+   double fastBeta;
+   double slowBeta;
    double lowest;
    double highest;
    double range;
@@ -146,10 +149,12 @@ TA_LIB_API TA_RetCode TA_STC( int    startIdx,
    double sufLo;
    int i;
    int today;
+   int fastToday;
    int lineStart;
    int outIdx;
    int tempInteger;
    int lookbackTotal;
+   int lookbackSlow;
    int lastIdx;
    int nLine;
    int nPF;
@@ -196,8 +201,18 @@ TA_LIB_API TA_RetCode TA_STC( int    startIdx,
       return TA_SUCCESS;
    }
    *outBegIdx= startIdx;
-   fastK = 2.0 / (double)(optInFastPeriod + 1);
-   slowK = 2.0 / (double)(optInSlowPeriod + 1);
+   fastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+   fastK = 1.0 - fastBeta;
+   if( fastBeta < 0.5 )
+   {
+      fastBeta = 1.0 - fastK;
+   }
+   slowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+   slowK = 1.0 - slowBeta;
+   if( slowBeta < 0.5 )
+   {
+      slowBeta = 1.0 - slowK;
+   }
    /* Rolling extrema, van Herk / Gil-Werman: the window ending in slot j is
     * the current block's prefix extremum joined with the previous block's
     * suffix extremum from slot j+1. The extrema are exact, so the output must
@@ -301,35 +316,43 @@ TA_LIB_API TA_RetCode TA_STC( int    startIdx,
       pfSufLo = &local_pfSufLo[0];
    }
    lastIdx = optInCyclePeriod - 1;
-   /* The line is TA_MACD's: co-terminal SMA seeds, then both EMAs advanced
-    * through TA_FUNC_UNST_EMA to lineStart, so that from lineStart on it is
-    * TA_EMA(fast) - TA_EMA(slow) bit for bit. The chain is fed from
+   /* The line is TA_MACD's: each SMA seed placed by its own EMA lookback, then
+    * both EMAs advanced to lineStart, so that from lineStart on it is
+    * TA_EMA(fast) - TA_EMA(slow) bit for bit. That placement reads out of
+    * bounds or skips bars unless ema_lookback(n) - n never decreases as n
+    * grows. The chain is fed from
     * lineStart, not from the EMA seed: TA_FUNC_UNST_EMA then reaches only the
     * line, while TA_FUNC_UNST_STC moves the whole chain back and so warms the
     * line and both smoothers.
     */
-   lineStart = startIdx - (lookbackTotal - TA_EMA_Lookback(optInSlowPeriod));
+   lookbackSlow = TA_EMA_Lookback(optInSlowPeriod);
+   lineStart = startIdx - (lookbackTotal - lookbackSlow);
    today = startIdx - lookbackTotal;
    tempReal = 0.0;
-   i = optInSlowPeriod - optInFastPeriod;
+   i = optInSlowPeriod;
    while( i-- > 0 )
    {
       tempReal += inReal[today++];
    }
+   prevSlow = tempReal / optInSlowPeriod;
+   fastToday = startIdx - lookbackTotal + (lookbackSlow - TA_EMA_Lookback(optInFastPeriod));
    prevFast = 0.0;
    i = optInFastPeriod;
    while( i-- > 0 )
    {
-      prevFast += inReal[today];
-      tempReal += inReal[today++];
+      prevFast += inReal[fastToday++];
    }
-   prevSlow = tempReal / optInSlowPeriod;
    prevFast = prevFast / optInFastPeriod;
+   while( today < fastToday )
+   {
+      tempReal = inReal[today++];
+      prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
+   }
    while( today <= lineStart )
    {
       tempReal = inReal[today++];
-      prevFast = fma(tempReal - prevFast, fastK, prevFast);
-      prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+      prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+      prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
    }
    /* A zero range holds the previous fraction (0.0 before any), and the test
     * is exact: in a sustained trend PF saturates at 100 and the second
@@ -355,8 +378,8 @@ TA_LIB_API TA_RetCode TA_STC( int    startIdx,
    while( today <= startIdx )
    {
       tempReal = inReal[today];
-      prevFast = fma(tempReal - prevFast, fastK, prevFast);
-      prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+      prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+      prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
       lineValue = prevFast - prevSlow;
       nLine = nLine + 1;
       lineRing[lineRing_Idx] = lineValue;
@@ -509,8 +532,8 @@ TA_LIB_API TA_RetCode TA_STC( int    startIdx,
    while( today <= endIdx )
    {
       tempReal = inReal[today];
-      prevFast = fma(tempReal - prevFast, fastK, prevFast);
-      prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+      prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+      prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
       lineValue = prevFast - prevSlow;
       lineRing[lineRing_Idx] = lineValue;
       if( lineRing_Idx == 0 )
@@ -682,6 +705,8 @@ TA_RetCode TA_S_STC( int    startIdx,
    double slowK;
    double tempReal;
    double lineValue;
+   double fastBeta;
+   double slowBeta;
    double lowest;
    double highest;
    double range;
@@ -697,10 +722,12 @@ TA_RetCode TA_S_STC( int    startIdx,
    double sufLo;
    int i;
    int today;
+   int fastToday;
    int lineStart;
    int outIdx;
    int tempInteger;
    int lookbackTotal;
+   int lookbackSlow;
    int lastIdx;
    int nLine;
    int nPF;
@@ -747,8 +774,18 @@ TA_RetCode TA_S_STC( int    startIdx,
       return TA_SUCCESS;
    }
    *outBegIdx= startIdx;
-   fastK = 2.0 / (double)(optInFastPeriod + 1);
-   slowK = 2.0 / (double)(optInSlowPeriod + 1);
+   fastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+   fastK = 1.0 - fastBeta;
+   if( fastBeta < 0.5 )
+   {
+      fastBeta = 1.0 - fastK;
+   }
+   slowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+   slowK = 1.0 - slowBeta;
+   if( slowBeta < 0.5 )
+   {
+      slowBeta = 1.0 - slowK;
+   }
    if( optInCyclePeriod < 1 ) return TA_INTERNAL_ERROR(462);
    if( (int)optInCyclePeriod > (int)(sizeof(local_lineRing)/sizeof(double)) )
    {
@@ -847,28 +884,34 @@ TA_RetCode TA_S_STC( int    startIdx,
       pfSufLo = &local_pfSufLo[0];
    }
    lastIdx = optInCyclePeriod - 1;
-   lineStart = startIdx - (lookbackTotal - TA_EMA_Lookback(optInSlowPeriod));
+   lookbackSlow = TA_EMA_Lookback(optInSlowPeriod);
+   lineStart = startIdx - (lookbackTotal - lookbackSlow);
    today = startIdx - lookbackTotal;
    tempReal = 0.0;
-   i = optInSlowPeriod - optInFastPeriod;
+   i = optInSlowPeriod;
    while( i-- > 0 )
    {
       tempReal += (double)inReal[today++];
    }
+   prevSlow = tempReal / optInSlowPeriod;
+   fastToday = startIdx - lookbackTotal + (lookbackSlow - TA_EMA_Lookback(optInFastPeriod));
    prevFast = 0.0;
    i = optInFastPeriod;
    while( i-- > 0 )
    {
-      prevFast += (double)inReal[today];
-      tempReal += (double)inReal[today++];
+      prevFast += (double)inReal[fastToday++];
    }
-   prevSlow = tempReal / optInSlowPeriod;
    prevFast = prevFast / optInFastPeriod;
+   while( today < fastToday )
+   {
+      tempReal = (double)inReal[today++];
+      prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
+   }
    while( today <= lineStart )
    {
       tempReal = (double)inReal[today++];
-      prevFast = fma(tempReal - prevFast, fastK, prevFast);
-      prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+      prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+      prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
    }
    frac1 = 0.0;
    frac2 = 0.0;
@@ -887,8 +930,8 @@ TA_RetCode TA_S_STC( int    startIdx,
    while( today <= startIdx )
    {
       tempReal = (double)inReal[today];
-      prevFast = fma(tempReal - prevFast, fastK, prevFast);
-      prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+      prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+      prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
       lineValue = prevFast - prevSlow;
       nLine = nLine + 1;
       lineRing[lineRing_Idx] = lineValue;
@@ -1041,8 +1084,8 @@ TA_RetCode TA_S_STC( int    startIdx,
    while( today <= endIdx )
    {
       tempReal = (double)inReal[today];
-      prevFast = fma(tempReal - prevFast, fastK, prevFast);
-      prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+      prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+      prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
       lineValue = prevFast - prevSlow;
       lineRing[lineRing_Idx] = lineValue;
       if( lineRing_Idx == 0 )
@@ -1197,6 +1240,8 @@ struct TA_STC_Stream {
    double pad_0;
    double fastK;
    double slowK;
+   double fastBeta;
+   double slowBeta;
    double pad_1;
    double frac1;
    double frac2;
@@ -1261,8 +1306,8 @@ static TA_FMA_STEP_INLINE void TA_STC_StepImpl( struct TA_STC_Stream *sp, double
 
    pf = sp->pf;
    tempReal = inReal;
-   sp->prevFast = fma(tempReal - sp->prevFast, sp->fastK, sp->prevFast);
-   sp->prevSlow = fma(tempReal - sp->prevSlow, sp->slowK, sp->prevSlow);
+   sp->prevFast = fma(sp->fastBeta, sp->prevFast, sp->fastK * tempReal);
+   sp->prevSlow = fma(sp->slowBeta, sp->prevSlow, sp->slowK * tempReal);
    lineValue = sp->prevFast - sp->prevSlow;
    sp->cb_lineRing[sp->lineRing_Idx] = lineValue;
    if( sp->lineRing_Idx == 0 )
@@ -1399,7 +1444,7 @@ static TA_FMA_STEP_INLINE void TA_STC_StepImpl( struct TA_STC_Stream *sp, double
    sp->pf = pf;
 }
 
-static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_STC_Stream *sp;
    double local_lineRing[30];
@@ -1461,6 +1506,8 @@ static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double i
       double slowK = 0.0;
       double tempReal;
       double lineValue;
+      double fastBeta = 0.0;
+      double slowBeta = 0.0;
       double lowest;
       double highest;
       double range;
@@ -1476,10 +1523,12 @@ static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double i
       double sufLo;
       int i;
       int today;
+      int fastToday;
       int lineStart;
       int outIdx;
       int tempInteger;
       int lookbackTotal;
+      int lookbackSlow;
       int lastIdx = 0;
       int nLine;
       int nPF;
@@ -1501,8 +1550,18 @@ static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double i
          return TA_INSUFFICIENT_HISTORY;
       }
       *outBegIdx= startIdx;
-      fastK = 2.0 / (double)(optInFastPeriod + 1);
-      slowK = 2.0 / (double)(optInSlowPeriod + 1);
+      fastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastK = 1.0 - fastBeta;
+      if( fastBeta < 0.5 )
+      {
+         fastBeta = 1.0 - fastK;
+      }
+      slowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowK = 1.0 - slowBeta;
+      if( slowBeta < 0.5 )
+      {
+         slowBeta = 1.0 - slowK;
+      }
       /* Rolling extrema, van Herk / Gil-Werman: the window ending in slot j is
        * the current block's prefix extremum joined with the previous block's
        * suffix extremum from slot j+1. The extrema are exact, so the output must
@@ -1614,35 +1673,43 @@ static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double i
       maxIdx_pfSufLo = (optInCyclePeriod-1);
       pfSufLo_Idx = 0;
       lastIdx = optInCyclePeriod - 1;
-      /* The line is TA_MACD's: co-terminal SMA seeds, then both EMAs advanced
-       * through TA_FUNC_UNST_EMA to lineStart, so that from lineStart on it is
-       * TA_EMA(fast) - TA_EMA(slow) bit for bit. The chain is fed from
+      /* The line is TA_MACD's: each SMA seed placed by its own EMA lookback, then
+       * both EMAs advanced to lineStart, so that from lineStart on it is
+       * TA_EMA(fast) - TA_EMA(slow) bit for bit. That placement reads out of
+       * bounds or skips bars unless ema_lookback(n) - n never decreases as n
+       * grows. The chain is fed from
        * lineStart, not from the EMA seed: TA_FUNC_UNST_EMA then reaches only the
        * line, while TA_FUNC_UNST_STC moves the whole chain back and so warms the
        * line and both smoothers.
        */
-      lineStart = startIdx - (lookbackTotal - TA_EMA_Lookback(optInSlowPeriod));
+      lookbackSlow = TA_EMA_Lookback(optInSlowPeriod);
+      lineStart = startIdx - (lookbackTotal - lookbackSlow);
       today = startIdx - lookbackTotal;
       tempReal = 0.0;
-      i = optInSlowPeriod - optInFastPeriod;
+      i = optInSlowPeriod;
       while( i-- > 0 )
       {
          tempReal += inReal[today++];
       }
+      prevSlow = tempReal / optInSlowPeriod;
+      fastToday = startIdx - lookbackTotal + (lookbackSlow - TA_EMA_Lookback(optInFastPeriod));
       prevFast = 0.0;
       i = optInFastPeriod;
       while( i-- > 0 )
       {
-         prevFast += inReal[today];
-         tempReal += inReal[today++];
+         prevFast += inReal[fastToday++];
       }
-      prevSlow = tempReal / optInSlowPeriod;
       prevFast = prevFast / optInFastPeriod;
+      while( today < fastToday )
+      {
+         tempReal = inReal[today++];
+         prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
+      }
       while( today <= lineStart )
       {
          tempReal = inReal[today++];
-         prevFast = fma(tempReal - prevFast, fastK, prevFast);
-         prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
       }
       /* A zero range holds the previous fraction (0.0 before any), and the test
        * is exact: in a sustained trend PF saturates at 100 and the second
@@ -1668,8 +1735,8 @@ static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double i
       while( today <= startIdx )
       {
          tempReal = inReal[today];
-         prevFast = fma(tempReal - prevFast, fastK, prevFast);
-         prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
          lineValue = prevFast - prevSlow;
          nLine = nLine + 1;
          lineRing[lineRing_Idx] = lineValue;
@@ -1822,8 +1889,8 @@ static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double i
       while( today <= endIdx )
       {
          tempReal = inReal[today];
-         prevFast = fma(tempReal - prevFast, fastK, prevFast);
-         prevSlow = fma(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = fma(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = fma(slowBeta, prevSlow, slowK * tempReal);
          lineValue = prevFast - prevSlow;
          lineRing[lineRing_Idx] = lineValue;
          if( lineRing_Idx == 0 )
@@ -1965,6 +2032,8 @@ static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double i
       sp->prevSlow = prevSlow;
       sp->fastK = fastK;
       sp->slowK = slowK;
+      sp->fastBeta = fastBeta;
+      sp->slowBeta = slowBeta;
       sp->frac1 = frac1;
       sp->frac2 = frac2;
       sp->pf = pf;
@@ -2025,6 +2094,30 @@ static TA_RetCode TA_STC_OpenImpl( struct TA_STC_Stream **stream, const double i
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_STC_OpenImplFma( struct TA_STC_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_STC_OpenImpl( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_STC_OpenImplPlain( struct TA_STC_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_STC_OpenImpl( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_STC_OpenSinkFma( struct TA_STC_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_STC_OpenImpl( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_STC_OpenInternal( struct TA_STC_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, double *outReal )
 {
@@ -2032,7 +2125,7 @@ TA_RetCode TA_STC_OpenInternal( struct TA_STC_Stream **stream, const double inRe
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_STC_OpenImpl( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_STC_OpenImplFma( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_STC_OpenImplPlain( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -2047,7 +2140,7 @@ TA_LIB_API TA_RetCode TA_STC_Open( TA_STC_Stream **stream, const double inReal[]
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
-   return TA_STC_OpenInternal( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_STC_OpenSinkFma( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outReal ) : TA_STC_OpenInternal( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_STC_OpenAndFill( TA_STC_Stream **stream, const double inReal[], int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -2064,7 +2157,7 @@ TA_LIB_API TA_RetCode TA_STC_OpenAndFill( TA_STC_Stream **stream, const double i
 /* Private function, not in public API. */
 TA_RetCode TA_STC_OpenAndFillInternal( struct TA_STC_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_STC_OpenImpl( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_STC_OpenImplFma( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_STC_OpenImplPlain( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION
@@ -2136,8 +2229,8 @@ TA_LIB_API TA_RetCode TA_STC_Peek( const TA_STC_Stream *stream, double inReal, d
    cb_pfSufHi = sp->cb_pfSufHi;
    cb_pfSufLo = sp->cb_pfSufLo;
    tempReal = inReal;
-   prevFast = fma(tempReal - prevFast, sp->fastK, prevFast);
-   prevSlow = fma(tempReal - prevSlow, sp->slowK, prevSlow);
+   prevFast = fma(sp->fastBeta, prevFast, sp->fastK * tempReal);
+   prevSlow = fma(sp->slowBeta, prevSlow, sp->slowK * tempReal);
    lineValue = prevFast - prevSlow;
    pkSlot0 = lineRing_Idx;
    pkVal0 = lineValue;

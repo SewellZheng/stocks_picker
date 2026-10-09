@@ -29,12 +29,8 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
       }
-      /* One bar is consumed forming the first close-to-close change, then the
-       * EMA's own warm-up on top:
-       *    1 + ema_lookback(optInTimePeriod)
-       *  = 1 + (optInTimePeriod - 1) + TA_GetUnstablePeriod(TA_FUNC_UNST_EMA)
-       */
-      return optInTimePeriod + this.unstablePeriod[FuncUnstId.EMA.ordinal()] ;
+      /* One bar forms the first close-to-close change. */
+      return 1 + emaLookback(optInTimePeriod) ;
 
    }
    /**
@@ -68,6 +64,7 @@
                     MInteger outNBElement,
                     double outReal[] )
    {
+      double emaBeta = 0;
       double optInK_1 = 0;
       double tempReal = 0;
       double prevMA = 0;
@@ -88,7 +85,6 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BAD_PARAM;
       }
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
       /* Alexander Elder's Force Index (Trading for a Living, 1993): the one-bar
        * close-to-close move weighted by that bar's volume, then smoothed with an
        * EMA. Elder's 2-period reading is the short-term form and 13 the
@@ -99,10 +95,10 @@
        *
        * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
        * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-       * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-       * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-       * contract against the composed reference in test_composite.c -- MOM, then
-       * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+       * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+       * beta. That order IS the bit-exactness contract against the composed
+       * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+       * tidy it. TRIX carries the same warning.
        *
        * Nothing on the data path divides by an input, so issue #112 is satisfied
        * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -119,6 +115,15 @@
        * to calculate at least one output.
        */
       lookbackTotal = efiLookback(optInTimePeriod);
+      /* After the lookback call: a double live across a call is saved and
+       * restored around every fma call of the loops below, one more instruction
+       * per bar.
+       */
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 ) {
+         emaBeta = 1.0 - optInK_1;
+      }
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -132,11 +137,8 @@
          return RetCode.SUCCESS ;
       }
       /* No smoothing at a period of 1: the output is the raw Force Index.
-       * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-       * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-       * only while consecutive values stay within a factor of two of each other.
-       * Force values swing by orders of magnitude, far more than the prices EMA
-       * warns about.
+       * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+       * not keep the sign of a -0.0 force: a down bar on zero volume.
        */
       if( optInTimePeriod == 1 ) {
          outBegIdx.value = startIdx;
@@ -172,7 +174,7 @@
       while( today <= startIdx ) {
          force = (inClose[today] - prevClose) * inVolume[today];
          prevClose = inClose[today];
-         prevMA = Math.fma(force - prevMA, optInK_1, prevMA);
+         prevMA = Math.fma(emaBeta, prevMA, optInK_1 * force);
          today = today + 1;
       }
       outReal[0] = prevMA;
@@ -180,7 +182,7 @@
       while( today <= endIdx ) {
          force = (inClose[today] - prevClose) * inVolume[today];
          prevClose = inClose[today];
-         prevMA = Math.fma(force - prevMA, optInK_1, prevMA);
+         prevMA = Math.fma(emaBeta, prevMA, optInK_1 * force);
          outReal[outIdx] = prevMA;
          outIdx = outIdx + 1;
          today = today + 1;
@@ -197,6 +199,7 @@
                     MInteger outNBElement,
                     double outReal[] )
    {
+      double emaBeta = 0;
       double optInK_1 = 0;
       double tempReal = 0;
       double prevMA = 0;
@@ -217,8 +220,12 @@
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BAD_PARAM;
       }
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
       lookbackTotal = efiLookback(optInTimePeriod);
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 ) {
+         emaBeta = 1.0 - optInK_1;
+      }
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -257,7 +264,7 @@
       while( today <= startIdx ) {
          force = ((double)inClose[today] - prevClose) * (double)inVolume[today];
          prevClose = (double)inClose[today];
-         prevMA = Math.fma(force - prevMA, optInK_1, prevMA);
+         prevMA = Math.fma(emaBeta, prevMA, optInK_1 * force);
          today = today + 1;
       }
       outReal[0] = prevMA;
@@ -265,7 +272,7 @@
       while( today <= endIdx ) {
          force = ((double)inClose[today] - prevClose) * (double)inVolume[today];
          prevClose = (double)inClose[today];
-         prevMA = Math.fma(force - prevMA, optInK_1, prevMA);
+         prevMA = Math.fma(emaBeta, prevMA, optInK_1 * force);
          outReal[outIdx] = prevMA;
          outIdx = outIdx + 1;
          today = today + 1;
@@ -442,6 +449,7 @@
       private Core core;
       private int optInTimePeriod;
       private double prevClose;
+      private double emaBeta;
       private double optInK_1;
       private double prevMA;
       private double cur_outReal;
@@ -488,6 +496,7 @@
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevClose = other.prevClose;
+         this.emaBeta = other.emaBeta;
          this.optInK_1 = other.optInK_1;
          this.prevMA = other.prevMA;
          this.cur_outReal = other.cur_outReal;
@@ -548,7 +557,7 @@
             double prevMA = sp.prevMA;
             force = (inClose - prevClose) * inVolume;
             prevClose = inClose;
-            prevMA = Math.fma(force - prevMA, sp.optInK_1, prevMA);
+            prevMA = Math.fma(sp.emaBeta, prevMA, sp.optInK_1 * force);
             cur_outReal = prevMA;
          }
          return cur_outReal;
@@ -591,7 +600,7 @@
          double force = 0.0;
          force = (inClose - sp.prevClose) * inVolume;
          sp.prevClose = inClose;
-         sp.prevMA = Math.fma(force - sp.prevMA, sp.optInK_1, sp.prevMA);
+         sp.prevMA = Math.fma(sp.emaBeta, sp.prevMA, sp.optInK_1 * force);
          sp.cur_outReal = sp.prevMA;
       }
    }
@@ -614,6 +623,7 @@
          return RetCode.BAD_PARAM;
       }
       if( optInTimePeriod == 1 ) {
+         double emaBeta = 0;
          double optInK_1 = 0;
          double tempReal = 0;
          double prevMA = 0;
@@ -623,7 +633,6 @@
          int today = 0;
          int outIdx = 0;
          int lookbackTotal = 0;
-         optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
          /* Alexander Elder's Force Index (Trading for a Living, 1993): the one-bar
           * close-to-close move weighted by that bar's volume, then smoothed with an
           * EMA. Elder's 2-period reading is the short-term form and 13 the
@@ -634,10 +643,10 @@
           *
           * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
           * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-          * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-          * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-          * contract against the composed reference in test_composite.c -- MOM, then
-          * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+          * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+          * beta. That order IS the bit-exactness contract against the composed
+          * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+          * tidy it. TRIX carries the same warning.
           *
           * Nothing on the data path divides by an input, so issue #112 is satisfied
           * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -654,6 +663,15 @@
           * to calculate at least one output.
           */
          lookbackTotal = efiLookback(optInTimePeriod);
+         /* After the lookback call: a double live across a call is saved and
+          * restored around every fma call of the loops below, one more instruction
+          * per bar.
+          */
+         emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+         optInK_1 = 1.0 - emaBeta;
+         if( emaBeta < 0.5 ) {
+            emaBeta = 1.0 - optInK_1;
+         }
          /* Move up the start index if there is not
           * enough initial data.
           */
@@ -667,11 +685,8 @@
             return RetCode.INSUFFICIENT_HISTORY ;
          }
          /* No smoothing at a period of 1: the output is the raw Force Index.
-          * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-          * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-          * only while consecutive values stay within a factor of two of each other.
-          * Force values swing by orders of magnitude, far more than the prices EMA
-          * warns about.
+          * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+          * not keep the sign of a -0.0 force: a down bar on zero volume.
           */
          outBegIdx.value = startIdx;
          outIdx = 0;
@@ -688,11 +703,13 @@
          /* Capture the live batch state into the handle. */
          sp.optInTimePeriod = optInTimePeriod;
          sp.prevClose = prevClose;
+         sp.emaBeta = emaBeta;
          sp.optInK_1 = optInK_1;
          sp.prevMA = prevMA;
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
          return RetCode.SUCCESS;
       } else {
+         double emaBeta = 0;
          double optInK_1 = 0;
          double tempReal = 0;
          double prevMA = 0;
@@ -702,7 +719,6 @@
          int today = 0;
          int outIdx = 0;
          int lookbackTotal = 0;
-         optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
          /* Alexander Elder's Force Index (Trading for a Living, 1993): the one-bar
           * close-to-close move weighted by that bar's volume, then smoothed with an
           * EMA. Elder's 2-period reading is the short-term form and 13 the
@@ -713,10 +729,10 @@
           *
           * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
           * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-          * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-          * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-          * contract against the composed reference in test_composite.c -- MOM, then
-          * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+          * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+          * beta. That order IS the bit-exactness contract against the composed
+          * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+          * tidy it. TRIX carries the same warning.
           *
           * Nothing on the data path divides by an input, so issue #112 is satisfied
           * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -733,6 +749,15 @@
           * to calculate at least one output.
           */
          lookbackTotal = efiLookback(optInTimePeriod);
+         /* After the lookback call: a double live across a call is saved and
+          * restored around every fma call of the loops below, one more instruction
+          * per bar.
+          */
+         emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+         optInK_1 = 1.0 - emaBeta;
+         if( emaBeta < 0.5 ) {
+            emaBeta = 1.0 - optInK_1;
+         }
          /* Move up the start index if there is not
           * enough initial data.
           */
@@ -746,11 +771,8 @@
             return RetCode.INSUFFICIENT_HISTORY ;
          }
          /* No smoothing at a period of 1: the output is the raw Force Index.
-          * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-          * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-          * only while consecutive values stay within a factor of two of each other.
-          * Force values swing by orders of magnitude, far more than the prices EMA
-          * warns about.
+          * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+          * not keep the sign of a -0.0 force: a down bar on zero volume.
           */
          outBegIdx.value = startIdx;
          /* The first EMA value is a simple average of the first 'period' force
@@ -771,7 +793,7 @@
          while( today <= startIdx ) {
             force = (inClose[today] - prevClose) * inVolume[today];
             prevClose = inClose[today];
-            prevMA = Math.fma(force - prevMA, optInK_1, prevMA);
+            prevMA = Math.fma(emaBeta, prevMA, optInK_1 * force);
             today = today + 1;
          }
          outReal[0 * outStride] = prevMA;
@@ -779,7 +801,7 @@
          while( today <= endIdx ) {
             force = (inClose[today] - prevClose) * inVolume[today];
             prevClose = inClose[today];
-            prevMA = Math.fma(force - prevMA, optInK_1, prevMA);
+            prevMA = Math.fma(emaBeta, prevMA, optInK_1 * force);
             outReal[outIdx * outStride] = prevMA;
             outIdx = outIdx + 1;
             today = today + 1;
@@ -788,6 +810,7 @@
          /* Capture the live batch state into the handle. */
          sp.optInTimePeriod = optInTimePeriod;
          sp.prevClose = prevClose;
+         sp.emaBeta = emaBeta;
          sp.optInK_1 = optInK_1;
          sp.prevMA = prevMA;
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];

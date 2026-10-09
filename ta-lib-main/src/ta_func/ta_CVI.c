@@ -93,6 +93,7 @@ TA_LIB_API TA_RetCode TA_CVI( int    startIdx,
    double laggedEMA;
    double tempReal;
    double optInK_1;
+   double emaBeta;
    int i;
    int today;
    int outIdx;
@@ -129,7 +130,7 @@ TA_LIB_API TA_RetCode TA_CVI( int    startIdx,
     * EMA is anchored optInROCPeriod bars behind startIdx.
     *
     * The arithmetic below is TA_EMA's and TA_ROCP's verbatim -- seed sum
-    * accumulated from 0.0 in ascending bar order, ((x-prev)*k)+prev, and
+    * accumulated from 0.0 in ascending bar order, k*x + beta*prev, and
     * 100*((a-b)/b) under an exact zero test. That is what makes this fused pass
     * bit-identical to composing TA_SUB, TA_EMA and TA_ROCP, which test_cvi.c
     * holds it to memcmp-exact; reshaping any of it breaks that silently. The
@@ -164,7 +165,12 @@ TA_LIB_API TA_RetCode TA_CVI( int    startIdx,
    }
    maxIdx_emaRing = (optInROCPeriod-1);
    emaRing_Idx = 0;
-   optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+   emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+   optInK_1 = 1.0 - emaBeta;
+   if( emaBeta < 0.5 )
+   {
+      emaBeta = 1.0 - optInK_1;
+   }
    today = startIdx - lookbackTotal;
    i = optInTimePeriod;
    tempReal = 0.0;
@@ -184,7 +190,7 @@ TA_LIB_API TA_RetCode TA_CVI( int    startIdx,
    while( today < startIdx )
    {
       tempReal = inHigh[today] - inLow[today];
-      prevEMA = fma(tempReal - prevEMA, optInK_1, prevEMA);
+      prevEMA = fma(emaBeta, prevEMA, optInK_1 * tempReal);
       today += 1;
       emaRing[emaRing_Idx] = prevEMA;
       emaRing_Idx++;
@@ -197,7 +203,7 @@ TA_LIB_API TA_RetCode TA_CVI( int    startIdx,
    while( today <= endIdx )
    {
       tempReal = inHigh[today] - inLow[today];
-      prevEMA = fma(tempReal - prevEMA, optInK_1, prevEMA);
+      prevEMA = fma(emaBeta, prevEMA, optInK_1 * tempReal);
       today += 1;
       laggedEMA = emaRing[emaRing_Idx];
       emaRing[emaRing_Idx] = prevEMA;
@@ -232,6 +238,7 @@ TA_RetCode TA_S_CVI( int    startIdx,
    double laggedEMA;
    double tempReal;
    double optInK_1;
+   double emaBeta;
    int i;
    int today;
    int outIdx;
@@ -289,7 +296,12 @@ TA_RetCode TA_S_CVI( int    startIdx,
    }
    maxIdx_emaRing = (optInROCPeriod-1);
    emaRing_Idx = 0;
-   optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+   emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+   optInK_1 = 1.0 - emaBeta;
+   if( emaBeta < 0.5 )
+   {
+      emaBeta = 1.0 - optInK_1;
+   }
    today = startIdx - lookbackTotal;
    i = optInTimePeriod;
    tempReal = 0.0;
@@ -305,7 +317,7 @@ TA_RetCode TA_S_CVI( int    startIdx,
    while( today < startIdx )
    {
       tempReal = (double)inHigh[today] - (double)inLow[today];
-      prevEMA = fma(tempReal - prevEMA, optInK_1, prevEMA);
+      prevEMA = fma(emaBeta, prevEMA, optInK_1 * tempReal);
       today += 1;
       emaRing[emaRing_Idx] = prevEMA;
       emaRing_Idx++;
@@ -315,7 +327,7 @@ TA_RetCode TA_S_CVI( int    startIdx,
    while( today <= endIdx )
    {
       tempReal = (double)inHigh[today] - (double)inLow[today];
-      prevEMA = fma(tempReal - prevEMA, optInK_1, prevEMA);
+      prevEMA = fma(emaBeta, prevEMA, optInK_1 * tempReal);
       today += 1;
       laggedEMA = emaRing[emaRing_Idx];
       emaRing[emaRing_Idx] = prevEMA;
@@ -348,6 +360,7 @@ struct TA_CVI_Stream {
    double prevEMA;
    double pad_0;
    double optInK_1;
+   double emaBeta;
    int emaRing_Idx;
    int maxIdx_emaRing;
    int cbSize_emaRing;
@@ -371,7 +384,7 @@ static TA_FMA_STEP_INLINE void TA_CVI_StepImpl( struct TA_CVI_Stream *sp, double
 
    prevEMA = sp->prevEMA;
    tempReal = inHigh - inLow;
-   prevEMA = fma(tempReal - prevEMA, sp->optInK_1, prevEMA);
+   prevEMA = fma(sp->emaBeta, prevEMA, sp->optInK_1 * tempReal);
    laggedEMA = sp->cb_emaRing[sp->emaRing_Idx];
    sp->cb_emaRing[sp->emaRing_Idx] = prevEMA;
    sp->emaRing_Idx = sp->emaRing_Idx + 1;
@@ -390,7 +403,7 @@ static TA_FMA_STEP_INLINE void TA_CVI_StepImpl( struct TA_CVI_Stream *sp, double
    sp->prevEMA = prevEMA;
 }
 
-static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int optInROCPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int optInROCPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_CVI_Stream *sp;
    double local_emaRing[32];
@@ -426,6 +439,7 @@ static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double i
       double laggedEMA;
       double tempReal;
       double optInK_1 = 0.0;
+      double emaBeta = 0.0;
       int i;
       int today;
       int outIdx;
@@ -435,7 +449,7 @@ static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double i
        * EMA is anchored optInROCPeriod bars behind startIdx.
        *
        * The arithmetic below is TA_EMA's and TA_ROCP's verbatim -- seed sum
-       * accumulated from 0.0 in ascending bar order, ((x-prev)*k)+prev, and
+       * accumulated from 0.0 in ascending bar order, k*x + beta*prev, and
        * 100*((a-b)/b) under an exact zero test. That is what makes this fused pass
        * bit-identical to composing TA_SUB, TA_EMA and TA_ROCP, which test_cvi.c
        * holds it to memcmp-exact; reshaping any of it breaks that silently. The
@@ -470,7 +484,12 @@ static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double i
       }
       maxIdx_emaRing = (optInROCPeriod-1);
       emaRing_Idx = 0;
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 )
+      {
+         emaBeta = 1.0 - optInK_1;
+      }
       today = startIdx - lookbackTotal;
       i = optInTimePeriod;
       tempReal = 0.0;
@@ -490,7 +509,7 @@ static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double i
       while( today < startIdx )
       {
          tempReal = inHigh[today] - inLow[today];
-         prevEMA = fma(tempReal - prevEMA, optInK_1, prevEMA);
+         prevEMA = fma(emaBeta, prevEMA, optInK_1 * tempReal);
          today += 1;
          emaRing[emaRing_Idx] = prevEMA;
          emaRing_Idx++;
@@ -503,7 +522,7 @@ static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double i
       while( today <= endIdx )
       {
          tempReal = inHigh[today] - inLow[today];
-         prevEMA = fma(tempReal - prevEMA, optInK_1, prevEMA);
+         prevEMA = fma(emaBeta, prevEMA, optInK_1 * tempReal);
          today += 1;
          laggedEMA = emaRing[emaRing_Idx];
          emaRing[emaRing_Idx] = prevEMA;
@@ -528,6 +547,7 @@ static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double i
       sp->optInROCPeriod = optInROCPeriod;
       sp->prevEMA = prevEMA;
       sp->optInK_1 = optInK_1;
+      sp->emaBeta = emaBeta;
       sp->emaRing_Idx = emaRing_Idx;
       sp->maxIdx_emaRing = maxIdx_emaRing;
       sp->cbSize_emaRing = maxIdx_emaRing + 1;
@@ -544,6 +564,30 @@ static TA_RetCode TA_CVI_OpenImpl( struct TA_CVI_Stream **stream, const double i
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_CVI_OpenImplFma( struct TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int optInROCPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_CVI_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_CVI_OpenImplPlain( struct TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int optInROCPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_CVI_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_CVI_OpenSinkFma( struct TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int optInROCPeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_CVI_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_CVI_OpenInternal( struct TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int optInROCPeriod, double *outReal )
 {
@@ -551,7 +595,7 @@ TA_RetCode TA_CVI_OpenInternal( struct TA_CVI_Stream **stream, const double inHi
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_CVI_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_CVI_OpenImplFma( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_CVI_OpenImplPlain( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -566,7 +610,7 @@ TA_LIB_API TA_RetCode TA_CVI_Open( TA_CVI_Stream **stream, const double inHigh[]
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   return TA_CVI_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, optInROCPeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_CVI_OpenSinkFma( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, optInROCPeriod, outReal ) : TA_CVI_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, optInROCPeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_CVI_OpenAndFill( TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, int optInROCPeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -583,7 +627,7 @@ TA_LIB_API TA_RetCode TA_CVI_OpenAndFill( TA_CVI_Stream **stream, const double i
 /* Private function, not in public API. */
 TA_RetCode TA_CVI_OpenAndFillInternal( struct TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int optInROCPeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_CVI_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_CVI_OpenImplFma( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_CVI_OpenImplPlain( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION
@@ -615,7 +659,7 @@ TA_LIB_API TA_RetCode TA_CVI_Peek( const TA_CVI_Stream *stream, double inHigh, d
    prevEMA = sp->prevEMA;
    cb_emaRing = sp->cb_emaRing;
    tempReal = inHigh - inLow;
-   prevEMA = fma(tempReal - prevEMA, sp->optInK_1, prevEMA);
+   prevEMA = fma(sp->emaBeta, prevEMA, sp->optInK_1 * tempReal);
    laggedEMA = cb_emaRing[emaRing_Idx];
    emaRing_Idx = emaRing_Idx + 1;
    if( emaRing_Idx > sp->maxIdx_emaRing )

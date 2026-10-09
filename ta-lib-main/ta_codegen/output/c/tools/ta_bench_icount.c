@@ -5924,6 +5924,62 @@ static void icount_EXP(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_FISHER(int iters) {
+    const char *nm = "FISHER";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_FISHER_Stream *st = NULL;
+    TA_FISHER_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_FISHER(0, g_nPoints - 1, g_high, g_low, 10, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("FISHER/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+
+    ICOUNT_ZERO();
+    rc = TA_FISHER_OpenAndFill(&stf, g_high, g_low, g_nPoints, 10, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("FISHER/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    if( stf ) TA_FISHER_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_FISHER_Open(&st, g_high, g_low, g_nPoints, 10, &v0, &v1);
+    ICOUNT_DUMP("FISHER/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_FISHER_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("FISHER/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_FISHER_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("FISHER/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_FISHER_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_FLOOR(int iters) {
     const char *nm = "FLOOR";
     int outBegIdx = 0, outNBElement = 0;
@@ -9038,6 +9094,57 @@ static void icount_PPO(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_PSO(int iters) {
+    const char *nm = "PSO";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_PSO_Stream *st = NULL;
+    TA_PSO_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_PSO(0, g_nPoints - 1, g_high, g_low, g_close, 8, 5, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("PSO/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_PSO_OpenAndFill(&stf, g_high, g_low, g_close, g_nPoints, 8, 5, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("PSO/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_PSO_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_PSO_Open(&st, g_high, g_low, g_close, g_nPoints, 8, 5, &v0);
+    ICOUNT_DUMP("PSO/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_PSO_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("PSO/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_PSO_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("PSO/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_PSO_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_PVI(int iters) {
     const char *nm = "PVI";
     int outBegIdx = 0, outNBElement = 0;
@@ -9494,6 +9601,57 @@ static void icount_ROCR100(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_ROCR100_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_ROGERSSATCHELL(int iters) {
+    const char *nm = "ROGERSSATCHELL";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_ROGERSSATCHELL_Stream *st = NULL;
+    TA_ROGERSSATCHELL_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_ROGERSSATCHELL(0, g_nPoints - 1, g_open, g_high, g_low, g_close, 10, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("ROGERSSATCHELL/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_ROGERSSATCHELL_OpenAndFill(&stf, g_open, g_high, g_low, g_close, g_nPoints, 10, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("ROGERSSATCHELL/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_ROGERSSATCHELL_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_ROGERSSATCHELL_Open(&st, g_open, g_high, g_low, g_close, g_nPoints, 10, 252.000000000000000, &v0);
+    ICOUNT_DUMP("ROGERSSATCHELL/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ROGERSSATCHELL_Update(st, g_open[it & ICOUNT_MASK], g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("ROGERSSATCHELL/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ROGERSSATCHELL_Peek(st, g_open[it & ICOUNT_MASK], g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("ROGERSSATCHELL/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_ROGERSSATCHELL_Close(st);
     g_sink += acc + outNBElement;
 }
 
@@ -12038,6 +12196,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "ER") ) { icount_ER(iters); fflush(stdout); }
     if( func_matches(filter, "ERI") ) { icount_ERI(iters); fflush(stdout); }
     if( func_matches(filter, "EXP") ) { icount_EXP(iters); fflush(stdout); }
+    if( func_matches(filter, "FISHER") ) { icount_FISHER(iters); fflush(stdout); }
     if( func_matches(filter, "FLOOR") ) { icount_FLOOR(iters); fflush(stdout); }
     if( func_matches(filter, "FOSC") ) { icount_FOSC(iters); fflush(stdout); }
     if( func_matches(filter, "FRACTAL") ) { icount_FRACTAL(iters); fflush(stdout); }
@@ -12097,6 +12256,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "PLUS_DI") ) { icount_PLUS_DI(iters); fflush(stdout); }
     if( func_matches(filter, "PLUS_DM") ) { icount_PLUS_DM(iters); fflush(stdout); }
     if( func_matches(filter, "PPO") ) { icount_PPO(iters); fflush(stdout); }
+    if( func_matches(filter, "PSO") ) { icount_PSO(iters); fflush(stdout); }
     if( func_matches(filter, "PVI") ) { icount_PVI(iters); fflush(stdout); }
     if( func_matches(filter, "PVO") ) { icount_PVO(iters); fflush(stdout); }
     if( func_matches(filter, "PVT") ) { icount_PVT(iters); fflush(stdout); }
@@ -12106,6 +12266,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "ROCP") ) { icount_ROCP(iters); fflush(stdout); }
     if( func_matches(filter, "ROCR") ) { icount_ROCR(iters); fflush(stdout); }
     if( func_matches(filter, "ROCR100") ) { icount_ROCR100(iters); fflush(stdout); }
+    if( func_matches(filter, "ROGERSSATCHELL") ) { icount_ROGERSSATCHELL(iters); fflush(stdout); }
     if( func_matches(filter, "RSI") ) { icount_RSI(iters); fflush(stdout); }
     if( func_matches(filter, "RVI") ) { icount_RVI(iters); fflush(stdout); }
     if( func_matches(filter, "RVIR") ) { icount_RVIR(iters); fflush(stdout); }

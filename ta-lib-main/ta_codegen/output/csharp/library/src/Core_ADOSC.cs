@@ -55,6 +55,7 @@ public partial class Core
     *  -------------------------------------------------------------------
     *  120802 MF   Template creation.
     *  052603 MF   Adapt code to compile with .NET Managed C++
+    *  100726 MF,CC  #492. Under an Auto level the bars its two EMAs' cancelling costs.
     */
    /// <summary>
    /// Number of leading input bars <c>Adosc</c> consumes before it can produce
@@ -89,8 +90,11 @@ public partial class Core
       } else {
          slowestPeriod = optInFastPeriod;
       }
-      /* Adjust startIdx to account for the lookback period. */
-      return EmaLookback(slowestPeriod) ;
+      /* Both EMAs seed on one value at one bar, so two starts differ by a fast
+       * term less a slow one, and the two can cancel in the first outputs: an
+       * Auto level is held against what is left.
+       */
+      return EmaLookback(slowestPeriod) + ((this.UnstableCount((int)FuncUnstId.EMA, 1, 1) != this.UnstableCount((int)FuncUnstId.EMA, 0, 0)) ? (this.UnstableCount((int)FuncUnstId.EMA, ((15 * MinLt(optInFastPeriod, optInSlowPeriod) + 3 * (MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 2, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 4, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 8, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 16, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 32, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 64, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 128, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 256, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 512, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 1024, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 2048, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 4096, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 8192, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 16384, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 32768, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 65536, MinLt(optInFastPeriod, optInSlowPeriod))) + 7) / 8), ((15 * MinLt(optInFastPeriod, optInSlowPeriod) + 3 * (MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 2, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 4, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 8, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 16, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 32, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 64, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 128, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 256, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 512, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 1024, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 2048, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 4096, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 8192, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 16384, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 32768, MinLt(optInFastPeriod, optInSlowPeriod)) + MinLt(MaxGt(optInFastPeriod, optInSlowPeriod) / 65536, MinLt(optInFastPeriod, optInSlowPeriod))) + 7) / 8)) - this.UnstableCount((int)FuncUnstId.EMA, 0, 0)) : 0) ;
 
    }
    /// <summary>
@@ -134,7 +138,6 @@ public partial class Core
       int today = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      int slowestPeriod = 0;
       double high = 0;
       double low = 0;
       double close = 0;
@@ -187,17 +190,8 @@ public partial class Core
        *     This gives more flexibility to the user if they want to
        *     experiment with unusual parameter settings.
        */
-      /* Identify the slowest period.
-       * This infomration is used soleley to bootstrap
-       * the algorithm (skip the lookback period).
-       */
-      if( optInFastPeriod < optInSlowPeriod ) {
-         slowestPeriod = optInSlowPeriod;
-      } else {
-         slowestPeriod = optInFastPeriod;
-      }
       /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = EmaLookback(slowestPeriod);
+      lookbackTotal = AdoscLookback(optInFastPeriod, optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -213,11 +207,19 @@ public partial class Core
        * calculate the "ad".
        */
       ad = 0.0;
-      /* Constants for EMA */
-      fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-      one_minus_fastk = 1.0 - fastk;
-      slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-      one_minus_slowk = 1.0 - slowk;
+      /* Constants for EMA. Each pair must sum to exactly 1.0, or a flat A/D
+       * line drifts off its level.
+       */
+      one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastk = 1.0 - one_minus_fastk;
+      if( one_minus_fastk < 0.5 ) {
+         one_minus_fastk = 1.0 - fastk;
+      }
+      one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowk = 1.0 - one_minus_slowk;
+      if( one_minus_slowk < 0.5 ) {
+         one_minus_slowk = 1.0 - slowk;
+      }
       /* Initialize the two EMA
        *
        * Use the same range of initialization inputs for
@@ -283,7 +285,6 @@ public partial class Core
       int today = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      int slowestPeriod = 0;
       double high = 0;
       double low = 0;
       double close = 0;
@@ -314,12 +315,7 @@ public partial class Core
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inVolume)) ) {
          return RetCode.BadParam ;
       }
-      if( optInFastPeriod < optInSlowPeriod ) {
-         slowestPeriod = optInSlowPeriod;
-      } else {
-         slowestPeriod = optInFastPeriod;
-      }
-      lookbackTotal = EmaLookback(slowestPeriod);
+      lookbackTotal = AdoscLookback(optInFastPeriod, optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -331,10 +327,16 @@ public partial class Core
       outBegIdx = startIdx;
       today = startIdx - lookbackTotal;
       ad = 0.0;
-      fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-      one_minus_fastk = 1.0 - fastk;
-      slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-      one_minus_slowk = 1.0 - slowk;
+      one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastk = 1.0 - one_minus_fastk;
+      if( one_minus_fastk < 0.5 ) {
+         one_minus_fastk = 1.0 - fastk;
+      }
+      one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowk = 1.0 - one_minus_slowk;
+      if( one_minus_slowk < 0.5 ) {
+         one_minus_slowk = 1.0 - slowk;
+      }
       high = (double)inHigh[today];
       low = (double)inLow[today];
       tmp = high - low;
@@ -753,7 +755,6 @@ public partial class Core
       int today = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      int slowestPeriod = 0;
       double high = 0;
       double low = 0;
       double close = 0;
@@ -813,17 +814,8 @@ public partial class Core
        *     This gives more flexibility to the user if they want to
        *     experiment with unusual parameter settings.
        */
-      /* Identify the slowest period.
-       * This infomration is used soleley to bootstrap
-       * the algorithm (skip the lookback period).
-       */
-      if( optInFastPeriod < optInSlowPeriod ) {
-         slowestPeriod = optInSlowPeriod;
-      } else {
-         slowestPeriod = optInFastPeriod;
-      }
       /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = EmaLookback(slowestPeriod);
+      lookbackTotal = AdoscLookback(optInFastPeriod, optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -839,11 +831,19 @@ public partial class Core
        * calculate the "ad".
        */
       ad = 0.0;
-      /* Constants for EMA */
-      fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-      one_minus_fastk = 1.0 - fastk;
-      slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-      one_minus_slowk = 1.0 - slowk;
+      /* Constants for EMA. Each pair must sum to exactly 1.0, or a flat A/D
+       * line drifts off its level.
+       */
+      one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastk = 1.0 - one_minus_fastk;
+      if( one_minus_fastk < 0.5 ) {
+         one_minus_fastk = 1.0 - fastk;
+      }
+      one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowk = 1.0 - one_minus_slowk;
+      if( one_minus_slowk < 0.5 ) {
+         one_minus_slowk = 1.0 - slowk;
+      }
       /* Initialize the two EMA
        *
        * Use the same range of initialization inputs for

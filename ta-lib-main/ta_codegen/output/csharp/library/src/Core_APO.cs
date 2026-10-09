@@ -178,6 +178,7 @@ public partial class Core
       if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
          return RetCode.BadParam ;
       }
+      double[]? _rent_tempBuffer = null;
       /* Nothing to produce: the range ends before the lookback. Return before
        * touching anything.
        *
@@ -292,6 +293,8 @@ public partial class Core
          double _eFast;
          double _eSlow;
          double _eX;
+         double _eFastBeta;
+         double _eSlowBeta;
          int _eN;
          int _eToday;
          int _eFastToday;
@@ -303,8 +306,16 @@ public partial class Core
             optInSlowPeriod = optInFastPeriod;
             optInFastPeriod = tempInteger;
          }
-         _eFastK = 2.0 / (double)(optInFastPeriod + 1);
-         _eSlowK = 2.0 / (double)(optInSlowPeriod + 1);
+         _eFastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+         _eFastK = 1.0 - _eFastBeta;
+         if( _eFastBeta < 0.5 ) {
+            _eFastBeta = 1.0 - _eFastK;
+         }
+         _eSlowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+         _eSlowK = 1.0 - _eSlowBeta;
+         if( _eSlowBeta < 0.5 ) {
+            _eSlowBeta = 1.0 - _eSlowK;
+         }
          _eFastToday = EmaLookback(optInFastPeriod);
          if( _eFastToday < startIdx ) {
             _eFastToday = startIdx;
@@ -321,7 +332,7 @@ public partial class Core
          }
          _eFast = _eFast / optInFastPeriod;
          while( _eFastToday <= _eSlowStart ) {
-            _eFast = Math.FusedMultiplyAdd(inReal[_eFastToday++] - _eFast, _eFastK, _eFast);
+            _eFast = Math.FusedMultiplyAdd(_eFastBeta, _eFast, _eFastK * inReal[_eFastToday++]);
          }
          _eSlow = 0.0;
          for( _eN = 0; _eN < optInSlowPeriod; _eN += 1 ) {
@@ -329,7 +340,7 @@ public partial class Core
          }
          _eSlow = _eSlow / optInSlowPeriod;
          while( _eSlowToday <= _eSlowStart ) {
-            _eSlow = Math.FusedMultiplyAdd(inReal[_eSlowToday++] - _eSlow, _eSlowK, _eSlow);
+            _eSlow = Math.FusedMultiplyAdd(_eSlowBeta, _eSlow, _eSlowK * inReal[_eSlowToday++]);
          }
          _eOutIdx = 0;
          outReal[_eOutIdx] = _eFast - _eSlow;
@@ -337,8 +348,8 @@ public partial class Core
          _eToday = _eSlowStart + 1;
          while( _eToday <= endIdx ) {
             _eX = inReal[_eToday++];
-            _eFast = Math.FusedMultiplyAdd(_eX - _eFast, _eFastK, _eFast);
-            _eSlow = Math.FusedMultiplyAdd(_eX - _eSlow, _eSlowK, _eSlow);
+            _eFast = Math.FusedMultiplyAdd(_eFastBeta, _eFast, _eFastK * _eX);
+            _eSlow = Math.FusedMultiplyAdd(_eSlowBeta, _eSlow, _eSlowK * _eX);
             outReal[_eOutIdx] = _eFast - _eSlow;
             _eOutIdx += 1;
          }
@@ -347,7 +358,8 @@ public partial class Core
          return RetCode.Success ;
       }
       /* Allocate an intermediate buffer. */
-      tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
+      _rent_tempBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)((endIdx - startIdx + 1) * 1));
+      tempBuffer = _rent_tempBuffer.AsSpan(0, (int)((endIdx - startIdx + 1) * 1));
       /* Make sure slow is really slower than
        * the fast period! if not, swap...
        */
@@ -376,6 +388,7 @@ public partial class Core
       for( i = 0; i < (int)outNBElement; i += 1 ) {
          outReal[i] = tempBuffer[i + offset] - outReal[i];
       }
+      ReturnScratch(ref _rent_tempBuffer);
       return RetCode.Success ;
    }
    internal RetCode ApoImpl( int startIdx,
@@ -421,6 +434,7 @@ public partial class Core
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
          return RetCode.BadParam ;
       }
+      double[]? _rent_tempBuffer = null;
       if( MaLookback(MaxGt(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
          outBegIdx = 0;
          outNBElement = 0;
@@ -489,6 +503,8 @@ public partial class Core
          double _eFast;
          double _eSlow;
          double _eX;
+         double _eFastBeta;
+         double _eSlowBeta;
          int _eN;
          int _eToday;
          int _eFastToday;
@@ -500,8 +516,16 @@ public partial class Core
             optInSlowPeriod = optInFastPeriod;
             optInFastPeriod = tempInteger;
          }
-         _eFastK = 2.0 / (double)(optInFastPeriod + 1);
-         _eSlowK = 2.0 / (double)(optInSlowPeriod + 1);
+         _eFastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+         _eFastK = 1.0 - _eFastBeta;
+         if( _eFastBeta < 0.5 ) {
+            _eFastBeta = 1.0 - _eFastK;
+         }
+         _eSlowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+         _eSlowK = 1.0 - _eSlowBeta;
+         if( _eSlowBeta < 0.5 ) {
+            _eSlowBeta = 1.0 - _eSlowK;
+         }
          _eFastToday = EmaLookback(optInFastPeriod);
          if( _eFastToday < startIdx ) {
             _eFastToday = startIdx;
@@ -518,7 +542,7 @@ public partial class Core
          }
          _eFast = _eFast / optInFastPeriod;
          while( _eFastToday <= _eSlowStart ) {
-            _eFast = Math.FusedMultiplyAdd((double)inReal[_eFastToday++] - _eFast, _eFastK, _eFast);
+            _eFast = Math.FusedMultiplyAdd(_eFastBeta, _eFast, _eFastK * (double)inReal[_eFastToday++]);
          }
          _eSlow = 0.0;
          for( _eN = 0; _eN < optInSlowPeriod; _eN += 1 ) {
@@ -526,7 +550,7 @@ public partial class Core
          }
          _eSlow = _eSlow / optInSlowPeriod;
          while( _eSlowToday <= _eSlowStart ) {
-            _eSlow = Math.FusedMultiplyAdd((double)inReal[_eSlowToday++] - _eSlow, _eSlowK, _eSlow);
+            _eSlow = Math.FusedMultiplyAdd(_eSlowBeta, _eSlow, _eSlowK * (double)inReal[_eSlowToday++]);
          }
          _eOutIdx = 0;
          outReal[_eOutIdx] = _eFast - _eSlow;
@@ -534,8 +558,8 @@ public partial class Core
          _eToday = _eSlowStart + 1;
          while( _eToday <= endIdx ) {
             _eX = (double)inReal[_eToday++];
-            _eFast = Math.FusedMultiplyAdd(_eX - _eFast, _eFastK, _eFast);
-            _eSlow = Math.FusedMultiplyAdd(_eX - _eSlow, _eSlowK, _eSlow);
+            _eFast = Math.FusedMultiplyAdd(_eFastBeta, _eFast, _eFastK * _eX);
+            _eSlow = Math.FusedMultiplyAdd(_eSlowBeta, _eSlow, _eSlowK * _eX);
             outReal[_eOutIdx] = _eFast - _eSlow;
             _eOutIdx += 1;
          }
@@ -543,7 +567,8 @@ public partial class Core
          outNBElement = _eOutIdx;
          return RetCode.Success ;
       }
-      tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
+      _rent_tempBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)((endIdx - startIdx + 1) * 1));
+      tempBuffer = _rent_tempBuffer.AsSpan(0, (int)((endIdx - startIdx + 1) * 1));
       if( optInSlowPeriod < optInFastPeriod ) {
          tempInteger = optInSlowPeriod;
          optInSlowPeriod = optInFastPeriod;
@@ -561,6 +586,7 @@ public partial class Core
       for( i = 0; i < (int)outNBElement; i += 1 ) {
          outReal[i] = tempBuffer[i + offset] - outReal[i];
       }
+      ReturnScratch(ref _rent_tempBuffer);
       return RetCode.Success ;
    }
    /// <summary>

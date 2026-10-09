@@ -59,6 +59,7 @@ public partial class Core
     *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
     *  092926 MF,CC  Initial version (#478).
+    *  100726 MF,CC  #492. The Auto rule takes the bars the shorter EMA count gives up.
     */
    /// <summary>
    /// Number of leading input bars <c>Stc</c> consumes before it can produce its
@@ -107,7 +108,7 @@ public partial class Core
        * then one window per stochastic stage. The two 0.5 smoothers seed on
        * their first input, so they add only the unstable period.
        */
-      return EmaLookback(optInSlowPeriod) + 2 * (optInCyclePeriod - 1) + this._unstablePeriod[(int)FuncUnstId.STC] ;
+      return EmaLookback(optInSlowPeriod) + 2 * (optInCyclePeriod - 1) + this.UnstableCount((int)FuncUnstId.STC, (5 * 10 + 1) / 2 + 3 * (optInSlowPeriod + 1), (5 * 19 + 1) / 2 + 3 * (optInSlowPeriod + 1)) ;
 
    }
    /// <summary>
@@ -172,6 +173,8 @@ public partial class Core
       double slowK = 0;
       double tempReal = 0;
       double lineValue = 0;
+      double fastBeta = 0;
+      double slowBeta = 0;
       double lowest = 0;
       double highest = 0;
       double range = 0;
@@ -187,10 +190,12 @@ public partial class Core
       double sufLo = 0;
       int i = 0;
       int today = 0;
+      int fastToday = 0;
       int lineStart = 0;
       int outIdx = 0;
       int tempInteger = 0;
       int lookbackTotal = 0;
+      int lookbackSlow = 0;
       int lastIdx = 0;
       int nLine = 0;
       int nPF = 0;
@@ -233,8 +238,16 @@ public partial class Core
          return RetCode.Success ;
       }
       outBegIdx = startIdx;
-      fastK = 2.0 / (double)(optInFastPeriod + 1);
-      slowK = 2.0 / (double)(optInSlowPeriod + 1);
+      fastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastK = 1.0 - fastBeta;
+      if( fastBeta < 0.5 ) {
+         fastBeta = 1.0 - fastK;
+      }
+      slowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowK = 1.0 - slowBeta;
+      if( slowBeta < 0.5 ) {
+         slowBeta = 1.0 - slowK;
+      }
       /* Rolling extrema, van Herk / Gil-Werman: the window ending in slot j is
        * the current block's prefix extremum joined with the previous block's
        * suffix extremum from slot j+1. The extrema are exact, so the output must
@@ -265,32 +278,39 @@ public partial class Core
       maxIdx_pfSufLo = (optInCyclePeriod)-1;
       pfSufLo_Idx = 0;
       lastIdx = optInCyclePeriod - 1;
-      /* The line is TA_MACD's: co-terminal SMA seeds, then both EMAs advanced
-       * through TA_FUNC_UNST_EMA to lineStart, so that from lineStart on it is
-       * TA_EMA(fast) - TA_EMA(slow) bit for bit. The chain is fed from
+      /* The line is TA_MACD's: each SMA seed placed by its own EMA lookback, then
+       * both EMAs advanced to lineStart, so that from lineStart on it is
+       * TA_EMA(fast) - TA_EMA(slow) bit for bit. That placement reads out of
+       * bounds or skips bars unless ema_lookback(n) - n never decreases as n
+       * grows. The chain is fed from
        * lineStart, not from the EMA seed: TA_FUNC_UNST_EMA then reaches only the
        * line, while TA_FUNC_UNST_STC moves the whole chain back and so warms the
        * line and both smoothers.
        */
-      lineStart = startIdx - (lookbackTotal - EmaLookback(optInSlowPeriod));
+      lookbackSlow = EmaLookback(optInSlowPeriod);
+      lineStart = startIdx - (lookbackTotal - lookbackSlow);
       today = startIdx - lookbackTotal;
       tempReal = 0.0;
-      i = optInSlowPeriod - optInFastPeriod;
+      i = optInSlowPeriod;
       while( i-- > 0 ) {
-         tempReal += inReal[today++];
-      }
-      prevFast = 0.0;
-      i = optInFastPeriod;
-      while( i-- > 0 ) {
-         prevFast += inReal[today];
          tempReal += inReal[today++];
       }
       prevSlow = tempReal / optInSlowPeriod;
+      fastToday = startIdx - lookbackTotal + (lookbackSlow - EmaLookback(optInFastPeriod));
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += inReal[fastToday++];
+      }
       prevFast = prevFast / optInFastPeriod;
+      while( today < fastToday ) {
+         tempReal = inReal[today++];
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
+      }
       while( today <= lineStart ) {
          tempReal = inReal[today++];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
       }
       /* A zero range holds the previous fraction (0.0 before any), and the test
        * is exact: in a sustained trend PF saturates at 100 and the second
@@ -315,8 +335,8 @@ public partial class Core
        */
       while( today <= startIdx ) {
          tempReal = inReal[today];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
          lineValue = prevFast - prevSlow;
          nLine = nLine + 1;
          lineRing[lineRing_Idx] = lineValue;
@@ -414,8 +434,8 @@ public partial class Core
       outIdx = 1;
       while( today <= endIdx ) {
          tempReal = inReal[today];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
          lineValue = prevFast - prevSlow;
          lineRing[lineRing_Idx] = lineValue;
          if( lineRing_Idx == 0 ) {
@@ -535,6 +555,8 @@ public partial class Core
       double slowK = 0;
       double tempReal = 0;
       double lineValue = 0;
+      double fastBeta = 0;
+      double slowBeta = 0;
       double lowest = 0;
       double highest = 0;
       double range = 0;
@@ -550,10 +572,12 @@ public partial class Core
       double sufLo = 0;
       int i = 0;
       int today = 0;
+      int fastToday = 0;
       int lineStart = 0;
       int outIdx = 0;
       int tempInteger = 0;
       int lookbackTotal = 0;
+      int lookbackSlow = 0;
       int lastIdx = 0;
       int nLine = 0;
       int nPF = 0;
@@ -596,8 +620,16 @@ public partial class Core
          return RetCode.Success ;
       }
       outBegIdx = startIdx;
-      fastK = 2.0 / (double)(optInFastPeriod + 1);
-      slowK = 2.0 / (double)(optInSlowPeriod + 1);
+      fastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastK = 1.0 - fastBeta;
+      if( fastBeta < 0.5 ) {
+         fastBeta = 1.0 - fastK;
+      }
+      slowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowK = 1.0 - slowBeta;
+      if( slowBeta < 0.5 ) {
+         slowBeta = 1.0 - slowK;
+      }
       if( optInCyclePeriod < 1 ) return RetCode.InternalError;
       lineRing = new double[optInCyclePeriod];
       maxIdx_lineRing = (optInCyclePeriod)-1;
@@ -623,25 +655,30 @@ public partial class Core
       maxIdx_pfSufLo = (optInCyclePeriod)-1;
       pfSufLo_Idx = 0;
       lastIdx = optInCyclePeriod - 1;
-      lineStart = startIdx - (lookbackTotal - EmaLookback(optInSlowPeriod));
+      lookbackSlow = EmaLookback(optInSlowPeriod);
+      lineStart = startIdx - (lookbackTotal - lookbackSlow);
       today = startIdx - lookbackTotal;
       tempReal = 0.0;
-      i = optInSlowPeriod - optInFastPeriod;
+      i = optInSlowPeriod;
       while( i-- > 0 ) {
-         tempReal += (double)inReal[today++];
-      }
-      prevFast = 0.0;
-      i = optInFastPeriod;
-      while( i-- > 0 ) {
-         prevFast += (double)inReal[today];
          tempReal += (double)inReal[today++];
       }
       prevSlow = tempReal / optInSlowPeriod;
+      fastToday = startIdx - lookbackTotal + (lookbackSlow - EmaLookback(optInFastPeriod));
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += (double)inReal[fastToday++];
+      }
       prevFast = prevFast / optInFastPeriod;
+      while( today < fastToday ) {
+         tempReal = (double)inReal[today++];
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
+      }
       while( today <= lineStart ) {
          tempReal = (double)inReal[today++];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
       }
       frac1 = 0.0;
       frac2 = 0.0;
@@ -659,8 +696,8 @@ public partial class Core
       nLine = 1;
       while( today <= startIdx ) {
          tempReal = (double)inReal[today];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
          lineValue = prevFast - prevSlow;
          nLine = nLine + 1;
          lineRing[lineRing_Idx] = lineValue;
@@ -758,8 +795,8 @@ public partial class Core
       outIdx = 1;
       while( today <= endIdx ) {
          tempReal = (double)inReal[today];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
          lineValue = prevFast - prevSlow;
          lineRing[lineRing_Idx] = lineValue;
          if( lineRing_Idx == 0 ) {
@@ -1053,6 +1090,8 @@ public partial class Core
       internal double prevSlow;
       internal double fastK;
       internal double slowK;
+      internal double fastBeta;
+      internal double slowBeta;
       internal double frac1;
       internal double frac2;
       internal double pf;
@@ -1135,6 +1174,8 @@ public partial class Core
          this.prevSlow = other.prevSlow;
          this.fastK = other.fastK;
          this.slowK = other.slowK;
+         this.fastBeta = other.fastBeta;
+         this.slowBeta = other.slowBeta;
          this.frac1 = other.frac1;
          this.frac2 = other.frac2;
          this.pf = other.pf;
@@ -1249,8 +1290,8 @@ public partial class Core
          int pkSlot1 = -1;
          double pkVal1 = 0.0;
          tempReal = inReal;
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, sp.fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, sp.slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(sp.fastBeta, prevFast, sp.fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(sp.slowBeta, prevSlow, sp.slowK * tempReal);
          lineValue = prevFast - prevSlow;
          pkSlot0 = lineRing_Idx;
          pkVal0 = lineValue;
@@ -1358,8 +1399,8 @@ public partial class Core
       double sufLo = 0.0;
       int i = 0;
       tempReal = inReal;
-      sp.prevFast = Math.FusedMultiplyAdd(tempReal - sp.prevFast, sp.fastK, sp.prevFast);
-      sp.prevSlow = Math.FusedMultiplyAdd(tempReal - sp.prevSlow, sp.slowK, sp.prevSlow);
+      sp.prevFast = Math.FusedMultiplyAdd(sp.fastBeta, sp.prevFast, sp.fastK * tempReal);
+      sp.prevSlow = Math.FusedMultiplyAdd(sp.slowBeta, sp.prevSlow, sp.slowK * tempReal);
       lineValue = sp.prevFast - sp.prevSlow;
       sp.cb_lineRing[sp.lineRing_Idx] = lineValue;
       if( sp.lineRing_Idx == 0 ) {
@@ -1472,6 +1513,8 @@ public partial class Core
       double slowK = 0;
       double tempReal = 0;
       double lineValue = 0;
+      double fastBeta = 0;
+      double slowBeta = 0;
       double lowest = 0;
       double highest = 0;
       double range = 0;
@@ -1487,10 +1530,12 @@ public partial class Core
       double sufLo = 0;
       int i = 0;
       int today = 0;
+      int fastToday = 0;
       int lineStart = 0;
       int outIdx = 0;
       int tempInteger = 0;
       int lookbackTotal = 0;
+      int lookbackSlow = 0;
       int lastIdx = 0;
       int nLine = 0;
       int nPF = 0;
@@ -1537,8 +1582,16 @@ public partial class Core
          return RetCode.InsufficientHistory ;
       }
       outBegIdx = startIdx;
-      fastK = 2.0 / (double)(optInFastPeriod + 1);
-      slowK = 2.0 / (double)(optInSlowPeriod + 1);
+      fastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastK = 1.0 - fastBeta;
+      if( fastBeta < 0.5 ) {
+         fastBeta = 1.0 - fastK;
+      }
+      slowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowK = 1.0 - slowBeta;
+      if( slowBeta < 0.5 ) {
+         slowBeta = 1.0 - slowK;
+      }
       /* Rolling extrema, van Herk / Gil-Werman: the window ending in slot j is
        * the current block's prefix extremum joined with the previous block's
        * suffix extremum from slot j+1. The extrema are exact, so the output must
@@ -1569,32 +1622,39 @@ public partial class Core
       maxIdx_pfSufLo = (optInCyclePeriod)-1;
       pfSufLo_Idx = 0;
       lastIdx = optInCyclePeriod - 1;
-      /* The line is TA_MACD's: co-terminal SMA seeds, then both EMAs advanced
-       * through TA_FUNC_UNST_EMA to lineStart, so that from lineStart on it is
-       * TA_EMA(fast) - TA_EMA(slow) bit for bit. The chain is fed from
+      /* The line is TA_MACD's: each SMA seed placed by its own EMA lookback, then
+       * both EMAs advanced to lineStart, so that from lineStart on it is
+       * TA_EMA(fast) - TA_EMA(slow) bit for bit. That placement reads out of
+       * bounds or skips bars unless ema_lookback(n) - n never decreases as n
+       * grows. The chain is fed from
        * lineStart, not from the EMA seed: TA_FUNC_UNST_EMA then reaches only the
        * line, while TA_FUNC_UNST_STC moves the whole chain back and so warms the
        * line and both smoothers.
        */
-      lineStart = startIdx - (lookbackTotal - EmaLookback(optInSlowPeriod));
+      lookbackSlow = EmaLookback(optInSlowPeriod);
+      lineStart = startIdx - (lookbackTotal - lookbackSlow);
       today = startIdx - lookbackTotal;
       tempReal = 0.0;
-      i = optInSlowPeriod - optInFastPeriod;
+      i = optInSlowPeriod;
       while( i-- > 0 ) {
-         tempReal += inReal[today++];
-      }
-      prevFast = 0.0;
-      i = optInFastPeriod;
-      while( i-- > 0 ) {
-         prevFast += inReal[today];
          tempReal += inReal[today++];
       }
       prevSlow = tempReal / optInSlowPeriod;
+      fastToday = startIdx - lookbackTotal + (lookbackSlow - EmaLookback(optInFastPeriod));
+      prevFast = 0.0;
+      i = optInFastPeriod;
+      while( i-- > 0 ) {
+         prevFast += inReal[fastToday++];
+      }
       prevFast = prevFast / optInFastPeriod;
+      while( today < fastToday ) {
+         tempReal = inReal[today++];
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
+      }
       while( today <= lineStart ) {
          tempReal = inReal[today++];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
       }
       /* A zero range holds the previous fraction (0.0 before any), and the test
        * is exact: in a sustained trend PF saturates at 100 and the second
@@ -1619,8 +1679,8 @@ public partial class Core
        */
       while( today <= startIdx ) {
          tempReal = inReal[today];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
          lineValue = prevFast - prevSlow;
          nLine = nLine + 1;
          lineRing[lineRing_Idx] = lineValue;
@@ -1718,8 +1778,8 @@ public partial class Core
       outIdx = 1;
       while( today <= endIdx ) {
          tempReal = inReal[today];
-         prevFast = Math.FusedMultiplyAdd(tempReal - prevFast, fastK, prevFast);
-         prevSlow = Math.FusedMultiplyAdd(tempReal - prevSlow, slowK, prevSlow);
+         prevFast = Math.FusedMultiplyAdd(fastBeta, prevFast, fastK * tempReal);
+         prevSlow = Math.FusedMultiplyAdd(slowBeta, prevSlow, slowK * tempReal);
          lineValue = prevFast - prevSlow;
          lineRing[lineRing_Idx] = lineValue;
          if( lineRing_Idx == 0 ) {
@@ -1833,6 +1893,8 @@ public partial class Core
       sp.prevSlow = prevSlow;
       sp.fastK = fastK;
       sp.slowK = slowK;
+      sp.fastBeta = fastBeta;
+      sp.slowBeta = slowBeta;
       sp.frac1 = frac1;
       sp.frac2 = frac2;
       sp.pf = pf;

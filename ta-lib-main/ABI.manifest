@@ -4,7 +4,7 @@ format 9
 soname libta-lib.so.1
 version-info 3:0:2
 headers ta_abstract.h ta_common.h ta_defs.h ta_func.h ta_libc.h
-function-count 3004
+function-count 3044
 platform pointer=8 long=8 int=4 enum=4
 type TA_FuncInfo sizeof=48 name:const_char_*=0 group:const_char_*=8 hint:const_char_*=16 flags:TA_FuncFlags=24 nbInput:unsigned_int=28 nbOptInput:unsigned_int=32 nbOutput:unsigned_int=36 handle:const_TA_FuncHandle_*=40
 type TA_InputParameterInfo sizeof=24 type:TA_InputParameterType=0 paramName:const_char_*=8 flags:TA_InputFlags=16
@@ -72,6 +72,7 @@ enum TA_FuncUnstId TA_FUNC_UNST_SWAK_BUTTER = 32
 enum TA_FuncUnstId TA_FUNC_UNST_SWAK_HP = 33
 enum TA_FuncUnstId TA_FUNC_UNST_SWAK_2PHP = 34
 enum TA_FuncUnstId TA_FUNC_UNST_SWAK_BP = 35
+enum TA_FuncUnstId TA_FUNC_UNST_FISHER = 36
 enum TA_FuncUnstId TA_FUNC_UNST_ALL = 65535
 enum TA_InputParameterType sizeof=4
 enum TA_InputParameterType TA_Input_Price = 0
@@ -172,6 +173,8 @@ macro TA_OUT_PATTERN_WEAK = 32768
 macro TA_OUT_POSITIVE = 256
 macro TA_OUT_UPPER_LIMIT = 2048
 macro TA_OUT_ZERO = 1024
+macro TA_UNSTABLE_AUTO_PREC_4 = 100000004
+macro TA_UNSTABLE_AUTO_PREC_8 = 100000008
 macro TA_REAL_DEFAULT = -3.9999999999999998e+37
 macro TA_REAL_MAX = 3.0000000000000002e+37
 macro TA_REAL_MIN = -3.0000000000000002e+37
@@ -1319,6 +1322,16 @@ function TA_RetCode TA_EXP_OutRange(const TA_EXP_Stream *, int *, int *)
 function TA_RetCode TA_EXP_Peek(const TA_EXP_Stream *, double, double *)
 function TA_RetCode TA_EXP_Update(TA_EXP_Stream *, double, double *)
 function TA_RetCode TA_EXP_Value(const TA_EXP_Stream *, double *)
+function TA_RetCode TA_FISHER(int, int, const double *, const double *, int, int *, int *, double *, double *)
+function TA_RetCode TA_FISHER_Advance(TA_FISHER_Stream *)
+function TA_RetCode TA_FISHER_Clone(const TA_FISHER_Stream *, TA_FISHER_Stream **)
+function TA_RetCode TA_FISHER_Close(TA_FISHER_Stream *)
+function TA_RetCode TA_FISHER_Open(TA_FISHER_Stream **, const double *, const double *, int, int, double *, double *)
+function TA_RetCode TA_FISHER_OpenAndFill(TA_FISHER_Stream **, const double *, const double *, int, int, int *, int *, double *, double *)
+function TA_RetCode TA_FISHER_OutRange(const TA_FISHER_Stream *, int *, int *)
+function TA_RetCode TA_FISHER_Peek(const TA_FISHER_Stream *, double, double, double *, double *)
+function TA_RetCode TA_FISHER_Update(TA_FISHER_Stream *, double, double, double *, double *)
+function TA_RetCode TA_FISHER_Value(const TA_FISHER_Stream *, double *, double *)
 function TA_RetCode TA_FLOOR(int, int, const double *, int *, int *, double *)
 function TA_RetCode TA_FLOOR_Advance(TA_FLOOR_Stream *)
 function TA_RetCode TA_FLOOR_Clone(const TA_FLOOR_Stream *, TA_FLOOR_Stream **)
@@ -1369,6 +1382,7 @@ function TA_RetCode TA_GetInputParameterInfo(const TA_FuncHandle *, unsigned int
 function TA_RetCode TA_GetLookback(const TA_ParamHolder *, TA_Integer *)
 function TA_RetCode TA_GetOptInputParameterInfo(const TA_FuncHandle *, unsigned int, const TA_OptInputParameterInfo **)
 function TA_RetCode TA_GetOutputParameterInfo(const TA_FuncHandle *, unsigned int, const TA_OutputParameterInfo **)
+function TA_RetCode TA_GetRuntimeInfo(const char *, int *)
 function TA_RetCode TA_GroupTableAlloc(TA_StringTable **)
 function TA_RetCode TA_GroupTableFree(TA_StringTable *)
 function TA_RetCode TA_HA(int, int, const double *, const double *, const double *, const double *, int *, int *, double *, double *, double *, double *)
@@ -1922,6 +1936,16 @@ function TA_RetCode TA_PPO_OutRange(const TA_PPO_Stream *, int *, int *)
 function TA_RetCode TA_PPO_Peek(const TA_PPO_Stream *, double, double *)
 function TA_RetCode TA_PPO_Update(TA_PPO_Stream *, double, double *)
 function TA_RetCode TA_PPO_Value(const TA_PPO_Stream *, double *)
+function TA_RetCode TA_PSO(int, int, const double *, const double *, const double *, int, int, int *, int *, double *)
+function TA_RetCode TA_PSO_Advance(TA_PSO_Stream *)
+function TA_RetCode TA_PSO_Clone(const TA_PSO_Stream *, TA_PSO_Stream **)
+function TA_RetCode TA_PSO_Close(TA_PSO_Stream *)
+function TA_RetCode TA_PSO_Open(TA_PSO_Stream **, const double *, const double *, const double *, int, int, int, double *)
+function TA_RetCode TA_PSO_OpenAndFill(TA_PSO_Stream **, const double *, const double *, const double *, int, int, int, int *, int *, double *)
+function TA_RetCode TA_PSO_OutRange(const TA_PSO_Stream *, int *, int *)
+function TA_RetCode TA_PSO_Peek(const TA_PSO_Stream *, double, double, double, double *)
+function TA_RetCode TA_PSO_Update(TA_PSO_Stream *, double, double, double, double *)
+function TA_RetCode TA_PSO_Value(const TA_PSO_Stream *, double *)
 function TA_RetCode TA_PVI(int, int, const double *, const double *, int *, int *, double *)
 function TA_RetCode TA_PVI_Advance(TA_PVI_Stream *)
 function TA_RetCode TA_PVI_Clone(const TA_PVI_Stream *, TA_PVI_Stream **)
@@ -2014,6 +2038,16 @@ function TA_RetCode TA_ROC_OutRange(const TA_ROC_Stream *, int *, int *)
 function TA_RetCode TA_ROC_Peek(const TA_ROC_Stream *, double, double *)
 function TA_RetCode TA_ROC_Update(TA_ROC_Stream *, double, double *)
 function TA_RetCode TA_ROC_Value(const TA_ROC_Stream *, double *)
+function TA_RetCode TA_ROGERSSATCHELL(int, int, const double *, const double *, const double *, const double *, int, double, int *, int *, double *)
+function TA_RetCode TA_ROGERSSATCHELL_Advance(TA_ROGERSSATCHELL_Stream *)
+function TA_RetCode TA_ROGERSSATCHELL_Clone(const TA_ROGERSSATCHELL_Stream *, TA_ROGERSSATCHELL_Stream **)
+function TA_RetCode TA_ROGERSSATCHELL_Close(TA_ROGERSSATCHELL_Stream *)
+function TA_RetCode TA_ROGERSSATCHELL_Open(TA_ROGERSSATCHELL_Stream **, const double *, const double *, const double *, const double *, int, int, double, double *)
+function TA_RetCode TA_ROGERSSATCHELL_OpenAndFill(TA_ROGERSSATCHELL_Stream **, const double *, const double *, const double *, const double *, int, int, double, int *, int *, double *)
+function TA_RetCode TA_ROGERSSATCHELL_OutRange(const TA_ROGERSSATCHELL_Stream *, int *, int *)
+function TA_RetCode TA_ROGERSSATCHELL_Peek(const TA_ROGERSSATCHELL_Stream *, double, double, double, double, double *)
+function TA_RetCode TA_ROGERSSATCHELL_Update(TA_ROGERSSATCHELL_Stream *, double, double, double, double, double *)
+function TA_RetCode TA_ROGERSSATCHELL_Value(const TA_ROGERSSATCHELL_Stream *, double *)
 function TA_RetCode TA_RSI(int, int, const double *, int, int *, int *, double *)
 function TA_RetCode TA_RSI_Advance(TA_RSI_Stream *)
 function TA_RetCode TA_RSI_Clone(const TA_RSI_Stream *, TA_RSI_Stream **)
@@ -2378,6 +2412,7 @@ function TA_RetCode TA_S_EMV(int, int, const float *, const float *, const float
 function TA_RetCode TA_S_ER(int, int, const float *, int, int *, int *, double *)
 function TA_RetCode TA_S_ERI(int, int, const float *, const float *, const float *, int, int *, int *, double *, double *)
 function TA_RetCode TA_S_EXP(int, int, const float *, int *, int *, double *)
+function TA_RetCode TA_S_FISHER(int, int, const float *, const float *, int, int *, int *, double *, double *)
 function TA_RetCode TA_S_FLOOR(int, int, const float *, int *, int *, double *)
 function TA_RetCode TA_S_FOSC(int, int, const float *, int, int *, int *, double *)
 function TA_RetCode TA_S_FRACTAL(int, int, const float *, const float *, int, int, int *, int *, int *, int *)
@@ -2437,6 +2472,7 @@ function TA_RetCode TA_S_PERCENTRANK(int, int, const float *, int, int *, int *,
 function TA_RetCode TA_S_PLUS_DI(int, int, const float *, const float *, const float *, int, int *, int *, double *)
 function TA_RetCode TA_S_PLUS_DM(int, int, const float *, const float *, int, int *, int *, double *)
 function TA_RetCode TA_S_PPO(int, int, const float *, int, int, TA_MAType, int *, int *, double *)
+function TA_RetCode TA_S_PSO(int, int, const float *, const float *, const float *, int, int, int *, int *, double *)
 function TA_RetCode TA_S_PVI(int, int, const float *, const float *, int *, int *, double *)
 function TA_RetCode TA_S_PVO(int, int, const float *, int, int, TA_MAType, int *, int *, double *)
 function TA_RetCode TA_S_PVT(int, int, const float *, const float *, int *, int *, double *)
@@ -2446,6 +2482,7 @@ function TA_RetCode TA_S_ROC(int, int, const float *, int, int *, int *, double 
 function TA_RetCode TA_S_ROCP(int, int, const float *, int, int *, int *, double *)
 function TA_RetCode TA_S_ROCR(int, int, const float *, int, int *, int *, double *)
 function TA_RetCode TA_S_ROCR100(int, int, const float *, int, int *, int *, double *)
+function TA_RetCode TA_S_ROGERSSATCHELL(int, int, const float *, const float *, const float *, const float *, int, double, int *, int *, double *)
 function TA_RetCode TA_S_RSI(int, int, const float *, int, int *, int *, double *)
 function TA_RetCode TA_S_RVI(int, int, const float *, int, int, int *, int *, double *)
 function TA_RetCode TA_S_RVIR(int, int, const float *, const float *, int, int, int *, int *, double *)
@@ -2959,6 +2996,8 @@ function int TA_ER_DisplayShift(int, int)
 function int TA_ER_Lookback(int)
 function int TA_EXP_DisplayShift(int)
 function int TA_EXP_Lookback(void)
+function int TA_FISHER_DisplayShift(int, int)
+function int TA_FISHER_Lookback(int)
 function int TA_FLOOR_DisplayShift(int)
 function int TA_FLOOR_Lookback(void)
 function int TA_FOSC_DisplayShift(int, int)
@@ -3077,6 +3116,8 @@ function int TA_PLUS_DM_DisplayShift(int, int)
 function int TA_PLUS_DM_Lookback(int)
 function int TA_PPO_DisplayShift(int, int, TA_MAType, int)
 function int TA_PPO_Lookback(int, int, TA_MAType)
+function int TA_PSO_DisplayShift(int, int, int)
+function int TA_PSO_Lookback(int, int)
 function int TA_PVI_DisplayShift(int)
 function int TA_PVI_Lookback(void)
 function int TA_PVO_DisplayShift(int, int, TA_MAType, int)
@@ -3095,6 +3136,8 @@ function int TA_ROCR_DisplayShift(int, int)
 function int TA_ROCR_Lookback(int)
 function int TA_ROC_DisplayShift(int, int)
 function int TA_ROC_Lookback(int)
+function int TA_ROGERSSATCHELL_DisplayShift(int, double, int)
+function int TA_ROGERSSATCHELL_Lookback(int, double)
 function int TA_RSI_DisplayShift(int, int)
 function int TA_RSI_Lookback(int)
 function int TA_RVIR_DisplayShift(int, int, int)

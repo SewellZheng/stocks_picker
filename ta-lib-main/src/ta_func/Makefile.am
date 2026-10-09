@@ -1,6 +1,6 @@
 
 noinst_LTLIBRARIES = libta_func.la
-AM_CPPFLAGS = -I../ta_common/
+AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/src/ta_common
 
 libta_func_la_SOURCES = ta_utility.c \
 	ta_AC.c \
@@ -116,6 +116,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_ER.c \
 	ta_ERI.c \
 	ta_EXP.c \
+	ta_FISHER.c \
 	ta_FLOOR.c \
 	ta_FOSC.c \
 	ta_FRACTAL.c \
@@ -175,6 +176,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_PLUS_DI.c \
 	ta_PLUS_DM.c \
 	ta_PPO.c \
+	ta_PSO.c \
 	ta_PVI.c \
 	ta_PVO.c \
 	ta_PVT.c \
@@ -184,6 +186,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_ROCP.c \
 	ta_ROCR.c \
 	ta_ROCR100.c \
+	ta_ROGERSSATCHELL.c \
 	ta_RSI.c \
 	ta_RVI.c \
 	ta_RVIR.c \
@@ -231,8 +234,3 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_WILLR.c \
 	ta_WMA.c \
 	ta_ZLEMA.c
-
-libta_funcdir=$(includedir)/ta-lib/
-libta_func_HEADERS = ../../include/ta_defs.h \
-	../../include/ta_libc.h \
-	../../include/ta_func.h

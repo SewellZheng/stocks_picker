@@ -53,6 +53,7 @@
  *  -------------------------------------------------------------------
  *  120802 MF   Template creation.
  *  052603 MF   Adapt code to compile with .NET Managed C++
+ *  100726 MF,CC  #492. Under an Auto level the bars its two EMAs' cancelling costs.
  */
 
 // Import types from parent module
@@ -97,8 +98,10 @@ impl Core {
         } else {
             slowestPeriod = (optInFastPeriod) as usize;
         }
-        // Adjust startIdx to account for the lookback period.
-        return Ok(self.ema_lookback((slowestPeriod) as i32)?);
+        // Both EMAs seed on one value at one bar, so two starts differ by a fast
+        // term less a slow one, and the two can cancel in the first outputs: an
+        // Auto level is held against what is left.
+        return Ok((self.ema_lookback((slowestPeriod) as i32)? + (((if self.unstable_count(FuncUnstId::EMA, 1, 1) != self.unstable_count(FuncUnstId::EMA, 0, 0) { self.unstable_count(FuncUnstId::EMA, ((((15 * (optInFastPeriod).min(optInSlowPeriod) + 3 * (((optInFastPeriod).max(optInSlowPeriod) / 2).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 4).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 8).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 16).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 32).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 64).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 128).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 256).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 512).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 1024).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 2048).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 4096).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 8192).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 16384).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 32768).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 65536).min((optInFastPeriod).min(optInSlowPeriod))) + 7) / 8)) as i32), ((((15 * (optInFastPeriod).min(optInSlowPeriod) + 3 * (((optInFastPeriod).max(optInSlowPeriod) / 2).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 4).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 8).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 16).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 32).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 64).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 128).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 256).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 512).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 1024).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 2048).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 4096).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 8192).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 16384).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 32768).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 65536).min((optInFastPeriod).min(optInSlowPeriod))) + 7) / 8)) as i32)) - self.unstable_count(FuncUnstId::EMA, 0, 0) } else { 0 })) as usize)) as usize);
     }
     /// Display shift of one output of [`Core::adosc`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -206,7 +209,6 @@ impl Core {
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        let mut slowestPeriod: usize = 0_usize;
         let mut high: f64 = 0.0_f64;
         let mut low: f64 = 0.0_f64;
         let mut close: f64 = 0.0_f64;
@@ -239,16 +241,8 @@ impl Core {
         //
         //     This gives more flexibility to the user if they want to
         //     experiment with unusual parameter settings.
-        // Identify the slowest period.
-        // This infomration is used soleley to bootstrap
-        // the algorithm (skip the lookback period).
-        if optInFastPeriod < optInSlowPeriod {
-            slowestPeriod = (optInSlowPeriod) as usize;
-        } else {
-            slowestPeriod = (optInFastPeriod) as usize;
-        }
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = self.ema_lookback((slowestPeriod) as i32).unwrap_or(usize::MAX);
+        lookbackTotal = self.adosc_lookback(optInFastPeriod, optInSlowPeriod).unwrap_or(usize::MAX);
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -267,11 +261,18 @@ impl Core {
         // The following variables are used to
         // calculate the "ad".
         ad = 0.0;
-        // Constants for EMA
-        fastk = 2.0 / ((optInFastPeriod as f64) + 1.0);
-        one_minus_fastk = 1.0 - fastk;
-        slowk = 2.0 / ((optInSlowPeriod as f64) + 1.0);
-        one_minus_slowk = 1.0 - slowk;
+        // Constants for EMA. Each pair must sum to exactly 1.0, or a flat A/D
+        // line drifts off its level.
+        one_minus_fastk = ((optInFastPeriod - 1) as f64) / ((optInFastPeriod + 1) as f64);
+        fastk = 1.0 - one_minus_fastk;
+        if one_minus_fastk < 0.5 {
+            one_minus_fastk = 1.0 - fastk;
+        }
+        one_minus_slowk = ((optInSlowPeriod - 1) as f64) / ((optInSlowPeriod + 1) as f64);
+        slowk = 1.0 - one_minus_slowk;
+        if one_minus_slowk < 0.5 {
+            one_minus_slowk = 1.0 - slowk;
+        }
         // Initialize the two EMA
         //
         // Use the same range of initialization inputs for
@@ -519,6 +520,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::adosc_open_internal`]
     /// (stride 0, scalar sink) and [`Core::adosc_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn adosc_open_impl(
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<AdoscStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, adosc_open_impl_fma, adosc_open_impl_scalar, (inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.adosc_open_impl_scalar(inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn adosc_open_impl_fma(
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<AdoscStream, RetCode> {
+        self.adosc_open_impl_scalar(inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn adosc_open_impl_scalar(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<AdoscStream, RetCode> {
         if inHigh.is_empty() {
@@ -553,7 +572,6 @@ impl Core {
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        let mut slowestPeriod: usize = 0_usize;
         let mut high: f64 = 0.0_f64;
         let mut low: f64 = 0.0_f64;
         let mut close: f64 = 0.0_f64;
@@ -586,16 +604,8 @@ impl Core {
         //
         //     This gives more flexibility to the user if they want to
         //     experiment with unusual parameter settings.
-        // Identify the slowest period.
-        // This infomration is used soleley to bootstrap
-        // the algorithm (skip the lookback period).
-        if optInFastPeriod < optInSlowPeriod {
-            slowestPeriod = (optInSlowPeriod) as usize;
-        } else {
-            slowestPeriod = (optInFastPeriod) as usize;
-        }
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = self.ema_lookback((slowestPeriod) as i32)?;
+        lookbackTotal = self.adosc_lookback(optInFastPeriod, optInSlowPeriod)?;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -610,11 +620,18 @@ impl Core {
         // The following variables are used to
         // calculate the "ad".
         ad = 0.0;
-        // Constants for EMA
-        fastk = 2.0 / ((optInFastPeriod as f64) + 1.0);
-        one_minus_fastk = 1.0 - fastk;
-        slowk = 2.0 / ((optInSlowPeriod as f64) + 1.0);
-        one_minus_slowk = 1.0 - slowk;
+        // Constants for EMA. Each pair must sum to exactly 1.0, or a flat A/D
+        // line drifts off its level.
+        one_minus_fastk = ((optInFastPeriod - 1) as f64) / ((optInFastPeriod + 1) as f64);
+        fastk = 1.0 - one_minus_fastk;
+        if one_minus_fastk < 0.5 {
+            one_minus_fastk = 1.0 - fastk;
+        }
+        one_minus_slowk = ((optInSlowPeriod - 1) as f64) / ((optInSlowPeriod + 1) as f64);
+        slowk = 1.0 - one_minus_slowk;
+        if one_minus_slowk < 0.5 {
+            one_minus_slowk = 1.0 - slowk;
+        }
         // Initialize the two EMA
         //
         // Use the same range of initialization inputs for

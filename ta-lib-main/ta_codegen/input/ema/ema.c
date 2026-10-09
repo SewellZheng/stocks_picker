@@ -18,7 +18,8 @@
 
 int ema_lookback(int optInTimePeriod)
 {
-   return optInTimePeriod - 1 + TA_GetUnstablePeriod(TA_FUNC_UNST_EMA);
+   return optInTimePeriod - 1
+   + TA_UNSTABLE( TA_FUNC_UNST_EMA, ta_auto_stabilization_ema(K, optInTimePeriod) );
 }
 
 TA_RetCode ema(int startIdx, int endIdx,
@@ -27,7 +28,7 @@ TA_RetCode ema(int startIdx, int endIdx,
    int *outBegIdx, int *outNBElement,
    double *outReal)
 {
-   double optInK_1 = 2.0 / ((double)(optInTimePeriod + 1));
+   double emaBeta, optInK_1;
    double tempReal, prevMA;
    int i, today, outIdx, lookbackTotal;
 
@@ -35,6 +36,22 @@ TA_RetCode ema(int startIdx, int endIdx,
     * to calculate at least one output.
     */
    lookbackTotal = ema_lookback( optInTimePeriod );
+
+   /* After the lookback call: a double live across a call is saved and
+    * restored around every fma call of the loops below, one more instruction
+    * per bar.
+    *
+    * emaBeta + optInK_1 must be exactly 1.0, or a flat input drifts off
+    * its level. Each subtraction is exact only from an operand in
+    * [0.5,1): at a period of 2 that is optInK_1, above it emaBeta.
+    *
+    * Above it emaBeta stays as the divide wrote it: the second subtraction
+    * would not change a bit, and a register last written by a subtraction
+    * costs each FMA reading it one more cycle on Intel P-cores.
+    */
+   emaBeta = ((double)(optInTimePeriod - 1)) / ((double)(optInTimePeriod + 1));
+   optInK_1 = 1.0 - emaBeta;
+   if( emaBeta < 0.5 ) emaBeta = 1.0 - optInK_1;
 
    /* Move up the start index if there is not
     * enough initial data.
@@ -51,12 +68,10 @@ TA_RetCode ema(int startIdx, int endIdx,
    }
 
    /* No smoothing at period of 1: the output is a copy of the input
-    * (same convention as TA_MA for every MAType). Explicit because at
-    * period 1 optInK_1 is exactly 1.0, so the recursion below reduces to
-    * (x-prev)+prev -- which returns x only while consecutive values stay
-    * within a factor of two of each other. Two-decimal prices already
-    * spend a full mantissa, so a single 3x move breaks it. The unstable
-    * period still delays the first output.
+    * (same convention as TA_MA for every MAType). Explicit because the
+    * recursion below, at a k of 1.0 and a beta of 0.0, does not keep the
+    * sign of a -0.0 input. The unstable period still delays the first
+    * output.
     */
    if( optInTimePeriod == 1 )
    {
@@ -82,14 +97,14 @@ TA_RetCode ema(int startIdx, int endIdx,
    prevMA = tempReal / optInTimePeriod;
 
    while( today <= startIdx )
-      prevMA = ((inReal[today++]-prevMA)*optInK_1) + prevMA;
+      prevMA = optInK_1 * inReal[today++] + emaBeta * prevMA;
 
    outReal[0] = prevMA;
    outIdx = 1;
 
    while( today <= endIdx )
    {
-      prevMA = ((inReal[today++]-prevMA)*optInK_1) + prevMA;
+      prevMA = optInK_1 * inReal[today++] + emaBeta * prevMA;
       outReal[outIdx++] = prevMA;
    }
 

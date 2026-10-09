@@ -1,31 +1,35 @@
-# Auto warm-up: how fast two starts agree
+# Auto-Stabilization: how fast two starts agree
 
-Measurements behind [the Auto warm-up design](../../auto-warm-up-design.md): for every function,
+Measurements behind [the Auto-Stabilization design](../../auto-stabilization-design.md): for every function,
 how the value at a bar computed from a later start approaches the value computed from bar 0.
 
 ## What is here
 
 | File | What it does |
 |---|---|
-| `warmup_probe.c` | Runs every function through the abstraction layer from bar 0 and from six later starts, on three synthetic series, and writes one row per (series, function, parameter set, output, start) |
+| `auto_stabilization_probe.c` | Runs every function through the abstraction layer from bar 0 and from six later starts, on three synthetic series, and writes one row per (series, function, parameter set, output, start) |
+| `auto_stabilization_census.c` | Runs every function that owns an unstable id from two starts on thousands of random series and counts how often the need passes the count the library discards. Its header has the usage and the columns |
 | `analyze.py` | Folds those rows into one line per output, worst case over series and starts, and a class per function |
-| `rules_vs_need.py` | Evaluates the design's rule for each unstable id, at both levels, against the measured need |
-| `rules_check.py` | Checks the one-pole, SWAK and T3 rules against the kernels' decay laws at seven values of K and a grid of periods, with no library involved. The calibrated rules are not in it: section 3 of `results.txt` holds those |
-| `tie_break.c` | Shows MAXINDEX and MININDEX answering differently from two starts when the window holds equal extremes |
-| `results.txt` | The output of all of the above at the commit named on its first line |
+| `rules_vs_need.py` | Sets the count the library discards at each level, for every function that owns an unstable id, against the measured need |
+| `rules_check.py` | Checks the one-pole, SWAK and FISHER rules against the kernels at seven values of K and a grid of periods, and ADOSC's at both levels, with no library involved. The calibrated rules are not in it: section 3 of `results.txt` holds those. For T3, a calibrated rule, it computes what the seed that shows latest needs against the largest difference it causes, with the bound it meets: more than the count |
+| `tie_break.c` | Compares MAXINDEX and MININDEX from two starts on a series full of equal extremes. It counted mismatches at the commit `results.txt` names, and counts none since a tie names the most recent bar (#503) |
+| `results.txt` | The output of the probe and its scripts at the commit named on its first line. Rules re-sized since are on the [Unstable Period page](../../../website/src/api/unstable-period/README.md), and the census is rerun, not recorded |
 
 ## Running it
 
 From the repository root, after `scripts/build.py`:
 
 ```bash
-cd docs/studies/auto-warm-up
-gcc -O2 -I../../../include warmup_probe.c ../../../cmake-build/libta-lib.a -lm -o /tmp/warmup_probe
-/tmp/warmup_probe 40000 > /tmp/probe.tsv          # every function; add a name to run one
-OVR="FastLimit=0.2,SlowLimit=0.02" /tmp/warmup_probe 40000 MAMA   # one function, other parameters
+cd docs/studies/auto-stabilization
+gcc -O2 -I../../../include auto_stabilization_probe.c ../../../cmake-build/libta-lib.a -lm -o /tmp/auto_stabilization_probe
+gcc -O2 -I../../../include auto_stabilization_census.c ../../../cmake-build/libta-lib.a -lm -o /tmp/auto_stabilization_census
+/tmp/auto_stabilization_probe 40000 > /tmp/probe.tsv          # every function; add a name to run one
+CENSUS_CSV=../ema-seeding/data/ibm_daily_ohlc.csv /tmp/auto_stabilization_census 20000 1 > /tmp/census.tsv   # with real daily bars as a fourth series kind
+CENSUS_PERIOD=98 CENSUS_NEEDS=/tmp/needs.tsv /tmp/auto_stabilization_census 20000 1 FRAMA   # one period, and every trial's need
+OVR="FastLimit=0.2,SlowLimit=0.02" /tmp/auto_stabilization_probe 40000 MAMA   # one function, other parameters
 python3 analyze.py /tmp/probe.tsv /tmp/agg.json summary
 python3 analyze.py /tmp/probe.tsv /tmp/agg.json nonexact
-python3 rules_vs_need.py /tmp/probe.tsv ../../..
+python3 rules_vs_need.py /tmp/probe.tsv
 python3 rules_check.py
 ```
 
@@ -50,6 +54,8 @@ Link the static library by path. `-lta-lib` picks up an installed TA-Lib instead
   for `PREC_8`; the regression leg holds `K - 3`, so 7 and 16.
 - **Significant digits.** `C<d>` is the first age from which the two runs agree to `d`
   significant digits of the value: a difference of at most `10^-d` of the larger magnitude.
+- **Count.** `auto4` and `auto8` are the bars the library adds to the lookback with every
+  id on `PREC_4` and on `PREC_8`.
 - **Bit-identity.** `Z` is the first age from which the two runs are bit-identical, -1 when
   they never are.
 - **Classes.** `EXACT`: no difference at all. `ROUND`: differences below 1e-9 of the range.
@@ -58,11 +64,22 @@ Link the static library by path. `-lta-lib` picks up an installed TA-Lib instead
 
 ## What it does not show
 
-- Real market data. The three shapes bracket the adaptive averages; they are not a market.
+- Real market data in the probe. The three shapes bracket the adaptive averages; they are not a
+  market. The census takes one real series, whose windows overlap.
 - Periods beyond three times the default.
 - The Rust, Java and C# libraries.
 - SWAK_BP away from its default delta. MAMA is measured at seven limit settings (section 6
   of `results.txt`).
+- A tick that is a power of two. With such a tick the arithmetic is exact, two starts land on
+  the same side of MAMA's zero test, and the census counts no start past its count at any
+  price level; 0.2, 0.1 or 0.01 show what the Unstable Period page states.
+- Functions that subtract two averages at nearly equal periods. With the EMA, ZLEMA or RMA
+  type, APO and PPO run past the inherited count by up to ADOSC's offset for the pair (e.g. 48
+  bars at 25 and 26 with the EMA type), and MACD and MACDFIX by that offset less the signal EMA's
+  count, which leaves something only with a signal period of 1 to 3 or close periods.
+  `CENSUS_SET` reruns any of them. APO's and PPO's legs are seeded by the moving average they
+  call, so a longer lookback alone does not age them; MACDEXT hands MACD its all-EMA case while
+  its own lookback and stream are built from moving-average calls, so MACD cannot move alone.
 - A measured need beyond `K` of about 21 is unreliable in the `rw` series: prices there grow by
   orders of magnitude, so late rounding differences are large against an early seed difference.
 
@@ -72,8 +89,8 @@ Section 2 is the table to read: every output that is not bit-identical, at the d
 periods tripled, and with each MA type. A `-1` in an `A` or `B` column means the tolerance was
 never held to the end.
 
-- `MAXINDEX` and `MINMAXINDEX` appear as `CONV` because of the tie-break in section 5, not
-  because they carry state.
+- `MAXINDEX` and `MINMAXINDEX` appear as `CONV` because of the tie-break in section 5, which
+  #503 has since made independent of the start, not because they carry state.
 - `CRSI` is `ROUND` at its defaults because its rank window is longer than its RSI legs need.
 - `CORREL` at a period of 90 is classed `NEVER`: its rounding difference is 3.5e-8 of a narrow
   range, above the 1e-9 line `analyze.py` draws for `ROUND`. It carries no state.

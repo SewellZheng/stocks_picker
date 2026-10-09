@@ -36,9 +36,9 @@ pub const FUSING_INVENTORY: &[&str] = &[
     "adosc", "apo", "atr", "bbands", "bbw", "cdlabandonedbaby",
     "cdlmorningdojistar", "cdlmorningstar", "cdlpiercing", "cdlthrusting", "cksp",
     "cvi",
-    "dema", "efi", "ema", "eri", "fosc", "frama", "ht_dcperiod", "ht_dcphase", "ht_phasor", "ht_sine",
+    "dema", "efi", "ema", "eri", "fisher", "fosc", "frama", "ht_dcperiod", "ht_dcphase", "ht_phasor", "ht_sine",
     "ht_trendline", "ht_trendmode", "kama", "kst", "kstext", "kurtosis", "linearreg", "macd",
-    "macdfix", "mama", "massi", "natr", "percentb", "ppo", "pvo", "rma", "rvi",
+    "macdfix", "mama", "massi", "natr", "percentb", "ppo", "pso", "pvo", "rma", "rvi",
     "sar", "sarext", "smi", "stc", "supertrend",
     "swak_2php", "swak_bp", "swak_butter", "swak_gauss", "swak_hp",
     "t3", "tema", "trix", "tsf", "tsi", "vidya", "wclprice", "zlema",
@@ -338,7 +338,7 @@ pub(crate) fn is_integer_returning_helper(name: &str) -> bool {
             | "ta_realbodygapdown"
             | "ta_candlegapup"
             | "ta_candlegapdown"
-    )
+    ) || name.starts_with("ta_auto_stabilization_")
 }
 
 /// True if `e` references the variable `name` anywhere.

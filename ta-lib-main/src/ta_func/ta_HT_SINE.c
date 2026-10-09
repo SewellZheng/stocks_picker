@@ -57,7 +57,7 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  */
 
-TA_LIB_API int TA_HT_SINE_Lookback( void )
+TA_NOINLINE TA_LIB_API int TA_HT_SINE_Lookback( void )
 {
    /* 31 input are skip
     * +32 output are skip to account for misc lookback
@@ -67,7 +67,7 @@ TA_LIB_API int TA_HT_SINE_Lookback( void )
     * 31 is for being compatible with Tradestation.
     * See mama_lookback for an explanation of the "32".
     */
-   return 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_SINE,Ht_sine);
+   return 63 + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_HT_SINE,Ht_sine,(80 + 50 * 4),(80 + 50 * 8));
 }
 
 TA_LIB_API int TA_HT_SINE_DisplayShift( int outputIdx )
@@ -194,7 +194,7 @@ TA_LIB_API TA_RetCode TA_HT_SINE( int    startIdx,
    /* Identify the minimum number of price bar needed
     * to calculate at least one output.
     */
-   lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_SINE,Ht_sine);
+   lookbackTotal = TA_HT_SINE_Lookback();
    /* Move up the start index if there is not
     * enough initial data.
     */
@@ -633,7 +633,7 @@ TA_RetCode TA_S_HT_SINE( int    startIdx,
    rad2Deg = 45.0 / tempReal;
    deg2Rad = 1.0 / rad2Deg;
    constDeg2RadBy360 = tempReal * 8.0;
-   lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_SINE,Ht_sine);
+   lookbackTotal = TA_HT_SINE_Lookback();
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -1226,7 +1226,7 @@ static TA_FMA_STEP_INLINE void TA_HT_SINE_StepImpl( struct TA_HT_SINE_Stream *sp
    sp->DCPhase = DCPhase;
 }
 
-static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[], int outStride )
 {
    struct TA_HT_SINE_Stream *sp;
    double local_smoothPrice[50];
@@ -1335,7 +1335,7 @@ static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const 
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_SINE,Ht_sine);
+      lookbackTotal = TA_HT_SINE_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -1741,8 +1741,17 @@ static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const 
    }
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_HT_SINE_OpenInternal( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outSine, double *outLeadSine )
+TA_FMA_OPEN_CLONE static TA_RetCode TA_HT_SINE_OpenImplFma( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[], int outStride )
+{
+   return TA_HT_SINE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_HT_SINE_OpenImplPlain( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[], int outStride )
+{
+   return TA_HT_SINE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_HT_SINE_OpenSinkFma( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outSine, double *outLeadSine )
 {
    TA_RetCode retCode;
    int dummyBegIdx = 0;
@@ -1758,6 +1767,23 @@ TA_RetCode TA_HT_SINE_OpenInternal( struct TA_HT_SINE_Stream **stream, const dou
    return retCode;
 }
 
+/* Private function, not in public API. */
+TA_RetCode TA_HT_SINE_OpenInternal( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outSine, double *outLeadSine )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outSine = 0.0;
+   double sink_outLeadSine = 0.0;
+   retCode = TA_FMA_AVAILABLE ? TA_HT_SINE_OpenImplFma( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outSine, &sink_outLeadSine, 0 ) : TA_HT_SINE_OpenImplPlain( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outSine, &sink_outLeadSine, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outSine = sink_outSine;
+      *outLeadSine = sink_outLeadSine;
+   }
+   return retCode;
+}
+
 TA_LIB_API TA_RetCode TA_HT_SINE_Open( TA_HT_SINE_Stream **stream, const double inReal[], int historyLen, double *outSine, double *outLeadSine )
 {
    if( !stream ) return TA_BAD_PARAM;
@@ -1765,7 +1791,7 @@ TA_LIB_API TA_RetCode TA_HT_SINE_Open( TA_HT_SINE_Stream **stream, const double 
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
-   return TA_HT_SINE_OpenInternal( stream, inReal, 0, historyLen, outSine, outLeadSine );
+   return TA_FMA_AVAILABLE ? TA_HT_SINE_OpenSinkFma( stream, inReal, 0, historyLen, outSine, outLeadSine ) : TA_HT_SINE_OpenInternal( stream, inReal, 0, historyLen, outSine, outLeadSine );
 }
 
 TA_LIB_API TA_RetCode TA_HT_SINE_OpenAndFill( TA_HT_SINE_Stream **stream, const double inReal[], int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[] )
@@ -1782,7 +1808,7 @@ TA_LIB_API TA_RetCode TA_HT_SINE_OpenAndFill( TA_HT_SINE_Stream **stream, const 
 /* Private function, not in public API. */
 TA_RetCode TA_HT_SINE_OpenAndFillInternal( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[] )
 {
-   return TA_HT_SINE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
+   return TA_FMA_AVAILABLE ? TA_HT_SINE_OpenImplFma( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 ) : TA_HT_SINE_OpenImplPlain( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
 }
 
 TA_FMA_MULTIVERSION

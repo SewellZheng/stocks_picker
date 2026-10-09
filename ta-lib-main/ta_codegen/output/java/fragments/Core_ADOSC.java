@@ -11,6 +11,7 @@
  *  -------------------------------------------------------------------
  *  120802 MF   Template creation.
  *  052603 MF   Adapt code to compile with .NET Managed C++
+ *  100726 MF,CC  #492. Under an Auto level the bars its two EMAs' cancelling costs.
  */
 
    /**
@@ -45,8 +46,11 @@
       } else {
          slowestPeriod = optInFastPeriod;
       }
-      /* Adjust startIdx to account for the lookback period. */
-      return emaLookback(slowestPeriod) ;
+      /* Both EMAs seed on one value at one bar, so two starts differ by a fast
+       * term less a slow one, and the two can cancel in the first outputs: an
+       * Auto level is held against what is left.
+       */
+      return emaLookback(slowestPeriod) + ((this.unstableCount(FuncUnstId.EMA.ordinal(), 1, 1) != this.unstableCount(FuncUnstId.EMA.ordinal(), 0, 0)) ? (this.unstableCount(FuncUnstId.EMA.ordinal(), ((15 * Math.min(optInFastPeriod, optInSlowPeriod) + 3 * (Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 2, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 4, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 8, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 16, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 32, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 64, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 128, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 256, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 512, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 1024, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 2048, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 4096, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 8192, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 16384, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 32768, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 65536, Math.min(optInFastPeriod, optInSlowPeriod))) + 7) / 8), ((15 * Math.min(optInFastPeriod, optInSlowPeriod) + 3 * (Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 2, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 4, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 8, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 16, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 32, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 64, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 128, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 256, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 512, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 1024, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 2048, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 4096, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 8192, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 16384, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 32768, Math.min(optInFastPeriod, optInSlowPeriod)) + Math.min(Math.max(optInFastPeriod, optInSlowPeriod) / 65536, Math.min(optInFastPeriod, optInSlowPeriod))) + 7) / 8)) - this.unstableCount(FuncUnstId.EMA.ordinal(), 0, 0)) : 0) ;
 
    }
    /**
@@ -88,7 +92,6 @@
       int today = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      int slowestPeriod = 0;
       double high = 0;
       double low = 0;
       double close = 0;
@@ -138,17 +141,8 @@
        *     This gives more flexibility to the user if they want to
        *     experiment with unusual parameter settings.
        */
-      /* Identify the slowest period.
-       * This infomration is used soleley to bootstrap
-       * the algorithm (skip the lookback period).
-       */
-      if( optInFastPeriod < optInSlowPeriod ) {
-         slowestPeriod = optInSlowPeriod;
-      } else {
-         slowestPeriod = optInFastPeriod;
-      }
       /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = emaLookback(slowestPeriod);
+      lookbackTotal = adoscLookback(optInFastPeriod, optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -164,11 +158,19 @@
        * calculate the "ad".
        */
       ad = 0.0;
-      /* Constants for EMA */
-      fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-      one_minus_fastk = 1.0 - fastk;
-      slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-      one_minus_slowk = 1.0 - slowk;
+      /* Constants for EMA. Each pair must sum to exactly 1.0, or a flat A/D
+       * line drifts off its level.
+       */
+      one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastk = 1.0 - one_minus_fastk;
+      if( one_minus_fastk < 0.5 ) {
+         one_minus_fastk = 1.0 - fastk;
+      }
+      one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowk = 1.0 - one_minus_slowk;
+      if( one_minus_slowk < 0.5 ) {
+         one_minus_slowk = 1.0 - slowk;
+      }
       /* Initialize the two EMA
        *
        * Use the same range of initialization inputs for
@@ -232,7 +234,6 @@
       int today = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      int slowestPeriod = 0;
       double high = 0;
       double low = 0;
       double close = 0;
@@ -260,12 +261,7 @@
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return RetCode.BAD_PARAM;
       }
-      if( optInFastPeriod < optInSlowPeriod ) {
-         slowestPeriod = optInSlowPeriod;
-      } else {
-         slowestPeriod = optInFastPeriod;
-      }
-      lookbackTotal = emaLookback(slowestPeriod);
+      lookbackTotal = adoscLookback(optInFastPeriod, optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -277,10 +273,16 @@
       outBegIdx.value = startIdx;
       today = startIdx - lookbackTotal;
       ad = 0.0;
-      fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-      one_minus_fastk = 1.0 - fastk;
-      slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-      one_minus_slowk = 1.0 - slowk;
+      one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastk = 1.0 - one_minus_fastk;
+      if( one_minus_fastk < 0.5 ) {
+         one_minus_fastk = 1.0 - fastk;
+      }
+      one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowk = 1.0 - one_minus_slowk;
+      if( one_minus_slowk < 0.5 ) {
+         one_minus_slowk = 1.0 - slowk;
+      }
       high = (double)inHigh[today];
       low = (double)inLow[today];
       tmp = high - low;
@@ -655,7 +657,6 @@
       int today = 0;
       int outIdx = 0;
       int lookbackTotal = 0;
-      int slowestPeriod = 0;
       double high = 0;
       double low = 0;
       double close = 0;
@@ -715,17 +716,8 @@
        *     This gives more flexibility to the user if they want to
        *     experiment with unusual parameter settings.
        */
-      /* Identify the slowest period.
-       * This infomration is used soleley to bootstrap
-       * the algorithm (skip the lookback period).
-       */
-      if( optInFastPeriod < optInSlowPeriod ) {
-         slowestPeriod = optInSlowPeriod;
-      } else {
-         slowestPeriod = optInFastPeriod;
-      }
       /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = emaLookback(slowestPeriod);
+      lookbackTotal = adoscLookback(optInFastPeriod, optInSlowPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -741,11 +733,19 @@
        * calculate the "ad".
        */
       ad = 0.0;
-      /* Constants for EMA */
-      fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-      one_minus_fastk = 1.0 - fastk;
-      slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-      one_minus_slowk = 1.0 - slowk;
+      /* Constants for EMA. Each pair must sum to exactly 1.0, or a flat A/D
+       * line drifts off its level.
+       */
+      one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastk = 1.0 - one_minus_fastk;
+      if( one_minus_fastk < 0.5 ) {
+         one_minus_fastk = 1.0 - fastk;
+      }
+      one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowk = 1.0 - one_minus_slowk;
+      if( one_minus_slowk < 0.5 ) {
+         one_minus_slowk = 1.0 - slowk;
+      }
       /* Initialize the two EMA
        *
        * Use the same range of initialization inputs for

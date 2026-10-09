@@ -84,7 +84,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
-        return Ok((optInTimePeriod - 1 + self.unstable_period[FuncUnstId::RMA as usize]) as usize);
+        return Ok((optInTimePeriod - 1 + self.unstable_count(FuncUnstId::RMA, (if optInTimePeriod > 1 { (10 * (2 * optInTimePeriod - 1) + 1) / 2 } else { 0 }), (if optInTimePeriod > 1 { (19 * (2 * optInTimePeriod - 1) + 1) / 2 } else { 0 }))) as usize);
     }
     /// Display shift of one output of [`Core::rma`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -223,7 +223,7 @@ impl Core {
         }
         prevRMA = periodTotal / ((optInTimePeriod) as f64);
         // Skip the unstable period.
-        i = (self.unstable_period[FuncUnstId::RMA as usize]) as usize;
+        i = lookbackTotal - (((optInTimePeriod - 1)) as usize);
         if i != 0 {
             let _wn: usize = i;
             let _w0 = &inReal[today..][.._wn];
@@ -435,6 +435,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::rma_open_internal`]
     /// (stride 0, scalar sink) and [`Core::rma_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn rma_open_impl(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<RmaStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, rma_open_impl_fma, rma_open_impl_scalar, (inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.rma_open_impl_scalar(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn rma_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<RmaStream, RetCode> {
+        self.rma_open_impl_scalar(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn rma_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<RmaStream, RetCode> {
         if inReal.is_empty() {
@@ -503,7 +521,7 @@ impl Core {
         }
         prevRMA = periodTotal / ((optInTimePeriod) as f64);
         // Skip the unstable period.
-        i = (self.unstable_period[FuncUnstId::RMA as usize]) as usize;
+        i = lookbackTotal - (((optInTimePeriod - 1)) as usize);
         while i != 0 {
             prevRMA = (wBeta as f64).mul_add(prevRMA, wAlpha * inReal[today]);
             today += 1;

@@ -27,6 +27,31 @@ double ta_ref_opt( const TaRefCase *c, const char *name, double dflt )
    return dflt;
 }
 
+int ta_ref_index_tie( const TaRefCase *c )
+{
+   int period = (int)ta_ref_opt( c, "optInTimePeriod", 0 );
+   int wantMax = strcmp( c->func, "MININDEX" ) != 0;
+   int wantMin = strcmp( c->func, "MAXINDEX" ) != 0;
+   int first, t, i;
+
+   if( period < 2 || c->endIdx >= c->n ) return 0;
+   first = (c->startIdx > period - 1) ? c->startIdx : period - 1;
+   for( t = first; t <= c->endIdx; t++ )
+   {
+      double hi = c->close[t], lo = hi;
+      int nbHi = 1, nbLo = 1;
+
+      for( i = t - period + 1; i < t; i++ )
+      {
+         double x = c->close[i];
+         if( x > hi ) { hi = x; nbHi = 1; } else if( x == hi ) nbHi++;
+         if( x < lo ) { lo = x; nbLo = 1; } else if( x == lo ) nbLo++;
+      }
+      if( (wantMax && nbHi > 1) || (wantMin && nbLo > 1) ) return 1;
+   }
+   return 0;
+}
+
 static int ta_ref_is_absent( const char *name, int len )
 {
    int i;
@@ -52,6 +77,7 @@ static const char *ta_ref_mode_name( TaRefTolMode m )
    case TA_REF_TOL_REL_IN:          return "rel_in";
    case TA_REF_TOL_REL_OUT:         return "rel_out";
    case TA_REF_TOL_REL_OUT_INFLOOR: return "rel_out_infloor";
+   case TA_REF_TOL_REL_OUT_FLOOR1:  return "rel_out_floor1";
    case TA_REF_TOL_NAN_TO:          return "nan_to";
    }
    return "?";

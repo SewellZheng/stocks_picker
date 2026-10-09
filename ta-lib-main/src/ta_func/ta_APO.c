@@ -261,6 +261,8 @@ TA_LIB_API TA_RetCode TA_APO( int    startIdx,
       double _eFast;
       double _eSlow;
       double _eX;
+      double _eFastBeta;
+      double _eSlowBeta;
       int _eN;
       int _eToday;
       int _eFastToday;
@@ -273,8 +275,18 @@ TA_LIB_API TA_RetCode TA_APO( int    startIdx,
          optInSlowPeriod = optInFastPeriod;
          optInFastPeriod = tempInteger;
       }
-      _eFastK = 2.0 / (double)(optInFastPeriod + 1);
-      _eSlowK = 2.0 / (double)(optInSlowPeriod + 1);
+      _eFastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      _eFastK = 1.0 - _eFastBeta;
+      if( _eFastBeta < 0.5 )
+      {
+         _eFastBeta = 1.0 - _eFastK;
+      }
+      _eSlowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      _eSlowK = 1.0 - _eSlowBeta;
+      if( _eSlowBeta < 0.5 )
+      {
+         _eSlowBeta = 1.0 - _eSlowK;
+      }
       _eFastToday = TA_EMA_Lookback(optInFastPeriod);
       if( _eFastToday < startIdx )
       {
@@ -295,7 +307,7 @@ TA_LIB_API TA_RetCode TA_APO( int    startIdx,
       _eFast = _eFast / optInFastPeriod;
       while( _eFastToday <= _eSlowStart )
       {
-         _eFast = fma(inReal[_eFastToday++] - _eFast, _eFastK, _eFast);
+         _eFast = fma(_eFastBeta, _eFast, _eFastK * inReal[_eFastToday++]);
       }
       _eSlow = 0.0;
       for( _eN = 0; _eN < optInSlowPeriod; _eN += 1 )
@@ -305,7 +317,7 @@ TA_LIB_API TA_RetCode TA_APO( int    startIdx,
       _eSlow = _eSlow / optInSlowPeriod;
       while( _eSlowToday <= _eSlowStart )
       {
-         _eSlow = fma(inReal[_eSlowToday++] - _eSlow, _eSlowK, _eSlow);
+         _eSlow = fma(_eSlowBeta, _eSlow, _eSlowK * inReal[_eSlowToday++]);
       }
       _eOutIdx = 0;
       outReal[_eOutIdx] = _eFast - _eSlow;
@@ -314,8 +326,8 @@ TA_LIB_API TA_RetCode TA_APO( int    startIdx,
       while( _eToday <= endIdx )
       {
          _eX = inReal[_eToday++];
-         _eFast = fma(_eX - _eFast, _eFastK, _eFast);
-         _eSlow = fma(_eX - _eSlow, _eSlowK, _eSlow);
+         _eFast = fma(_eFastBeta, _eFast, _eFastK * _eX);
+         _eSlow = fma(_eSlowBeta, _eSlow, _eSlowK * _eX);
          outReal[_eOutIdx] = _eFast - _eSlow;
          _eOutIdx += 1;
       }
@@ -490,6 +502,8 @@ TA_RetCode TA_S_APO( int    startIdx,
       double _eFast;
       double _eSlow;
       double _eX;
+      double _eFastBeta;
+      double _eSlowBeta;
       int _eN;
       int _eToday;
       int _eFastToday;
@@ -502,8 +516,18 @@ TA_RetCode TA_S_APO( int    startIdx,
          optInSlowPeriod = optInFastPeriod;
          optInFastPeriod = tempInteger;
       }
-      _eFastK = 2.0 / (double)(optInFastPeriod + 1);
-      _eSlowK = 2.0 / (double)(optInSlowPeriod + 1);
+      _eFastBeta = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      _eFastK = 1.0 - _eFastBeta;
+      if( _eFastBeta < 0.5 )
+      {
+         _eFastBeta = 1.0 - _eFastK;
+      }
+      _eSlowBeta = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      _eSlowK = 1.0 - _eSlowBeta;
+      if( _eSlowBeta < 0.5 )
+      {
+         _eSlowBeta = 1.0 - _eSlowK;
+      }
       _eFastToday = TA_EMA_Lookback(optInFastPeriod);
       if( _eFastToday < startIdx )
       {
@@ -524,7 +548,7 @@ TA_RetCode TA_S_APO( int    startIdx,
       _eFast = _eFast / optInFastPeriod;
       while( _eFastToday <= _eSlowStart )
       {
-         _eFast = fma((double)inReal[_eFastToday++] - _eFast, _eFastK, _eFast);
+         _eFast = fma(_eFastBeta, _eFast, _eFastK * (double)inReal[_eFastToday++]);
       }
       _eSlow = 0.0;
       for( _eN = 0; _eN < optInSlowPeriod; _eN += 1 )
@@ -534,7 +558,7 @@ TA_RetCode TA_S_APO( int    startIdx,
       _eSlow = _eSlow / optInSlowPeriod;
       while( _eSlowToday <= _eSlowStart )
       {
-         _eSlow = fma((double)inReal[_eSlowToday++] - _eSlow, _eSlowK, _eSlow);
+         _eSlow = fma(_eSlowBeta, _eSlow, _eSlowK * (double)inReal[_eSlowToday++]);
       }
       _eOutIdx = 0;
       outReal[_eOutIdx] = _eFast - _eSlow;
@@ -543,8 +567,8 @@ TA_RetCode TA_S_APO( int    startIdx,
       while( _eToday <= endIdx )
       {
          _eX = (double)inReal[_eToday++];
-         _eFast = fma(_eX - _eFast, _eFastK, _eFast);
-         _eSlow = fma(_eX - _eSlow, _eSlowK, _eSlow);
+         _eFast = fma(_eFastBeta, _eFast, _eFastK * _eX);
+         _eSlow = fma(_eSlowBeta, _eSlow, _eSlowK * _eX);
          outReal[_eOutIdx] = _eFast - _eSlow;
          _eOutIdx += 1;
       }

@@ -234,6 +234,7 @@ public partial class Core
       if( (outSlowK.Overlaps(inHigh) && outSlowK != inHigh) || (outSlowK.Overlaps(inLow) && outSlowK != inLow) || (outSlowK.Overlaps(inClose) && outSlowK != inClose) || (outSlowD.Overlaps(inHigh) && outSlowD != inHigh) || (outSlowD.Overlaps(inLow) && outSlowD != inLow) || (outSlowD.Overlaps(inClose) && outSlowD != inClose) ) {
          return RetCode.BadParam ;
       }
+      double[]? _rent_tempBuffer = null;
       i = 0;
       /* With stochastic, there is a total of 4 different lines that
        * are defined: FASTK, FASTD, SLOWK and SLOWD.
@@ -321,7 +322,8 @@ public partial class Core
          tempBuffer = outSlowK;
       } else {
          bufferIsAllocated = 1;
-         tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
+         _rent_tempBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)((endIdx - today + 1) * 1));
+         tempBuffer = _rent_tempBuffer.AsSpan(0, (int)((endIdx - today + 1) * 1));
       }
       /* Do the K calculation */
       while( today <= endIdx ) {
@@ -338,9 +340,10 @@ public partial class Core
                   lowest = tmp;
                }
             }
-         } else if( tmp <= lowest ) {
-            lowestIdx = today;
-            lowest = tmp;
+         } else {
+            var _pk0 = MaskLe(tmp, lowest);
+            lowestIdx = Pick(_pk0, today, lowestIdx);
+            lowest = Pick(_pk0, tmp, lowest);
          }
          /* Set the highest high */
          tmp = inHigh[today];
@@ -355,9 +358,10 @@ public partial class Core
                   highest = tmp;
                }
             }
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
+         } else {
+            var _pk1 = MaskLe(highest, tmp);
+            highestIdx = Pick(_pk1, today, highestIdx);
+            highest = Pick(_pk1, tmp, highest);
          }
          /* Divide by the range itself and scale after: the guard has to test the
           * very expression the division uses, or a scaling step can carry a
@@ -382,11 +386,14 @@ public partial class Core
        * Some documentation will refer to the smoothed version as being
        * "K-Slow", but often this end up to be shorten to "K".
        */
-      OutRange _xr0 = Ma(0, outIdx - 1, tempBuffer, optInSlowK_Period, optInSlowK_MAType, tempBuffer);
-      outBegIdx = _xr0.BegIdx;
-      outNBElement = _xr0.Count;
+      OutRange _xr2 = Ma(0, outIdx - 1, tempBuffer, optInSlowK_Period, optInSlowK_MAType, tempBuffer);
+      outBegIdx = _xr2.BegIdx;
+      outNBElement = _xr2.Count;
       retCode = RetCode.Success;
       if( (int)outNBElement == 0 ) {
+         if( (bufferIsAllocated) != 0 ) {
+            ReturnScratch(ref _rent_tempBuffer);
+         }
          /* Something wrong happen? No further data? */
          outBegIdx = 0;
          outNBElement = 0;
@@ -395,9 +402,9 @@ public partial class Core
       /* Calculate the %D which is simply a moving average of
        * the already smoothed %K.
        */
-      OutRange _xr1 = Ma(0, (int)outNBElement - 1, tempBuffer, optInSlowD_Period, optInSlowD_MAType, outSlowD);
-      outBegIdx = _xr1.BegIdx;
-      outNBElement = _xr1.Count;
+      OutRange _xr3 = Ma(0, (int)outNBElement - 1, tempBuffer, optInSlowD_Period, optInSlowD_MAType, outSlowD);
+      outBegIdx = _xr3.BegIdx;
+      outNBElement = _xr3.Count;
       retCode = RetCode.Success;
       /* Copy tempBuffer into the caller buffer.
        * (Calculation could not be done directly in the
@@ -408,6 +415,9 @@ public partial class Core
        * reused as scratch, so source and destination overlap (issue #94).
        */
       tempBuffer.Slice(lookbackDSlow, (int)outNBElement * 1).CopyTo(outSlowK.Slice(0));
+      if( (bufferIsAllocated) != 0 ) {
+         ReturnScratch(ref _rent_tempBuffer);
+      }
       /* Note: Keep the outBegIdx relative to the
        *       caller input before returning.
        */
@@ -484,6 +494,7 @@ public partial class Core
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
          return RetCode.BadParam ;
       }
+      double[]? _rent_tempBuffer = null;
       i = 0;
       lookbackK = optInFastK_Period - 1;
       lookbackKSlow = MaLookback(optInSlowK_Period, optInSlowK_MAType);
@@ -506,7 +517,8 @@ public partial class Core
       highest = lowest;
       bufferIsAllocated = 0;
       bufferIsAllocated = 1;
-      tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
+      _rent_tempBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)((endIdx - today + 1) * 1));
+      tempBuffer = _rent_tempBuffer.AsSpan(0, (int)((endIdx - today + 1) * 1));
       while( today <= endIdx ) {
          tmp = (double)inLow[today];
          if( lowestIdx < trailingIdx ) {
@@ -520,9 +532,10 @@ public partial class Core
                   lowest = tmp;
                }
             }
-         } else if( tmp <= lowest ) {
-            lowestIdx = today;
-            lowest = tmp;
+         } else {
+            var _pk0 = MaskLe(tmp, lowest);
+            lowestIdx = Pick(_pk0, today, lowestIdx);
+            lowest = Pick(_pk0, tmp, lowest);
          }
          tmp = (double)inHigh[today];
          if( highestIdx < trailingIdx ) {
@@ -536,9 +549,10 @@ public partial class Core
                   highest = tmp;
                }
             }
-         } else if( tmp >= highest ) {
-            highestIdx = today;
-            highest = tmp;
+         } else {
+            var _pk1 = MaskLe(highest, tmp);
+            highestIdx = Pick(_pk1, today, highestIdx);
+            highest = Pick(_pk1, tmp, highest);
          }
          if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
             tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / (highest - lowest) * 100.0;
@@ -548,20 +562,26 @@ public partial class Core
          trailingIdx += 1;
          today += 1;
       }
-      OutRange _xr0 = Ma(0, outIdx - 1, tempBuffer, optInSlowK_Period, optInSlowK_MAType, tempBuffer);
-      outBegIdx = _xr0.BegIdx;
-      outNBElement = _xr0.Count;
+      OutRange _xr2 = Ma(0, outIdx - 1, tempBuffer, optInSlowK_Period, optInSlowK_MAType, tempBuffer);
+      outBegIdx = _xr2.BegIdx;
+      outNBElement = _xr2.Count;
       retCode = RetCode.Success;
       if( (int)outNBElement == 0 ) {
+         if( (bufferIsAllocated) != 0 ) {
+            ReturnScratch(ref _rent_tempBuffer);
+         }
          outBegIdx = 0;
          outNBElement = 0;
          return retCode ;
       }
-      OutRange _xr1 = Ma(0, (int)outNBElement - 1, tempBuffer, optInSlowD_Period, optInSlowD_MAType, outSlowD);
-      outBegIdx = _xr1.BegIdx;
-      outNBElement = _xr1.Count;
+      OutRange _xr3 = Ma(0, (int)outNBElement - 1, tempBuffer, optInSlowD_Period, optInSlowD_MAType, outSlowD);
+      outBegIdx = _xr3.BegIdx;
+      outNBElement = _xr3.Count;
       retCode = RetCode.Success;
       tempBuffer.Slice(lookbackDSlow, (int)outNBElement * 1).CopyTo(outSlowK.Slice(0));
+      if( (bufferIsAllocated) != 0 ) {
+         ReturnScratch(ref _rent_tempBuffer);
+      }
       outBegIdx = startIdx;
       return RetCode.Success ;
    }

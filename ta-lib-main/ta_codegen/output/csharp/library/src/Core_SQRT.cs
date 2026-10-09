@@ -106,9 +106,11 @@ public partial class Core
       if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
          return RetCode.BadParam ;
       }
-      for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
-         outReal[outIdx] = Math.Sqrt(inReal[i]);
-      }
+      i = startIdx;
+      outIdx = 0;
+      int _sq0 = SqrtRun(inReal, i, endIdx + 1, outReal, outIdx);
+      i += _sq0;
+      outIdx += _sq0;
       outNBElement = outIdx;
       outBegIdx = startIdx;
       return RetCode.Success ;
@@ -134,7 +136,8 @@ public partial class Core
          return RetCode.BadParam ;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
-         outReal[outIdx] = Math.Sqrt((double)inReal[i]);
+         double _ld0 = (double)inReal[i];
+         outReal[outIdx] = Math.Sqrt(_ld0);
       }
       outNBElement = outIdx;
       outBegIdx = startIdx;
@@ -445,7 +448,8 @@ public partial class Core
          return RetCode.InsufficientHistory;
       }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
-         outReal[outIdx * outStride] = Math.Sqrt(inReal[i]);
+         double _ld0 = inReal[i];
+         outReal[outIdx * outStride] = Math.Sqrt(_ld0);
       }
       outNBElement = outIdx;
       outBegIdx = startIdx;

@@ -11,6 +11,8 @@
 //! `fabs`/`ABS` → [`MathFn::Abs`]. Each backend starts from [`MathFn::canonical`]
 //! and applies its own small remap.
 
+use crate::ir::{BinOp, Expr};
+
 /// A `<math.h>` builtin math function callable from indicator source.
 #[derive(Clone, Copy)]
 pub enum MathFn {
@@ -93,12 +95,15 @@ impl MathFn {
 /// runtime construct rather than emitting verbatim. The names and the set are
 /// identical across the C/Rust/Java backends and are checked before any other
 /// dispatch; only the per-backend *rendering* differs (e.g. `UNSTABLE_PERIOD` →
-/// `TA_GLOBALS_UNSTABLE_PERIOD(...)` in C, `this.unstablePeriod[...]` in Java,
-/// `self.unstable_period[...]` in Rust). This enum is purely the shared classifier;
+/// `TA_GLOBALS_UNSTABLE(...)` in C, `this.unstableCount(...)` in Java,
+/// `self.unstable_count(...)` in Rust). This enum is purely the shared classifier;
 /// each backend matches it and supplies its own output.
 #[derive(Clone, Copy)]
 pub enum SpecialBuiltin {
     UnstablePeriod,
+    /// `TA_UNSTABLE_AUTO(id, offset)`: `offset` under an Auto level of an id the function
+    /// inherits, 0 under a count.
+    UnstableAuto,
     IsZero,
     IsZeroScaled,
     IsZeroOrNeg,
@@ -112,6 +117,7 @@ impl SpecialBuiltin {
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "UNSTABLE_PERIOD" => Self::UnstablePeriod,
+            "UNSTABLE_AUTO" => Self::UnstableAuto,
             "IS_ZERO" => Self::IsZero,
             "IS_ZERO_SCALED" => Self::IsZeroScaled,
             "IS_ZERO_OR_NEG" => Self::IsZeroOrNeg,
@@ -151,5 +157,70 @@ impl StdlibFn {
             "memset" => Self::Memset,
             _ => return None,
         })
+    }
+}
+
+
+/// The Auto levels of the unstable-period setting, as `(X, K)`: the level's constant is
+/// `INDEX_MAX + X`, `X` is its digit count and `K` its number of e-folds.
+pub const UNSTABLE_AUTO_LEVELS: &[(i64, i64)] = &[(4, 10), (8, 19)];
+
+/// The count expression of a `TA_UNSTABLE(id, count)` read, once per Auto level, with the
+/// free names `K` and `X` bound to that level's values. `None` unless the read has both
+/// arguments.
+#[must_use]
+pub fn unstable_level_counts(args: &[Expr]) -> Option<Vec<Expr>> {
+    let [_, count] = args else { return None };
+    Some(
+        UNSTABLE_AUTO_LEVELS
+            .iter()
+            .map(|&(x, k)| {
+                let subs = std::collections::HashMap::from([
+                    ("K".to_string(), Expr::IntLiteral(k)),
+                    ("X".to_string(), Expr::IntLiteral(x)),
+                ]);
+                fold_level_select(crate::helper_registry::substitute_expr(count, &subs))
+            })
+            .collect(),
+    )
+}
+
+/// The Auto-only offset from a backend's `read(id, c4, c8)`: under a count every read
+/// returns the stored count, so the reads at (1, 1) and (0, 0) differ only under a level.
+/// The offset's counts are evaluated only then, which keeps a call at the default setting
+/// from paying for them. `rust` picks the `if` expression over the C-family ternary.
+pub fn unstable_auto_offset(counts: &[String], rust: bool, read: impl Fn(&[String]) -> String) -> String {
+    let fill = |v: &str| vec![v.to_string(); counts.len()];
+    let (on, off, counted) = (read(&fill("1")), read(&fill("0")), read(counts));
+    if rust {
+        format!("(if {on} != {off} {{ {counted} - {off} }} else {{ 0 }})")
+    } else {
+        format!("(({on} != {off}) ? ({counted} - {off}) : 0)")
+    }
+}
+
+/// `4 == 4 ? a : b` to `a`, inside sums, casts and call arguments: how a count that cannot be written in `K` picks
+/// a per-level local (`X == 4 ? count4 : count8`) without leaving a constant condition in
+/// the output.
+fn fold_level_select(expr: Expr) -> Expr {
+    let fold = |inner: Box<Expr>| Box::new(fold_level_select(*inner));
+    match expr {
+        Expr::Ternary(cond, then, other) => match fold_level_select(*cond) {
+            Expr::BinOp(lhs, BinOp::Eq, rhs) => match (*lhs, *rhs) {
+                (Expr::IntLiteral(left), Expr::IntLiteral(right)) => {
+                    fold_level_select(if left == right { *then } else { *other })
+                }
+                (lhs, rhs) => Expr::Ternary(
+                    Box::new(Expr::BinOp(Box::new(lhs), BinOp::Eq, Box::new(rhs))),
+                    fold(then),
+                    fold(other),
+                ),
+            },
+            cond => Expr::Ternary(Box::new(cond), fold(then), fold(other)),
+        },
+        Expr::BinOp(lhs, op, rhs) => Expr::BinOp(fold(lhs), op, fold(rhs)),
+        Expr::Cast(ty, inner) => Expr::Cast(ty, fold(inner)),
+        Expr::FuncCall(name, args) => Expr::FuncCall(name, args.into_iter().map(fold_level_select).collect()),
+        other => other,
     }
 }

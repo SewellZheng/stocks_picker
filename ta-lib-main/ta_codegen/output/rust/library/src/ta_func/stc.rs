@@ -57,6 +57,7 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  092926 MF,CC  Initial version (#478).
+ *  100726 MF,CC  #492. The Auto rule takes the bars the shorter EMA count gives up.
  */
 
 // Import types from parent module
@@ -109,7 +110,7 @@ impl Core {
         // The MACD line's own lookback, which is what inherits TA_FUNC_UNST_EMA,
         // then one window per stochastic stage. The two 0.5 smoothers seed on
         // their first input, so they add only the unstable period.
-        return Ok((self.ema_lookback(optInSlowPeriod)? + ((2 * (optInCyclePeriod - 1)) as usize) + ((self.unstable_period[FuncUnstId::STC as usize]) as usize)) as usize);
+        return Ok((self.ema_lookback(optInSlowPeriod)? + ((2 * (optInCyclePeriod - 1)) as usize) + ((self.unstable_count(FuncUnstId::STC, (5 * 10 + 1) / 2 + 3 * (optInSlowPeriod + 1), (5 * 19 + 1) / 2 + 3 * (optInSlowPeriod + 1))) as usize)) as usize);
     }
     /// Display shift of one output of [`Core::stc`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -237,6 +238,8 @@ impl Core {
         let mut slowK: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut lineValue: f64 = 0.0_f64;
+        let mut fastBeta: f64 = 0.0_f64;
+        let mut slowBeta: f64 = 0.0_f64;
         let mut lowest: f64 = 0.0_f64;
         let mut highest: f64 = 0.0_f64;
         let mut range: f64 = 0.0_f64;
@@ -252,10 +255,12 @@ impl Core {
         let mut sufLo: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         let mut today: usize = 0_usize;
+        let mut fastToday: usize = 0_usize;
         let mut lineStart: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut tempInteger: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
+        let mut lookbackSlow: usize = 0_usize;
         let mut lastIdx: usize = 0_usize;
         let mut nLine: usize = 0_usize;
         let mut nPF: usize = 0_usize;
@@ -275,8 +280,16 @@ impl Core {
         }
         let inReal = &inReal[..=endIdx];
         (*outBegIdx) = startIdx;
-        fastK = 2.0 / ((optInFastPeriod + 1) as f64);
-        slowK = 2.0 / ((optInSlowPeriod + 1) as f64);
+        fastBeta = ((optInFastPeriod - 1) as f64) / ((optInFastPeriod + 1) as f64);
+        fastK = 1.0 - fastBeta;
+        if fastBeta < 0.5 {
+            fastBeta = 1.0 - fastK;
+        }
+        slowBeta = ((optInSlowPeriod - 1) as f64) / ((optInSlowPeriod + 1) as f64);
+        slowK = 1.0 - slowBeta;
+        if slowBeta < 0.5 {
+            slowBeta = 1.0 - slowK;
+        }
         // Rolling extrema, van Herk / Gil-Werman: the window ending in slot j is
         // the current block's prefix extremum joined with the previous block's
         // suffix extremum from slot j+1. The extrema are exact, so the output must
@@ -326,31 +339,38 @@ impl Core {
             pfSufLo = &mut heap_pfSufLo;
         }
         lastIdx = (optInCyclePeriod - 1) as usize;
-        // The line is TA_MACD's: co-terminal SMA seeds, then both EMAs advanced
-        // through TA_FUNC_UNST_EMA to lineStart, so that from lineStart on it is
-        // TA_EMA(fast) - TA_EMA(slow) bit for bit. The chain is fed from
+        // The line is TA_MACD's: each SMA seed placed by its own EMA lookback, then
+        // both EMAs advanced to lineStart, so that from lineStart on it is
+        // TA_EMA(fast) - TA_EMA(slow) bit for bit. That placement reads out of
+        // bounds or skips bars unless ema_lookback(n) - n never decreases as n
+        // grows. The chain is fed from
         // lineStart, not from the EMA seed: TA_FUNC_UNST_EMA then reaches only the
         // line, while TA_FUNC_UNST_STC moves the whole chain back and so warms the
         // line and both smoothers.
-        lineStart = startIdx - (lookbackTotal - self.ema_lookback(optInSlowPeriod).unwrap_or(usize::MAX));
+        lookbackSlow = self.ema_lookback(optInSlowPeriod).unwrap_or(usize::MAX);
+        lineStart = startIdx - (lookbackTotal - lookbackSlow);
         today = startIdx - lookbackTotal;
         tempReal = 0.0;
-        i = (optInSlowPeriod - optInFastPeriod) as usize;
+        i = (optInSlowPeriod) as usize;
         while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            tempReal += inReal[{ let _v = today; today += 1; _v }];
-        }
-        prevFast = 0.0;
-        i = (optInFastPeriod) as usize;
-        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            prevFast += inReal[today];
             tempReal += inReal[{ let _v = today; today += 1; _v }];
         }
         prevSlow = tempReal / ((optInSlowPeriod) as f64);
+        fastToday = startIdx - lookbackTotal + (lookbackSlow - self.ema_lookback(optInFastPeriod).unwrap_or(usize::MAX));
+        prevFast = 0.0;
+        i = (optInFastPeriod) as usize;
+        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
+            prevFast += inReal[{ let _v = fastToday; fastToday += 1; _v }];
+        }
         prevFast = prevFast / ((optInFastPeriod) as f64);
+        while today < fastToday {
+            tempReal = inReal[{ let _v = today; today += 1; _v }];
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
+        }
         while today <= lineStart {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
         }
         // A zero range holds the previous fraction (0.0 before any), and the test
         // is exact: in a sustained trend PF saturates at 100 and the second
@@ -373,8 +393,8 @@ impl Core {
         // window is full, and each smoother is seeded on its first input.
         while today <= startIdx {
             tempReal = inReal[today];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             lineValue = prevFast - prevSlow;
             nLine = nLine + 1;
             lineRing[lineRing_Idx] = lineValue;
@@ -488,8 +508,8 @@ impl Core {
         outIdx = 1;
         while today <= endIdx {
             tempReal = inReal[today];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             lineValue = prevFast - prevSlow;
             lineRing[lineRing_Idx] = lineValue;
             if lineRing_Idx == 0 {
@@ -741,6 +761,8 @@ struct StcStreamScalars {
     prevSlow: f64,
     fastK: f64,
     slowK: f64,
+    fastBeta: f64,
+    slowBeta: f64,
     frac1: f64,
     frac2: f64,
     pf: f64,
@@ -787,8 +809,8 @@ impl Core {
         let mut sufLo: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         tempReal = inReal;
-        sp.prevFast = (tempReal - sp.prevFast as f64).mul_add(sp.fastK, sp.prevFast);
-        sp.prevSlow = (tempReal - sp.prevSlow as f64).mul_add(sp.slowK, sp.prevSlow);
+        sp.prevFast = (sp.fastBeta as f64).mul_add(sp.prevFast, sp.fastK * tempReal);
+        sp.prevSlow = (sp.slowBeta as f64).mul_add(sp.prevSlow, sp.slowK * tempReal);
         lineValue = sp.prevFast - sp.prevSlow;
         cb_lineRing[sp.lineRing_Idx] = lineValue;
         if sp.lineRing_Idx == 0 {
@@ -881,6 +903,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::stc_open_internal`]
     /// (stride 0, scalar sink) and [`Core::stc_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn stc_open_impl(
+        &self, inReal: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, optInCyclePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<StcStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, stc_open_impl_fma, stc_open_impl_scalar, (inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.stc_open_impl_scalar(inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn stc_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, optInCyclePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<StcStream, RetCode> {
+        self.stc_open_impl_scalar(inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn stc_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInCyclePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<StcStream, RetCode> {
         if inReal.is_empty() {
@@ -938,6 +978,8 @@ impl Core {
         let mut slowK: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut lineValue: f64 = 0.0_f64;
+        let mut fastBeta: f64 = 0.0_f64;
+        let mut slowBeta: f64 = 0.0_f64;
         let mut lowest: f64 = 0.0_f64;
         let mut highest: f64 = 0.0_f64;
         let mut range: f64 = 0.0_f64;
@@ -953,10 +995,12 @@ impl Core {
         let mut sufLo: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         let mut today: usize = 0_usize;
+        let mut fastToday: usize = 0_usize;
         let mut lineStart: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut tempInteger: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
+        let mut lookbackSlow: usize = 0_usize;
         let mut lastIdx: usize = 0_usize;
         let mut nLine: usize = 0_usize;
         let mut nPF: usize = 0_usize;
@@ -975,8 +1019,16 @@ impl Core {
             return Err(RetCode::InsufficientHistory);
         }
         (*outBegIdx) = startIdx;
-        fastK = 2.0 / ((optInFastPeriod + 1) as f64);
-        slowK = 2.0 / ((optInSlowPeriod + 1) as f64);
+        fastBeta = ((optInFastPeriod - 1) as f64) / ((optInFastPeriod + 1) as f64);
+        fastK = 1.0 - fastBeta;
+        if fastBeta < 0.5 {
+            fastBeta = 1.0 - fastK;
+        }
+        slowBeta = ((optInSlowPeriod - 1) as f64) / ((optInSlowPeriod + 1) as f64);
+        slowK = 1.0 - slowBeta;
+        if slowBeta < 0.5 {
+            slowBeta = 1.0 - slowK;
+        }
         // Rolling extrema, van Herk / Gil-Werman: the window ending in slot j is
         // the current block's prefix extremum joined with the previous block's
         // suffix extremum from slot j+1. The extrema are exact, so the output must
@@ -1006,31 +1058,38 @@ impl Core {
         maxIdx_pfSufLo = ((optInCyclePeriod) as usize) - 1;
         pfSufLo_Idx = 0;
         lastIdx = (optInCyclePeriod - 1) as usize;
-        // The line is TA_MACD's: co-terminal SMA seeds, then both EMAs advanced
-        // through TA_FUNC_UNST_EMA to lineStart, so that from lineStart on it is
-        // TA_EMA(fast) - TA_EMA(slow) bit for bit. The chain is fed from
+        // The line is TA_MACD's: each SMA seed placed by its own EMA lookback, then
+        // both EMAs advanced to lineStart, so that from lineStart on it is
+        // TA_EMA(fast) - TA_EMA(slow) bit for bit. That placement reads out of
+        // bounds or skips bars unless ema_lookback(n) - n never decreases as n
+        // grows. The chain is fed from
         // lineStart, not from the EMA seed: TA_FUNC_UNST_EMA then reaches only the
         // line, while TA_FUNC_UNST_STC moves the whole chain back and so warms the
         // line and both smoothers.
-        lineStart = startIdx - (lookbackTotal - self.ema_lookback(optInSlowPeriod)?);
+        lookbackSlow = self.ema_lookback(optInSlowPeriod)?;
+        lineStart = startIdx - (lookbackTotal - lookbackSlow);
         today = startIdx - lookbackTotal;
         tempReal = 0.0;
-        i = (optInSlowPeriod - optInFastPeriod) as usize;
+        i = (optInSlowPeriod) as usize;
         while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            tempReal += inReal[{ let _v = today; today += 1; _v }];
-        }
-        prevFast = 0.0;
-        i = (optInFastPeriod) as usize;
-        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            prevFast += inReal[today];
             tempReal += inReal[{ let _v = today; today += 1; _v }];
         }
         prevSlow = tempReal / ((optInSlowPeriod) as f64);
+        fastToday = startIdx - lookbackTotal + (lookbackSlow - self.ema_lookback(optInFastPeriod)?);
+        prevFast = 0.0;
+        i = (optInFastPeriod) as usize;
+        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
+            prevFast += inReal[{ let _v = fastToday; fastToday += 1; _v }];
+        }
         prevFast = prevFast / ((optInFastPeriod) as f64);
+        while today < fastToday {
+            tempReal = inReal[{ let _v = today; today += 1; _v }];
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
+        }
         while today <= lineStart {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
         }
         // A zero range holds the previous fraction (0.0 before any), and the test
         // is exact: in a sustained trend PF saturates at 100 and the second
@@ -1053,8 +1112,8 @@ impl Core {
         // window is full, and each smoother is seeded on its first input.
         while today <= startIdx {
             tempReal = inReal[today];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             lineValue = prevFast - prevSlow;
             nLine = nLine + 1;
             lineRing[lineRing_Idx] = lineValue;
@@ -1156,8 +1215,8 @@ impl Core {
         outIdx = 1;
         while today <= endIdx {
             tempReal = inReal[today];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             lineValue = prevFast - prevSlow;
             lineRing[lineRing_Idx] = lineValue;
             if lineRing_Idx == 0 {
@@ -1278,6 +1337,8 @@ impl Core {
                 prevSlow,
                 fastK,
                 slowK,
+                fastBeta,
+                slowBeta,
                 frac1,
                 frac2,
                 pf,
@@ -1509,8 +1570,8 @@ impl StcStream {
             let mut pkSlot1: usize = usize::MAX;
             let mut pkVal1: f64 = 0.0_f64;
             tempReal = inReal;
-            prevFast = (tempReal - prevFast as f64).mul_add(sp.fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(sp.slowK, prevSlow);
+            prevFast = (sp.fastBeta as f64).mul_add(prevFast, sp.fastK * tempReal);
+            prevSlow = (sp.slowBeta as f64).mul_add(prevSlow, sp.slowK * tempReal);
             lineValue = prevFast - prevSlow;
             pkSlot0 = lineRing_Idx as usize;
             pkVal0 = lineValue;

@@ -233,6 +233,7 @@ public final class Functions {
       put(m, f_ER());
       put(m, f_ERI());
       put(m, f_EXP());
+      put(m, f_FISHER());
       put(m, f_FLOOR());
       put(m, f_FOSC());
       put(m, f_FRACTAL());
@@ -292,6 +293,7 @@ public final class Functions {
       put(m, f_PLUS_DI());
       put(m, f_PLUS_DM());
       put(m, f_PPO());
+      put(m, f_PSO());
       put(m, f_PVI());
       put(m, f_PVO());
       put(m, f_PVT());
@@ -301,6 +303,7 @@ public final class Functions {
       put(m, f_ROCP());
       put(m, f_ROCR());
       put(m, f_ROCR100());
+      put(m, f_ROGERSSATCHELL());
       put(m, f_RSI());
       put(m, f_RVI());
       put(m, f_RVIR());
@@ -442,7 +445,7 @@ public final class Functions {
 
    private static FuncInfo f_ADOSC() {
       return new FuncInfo(
-         "ADOSC", "Volume Indicators", "Chaikin A/D Oscillator", 0x22000000,
+         "ADOSC", "Volume Indicators", "Chaikin A/D Oscillator", 0x02000000,
          List.of(
             new InputInfo(InputType.PRICE, "inPriceHLCV", 0x0000001E)
          ),
@@ -2110,6 +2113,25 @@ public final class Functions {
          ));
    }
 
+   private static FuncInfo f_FISHER() {
+      return new FuncInfo(
+         "FISHER", "Momentum Indicators", "Fisher Transform", 0x0A000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHL", 0x00000006)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTimePeriod", 0x00000000,
+               "Time Period", "Time period", 10.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 5, 50, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outFisher", 0x00000001),
+            new OutputInfo(OutputType.REAL, "outTrigger", 0x00000004)
+         ));
+   }
+
    private static FuncInfo f_FLOOR() {
       return new FuncInfo(
          "FLOOR", "Math Transform", "Vector Floor", 0x02000000,
@@ -3315,6 +3337,29 @@ public final class Functions {
          ));
    }
 
+   private static FuncInfo f_PSO() {
+      return new FuncInfo(
+         "PSO", "Momentum Indicators", "Premier Stochastic Oscillator", 0x02000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHLC", 0x0000000E)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInFastK_Period", 0x00000000,
+               "Fast-K Period", "Time period for building the Fast-K line", 8.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 1, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInEMAPeriod", 0x00000000,
+               "EMA Period", "Period of each of the two smoothing passes", 5.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 1, 200, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
    private static FuncInfo f_PVI() {
       return new FuncInfo(
          "PVI", "Volume Indicators", "Positive Volume Index", 0x22000000,
@@ -3469,6 +3514,29 @@ public final class Functions {
                "Time Period", "Time period", 10.0,
                0.0, 0.0, 0, 0.0, 0.0, 0.0,
                1, 100000, 1, 200, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
+   private static FuncInfo f_ROGERSSATCHELL() {
+      return new FuncInfo(
+         "ROGERSSATCHELL", "Volatility Indicators", "Rogers-Satchell Volatility", 0x02000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceOHLC", 0x0000000F)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTimePeriod", 0x00000000,
+               "Time Period", "Number of bars in the window", 10.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 2, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInAnnualization", 0x00000000,
+               "Annualization", "Periods per year; 1 leaves the per-bar figure", 252.0,
+               0.0, 3e37, 2, 1.0, 365.0, 1.0,
+               0, 0, 0, 0, 0, null)
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)

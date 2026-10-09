@@ -59,13 +59,13 @@
  *  081026 MF,CC Fold the internal variant into EMA (issue #183).
  */
 
-TA_LIB_API int TA_EMA_Lookback( int optInTimePeriod )
+TA_NOINLINE TA_LIB_API int TA_EMA_Lookback( int optInTimePeriod )
 {
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return -1;
-   return optInTimePeriod - 1 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_EMA,Ema);
+   return optInTimePeriod - 1 + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_EMA,Ema,((optInTimePeriod > 1) ? (10 * optInTimePeriod + 1) / 2 : 0),((optInTimePeriod > 1) ? (19 * optInTimePeriod + 1) / 2 : 0));
 }
 
 TA_LIB_API int TA_EMA_DisplayShift( int optInTimePeriod, int outputIdx )
@@ -86,6 +86,7 @@ TA_LIB_API TA_RetCode TA_EMA( int    startIdx,
                               int          *outNBElement,
                               double        outReal[] )
 {
+   double emaBeta;
    double optInK_1;
    double tempReal;
    double prevMA;
@@ -110,11 +111,28 @@ TA_LIB_API TA_RetCode TA_EMA( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
    /* Identify the minimum number of price bar needed
     * to calculate at least one output.
     */
    lookbackTotal = TA_EMA_Lookback(optInTimePeriod);
+   /* After the lookback call: a double live across a call is saved and
+    * restored around every fma call of the loops below, one more instruction
+    * per bar.
+    *
+    * emaBeta + optInK_1 must be exactly 1.0, or a flat input drifts off
+    * its level. Each subtraction is exact only from an operand in
+    * [0.5,1): at a period of 2 that is optInK_1, above it emaBeta.
+    *
+    * Above it emaBeta stays as the divide wrote it: the second subtraction
+    * would not change a bit, and a register last written by a subtraction
+    * costs each FMA reading it one more cycle on Intel P-cores.
+    */
+   emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+   optInK_1 = 1.0 - emaBeta;
+   if( emaBeta < 0.5 )
+   {
+      emaBeta = 1.0 - optInK_1;
+   }
    /* Move up the start index if there is not
     * enough initial data.
     */
@@ -130,12 +148,10 @@ TA_LIB_API TA_RetCode TA_EMA( int    startIdx,
       return TA_SUCCESS;
    }
    /* No smoothing at period of 1: the output is a copy of the input
-    * (same convention as TA_MA for every MAType). Explicit because at
-    * period 1 optInK_1 is exactly 1.0, so the recursion below reduces to
-    * (x-prev)+prev -- which returns x only while consecutive values stay
-    * within a factor of two of each other. Two-decimal prices already
-    * spend a full mantissa, so a single 3x move breaks it. The unstable
-    * period still delays the first output.
+    * (same convention as TA_MA for every MAType). Explicit because the
+    * recursion below, at a k of 1.0 and a beta of 0.0, does not keep the
+    * sign of a -0.0 input. The unstable period still delays the first
+    * output.
     */
    if( optInTimePeriod == 1 )
    {
@@ -161,13 +177,13 @@ TA_LIB_API TA_RetCode TA_EMA( int    startIdx,
    prevMA = tempReal / optInTimePeriod;
    while( today <= startIdx )
    {
-      prevMA = fma(inReal[today++] - prevMA, optInK_1, prevMA);
+      prevMA = fma(emaBeta, prevMA, optInK_1 * inReal[today++]);
    }
    outReal[0] = prevMA;
    outIdx = 1;
    while( today <= endIdx )
    {
-      prevMA = fma(inReal[today++] - prevMA, optInK_1, prevMA);
+      prevMA = fma(emaBeta, prevMA, optInK_1 * inReal[today++]);
       outReal[outIdx++] = prevMA;
    }
    *outNBElement= outIdx;
@@ -183,6 +199,7 @@ TA_RetCode TA_S_EMA( int    startIdx,
                      int          *outNBElement,
                      double        outReal[] )
 {
+   double emaBeta;
    double optInK_1;
    double tempReal;
    double prevMA;
@@ -207,8 +224,13 @@ TA_RetCode TA_S_EMA( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
    lookbackTotal = TA_EMA_Lookback(optInTimePeriod);
+   emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+   optInK_1 = 1.0 - emaBeta;
+   if( emaBeta < 0.5 )
+   {
+      emaBeta = 1.0 - optInK_1;
+   }
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -242,13 +264,13 @@ TA_RetCode TA_S_EMA( int    startIdx,
    prevMA = tempReal / optInTimePeriod;
    while( today <= startIdx )
    {
-      prevMA = fma((double)inReal[today++] - prevMA, optInK_1, prevMA);
+      prevMA = fma(emaBeta, prevMA, optInK_1 * (double)inReal[today++]);
    }
    outReal[0] = prevMA;
    outIdx = 1;
    while( today <= endIdx )
    {
-      prevMA = fma((double)inReal[today++] - prevMA, optInK_1, prevMA);
+      prevMA = fma(emaBeta, prevMA, optInK_1 * (double)inReal[today++]);
       outReal[outIdx++] = prevMA;
    }
    *outNBElement= outIdx;
@@ -264,6 +286,7 @@ struct TA_EMA_Stream {
    /* The value(s) at the last bar the stream counted (see TA_EMA_Value). */
    double cur_outReal;
    int optInTimePeriod;
+   double emaBeta;
    double optInK_1;
    double pad_0;
    double prevMA;
@@ -278,12 +301,12 @@ static TA_FMA_STEP_INLINE void TA_EMA_StepImpl( struct TA_EMA_Stream *sp, double
       sp->cur_outReal = *outReal;
       return;
    }
-   sp->prevMA = fma(inReal - sp->prevMA, sp->optInK_1, sp->prevMA);
+   sp->prevMA = fma(sp->emaBeta, sp->prevMA, sp->optInK_1 * inReal);
    *outReal= sp->prevMA;
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_EMA_Stream *sp;
    int endIdx;
@@ -344,7 +367,8 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
    }
 
    {
-      double optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+      double emaBeta = 0.0;
+      double optInK_1 = 0.0;
       double tempReal;
       double prevMA = 0.0;
       int i;
@@ -355,6 +379,24 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
        * to calculate at least one output.
        */
       lookbackTotal = TA_EMA_Lookback(optInTimePeriod);
+      /* After the lookback call: a double live across a call is saved and
+       * restored around every fma call of the loops below, one more instruction
+       * per bar.
+       *
+       * emaBeta + optInK_1 must be exactly 1.0, or a flat input drifts off
+       * its level. Each subtraction is exact only from an operand in
+       * [0.5,1): at a period of 2 that is optInK_1, above it emaBeta.
+       *
+       * Above it emaBeta stays as the divide wrote it: the second subtraction
+       * would not change a bit, and a register last written by a subtraction
+       * costs each FMA reading it one more cycle on Intel P-cores.
+       */
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 )
+      {
+         emaBeta = 1.0 - optInK_1;
+      }
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -381,13 +423,13 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
       prevMA = tempReal / optInTimePeriod;
       while( today <= startIdx )
       {
-         prevMA = fma(inReal[today++] - prevMA, optInK_1, prevMA);
+         prevMA = fma(emaBeta, prevMA, optInK_1 * inReal[today++]);
       }
       outReal[0 * outStride] = prevMA;
       outIdx = 1;
       while( today <= endIdx )
       {
-         prevMA = fma(inReal[today++] - prevMA, optInK_1, prevMA);
+         prevMA = fma(emaBeta, prevMA, optInK_1 * inReal[today++]);
          outReal[outIdx++ * outStride] = prevMA;
       }
       *outNBElement= outIdx;
@@ -397,6 +439,7 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->optInTimePeriod = optInTimePeriod;
+      sp->emaBeta = emaBeta;
       sp->optInK_1 = optInK_1;
       sp->prevMA = prevMA;
       sp->outRangeBegIdx = *outBegIdx;
@@ -407,6 +450,30 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_EMA_OpenImplFma( struct TA_EMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_EMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_EMA_OpenImplPlain( struct TA_EMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_EMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_EMA_OpenSinkFma( struct TA_EMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_EMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_EMA_OpenInternal( struct TA_EMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
 {
@@ -414,7 +481,7 @@ TA_RetCode TA_EMA_OpenInternal( struct TA_EMA_Stream **stream, const double inRe
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_EMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_EMA_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_EMA_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -429,7 +496,7 @@ TA_LIB_API TA_RetCode TA_EMA_Open( TA_EMA_Stream **stream, const double inReal[]
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
-   return TA_EMA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_EMA_OpenSinkFma( stream, inReal, 0, historyLen, optInTimePeriod, outReal ) : TA_EMA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_EMA_OpenAndFill( TA_EMA_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -446,7 +513,7 @@ TA_LIB_API TA_RetCode TA_EMA_OpenAndFill( TA_EMA_Stream **stream, const double i
 /* Private function, not in public API. */
 TA_RetCode TA_EMA_OpenAndFillInternal( struct TA_EMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_EMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_EMA_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_EMA_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION
@@ -476,7 +543,7 @@ TA_LIB_API TA_RetCode TA_EMA_Peek( const TA_EMA_Stream *stream, double inReal, d
       *outReal= inReal;
       return TA_SUCCESS;
    }
-   prevMA = fma(inReal - prevMA, sp->optInK_1, prevMA);
+   prevMA = fma(sp->emaBeta, prevMA, sp->optInK_1 * inReal);
    *outReal= prevMA;
    return TA_SUCCESS;
 }

@@ -57,10 +57,10 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  */
 
-TA_LIB_API int TA_HT_PHASOR_Lookback( void )
+TA_NOINLINE TA_LIB_API int TA_HT_PHASOR_Lookback( void )
 {
    /* See mama_lookback for an explanation of these */
-   return 32 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_PHASOR,Ht_phasor);
+   return 32 + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_HT_PHASOR,Ht_phasor,(80 + 50 * 4),(80 + 50 * 8));
 }
 
 TA_LIB_API int TA_HT_PHASOR_DisplayShift( int outputIdx )
@@ -162,7 +162,7 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR( int    startIdx,
    /* Identify the minimum number of price bar needed
     * to calculate at least one output.
     */
-   lookbackTotal = 32 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_PHASOR,Ht_phasor);
+   lookbackTotal = TA_HT_PHASOR_Lookback();
    /* Move up the start index if there is not
     * enough initial data.
     */
@@ -527,7 +527,7 @@ TA_RetCode TA_S_HT_PHASOR( int    startIdx,
    a = 0.0962;
    b = 0.5769;
    rad2Deg = 180.0 / (4.0 * atan(1));
-   lookbackTotal = 32 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_PHASOR,Ht_phasor);
+   lookbackTotal = TA_HT_PHASOR_Lookback();
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -997,7 +997,7 @@ static TA_FMA_STEP_INLINE void TA_HT_PHASOR_StepImpl( struct TA_HT_PHASOR_Stream
    sp->streamParity = 1 - sp->streamParity;
 }
 
-static TA_RetCode TA_HT_PHASOR_OpenImpl( struct TA_HT_PHASOR_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outInPhase[], double outQuadrature[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_HT_PHASOR_OpenImpl( struct TA_HT_PHASOR_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outInPhase[], double outQuadrature[], int outStride )
 {
    struct TA_HT_PHASOR_Stream *sp;
    int endIdx;
@@ -1081,7 +1081,7 @@ static TA_RetCode TA_HT_PHASOR_OpenImpl( struct TA_HT_PHASOR_Stream **stream, co
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = 32 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_PHASOR,Ht_phasor);
+      lookbackTotal = TA_HT_PHASOR_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -1420,8 +1420,17 @@ static TA_RetCode TA_HT_PHASOR_OpenImpl( struct TA_HT_PHASOR_Stream **stream, co
    }
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_HT_PHASOR_OpenInternal( struct TA_HT_PHASOR_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outInPhase, double *outQuadrature )
+TA_FMA_OPEN_CLONE static TA_RetCode TA_HT_PHASOR_OpenImplFma( struct TA_HT_PHASOR_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outInPhase[], double outQuadrature[], int outStride )
+{
+   return TA_HT_PHASOR_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInPhase, outQuadrature, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_HT_PHASOR_OpenImplPlain( struct TA_HT_PHASOR_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outInPhase[], double outQuadrature[], int outStride )
+{
+   return TA_HT_PHASOR_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInPhase, outQuadrature, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_HT_PHASOR_OpenSinkFma( struct TA_HT_PHASOR_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outInPhase, double *outQuadrature )
 {
    TA_RetCode retCode;
    int dummyBegIdx = 0;
@@ -1437,6 +1446,23 @@ TA_RetCode TA_HT_PHASOR_OpenInternal( struct TA_HT_PHASOR_Stream **stream, const
    return retCode;
 }
 
+/* Private function, not in public API. */
+TA_RetCode TA_HT_PHASOR_OpenInternal( struct TA_HT_PHASOR_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outInPhase, double *outQuadrature )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outInPhase = 0.0;
+   double sink_outQuadrature = 0.0;
+   retCode = TA_FMA_AVAILABLE ? TA_HT_PHASOR_OpenImplFma( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInPhase, &sink_outQuadrature, 0 ) : TA_HT_PHASOR_OpenImplPlain( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInPhase, &sink_outQuadrature, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outInPhase = sink_outInPhase;
+      *outQuadrature = sink_outQuadrature;
+   }
+   return retCode;
+}
+
 TA_LIB_API TA_RetCode TA_HT_PHASOR_Open( TA_HT_PHASOR_Stream **stream, const double inReal[], int historyLen, double *outInPhase, double *outQuadrature )
 {
    if( !stream ) return TA_BAD_PARAM;
@@ -1444,7 +1470,7 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_Open( TA_HT_PHASOR_Stream **stream, const dou
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outInPhase || !outQuadrature ) return TA_BAD_PARAM;
-   return TA_HT_PHASOR_OpenInternal( stream, inReal, 0, historyLen, outInPhase, outQuadrature );
+   return TA_FMA_AVAILABLE ? TA_HT_PHASOR_OpenSinkFma( stream, inReal, 0, historyLen, outInPhase, outQuadrature ) : TA_HT_PHASOR_OpenInternal( stream, inReal, 0, historyLen, outInPhase, outQuadrature );
 }
 
 TA_LIB_API TA_RetCode TA_HT_PHASOR_OpenAndFill( TA_HT_PHASOR_Stream **stream, const double inReal[], int historyLen, int *outBegIdx, int *outNBElement, double outInPhase[], double outQuadrature[] )
@@ -1461,7 +1487,7 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_OpenAndFill( TA_HT_PHASOR_Stream **stream, co
 /* Private function, not in public API. */
 TA_RetCode TA_HT_PHASOR_OpenAndFillInternal( struct TA_HT_PHASOR_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outInPhase[], double outQuadrature[] )
 {
-   return TA_HT_PHASOR_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInPhase, outQuadrature, 1 );
+   return TA_FMA_AVAILABLE ? TA_HT_PHASOR_OpenImplFma( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInPhase, outQuadrature, 1 ) : TA_HT_PHASOR_OpenImplPlain( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInPhase, outQuadrature, 1 );
 }
 
 TA_FMA_MULTIVERSION

@@ -63,9 +63,11 @@
  *                literal cap lets the streaming rescan-window machinery bound it,
  *                and a separate counter j keeps it distinct from the DC-phase
  *                circular-buffer loop (which still uses i).
+ *  100726 MF,CC  #492. The Auto rule sized on when the flags of two starts
+ *                stop disagreeing.
  */
 
-TA_LIB_API int TA_HT_TRENDMODE_Lookback( void )
+TA_NOINLINE TA_LIB_API int TA_HT_TRENDMODE_Lookback( void )
 {
    /* 31 input are skip
     * +32 output are skip to account for misc lookback
@@ -74,8 +76,11 @@ TA_LIB_API int TA_HT_TRENDMODE_Lookback( void )
     *
     * 31 is for being compatible with Tradestation.
     * See mama_lookback for an explanation of the "32".
+    *
+    * The flag of two starts is equal or not, at either level: the Auto count
+    * buys a rarer late disagreement.
     */
-   return 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_TRENDMODE,Ht_trendmode);
+   return 63 + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_HT_TRENDMODE,Ht_trendmode,120 + 20 * 4,120 + 20 * 8);
 }
 
 TA_LIB_API int TA_HT_TRENDMODE_DisplayShift( int outputIdx )
@@ -221,7 +226,7 @@ TA_LIB_API TA_RetCode TA_HT_TRENDMODE( int    startIdx,
    /* Identify the minimum number of price bar needed
     * to calculate at least one output.
     */
-   lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_TRENDMODE,Ht_trendmode);
+   lookbackTotal = TA_HT_TRENDMODE_Lookback();
    /* Move up the start index if there is not
     * enough initial data.
     */
@@ -736,7 +741,7 @@ TA_RetCode TA_S_HT_TRENDMODE( int    startIdx,
    rad2Deg = 45.0 / tempReal;
    deg2Rad = 1.0 / rad2Deg;
    constDeg2RadBy360 = tempReal * 8.0;
-   lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_TRENDMODE,Ht_trendmode);
+   lookbackTotal = TA_HT_TRENDMODE_Lookback();
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -1448,7 +1453,7 @@ static TA_FMA_STEP_INLINE void TA_HT_TRENDMODE_StepImpl( struct TA_HT_TRENDMODE_
    sp->streamParity = 1 - sp->streamParity;
 }
 
-static TA_RetCode TA_HT_TRENDMODE_OpenImpl( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_HT_TRENDMODE_OpenImpl( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_HT_TRENDMODE_Stream *sp;
    double local_smoothPrice[50];
@@ -1581,7 +1586,7 @@ static TA_RetCode TA_HT_TRENDMODE_OpenImpl( struct TA_HT_TRENDMODE_Stream **stre
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_TRENDMODE,Ht_trendmode);
+      lookbackTotal = TA_HT_TRENDMODE_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -2057,6 +2062,30 @@ static TA_RetCode TA_HT_TRENDMODE_OpenImpl( struct TA_HT_TRENDMODE_Stream **stre
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_HT_TRENDMODE_OpenImplFma( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+{
+   return TA_HT_TRENDMODE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInteger, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_HT_TRENDMODE_OpenImplPlain( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+{
+   return TA_HT_TRENDMODE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInteger, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_HT_TRENDMODE_OpenSinkFma( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outInteger )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   int sink_outInteger = 0;
+   retCode = TA_HT_TRENDMODE_OpenImpl( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outInteger = sink_outInteger;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_HT_TRENDMODE_OpenInternal( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outInteger )
 {
@@ -2064,7 +2093,7 @@ TA_RetCode TA_HT_TRENDMODE_OpenInternal( struct TA_HT_TRENDMODE_Stream **stream,
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    int sink_outInteger = 0;
-   retCode = TA_HT_TRENDMODE_OpenImpl( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_HT_TRENDMODE_OpenImplFma( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 ) : TA_HT_TRENDMODE_OpenImplPlain( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outInteger = sink_outInteger;
@@ -2079,7 +2108,7 @@ TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Open( TA_HT_TRENDMODE_Stream **stream, con
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outInteger ) return TA_BAD_PARAM;
-   return TA_HT_TRENDMODE_OpenInternal( stream, inReal, 0, historyLen, outInteger );
+   return TA_FMA_AVAILABLE ? TA_HT_TRENDMODE_OpenSinkFma( stream, inReal, 0, historyLen, outInteger ) : TA_HT_TRENDMODE_OpenInternal( stream, inReal, 0, historyLen, outInteger );
 }
 
 TA_LIB_API TA_RetCode TA_HT_TRENDMODE_OpenAndFill( TA_HT_TRENDMODE_Stream **stream, const double inReal[], int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
@@ -2096,7 +2125,7 @@ TA_LIB_API TA_RetCode TA_HT_TRENDMODE_OpenAndFill( TA_HT_TRENDMODE_Stream **stre
 /* Private function, not in public API. */
 TA_RetCode TA_HT_TRENDMODE_OpenAndFillInternal( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
 {
-   return TA_HT_TRENDMODE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_FMA_AVAILABLE ? TA_HT_TRENDMODE_OpenImplFma( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 ) : TA_HT_TRENDMODE_OpenImplPlain( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
 }
 
 TA_FMA_MULTIVERSION

@@ -34,9 +34,10 @@
 //!   those sites dead code. `internal` plus overloading (the cores carry the two
 //!   `out int` params the wrappers do not) lets the cores share the public names.
 //!
-//! - **Scratch buffers are `new double[n]`, not `ArrayPool`** — a pooled buffer
-//!   needs a matching return on every early-return path, and the IR renders
-//!   `free()` as the empty string because the ports are GC'd.
+//! - **A batch body rents its scratch buffers from `ArrayPool<T>.Shared`** and
+//!   returns each where the C frees it; a stream body allocates. A return the C
+//!   does not have, or a read after one, is a pool defect no gate here sees
+//!   until two callers hold one array.
 //!
 //! - **`out int outBegIdx, out int outNBElement`, with an emitted `= 0` seeding
 //!   prologue.** A guarded core returns before either is assigned, which is
@@ -59,7 +60,7 @@
 //!   with `Lang::CSharp` in `registry.rs` or every cross-indicator call targets
 //!   a method that does not exist.
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 
 use crate::candle_settings::{detect_candle_settings, emit_csharp_unpacking};
@@ -117,6 +118,17 @@ pub(crate) struct CsRenderCtx<'a> {
     /// [`FmaVarSets::recurrent_select_targets`] name, whose selects stay
     /// branches.
     pub(crate) plain_selects: Cell<bool>,
+    /// Set while rendering the body of a loop that neither stores to an array
+    /// nor holds another loop: a reduction, whose select is its critical path.
+    pub(crate) in_reduction_loop: Cell<bool>,
+    /// The batch tier. A rewrite that read slower in a stream body on one CPU or
+    /// another applies only here.
+    pub(crate) batch: bool,
+    /// The scratch buffers this body rents from the shared array pool instead of
+    /// allocating, each with its element type. The body's `malloc` and `free`
+    /// of one render as the rent and the return, so the C's placement of the
+    /// two IS the pool contract: one return per rent, nothing read after it.
+    pub(crate) pooled: Option<&'a BTreeMap<String, &'static str>>,
 }
 
 /// Words this backend cannot render as an identifier (see [`crate::naming`]):
@@ -876,7 +888,8 @@ fn gen_func_inner(
     // conditional later. C states none: every one of these would be wrong there.
     let admits = |f: &str, a: &[Expr]| cross_call_split(f, a, registry).is_some();
     let folded = super::ir_cleanup::drop_answered_cross_call_guards(body, &admits, None);
-    let folded = super::ir_cleanup::drop_deallocation(&folded);
+    let pooled = pooled_scratch(&folded);
+    let folded = super::ir_cleanup::drop_deallocation_keeping(&folded, &pooled.keys().cloned().collect());
     let folded = super::ir_cleanup::drop_inert_guards(&folded);
     let body: &[Statement] = &folded;
 
@@ -1065,7 +1078,14 @@ fn gen_func_inner(
         fma: Some(&fma_sets),
         matype_map: build_matype_map(enums),
         plain_selects: Cell::new(false),
+        in_reduction_loop: Cell::new(false),
+        batch: true,
+        pooled: Some(&pooled),
     };
+
+    for (name, element) in &pooled {
+        out.push_str(&format!("      {element}[]? _rent_{name} = null;\n"));
+    }
 
     // Emit VarDecl initializations
     for stmt in body {
@@ -1248,6 +1268,87 @@ impl CsStmt<'_> {
         Some(lead + &self.assign(target, &select, false, indent) + &trail)
     }
 
+    /// `if( a < b ) { i = j; v = a; }` as one compare mask and a `Pick` per
+    /// store, so a test that does not predict costs no flush.
+    ///
+    /// Not in a reduction loop: there the select chain is what paces the loop,
+    /// and a branch that predicts lets iterations overlap. Each value is a
+    /// name or a literal, so evaluating it when the test fails reads nothing
+    /// the C would not.
+    fn if_as_picks(
+        &self,
+        condition: &Expr,
+        then_body: &[Statement],
+        else_body: &[Statement],
+        cond_comments: &[Option<Vec<String>>],
+        indent: usize,
+    ) -> Option<String> {
+        if !else_body.is_empty()
+            || !cond_comments.is_empty()
+            || !self.ctx.batch
+            || self.ctx.in_reduction_loop.get()
+            || self.ctx.plain_selects.get()
+        {
+            return None;
+        }
+        let Expr::BinOp(lhs, op, rhs) = condition else { return None };
+        let (mask, low, high) = match op {
+            BinOp::Less => ("MaskLt", lhs, rhs),
+            BinOp::Greater => ("MaskLt", rhs, lhs),
+            BinOp::LessEq => ("MaskLe", lhs, rhs),
+            BinOp::GreaterEq => ("MaskLe", rhs, lhs),
+            _ => return None,
+        };
+        // An untyped pair is not enough here: an integer swap has this shape.
+        let fs = self.ctx.fma?.view();
+        if !(fma::expr_is_float_typed(lhs, Some(&fs)) || fma::expr_is_float_typed(rhs, Some(&fs)))
+            || !compares_reals(lhs, rhs, self.ctx)
+            || !is_pure_operand(condition)
+        {
+            return None;
+        }
+        let mut stores = Vec::new();
+        for stmt in then_body {
+            match stmt {
+                Statement::Comment(_) => {}
+                Statement::Assign { target: target @ Expr::Var(name), value, compound: false }
+                    if matches!(value, Expr::Var(_) | Expr::Literal(_) | Expr::IntLiteral(_))
+                        && !is_recurrent_select_target(name, self.ctx)
+                        && nullable_target_base(target, self.ctx.nullable_outputs).is_none()
+                        && !stores.iter().any(|(seen, _)| *seen == target) =>
+                {
+                    stores.push((target, value));
+                }
+                _ => return None,
+            }
+        }
+        if stores.len() < 2 {
+            return None;
+        }
+        let render = |e: &Expr| render_expr(e, self.ctx, self.registry, self.helpers);
+        let pad = " ".repeat(indent);
+        let id = self.ctx.inline_counter.get();
+        self.ctx.inline_counter.set(id + 1);
+        let mut out = format!("{pad}var _pk{id} = {mask}({}, {});\n", render(low), render(high));
+        for stmt in then_body {
+            match stmt {
+                Statement::Assign { target, value, .. } => {
+                    let dest = render_assign_target(target, self.ctx, self.registry, self.helpers);
+                    out.push_str(&format!("{pad}{dest} = Pick(_pk{id}, {}, {});\n", render(value), render(target)));
+                }
+                comment => out.push_str(&self.walk_stmt(comment, indent)),
+            }
+        }
+        Some(out)
+    }
+
+    fn in_loop(&self, body: &[Statement], render: impl FnOnce() -> String) -> String {
+        let outer = self.ctx.in_reduction_loop.replace(is_reduction_body(body));
+        let out = render();
+        self.ctx.in_reduction_loop.set(outer);
+        out
+    }
+
     fn if_as_count(
         &self,
         condition: &Expr,
@@ -1311,10 +1412,21 @@ impl CsStmt<'_> {
         } else {
             new_value
         };
+        let mut loads = Vec::new();
+        let guarded = nullable_target_base(target, self.ctx.nullable_outputs).is_some();
+        let new_value = if !guarded && is_pure_operand(target) && is_pure_operand(&new_value) {
+            hoist_merging_op_loads(&new_value, &mut loads, &mut cnt)
+        } else {
+            new_value
+        };
         self.ctx.inline_counter.set(cnt);
         let mut out = render_hoisted_blocks(
             &hoisted, indent, self.ctx, self.enums, self.registry, self.helpers,
         );
+        for (name, load) in &loads {
+            let load = render_expr(load, self.ctx, self.registry, self.helpers);
+            out.push_str(&format!("{pad}double {name} = {load};\n"));
+        }
 
         // Only fold compound assignments if the original source used +=/-=/etc.
         if compound {
@@ -1363,6 +1475,77 @@ impl CsStmt<'_> {
         out
     }
 
+    fn for_as_sqrt_run(
+        &self,
+        init: &Statement,
+        condition: &Expr,
+        update: &Statement,
+        body: &[Statement],
+        indent: usize,
+    ) -> Option<String> {
+        if !self.ctx.batch {
+            return None;
+        }
+        let run = sqrt_run(init, condition, update, body)?;
+        let fs = self.ctx.fma?.view();
+        let real = |array: &str| {
+            let element = Expr::ArrayAccess(array.to_string(), Box::new(Expr::IntLiteral(0)));
+            fma::expr_is_float_typed(&element, Some(&fs))
+        };
+        if !real(run.src)
+            || !real(run.dst)
+            || self.ctx.float_input_params.contains(run.src)
+            || self.ctx.nullable_outputs.contains(run.dst)
+            || run.scale.is_some_and(|k| !fma::expr_is_float_typed(k, Some(&fs)))
+        {
+            return None;
+        }
+        let render = |e: &Expr| render_expr(e, self.ctx, self.registry, self.helpers);
+        let name = |n: &str| render(&Expr::Var(n.to_string()));
+        let pad = " ".repeat(indent);
+        let mut out: String = match init {
+            Statement::Block { body } => body.iter().map(|s| self.walk_stmt(s, indent)).collect(),
+            one => self.walk_stmt(one, indent),
+        };
+        let end = if run.inclusive {
+            render(&Expr::BinOp(Box::new(run.bound.clone()), BinOp::Add, Box::new(Expr::IntLiteral(1))))
+        } else {
+            render(run.bound)
+        };
+        let scale = run.scale.map(|k| format!(", {}", render(k))).unwrap_or_default();
+        let id = self.ctx.inline_counter.get();
+        self.ctx.inline_counter.set(id + 1);
+        let (src, s, dst, d) = (name(run.src), name(run.s), name(run.dst), name(run.d));
+        out.push_str(&format!("{pad}int _sq{id} = SqrtRun({src}, {s}, {end}, {dst}, {d}{scale});\n"));
+        out.push_str(&format!("{pad}{s} += _sq{id};\n"));
+        if d != s {
+            out.push_str(&format!("{pad}{d} += _sq{id};\n"));
+        }
+        Some(out)
+    }
+
+    fn plain_while(&self, condition: &Expr, body: &[Statement], indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        let mut hoisted = Vec::new();
+        let mut cnt = self.ctx.inline_counter.get();
+        let new_condition =
+            hoist_block_helpers(condition, self.helpers, &mut hoisted, &mut cnt, CANDLE_FNS);
+        self.ctx.inline_counter.set(cnt);
+        let mut out = render_hoisted_blocks(
+            &hoisted, indent, self.ctx, self.enums, self.registry, self.helpers,
+        );
+        let cond_str = render_expr(&new_condition, self.ctx, self.registry, self.helpers);
+        let cond_cs = if is_boolean_expr(&new_condition, self.helpers) {
+            cond_str
+        } else {
+            format!("({cond_str}) != 0")
+        };
+        out.push_str(&format!("{pad}while( {cond_cs} ) {{\n"));
+        out.push_str(&self.in_loop(body, || body.iter().map(|s| self.walk_stmt(s, indent + 3)).collect()));
+        out.push_str(&format!("{pad}}}\n"));
+        out
+    }
+
     /// Shared `if` tail (then-body + else branch with `} else if` collapse).
     fn render_if_tail(
         &self,
@@ -1392,6 +1575,7 @@ impl CsStmt<'_> {
                 // the else or dangles onto the next sibling. Collapse only
                 // when the walk still starts with an `if(`; otherwise fall
                 // through to the braced form.
+                let temps = self.ctx.inline_counter.get();
                 let inner = self.walk_stmt(&else_body[code_start], indent);
                 if inner.trim_start().starts_with("if(") {
                     for c in &else_body[..code_start] {
@@ -1401,6 +1585,7 @@ impl CsStmt<'_> {
                     out.push_str(inner.trim_start());
                     return out;
                 }
+                self.ctx.inline_counter.set(temps);
             }
             out.push_str(&format!("{pad}}} else {{\n"));
             for s in else_body {
@@ -1488,6 +1673,17 @@ impl StatementEmitter for CsStmt<'_> {
     }
 
     fn assign(&self, target: &Expr, value: &Expr, compound: bool, indent: usize) -> String {
+        if let (Expr::Var(name), Expr::FuncCall(f, args)) = (target, value) {
+            let element = self.ctx.pooled.and_then(|p| p.get(name));
+            if let (Some(element), Some(StdlibFn::Malloc), [size]) = (element, StdlibFn::from_name(f), args.as_slice()) {
+                let pad = " ".repeat(indent);
+                let size = render_expr(size, self.ctx, self.registry, self.helpers);
+                let pool = format!("System.Buffers.ArrayPool<{element}>.Shared");
+                return format!(
+                    "{pad}_rent_{name} = {pool}.Rent((int)({size}));\n{pad}{name} = _rent_{name}.AsSpan(0, (int)({size}));\n"
+                );
+            }
+        }
         let recurrent = matches!(target, Expr::Var(n) if is_recurrent_select_target(n, self.ctx));
         let outer = self.ctx.plain_selects.replace(recurrent || self.ctx.plain_selects.get());
         let out = self.assign_unscoped(target, value, compound, indent);
@@ -1521,27 +1717,25 @@ impl StatementEmitter for CsStmt<'_> {
     }
 
     fn while_loop(&self, condition: &Expr, body: &[Statement], indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        let mut hoisted = Vec::new();
-        let mut cnt = self.ctx.inline_counter.get();
-        let new_condition =
-            hoist_block_helpers(condition, self.helpers, &mut hoisted, &mut cnt, CANDLE_FNS);
-        self.ctx.inline_counter.set(cnt);
-        let mut out = render_hoisted_blocks(
-            &hoisted, indent, self.ctx, self.enums, self.registry, self.helpers,
-        );
-        let cond_str = render_expr(&new_condition, self.ctx, self.registry, self.helpers);
-        let cond_cs = if is_boolean_expr(&new_condition, self.helpers) {
-            cond_str
-        } else {
-            format!("({cond_str}) != 0")
+        let Some((helper, j, bound)) = shift_run(condition, body).filter(|_| self.ctx.batch) else {
+            return self.plain_while(condition, body, indent);
         };
-        out.push_str(&format!("{pad}while( {cond_cs} ) {{\n"));
-        for s in body {
-            out.push_str(&self.walk_stmt(s, indent + 3));
-        }
-        out.push_str(&format!("{pad}}}\n"));
-        out
+        let Some(Statement::Assign { target, .. }) = body.iter().find(|s| !matches!(s, Statement::Comment(_))) else {
+            return self.plain_while(condition, body, indent);
+        };
+        let j = render_expr(&Expr::Var(j.to_string()), self.ctx, self.registry, self.helpers);
+        let store = render_expr(target, self.ctx, self.registry, self.helpers);
+        let Some(array) = store.strip_suffix(&format!("[{j}]")) else {
+            return self.plain_while(condition, body, indent);
+        };
+        let e = render_expr(bound, self.ctx, self.registry, self.helpers);
+        let pad = " ".repeat(indent);
+        let term = if matches!(bound, Expr::Var(_) | Expr::IntLiteral(_)) { e.clone() } else { format!("({e})") };
+        let run = if helper == "ShiftDown" { format!("{term} - {j}") } else { format!("{j} - {term}") };
+        format!(
+            "{pad}if( {run} >= {SHIFT_COPY_MIN} ) {{\n{pad}   {helper}({array}, {j}, {e});\n{pad}   {j} = {e};\n{pad}}} else {{\n{}{pad}}}\n",
+            self.plain_while(condition, body, indent + 3)
+        )
     }
 
     fn do_while(&self, condition: &Expr, body: &[Statement], indent: usize) -> String {
@@ -1554,9 +1748,7 @@ impl StatementEmitter for CsStmt<'_> {
             hoist_block_helpers(condition, self.helpers, &mut hoisted, &mut cnt, CANDLE_FNS);
         self.ctx.inline_counter.set(cnt);
         let mut out = format!("{pad}do {{\n");
-        for s in body {
-            out.push_str(&self.walk_stmt(s, indent + 3));
-        }
+        out.push_str(&self.in_loop(body, || body.iter().map(|s| self.walk_stmt(s, indent + 3)).collect()));
         out.push_str(&render_hoisted_blocks(
             &hoisted, indent + 3, self.ctx, self.enums, self.registry, self.helpers,
         ));
@@ -1609,6 +1801,9 @@ impl StatementEmitter for CsStmt<'_> {
             }
         }
         if let Some(out) = self.if_as_select(condition, then_body, else_body, cond_comments, indent) {
+            return out;
+        }
+        if let Some(out) = self.if_as_picks(condition, then_body, else_body, cond_comments, indent) {
             return out;
         }
         // Split `if(A && B)` into nested `if(A) { if(B)` when both sides
@@ -1735,9 +1930,7 @@ impl StatementEmitter for CsStmt<'_> {
             var,
             var,
         );
-        for s in body {
-            out.push_str(&self.walk_stmt(s, indent + 3));
-        }
+        out.push_str(&self.in_loop(body, || body.iter().map(|s| self.walk_stmt(s, indent + 3)).collect()));
         out.push_str(&format!("{pad}}}\n"));
         out
     }
@@ -1750,6 +1943,9 @@ impl StatementEmitter for CsStmt<'_> {
         body: &[Statement],
         indent: usize,
     ) -> String {
+        if let Some(out) = self.for_as_sqrt_run(init, condition, update, body, indent) {
+            return out;
+        }
         let pad = " ".repeat(indent);
         let init_str = render_forc_part(init, self.ctx, self.enums, self.registry, self.helpers);
         let update_str = render_forc_part(update, self.ctx, self.enums, self.registry, self.helpers);
@@ -1768,9 +1964,7 @@ impl StatementEmitter for CsStmt<'_> {
             render_expr(&new_condition, self.ctx, self.registry, self.helpers),
             update_str.trim()
         ));
-        for s in body {
-            out.push_str(&self.walk_stmt(s, indent + 3));
-        }
+        out.push_str(&self.in_loop(body, || body.iter().map(|s| self.walk_stmt(s, indent + 3)).collect()));
         out.push_str(&format!("{pad}}}\n"));
         out
     }
@@ -2156,6 +2350,9 @@ impl ExprEmitter for CsExpr<'_> {
                     fma: self.ctx.fma,
                     matype_map: self.ctx.matype_map.clone(),
                     plain_selects: Cell::new(self.ctx.plain_selects.get()),
+                    in_reduction_loop: Cell::new(false),
+                    batch: self.ctx.batch,
+                    pooled: self.ctx.pooled,
                 };
                 render_expr(inner, &inner_ctx, self.registry, self.helpers)
             }
@@ -2261,6 +2458,236 @@ fn fp_select<'e>(
         return Some((if gt { "ZeroIfGt" } else { "ZeroIfLt" }, vec![l, r, else_expr]));
     }
     None
+}
+
+/// The locals a batch body gets from `malloc`, with their element type: the
+/// ones it rents from the shared array pool.
+///
+/// The size is rendered twice, so it must only read.
+fn pooled_scratch(body: &[Statement]) -> BTreeMap<String, &'static str> {
+    let mut pooled = BTreeMap::new();
+    let mut refused = Vec::new();
+    for (name, size) in super::ir_cleanup::scratch_allocations(body) {
+        let element = match find_sizeof_type(&size).as_deref() {
+            Some("int") => "int",
+            Some("float") => "float",
+            _ => "double",
+        };
+        let reads_only = !streaming::expr_effect(&size, &|f| {
+            MathFn::from_name(f).is_some() || matches!(StdlibFn::from_name(f), Some(StdlibFn::Sizeof))
+        });
+        if reads_only && pooled.get(&name).is_none_or(|seen| *seen == element) {
+            pooled.insert(name, element);
+        } else {
+            refused.push(name);
+        }
+    }
+    for name in refused {
+        pooled.remove(&name);
+    }
+    pooled
+}
+
+fn is_reduction_body(body: &[Statement]) -> bool {
+    body.iter().all(|s| match s {
+        Statement::Assign { target, .. } => !matches!(target, Expr::ArrayAccess(..) | Expr::PointerDeref(_)),
+        Statement::If { then_body, else_body, .. } => is_reduction_body(then_body) && is_reduction_body(else_body),
+        Statement::Block { body } => is_reduction_body(body),
+        Statement::Switch { cases, default, .. } => {
+            cases.iter().all(|(_, b)| is_reduction_body(b)) && is_reduction_body(default)
+        }
+        Statement::While { .. }
+        | Statement::DoWhile { .. }
+        | Statement::For { .. }
+        | Statement::ForC { .. }
+        | Statement::Expr(_)
+        | Statement::CircBuf(_) => false,
+        _ => true,
+    })
+}
+
+/// Runs shorter than this stay a loop: a copy is a call, and RyuJIT moves a few
+/// elements faster in line.
+const SHIFT_COPY_MIN: usize = 16;
+
+/// `while( j < e ) { a[j] = a[j + 1]; j++; }` or its mirror image
+/// `while( j > e ) { a[j] = a[j - 1]; j--; }`, which RyuJIT leaves as an
+/// element loop where gcc emits `memmove`: the `ShiftRun.cs` helper that does
+/// it as one copy, the index and the bound.
+///
+/// The bound is plain index arithmetic over other names, so it reads neither
+/// the index nor the array being shifted.
+fn shift_run<'e>(condition: &'e Expr, body: &'e [Statement]) -> Option<(&'static str, &'e str, &'e Expr)> {
+    fn plain_index(e: &Expr, j: &str, array: &str) -> bool {
+        match e {
+            Expr::IntLiteral(_) => true,
+            Expr::Var(n) => n != j && n != array,
+            Expr::BinOp(l, BinOp::Add | BinOp::Sub, r) => plain_index(l, j, array) && plain_index(r, j, array),
+            _ => false,
+        }
+    }
+    let Expr::BinOp(idx, cmp @ (BinOp::Less | BinOp::Greater), bound) = condition else { return None };
+    let Expr::Var(j) = idx.as_ref() else { return None };
+    let (helper, step) = if matches!(cmp, BinOp::Less) { ("ShiftDown", BinOp::Add) } else { ("ShiftUp", BinOp::Sub) };
+    let stepped = |e: &Expr| {
+        matches!(e, Expr::BinOp(l, op, r)
+            if *op == step
+                && matches!(l.as_ref(), Expr::Var(n) if n == j)
+                && matches!(r.as_ref(), Expr::IntLiteral(1)))
+    };
+    let mut code = body.iter().filter(|s| !matches!(s, Statement::Comment(_)));
+    let (Some(store), Some(advance), None) = (code.next(), code.next(), code.next()) else { return None };
+    let Statement::Assign { target: Expr::ArrayAccess(dst, at), value: Expr::ArrayAccess(src, from), compound: false } =
+        store
+    else {
+        return None;
+    };
+    if dst != src || !matches!(at.as_ref(), Expr::Var(n) if n == j) || !stepped(from) {
+        return None;
+    }
+    let advances = match advance {
+        Statement::Assign { target: Expr::Var(n), value, .. } => n == j && stepped(value),
+        Statement::Expr(Expr::PostIncrement(e) | Expr::PreIncrement(e)) => {
+            step == BinOp::Add && matches!(e.as_ref(), Expr::Var(n) if n == j)
+        }
+        Statement::Expr(Expr::PostDecrement(e) | Expr::PreDecrement(e)) => {
+            step == BinOp::Sub && matches!(e.as_ref(), Expr::Var(n) if n == j)
+        }
+        _ => false,
+    };
+    (advances && plain_index(bound, j, dst)).then_some((helper, j.as_str(), bound.as_ref()))
+}
+
+struct SqrtRun<'e> {
+    src: &'e str,
+    s: &'e str,
+    dst: &'e str,
+    d: &'e str,
+    bound: &'e Expr,
+    inclusive: bool,
+    scale: Option<&'e Expr>,
+}
+
+/// `for( s = .., d = ..; s < bound; s++, d++ ) dst[d] = sqrt(src[s]);`, with an
+/// optional `* scale` and with `d` possibly `s` itself: a map RyuJIT runs one
+/// element at a time where gcc emits the packed square root.
+///
+/// The bound and the scale name no array and neither index, so the loop
+/// cannot change them. Where the two arrays overlap is the helper's to settle.
+fn sqrt_run<'e>(
+    init: &'e Statement,
+    condition: &'e Expr,
+    update: &'e Statement,
+    body: &'e [Statement],
+) -> Option<SqrtRun<'e>> {
+    fn parts(stmt: &Statement) -> &[Statement] {
+        match stmt {
+            Statement::Block { body } => body,
+            one => std::slice::from_ref(one),
+        }
+    }
+    fn mentions(e: &Expr, names: &[&str]) -> bool {
+        let mut found = false;
+        streaming::walk_expr(e, &mut |sub| {
+            found |= matches!(sub, Expr::ArrayAccess(..))
+                || matches!(sub, Expr::Var(n) if names.contains(&n.as_str()));
+        });
+        found
+    }
+    let stepped = |stmt: &'e Statement| -> Option<&'e str> {
+        match stmt {
+            Statement::Expr(Expr::PostIncrement(e) | Expr::PreIncrement(e)) => match e.as_ref() {
+                Expr::Var(n) => Some(n.as_str()),
+                _ => None,
+            },
+            Statement::Assign { target: Expr::Var(n), value: Expr::BinOp(l, BinOp::Add, r), .. }
+                if matches!(l.as_ref(), Expr::Var(v) if v == n) && matches!(r.as_ref(), Expr::IntLiteral(1)) =>
+            {
+                Some(n.as_str())
+            }
+            _ => None,
+        }
+    };
+    let [Statement::Assign { target: Expr::ArrayAccess(dst, at), value, compound: false }] = body else {
+        return None;
+    };
+    let (root, scale) = match value {
+        Expr::BinOp(l, BinOp::Mul, r) if matches!(r.as_ref(), Expr::Var(_)) => (l.as_ref(), Some(r.as_ref())),
+        other => (other, None),
+    };
+    let Expr::FuncCall(f, args) = root else { return None };
+    let [Expr::ArrayAccess(src, from)] = args.as_slice() else { return None };
+    let (Expr::Var(d), Expr::Var(s)) = (at.as_ref(), from.as_ref()) else { return None };
+    if !matches!(MathFn::from_name(f), Some(MathFn::Sqrt)) {
+        return None;
+    }
+    let indices: Vec<&str> = if s == d { vec![s.as_str()] } else { vec![s.as_str(), d.as_str()] };
+    let steps: Vec<&str> = parts(update).iter().map(stepped).collect::<Option<_>>()?;
+    let mut starts = Vec::new();
+    for stmt in parts(init) {
+        let Statement::Assign { target: Expr::Var(n), value, compound: false } = stmt else { return None };
+        if mentions(value, &indices) || !is_pure_operand(value) {
+            return None;
+        }
+        starts.push(n.as_str());
+    }
+    let same = |seen: &[&str]| seen.len() == indices.len() && indices.iter().all(|i| seen.contains(i));
+    if !same(&steps) || !same(&starts) {
+        return None;
+    }
+    let Expr::BinOp(idx, cmp @ (BinOp::Less | BinOp::LessEq), bound) = condition else { return None };
+    if !matches!(idx.as_ref(), Expr::Var(n) if n == s)
+        || mentions(bound, &indices)
+        || !is_pure_operand(bound)
+        || scale.is_some_and(|k| mentions(k, &indices))
+    {
+        return None;
+    }
+    Some(SqrtRun {
+        src,
+        s,
+        dst,
+        d,
+        bound,
+        inclusive: matches!(cmp, BinOp::LessEq),
+        scale,
+    })
+}
+
+/// Replaces the array-element operand of each `sqrt`, `floor` and `ceil` in
+/// `value` with a fresh local, returned in `loads` for the caller to declare.
+///
+/// RyuJIT folds an element operand into the instruction, and the scalar form of
+/// these three merges into its destination register: every iteration of a map
+/// loop then waits for the previous result. Only a named local keeps the load
+/// separate; an inlined helper does not.
+///
+/// Descends only through operands that are always evaluated, so a load is
+/// never moved out from under the test that guards its index.
+fn hoist_merging_op_loads(value: &Expr, loads: &mut Vec<(String, Expr)>, cnt: &mut usize) -> Expr {
+    match value {
+        Expr::FuncCall(name, args)
+            if matches!(MathFn::from_name(name), Some(MathFn::Sqrt | MathFn::Floor | MathFn::Ceil))
+                && matches!(args.as_slice(), [Expr::ArrayAccess(..)]) =>
+        {
+            let local = format!("_ld{cnt}");
+            *cnt += 1;
+            loads.push((local.clone(), args[0].clone()));
+            Expr::FuncCall(name.clone(), vec![Expr::Var(local)])
+        }
+        Expr::FuncCall(name, args) if MathFn::from_name(name).is_some() => Expr::FuncCall(
+            name.clone(),
+            args.iter().map(|a| hoist_merging_op_loads(a, loads, cnt)).collect(),
+        ),
+        Expr::BinOp(l, op @ (BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div), r) => Expr::BinOp(
+            Box::new(hoist_merging_op_loads(l, loads, cnt)),
+            op.clone(),
+            Box::new(hoist_merging_op_loads(r, loads, cnt)),
+        ),
+        Expr::Neg(e) => Expr::Neg(Box::new(hoist_merging_op_loads(e, loads, cnt))),
+        Expr::Cast(t, e) => Expr::Cast(t.clone(), Box::new(hoist_merging_op_loads(e, loads, cnt))),
+        other => other.clone(),
+    }
 }
 
 /// No side effect: a rewrite evaluates its operands a different number of
@@ -2429,14 +2856,22 @@ fn render_func_call(
 
     if let Some(b) = SpecialBuiltin::from_name(fname) {
         match b {
-            SpecialBuiltin::UnstablePeriod => {
-                // UNSTABLE_PERIOD(RSI) -> this._unstablePeriod[(int)FuncUnstId.Rsi]
-                // (C# enums cast to int; there is no ordinal()).
+            SpecialBuiltin::UnstablePeriod | SpecialBuiltin::UnstableAuto => {
+                // C# enums cast to int; there is no ordinal().
                 if let Some(Expr::Var(func_name)) = args.first() {
                     let variant = unst_variant_name(func_name);
-                    return format!("this._unstablePeriod[(int)FuncUnstId.{variant}]");
+                    if let Some(counts) = super::builtins::unstable_level_counts(args) {
+                        let counts: Vec<String> =
+                            counts.iter().map(|c| render_expr(c, ctx, registry, helpers)).collect();
+                        let read = |c: &[String]| format!("this.UnstableCount((int)FuncUnstId.{variant}, {})", c.join(", "));
+                        return if matches!(b, SpecialBuiltin::UnstableAuto) {
+                            super::builtins::unstable_auto_offset(&counts, false, read)
+                        } else {
+                            read(&counts)
+                        };
+                    }
                 }
-                "this._unstablePeriod[0]".to_string()
+                panic!("an unstable-period read takes an id and a count")
             }
             pred @ (SpecialBuiltin::IsZero
             | SpecialBuiltin::IsZeroScaled
@@ -2523,14 +2958,17 @@ fn render_func_call(
                 }
             }
             StdlibFn::Free => {
-                // Deallocation is removed from the IR before rendering, so this
-                // arm is the assertion that it was -- not a second way to make a
-                // `free` vanish, which could disagree with the pass.
-                unreachable!(
-                    "free() reached the C# renderer: `ir_cleanup::drop_deallocation` \
-                     runs on every body this backend renders, so a `free` here means a \
-                     render path was added without the cleanup sequence"
-                )
+                // The cleanup sequence removes every `free` but that of a pooled
+                // buffer, so anything else here means a render path was added
+                // without it.
+                let rented = match args {
+                    [Expr::Var(x)] => ctx.pooled.filter(|p| p.contains_key(x)).map(|_| x),
+                    _ => None,
+                };
+                let Some(name) = rented else {
+                    unreachable!("free() of an unpooled buffer reached the C# renderer")
+                };
+                format!("ReturnScratch(ref _rent_{name})")
             }
             StdlibFn::Memcpy | StdlibFn::Memmove => {
                 // memcpy/memmove(dst, src, count) -> src.Slice(..).CopyTo(dst.Slice(..)).
@@ -2637,6 +3075,9 @@ fn render_lookback_code(
         fma: None,
         matype_map: build_matype_map(enums),
         plain_selects: Cell::new(false),
+        in_reduction_loop: Cell::new(false),
+        batch: false,
+        pooled: None,
     };
 
     // Declare local variables (initialized: locals assigned only inside a

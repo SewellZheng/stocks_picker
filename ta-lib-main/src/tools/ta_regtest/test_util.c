@@ -694,8 +694,8 @@ ErrorNumber doRangeTestMulti( RangeTestFunction testFunction,
     *    is the vestigial-flag trap that let a bug hide behind the loose
     *    convergence tolerance (IMI #14, MFI #4). Fail loudly instead.
     *  - SKIP is exempt: an accumulation seeded at startIdx may still legitimately
-    *    sweep an internal EMA's unstable period while its values are left
-    *    uncompared (e.g. ADOSC passes unstId=EMA with TA_DO_NOT_COMPARE). */
+    *    sweep an internal recursion's unstable period while its values are left
+    *    uncompared (e.g. SUPERTREND, through ATR). */
    if( stability == TA_STABLE_CONVERGING && unstId == TA_TEST_UNST_NONE )
    {
       printf( "Fail: doRangeTest CONVERGING class has no unstable-period id\n" );
@@ -1330,7 +1330,7 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
     *                  place. This is useful for functions
     *                  that cannot be compare when changing
     *                  the range (like the accumulative
-    *                  algorithm used for TA_AD and TA_ADOSC).
+    *                  algorithm used for TA_AD).
     */
 
 
@@ -1499,4 +1499,22 @@ int checkOracleValue( double got, double want,
    if( outErr )  *outErr  = ( relTerm >= absTol && aw > 0.0 ) ? ( ad / aw ) : ad;
 
    return ad <= ( absTol + relTerm );
+}
+
+/* Hand-kept beside the generator's own choice of which loops become
+ * TA_VMATH_MAP. A name missing here fails a kernel build loudly; a name too
+ * many loosens that function's comparisons on a kernel build only. */
+static const char *const vmathBatchFunc[] = {
+   "ACOS", "ASIN", "ATAN", "COS", "COSH", "EXP",
+   "LN", "LOG10", "SIN", "SINH", "TAN", "TANH"
+};
+
+int regtest_vmath_batch( const char *funcName )
+{
+   unsigned int i;
+
+   for( i = 0; i < sizeof(vmathBatchFunc)/sizeof(vmathBatchFunc[0]); i++ )
+      if( strcmp( vmathBatchFunc[i], funcName ) == 0 )
+         return TA_VMATH_KERNEL;
+   return 0;
 }

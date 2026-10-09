@@ -94,10 +94,16 @@ impl Core {
         } else if !((optInDelta >= 5e-2) && (optInDelta <= 5e-1)) {
             return Err(RetCode::BadParam);
         }
+        let mut count4: i32 = 0i32;
+        let mut count8: i32 = 0i32;
+        // ceil( (K+1)*P / (6*delta) ) per level, in this order of operations: the
+        // count is defined as this double expression, not as the real quotient.
+        count4 = (c_ceil(((11 * optInTimePeriod) as f64) / (6.0 * ((optInDelta) as f64)))) as i32;
+        count8 = (c_ceil(((20 * optInTimePeriod) as f64) / (6.0 * ((optInDelta) as f64)))) as i32;
         // No structural lookback: the two input slots and the two output slots are
         // seeded from the first bar rather than read from before it, and there is
         // no callee whose lookback could be inherited.
-        return Ok((self.unstable_period[FuncUnstId::SWAK_BP as usize]) as usize);
+        return Ok((self.unstable_count(FuncUnstId::SWAK_BP, count4, count8)) as usize);
     }
     /// Display shift of one output of [`Core::swak_bp`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -464,6 +470,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::swak_bp_open_internal`]
     /// (stride 0, scalar sink) and [`Core::swak_bp_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn swak_bp_open_impl(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, optInDelta: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<SwakBpStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, swak_bp_open_impl_fma, swak_bp_open_impl_scalar, (inReal, startIdx, optInTimePeriod, optInDelta, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.swak_bp_open_impl_scalar(inReal, startIdx, optInTimePeriod, optInDelta, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn swak_bp_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, optInDelta: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<SwakBpStream, RetCode> {
+        self.swak_bp_open_impl_scalar(inReal, startIdx, optInTimePeriod, optInDelta, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn swak_bp_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInDelta: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<SwakBpStream, RetCode> {
         if inReal.is_empty() {

@@ -112,12 +112,15 @@
       double kSlow = 0;
       double kFast = 0;
       double kSignal = 0;
+      double betaSlow = 0;
+      double betaFast = 0;
+      double betaSignal = 0;
       double highest = 0;
       double lowest = 0;
       double tmp = 0;
       double emaSlowNum = 0;
-      double emaSlowDen = 0;
       double emaFastNum = 0;
+      double emaSlowDen = 0;
       double emaFastDen = 0;
       double sumSlowNum = 0;
       double sumSlowDen = 0;
@@ -170,6 +173,10 @@
       if( outSMI == outSMISignal ) {
          return RetCode.BAD_PARAM ;
       }
+      /* Declared Num, Num, Den, Den: the stream state keeps this order, and with
+       * each stage's pair adjacent gcc 13 packs the steps two by two and then
+       * reads 16 bytes across two of its own stores, which cannot be forwarded.
+       */
       lookbackTotal = smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -194,9 +201,21 @@
        * composed form does. The seed sums accumulate from 0.0 in production
        * order; do not reorder or fuse them (0.0+x is not x for x=-0.0).
        */
-      kSlow = 2.0 / (double)(optInSlowPeriod + 1);
-      kFast = 2.0 / (double)(optInFastPeriod + 1);
-      kSignal = 2.0 / (double)(optInSignalPeriod + 1);
+      betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      kSlow = 1.0 - betaSlow;
+      if( betaSlow < 0.5 ) {
+         betaSlow = 1.0 - kSlow;
+      }
+      betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      kFast = 1.0 - betaFast;
+      if( betaFast < 0.5 ) {
+         betaFast = 1.0 - kFast;
+      }
+      betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+      kSignal = 1.0 - betaSignal;
+      if( betaSignal < 0.5 ) {
+         betaSignal = 1.0 - kSignal;
+      }
       lookbackSlow = emaLookback(optInSlowPeriod);
       lookbackFast = emaLookback(optInFastPeriod);
       emaSlowNum = 0.0;
@@ -267,8 +286,8 @@
                emaSlowDen = sumSlowDen / optInSlowPeriod;
             }
          } else {
-            emaSlowNum = Math.fma(num - emaSlowNum, kSlow, emaSlowNum);
-            emaSlowDen = Math.fma(den - emaSlowDen, kSlow, emaSlowDen);
+            emaSlowNum = Math.fma(betaSlow, emaSlowNum, kSlow * num);
+            emaSlowDen = Math.fma(betaSlow, emaSlowDen, kSlow * den);
          }
          /* Stage 2: the fast EMA, over what stage 1 publishes.
           *
@@ -292,8 +311,8 @@
                   emaFastDen = sumFastDen / optInFastPeriod;
                }
             } else {
-               emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-               emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+               emaFastNum = Math.fma(betaFast, emaFastNum, kFast * emaSlowNum);
+               emaFastDen = Math.fma(betaFast, emaFastDen, kFast * emaSlowDen);
             }
          }
          /* Stage 3: the SMI line, then the signal EMA over it. */
@@ -311,7 +330,7 @@
                   prevSignal = sumSignal / optInSignalPeriod;
                }
             } else {
-               prevSignal = Math.fma(smiValue - prevSignal, kSignal, prevSignal);
+               prevSignal = Math.fma(betaSignal, prevSignal, kSignal * smiValue);
             }
          }
          nBar = nBar + 1;
@@ -359,10 +378,10 @@
          }
          den = highest - lowest;
          num = inClose[today] - (highest + lowest) * 0.5;
-         emaSlowNum = Math.fma(num - emaSlowNum, kSlow, emaSlowNum);
-         emaSlowDen = Math.fma(den - emaSlowDen, kSlow, emaSlowDen);
-         emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-         emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+         emaSlowNum = Math.fma(betaSlow, emaSlowNum, kSlow * num);
+         emaSlowDen = Math.fma(betaSlow, emaSlowDen, kSlow * den);
+         emaFastNum = Math.fma(betaFast, emaFastNum, kFast * emaSlowNum);
+         emaFastDen = Math.fma(betaFast, emaFastDen, kFast * emaSlowDen);
          /* The denominator is an EMA of an EMA of the high-low range: every term
           * is non-negative and every weight is positive, so it carries no
           * cancellation residue and is zero only when every range that reached it
@@ -380,7 +399,7 @@
          } else {
             smiValue = 0.0;
          }
-         prevSignal = Math.fma(smiValue - prevSignal, kSignal, prevSignal);
+         prevSignal = Math.fma(betaSignal, prevSignal, kSignal * smiValue);
          outSMI[outIdx] = smiValue;
          outSMISignal[outIdx] = prevSignal;
          outIdx = outIdx + 1;
@@ -407,12 +426,15 @@
       double kSlow = 0;
       double kFast = 0;
       double kSignal = 0;
+      double betaSlow = 0;
+      double betaFast = 0;
+      double betaSignal = 0;
       double highest = 0;
       double lowest = 0;
       double tmp = 0;
       double emaSlowNum = 0;
-      double emaSlowDen = 0;
       double emaFastNum = 0;
+      double emaSlowDen = 0;
       double emaFastDen = 0;
       double sumSlowNum = 0;
       double sumSlowDen = 0;
@@ -475,9 +497,21 @@
          return RetCode.SUCCESS ;
       }
       outBegIdx.value = startIdx;
-      kSlow = 2.0 / (double)(optInSlowPeriod + 1);
-      kFast = 2.0 / (double)(optInFastPeriod + 1);
-      kSignal = 2.0 / (double)(optInSignalPeriod + 1);
+      betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      kSlow = 1.0 - betaSlow;
+      if( betaSlow < 0.5 ) {
+         betaSlow = 1.0 - kSlow;
+      }
+      betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      kFast = 1.0 - betaFast;
+      if( betaFast < 0.5 ) {
+         betaFast = 1.0 - kFast;
+      }
+      betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+      kSignal = 1.0 - betaSignal;
+      if( betaSignal < 0.5 ) {
+         betaSignal = 1.0 - kSignal;
+      }
       lookbackSlow = emaLookback(optInSlowPeriod);
       lookbackFast = emaLookback(optInFastPeriod);
       emaSlowNum = 0.0;
@@ -541,8 +575,8 @@
                emaSlowDen = sumSlowDen / optInSlowPeriod;
             }
          } else {
-            emaSlowNum = Math.fma(num - emaSlowNum, kSlow, emaSlowNum);
-            emaSlowDen = Math.fma(den - emaSlowDen, kSlow, emaSlowDen);
+            emaSlowNum = Math.fma(betaSlow, emaSlowNum, kSlow * num);
+            emaSlowDen = Math.fma(betaSlow, emaSlowDen, kSlow * den);
          }
          if( nBar >= lookbackSlow ) {
             nFast = nBar - lookbackSlow;
@@ -554,8 +588,8 @@
                   emaFastDen = sumFastDen / optInFastPeriod;
                }
             } else {
-               emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-               emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+               emaFastNum = Math.fma(betaFast, emaFastNum, kFast * emaSlowNum);
+               emaFastDen = Math.fma(betaFast, emaFastDen, kFast * emaSlowDen);
             }
          }
          if( nBar >= lookbackSlow + lookbackFast ) {
@@ -572,7 +606,7 @@
                   prevSignal = sumSignal / optInSignalPeriod;
                }
             } else {
-               prevSignal = Math.fma(smiValue - prevSignal, kSignal, prevSignal);
+               prevSignal = Math.fma(betaSignal, prevSignal, kSignal * smiValue);
             }
          }
          nBar = nBar + 1;
@@ -617,17 +651,17 @@
          }
          den = highest - lowest;
          num = (double)inClose[today] - (highest + lowest) * 0.5;
-         emaSlowNum = Math.fma(num - emaSlowNum, kSlow, emaSlowNum);
-         emaSlowDen = Math.fma(den - emaSlowDen, kSlow, emaSlowDen);
-         emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-         emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+         emaSlowNum = Math.fma(betaSlow, emaSlowNum, kSlow * num);
+         emaSlowDen = Math.fma(betaSlow, emaSlowDen, kSlow * den);
+         emaFastNum = Math.fma(betaFast, emaFastNum, kFast * emaSlowNum);
+         emaFastDen = Math.fma(betaFast, emaFastDen, kFast * emaSlowDen);
          halfDen = 0.5 * emaFastDen;
          if( halfDen > 0.0 ) {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else {
             smiValue = 0.0;
          }
-         prevSignal = Math.fma(smiValue - prevSignal, kSignal, prevSignal);
+         prevSignal = Math.fma(betaSignal, prevSignal, kSignal * smiValue);
          outSMI[outIdx] = smiValue;
          outSMISignal[outIdx] = prevSignal;
          outIdx = outIdx + 1;
@@ -853,11 +887,14 @@
       private double kSlow;
       private double kFast;
       private double kSignal;
+      private double betaSlow;
+      private double betaFast;
+      private double betaSignal;
       private double highest;
       private double lowest;
       private double emaSlowNum;
-      private double emaSlowDen;
       private double emaFastNum;
+      private double emaSlowDen;
       private double emaFastDen;
       private double prevSignal;
       private int trailingIdx;
@@ -919,11 +956,14 @@
          this.kSlow = other.kSlow;
          this.kFast = other.kFast;
          this.kSignal = other.kSignal;
+         this.betaSlow = other.betaSlow;
+         this.betaFast = other.betaFast;
+         this.betaSignal = other.betaSignal;
          this.highest = other.highest;
          this.lowest = other.lowest;
          this.emaSlowNum = other.emaSlowNum;
-         this.emaSlowDen = other.emaSlowDen;
          this.emaFastNum = other.emaFastNum;
+         this.emaSlowDen = other.emaSlowDen;
          this.emaFastDen = other.emaFastDen;
          this.prevSignal = other.prevSignal;
          this.trailingIdx = other.trailingIdx;
@@ -1049,10 +1089,10 @@
          }
          den = highest - lowest;
          num = (((sp.today & sp.xMask) != pkSlot2) ? sp.x_inClose[sp.today & sp.xMask] : pkVal2) - (highest + lowest) * 0.5;
-         emaSlowNum = Math.fma(num - emaSlowNum, sp.kSlow, emaSlowNum);
-         emaSlowDen = Math.fma(den - emaSlowDen, sp.kSlow, emaSlowDen);
-         emaFastNum = Math.fma(emaSlowNum - emaFastNum, sp.kFast, emaFastNum);
-         emaFastDen = Math.fma(emaSlowDen - emaFastDen, sp.kFast, emaFastDen);
+         emaSlowNum = Math.fma(sp.betaSlow, emaSlowNum, sp.kSlow * num);
+         emaSlowDen = Math.fma(sp.betaSlow, emaSlowDen, sp.kSlow * den);
+         emaFastNum = Math.fma(sp.betaFast, emaFastNum, sp.kFast * emaSlowNum);
+         emaFastDen = Math.fma(sp.betaFast, emaFastDen, sp.kFast * emaSlowDen);
          /* The denominator is an EMA of an EMA of the high-low range: every term
           * is non-negative and every weight is positive, so it carries no
           * cancellation residue and is zero only when every range that reached it
@@ -1070,7 +1110,7 @@
          } else {
             smiValue = 0.0;
          }
-         prevSignal = Math.fma(smiValue - prevSignal, sp.kSignal, prevSignal);
+         prevSignal = Math.fma(sp.betaSignal, prevSignal, sp.kSignal * smiValue);
          cur_outSMI = smiValue;
          cur_outSMISignal = prevSignal;
          out.smi = cur_outSMI;
@@ -1173,10 +1213,10 @@
       }
       den = sp.highest - sp.lowest;
       num = sp.x_inClose[sp.today & sp.xMask] - (sp.highest + sp.lowest) * 0.5;
-      sp.emaSlowNum = Math.fma(num - sp.emaSlowNum, sp.kSlow, sp.emaSlowNum);
-      sp.emaSlowDen = Math.fma(den - sp.emaSlowDen, sp.kSlow, sp.emaSlowDen);
-      sp.emaFastNum = Math.fma(sp.emaSlowNum - sp.emaFastNum, sp.kFast, sp.emaFastNum);
-      sp.emaFastDen = Math.fma(sp.emaSlowDen - sp.emaFastDen, sp.kFast, sp.emaFastDen);
+      sp.emaSlowNum = Math.fma(sp.betaSlow, sp.emaSlowNum, sp.kSlow * num);
+      sp.emaSlowDen = Math.fma(sp.betaSlow, sp.emaSlowDen, sp.kSlow * den);
+      sp.emaFastNum = Math.fma(sp.betaFast, sp.emaFastNum, sp.kFast * sp.emaSlowNum);
+      sp.emaFastDen = Math.fma(sp.betaFast, sp.emaFastDen, sp.kFast * sp.emaSlowDen);
       /* The denominator is an EMA of an EMA of the high-low range: every term
        * is non-negative and every weight is positive, so it carries no
        * cancellation residue and is zero only when every range that reached it
@@ -1194,7 +1234,7 @@
       } else {
          smiValue = 0.0;
       }
-      sp.prevSignal = Math.fma(smiValue - sp.prevSignal, sp.kSignal, sp.prevSignal);
+      sp.prevSignal = Math.fma(sp.betaSignal, sp.prevSignal, sp.kSignal * smiValue);
       sp.cur_outSMI = smiValue;
       sp.cur_outSMISignal = sp.prevSignal;
       sp.trailingIdx = sp.trailingIdx + 1;
@@ -1205,12 +1245,15 @@
       double kSlow = 0;
       double kFast = 0;
       double kSignal = 0;
+      double betaSlow = 0;
+      double betaFast = 0;
+      double betaSignal = 0;
       double highest = 0;
       double lowest = 0;
       double tmp = 0;
       double emaSlowNum = 0;
-      double emaSlowDen = 0;
       double emaFastNum = 0;
+      double emaSlowDen = 0;
       double emaFastDen = 0;
       double sumSlowNum = 0;
       double sumSlowDen = 0;
@@ -1270,6 +1313,10 @@
          outNBElement.value = 0;
          return RetCode.INSUFFICIENT_HISTORY;
       }
+      /* Declared Num, Num, Den, Den: the stream state keeps this order, and with
+       * each stage's pair adjacent gcc 13 packs the steps two by two and then
+       * reads 16 bytes across two of its own stores, which cannot be forwarded.
+       */
       lookbackTotal = smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -1294,9 +1341,21 @@
        * composed form does. The seed sums accumulate from 0.0 in production
        * order; do not reorder or fuse them (0.0+x is not x for x=-0.0).
        */
-      kSlow = 2.0 / (double)(optInSlowPeriod + 1);
-      kFast = 2.0 / (double)(optInFastPeriod + 1);
-      kSignal = 2.0 / (double)(optInSignalPeriod + 1);
+      betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      kSlow = 1.0 - betaSlow;
+      if( betaSlow < 0.5 ) {
+         betaSlow = 1.0 - kSlow;
+      }
+      betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      kFast = 1.0 - betaFast;
+      if( betaFast < 0.5 ) {
+         betaFast = 1.0 - kFast;
+      }
+      betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+      kSignal = 1.0 - betaSignal;
+      if( betaSignal < 0.5 ) {
+         betaSignal = 1.0 - kSignal;
+      }
       lookbackSlow = emaLookback(optInSlowPeriod);
       lookbackFast = emaLookback(optInFastPeriod);
       emaSlowNum = 0.0;
@@ -1367,8 +1426,8 @@
                emaSlowDen = sumSlowDen / optInSlowPeriod;
             }
          } else {
-            emaSlowNum = Math.fma(num - emaSlowNum, kSlow, emaSlowNum);
-            emaSlowDen = Math.fma(den - emaSlowDen, kSlow, emaSlowDen);
+            emaSlowNum = Math.fma(betaSlow, emaSlowNum, kSlow * num);
+            emaSlowDen = Math.fma(betaSlow, emaSlowDen, kSlow * den);
          }
          /* Stage 2: the fast EMA, over what stage 1 publishes.
           *
@@ -1392,8 +1451,8 @@
                   emaFastDen = sumFastDen / optInFastPeriod;
                }
             } else {
-               emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-               emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+               emaFastNum = Math.fma(betaFast, emaFastNum, kFast * emaSlowNum);
+               emaFastDen = Math.fma(betaFast, emaFastDen, kFast * emaSlowDen);
             }
          }
          /* Stage 3: the SMI line, then the signal EMA over it. */
@@ -1411,7 +1470,7 @@
                   prevSignal = sumSignal / optInSignalPeriod;
                }
             } else {
-               prevSignal = Math.fma(smiValue - prevSignal, kSignal, prevSignal);
+               prevSignal = Math.fma(betaSignal, prevSignal, kSignal * smiValue);
             }
          }
          nBar = nBar + 1;
@@ -1459,10 +1518,10 @@
          }
          den = highest - lowest;
          num = inClose[today] - (highest + lowest) * 0.5;
-         emaSlowNum = Math.fma(num - emaSlowNum, kSlow, emaSlowNum);
-         emaSlowDen = Math.fma(den - emaSlowDen, kSlow, emaSlowDen);
-         emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-         emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+         emaSlowNum = Math.fma(betaSlow, emaSlowNum, kSlow * num);
+         emaSlowDen = Math.fma(betaSlow, emaSlowDen, kSlow * den);
+         emaFastNum = Math.fma(betaFast, emaFastNum, kFast * emaSlowNum);
+         emaFastDen = Math.fma(betaFast, emaFastDen, kFast * emaSlowDen);
          /* The denominator is an EMA of an EMA of the high-low range: every term
           * is non-negative and every weight is positive, so it carries no
           * cancellation residue and is zero only when every range that reached it
@@ -1480,7 +1539,7 @@
          } else {
             smiValue = 0.0;
          }
-         prevSignal = Math.fma(smiValue - prevSignal, kSignal, prevSignal);
+         prevSignal = Math.fma(betaSignal, prevSignal, kSignal * smiValue);
          outSMI[outIdx * outStride] = smiValue;
          outSMISignal[outIdx * outStride] = prevSignal;
          outIdx = outIdx + 1;
@@ -1512,11 +1571,14 @@
       sp.kSlow = kSlow;
       sp.kFast = kFast;
       sp.kSignal = kSignal;
+      sp.betaSlow = betaSlow;
+      sp.betaFast = betaFast;
+      sp.betaSignal = betaSignal;
       sp.highest = highest;
       sp.lowest = lowest;
       sp.emaSlowNum = emaSlowNum;
-      sp.emaSlowDen = emaSlowDen;
       sp.emaFastNum = emaFastNum;
+      sp.emaSlowDen = emaSlowDen;
       sp.emaFastDen = emaFastDen;
       sp.prevSignal = prevSignal;
       sp.trailingIdx = trailingIdx;

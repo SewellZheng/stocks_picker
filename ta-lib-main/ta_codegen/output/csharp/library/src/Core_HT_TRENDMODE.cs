@@ -63,6 +63,8 @@ public partial class Core
     *                literal cap lets the streaming rescan-window machinery bound it,
     *                and a separate counter j keeps it distinct from the DC-phase
     *                circular-buffer loop (which still uses i).
+    *  100726 MF,CC  #492. The Auto rule sized on when the flags of two starts
+    *                stop disagreeing.
     */
    /// <summary>
    /// Number of leading input bars <c>HtTrendmode</c> consumes before it can
@@ -87,8 +89,11 @@ public partial class Core
        *
        * 31 is for being compatible with Tradestation.
        * See mama_lookback for an explanation of the "32".
+       *
+       * The flag of two starts is equal or not, at either level: the Auto count
+       * buys a rarer late disagreement.
        */
-      return 63 + this._unstablePeriod[(int)FuncUnstId.HT_TRENDMODE] ;
+      return 63 + this.UnstableCount((int)FuncUnstId.HT_TRENDMODE, 120 + 20 * 4, 120 + 20 * 8) ;
 
    }
    /// <summary>
@@ -238,7 +243,7 @@ public partial class Core
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = 63 + this._unstablePeriod[(int)FuncUnstId.HT_TRENDMODE];
+      lookbackTotal = HtTrendmodeLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -716,7 +721,7 @@ public partial class Core
       rad2Deg = 45.0 / tempReal;
       deg2Rad = 1.0 / rad2Deg;
       constDeg2RadBy360 = tempReal * 8.0;
-      lookbackTotal = 63 + this._unstablePeriod[(int)FuncUnstId.HT_TRENDMODE];
+      lookbackTotal = HtTrendmodeLookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -2123,7 +2128,7 @@ public partial class Core
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = 63 + this._unstablePeriod[(int)FuncUnstId.HT_TRENDMODE];
+      lookbackTotal = HtTrendmodeLookback();
       /* Move up the start index if there is not
        * enough initial data.
        */

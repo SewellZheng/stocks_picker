@@ -1094,6 +1094,292 @@ TA_RetCode max( int    startIdx,
     assert!(at("/* lead */") < at("hi = MaxGt(x, hi);") && at("hi = MaxGt(x, hi);") < at("/* trail */"), "{cs}");
 }
 
+/// C# shapes three constructs for RyuJIT and leaves each near miss as the C
+/// wrote it: an element operand of `sqrt`, `floor` or `ceil` is loaded first;
+/// a one-slot shift loop copies a long run; one compare steering several
+/// stores becomes a mask, except in a reduction loop.
+#[test]
+fn csharp_shapes_loads_shifts_and_multi_store_selects() {
+    let source = r#"
+int max_lookback( int optInTimePeriod )
+{
+   return (optInTimePeriod-1);
+}
+
+TA_RetCode max( int    startIdx,
+                int    endIdx,
+                const double inReal[],
+                int    optInTimePeriod,
+                int   *outBegIdx,
+                int   *outNBElement,
+                double outReal[] )
+{
+   int outIdx, today, i, j, pos, lowIdx, a, b, swap;
+   double tmp, low, x;
+   double sorted[30];
+
+   outIdx = 0;
+   lowIdx = 0;
+   low = 0.0;
+   pos = 3;
+   a = 1;
+   b = 2;
+   today = startIdx;
+   while( today <= endIdx )
+   {
+      tmp = inReal[today];
+      if( tmp <= low )
+      {
+         lowIdx = today;
+         low = tmp;
+      }
+      i = today - optInTimePeriod;
+      while( ++i <= today )
+      {
+         tmp = inReal[i];
+         if( tmp < low )
+         {
+            lowIdx = i;
+            low = tmp;
+         }
+      }
+      if( b < a )
+      {
+         swap = a;
+         a = b;
+      }
+      if( tmp > low )
+      {
+         lowIdx = today;
+         low = inReal[today-1];
+      }
+      j = 0;
+      while( j < pos-1 )
+      {
+         sorted[j] = sorted[j+1];
+         j++;
+      }
+      j = 9;
+      while( j > pos )
+      {
+         sorted[j] = sorted[j-1];
+         j--;
+      }
+      j = 0;
+      while( j <= pos )
+      {
+         sorted[j] = sorted[j+1];
+         j++;
+      }
+      x = sqrt(inReal[today]) + floor(sorted[0]) * ceil(sorted[1]);
+      x = tmp > 0.0 ? sqrt(inReal[today-1]) : x;
+      outReal[outIdx++] = sqrt(inReal[today]) + x + low + lowIdx + swap + a;
+      today++;
+   }
+   for( i=0; i < outIdx; i++ )
+      outReal[i] = sqrt(outReal[i]) + 1.0;
+
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("max", source);
+    let cs = backends::csharp::generate(&func, &enums, make_registry(), make_helpers());
+    let flat: String = cs.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "var _pk0 = MaskLe(tmp, low); lowIdx = Pick(_pk0, today, lowIdx); low = Pick(_pk0, tmp, low);",
+        "if( (pos - 1) - j >= 16 ) { ShiftDown(sorted, j, pos - 1); j = pos - 1; } else { while( j < pos - 1 ) {",
+        "if( j - pos >= 16 ) { ShiftUp(sorted, j, pos); j = pos; } else { while( j > pos ) {",
+        "double _ld1 = inReal[today]; double _ld2 = sorted[0]; double _ld3 = sorted[1];",
+        "x = Math.FusedMultiplyAdd(Math.Floor(_ld2), Math.Ceiling(_ld3), Math.Sqrt(_ld1));",
+        "double _ld4 = outReal[i]; outReal[i] = Math.Sqrt(_ld4) + 1.0;",
+        // Near misses. A reduction loop's select paces the loop.
+        "if( tmp < low ) { lowIdx = i; low = tmp; }",
+        "if( b < a ) { swap = a; a = b; }",
+        "if( tmp > low ) { lowIdx = today; low = inReal[today - 1]; }",
+        "while( j <= pos ) { sorted[j] = sorted[j + 1];",
+        "? Math.Sqrt(inReal[today - 1]) : x;",
+        "outReal[outIdx++] = Math.Sqrt(inReal[today])",
+    ] {
+        assert!(flat.contains(needle), "C# output missing `{needle}`:\n{cs}");
+    }
+}
+
+/// A store into a nullable output is skipped when the caller declines it, so
+/// its `sqrt` operand must not be loaded ahead of that guard.
+#[test]
+fn csharp_keeps_a_declined_outputs_load_under_its_guard() {
+    let source = r#"
+int mama_lookback( double optInFastLimit, double optInSlowLimit )
+{
+   return 0;
+}
+
+TA_RetCode mama( int    startIdx,
+                 int    endIdx,
+                 const double inReal[],
+                 double optInFastLimit,
+                 double optInSlowLimit,
+                 int   *outBegIdx,
+                 int   *outNBElement,
+                 double outMAMA[],
+                 double outFAMA[] )
+{
+   int i, outIdx;
+
+   outIdx = 0;
+   for( i=startIdx; i <= endIdx; i++ )
+   {
+      outMAMA[outIdx] = sqrt(outMAMA[outIdx]);
+      outFAMA[outIdx] = sqrt(outFAMA[outIdx]);
+      outIdx++;
+   }
+   for( i=0; i < outIdx; i++ )
+      outFAMA[i] = sqrt(outFAMA[i]);
+
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("mama", source);
+    let cs = backends::csharp::generate(&func, &enums, make_registry(), make_helpers());
+    let flat: String = cs.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "double _ld0 = outMAMA[outIdx]; outMAMA[outIdx] = Math.Sqrt(_ld0);",
+        "if( !outFAMA.IsEmpty ) outFAMA[outIdx] = Math.Sqrt(outFAMA[outIdx]);",
+    ] {
+        assert!(flat.contains(needle), "C# output missing `{needle}`:\n{cs}");
+    }
+    assert!(!flat.contains("SqrtRun(outFAMA"), "{cs}");
+}
+
+/// C# hands a square-root map loop to `SqrtRun` in the batch body, and keeps
+/// the loop when the map does more or its bound moves with the loop.
+#[test]
+fn csharp_runs_a_square_root_map_through_the_packed_helper() {
+    let source = r#"
+int max_lookback( int optInTimePeriod )
+{
+   return (optInTimePeriod-1);
+}
+
+TA_RetCode max( int    startIdx,
+                int    endIdx,
+                const double inReal[],
+                int    optInTimePeriod,
+                int   *outBegIdx,
+                int   *outNBElement,
+                double outReal[] )
+{
+   int outIdx, i, j;
+   double k;
+
+   k = 2.0;
+   for( i=startIdx, outIdx=0; i <= endIdx; i++, outIdx++ )
+      outReal[outIdx] = sqrt(inReal[i]);
+   for( i=0; i < outIdx; i++ )
+      outReal[i] = sqrt(outReal[i]) * k;
+   for( i=0; i < outIdx; i++ )
+      outReal[i] = sqrt(outReal[i]) + k;
+   for( i=0, j=0; i < j+outIdx; i++, j++ )
+      outReal[j] = sqrt(inReal[i]);
+   for( i=0; i < outIdx; i++ )
+      outReal[i] = sqrt(inReal[i+1]);
+
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("max", source);
+    let cs = backends::csharp::generate(&func, &enums, make_registry(), make_helpers());
+    let flat: String = cs.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "i = startIdx; outIdx = 0; int _sq0 = SqrtRun(inReal, i, endIdx + 1, outReal, outIdx); i += _sq0; outIdx += _sq0;",
+        "i = 0; int _sq1 = SqrtRun(outReal, i, outIdx, outReal, i, k); i += _sq1;",
+        "for( i = 0; i < outIdx; i += 1 ) { double _ld2 = outReal[i]; outReal[i] = Math.Sqrt(_ld2) + k; }",
+        "for( i = 0, j = 0; i < j + outIdx; i += 1, j += 1 ) {",
+        "for( i = 0; i < outIdx; i += 1 ) { double _ld4 = inReal[i + 1];",
+    ] {
+        assert!(flat.contains(needle), "C# output missing `{needle}`:\n{cs}");
+    }
+}
+
+/// A C# batch body rents its `malloc` scratch from the shared pool and returns
+/// it where the C frees it; a size that writes keeps the plain allocation, and
+/// its `free` stays dropped.
+#[test]
+fn csharp_rents_batch_scratch_and_returns_it_where_c_frees() {
+    let source = r#"
+int max_lookback( int optInTimePeriod )
+{
+   return (optInTimePeriod-1);
+}
+
+TA_RetCode max( int    startIdx,
+                int    endIdx,
+                const double inReal[],
+                int    optInTimePeriod,
+                int   *outBegIdx,
+                int   *outNBElement,
+                double outReal[] )
+{
+   int outIdx, i;
+   double *scratch;
+   double *counted;
+   double *twice;
+   double *mixed;
+
+   outIdx = 0;
+   scratch = malloc((endIdx-startIdx+1) * sizeof(double));
+   counted = malloc((outIdx++) * sizeof(double));
+   twice = malloc(8 * sizeof(double));
+   twice = malloc((outIdx++) * sizeof(double));
+   mixed = malloc(8 * sizeof(double));
+   mixed = malloc(8 * sizeof(int));
+   for( i=startIdx; i <= endIdx; i++ )
+   {
+      scratch[i-startIdx] = inReal[i];
+      outReal[outIdx++] = scratch[i-startIdx];
+   }
+   if( outIdx == 0 )
+   {
+      free(scratch);
+      free(counted);
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_SUCCESS;
+   }
+   free(scratch);
+   free(counted);
+
+   *outBegIdx = startIdx;
+   *outNBElement = outIdx;
+   return TA_SUCCESS;
+}
+"#;
+    let (func, enums) = load_indicator_with_source("max", source);
+    let cs = backends::csharp::generate(&func, &enums, make_registry(), make_helpers());
+    let flat: String = cs.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "double[]? _rent_scratch = null;",
+        "_rent_scratch = System.Buffers.ArrayPool<double>.Shared.Rent((int)((endIdx - startIdx + 1) * 1)); \
+         scratch = _rent_scratch.AsSpan(0, (int)((endIdx - startIdx + 1) * 1));",
+        "if( outIdx == 0 ) { ReturnScratch(ref _rent_scratch); outBegIdx = 0;",
+        "ReturnScratch(ref _rent_scratch); outBegIdx = startIdx;",
+        "counted = new double[(int)(",
+        "twice = new double[(int)(8 * 1)];",
+        "mixed = new double[(int)(8 * 1)];",
+    ] {
+        assert!(flat.contains(needle), "C# output missing `{needle}`:\n{cs}");
+    }
+    for name in ["counted", "twice", "mixed"] {
+        assert!(!flat.contains(&format!("_rent_{name}")), "{name}:\n{cs}");
+    }
+}
+
 #[test]
 fn backends_render_math_functions_idiomatically() {
     let (func, enums) = load_indicator("ht_trendmode");
@@ -1993,3 +2279,104 @@ fn java_backend_hoisted_helper_declares_local_vars() {
 }
 
 // ---------------------------------------------------------------------------
+
+/// Java carries the block scan's extremes as `long` keys in a twin body, and
+/// the transcribed body hands a keyable range to it (#415). Exactly the block
+/// scans get one, each twin selects with integer arithmetic alone, and the
+/// transcribed body is otherwise untouched.
+#[test]
+fn java_renders_the_block_scan_with_a_keyed_twin() {
+    let registry = common::make_registry();
+    let helpers = common::make_helpers();
+    // (name, selects per twin, key arrays per twin, the guard's scanned inputs, the lookback's arguments)
+    let scans: [(&str, usize, usize, &[&str], &str); 7] = [
+        ("max", 3, 2, &["inReal"], "optInTimePeriod"),
+        ("midpoint", 6, 4, &["inReal"], "optInTimePeriod"),
+        ("midprice", 6, 4, &["inHigh", "inLow"], "optInTimePeriod"),
+        ("min", 3, 2, &["inReal"], "optInTimePeriod"),
+        ("minmax", 6, 4, &["inReal"], "optInTimePeriod"),
+        ("pso", 6, 4, &["inHigh", "inLow"], "optInFastK_Period, optInEMAPeriod"),
+        ("willr", 6, 4, &["inHigh", "inLow"], "optInTimePeriod"),
+    ];
+
+    // An `if` whose first statement keeps an extreme.
+    let branches = |text: &str| {
+        let lines: Vec<&str> = text.lines().map(str::trim_start).collect();
+        lines
+            .windows(2)
+            .filter(|w| {
+                w[0].starts_with("if( ") && w[0].ends_with(") {") && (w[1].starts_with("lowest = ") || w[1].starts_with("highest = "))
+            })
+            .count()
+    };
+
+    let mut fired = Vec::new();
+    for name in common::discover_indicators() {
+        let (func, enums) = common::load_indicator(&name);
+        if backends::java::generate(&func, &enums, registry, helpers).contains("KeyedImpl") {
+            fired.push(name);
+        }
+    }
+    fired.sort();
+    assert_eq!(fired, scans.map(|s| s.0), "the functions rendered with a keyed twin");
+
+    for (name, selects, arrays, scanned, args) in scans {
+        let (func, enums) = common::load_indicator(name);
+        let java = backends::java::generate(&func, &enums, registry, helpers);
+        let stream = java.find(" class ").unwrap_or_else(|| panic!("{name}: no stream section"));
+        let (batch, stream) = java.split_at(stream);
+        assert!(
+            !stream.contains("KeyedImpl") && !stream.contains("doubleToRawLongBits") && !stream.contains("keyM"),
+            "{name}: the stream tier must not be keyed"
+        );
+
+        let methods: Vec<&str> = batch.split("\n   RetCode ").skip(1).collect();
+        let named = |n: &str| -> Vec<&str> {
+            methods.iter().copied().filter(|m| m.starts_with(&format!("{n}( "))).collect()
+        };
+        let (guarded, twins) = (named(&format!("{name}Impl")), named(&format!("{name}KeyedImpl")));
+        assert_eq!((guarded.len(), twins.len()), (2, 2), "{name}: one twin per precision");
+
+        let from = format!("startIdx - {name}Lookback({args}), endIdx)");
+        let guard = format!(
+            "      if( {} ) {{\n         return {name}KeyedImpl(startIdx, endIdx, ",
+            scanned.iter().map(|i| format!("keyable({i}, {from}")).collect::<Vec<_>>().join(" && ")
+        );
+        for body in guarded {
+            let at = body.find(&guard).unwrap_or_else(|| panic!("{name}: no guard `{guard}` in {body}"));
+            let alloc = body.find("new double[").unwrap_or_else(|| panic!("{name}: no scratch array"));
+            assert!(at < alloc, "{name}: the guard must precede the first allocation");
+            let code = body.lines().filter(|l| !l.trim_start().starts_with(['*', '/']));
+            let keyed = code.filter(|l| l.contains("key") || l.contains("Keyed") || l.contains("long")).count();
+            assert_eq!(keyed, 2, "{name}: only the guard's two lines may mention a key: {body}");
+            assert_eq!(
+                branches(body),
+                selects,
+                "{name}: the transcribed body must keep its compare-and-keep branches: {body}"
+            );
+        }
+        for (twin, read) in twins.iter().zip(["Double.doubleToRawLongBits(in", "Double.doubleToRawLongBits((double)in"]) {
+            assert_eq!(
+                twin.matches("keyMin(").count() + twin.matches("keyMax(").count(),
+                selects,
+                "{name}: every select of the twin is a key select: {twin}"
+            );
+            assert_eq!(twin.matches("new long[").count(), arrays, "{name}: key arrays: {twin}");
+            assert!(twin.contains(read), "{name}: the twin must read `{read}`: {twin}");
+            // PSO smooths what it scans: its twin keeps the EMA's fma.
+            let banned: &[&str] = if name == "pso" {
+                &["new double[", "Math.min(", "Math.max(", "keyable("]
+            } else {
+                &["new double[", "Math.min(", "Math.max(", "Math.fma(", "keyable("]
+            };
+            for banned in banned {
+                assert!(!twin.contains(banned), "{name}: the twin must not contain `{banned}`: {twin}");
+            }
+            assert_eq!(branches(twin), 0, "{name}: the twin must not branch on an extreme: {twin}");
+            assert!(
+                !twin.contains("OUT_OF_RANGE_START_INDEX"),
+                "{name}: the twin's caller has validated: {twin}"
+            );
+        }
+    }
+}

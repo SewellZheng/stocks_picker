@@ -185,6 +185,7 @@ public partial class Core
       if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
          return RetCode.BadParam ;
       }
+      double[]? _rent_tempBuffer = null;
       if( optInMAType == MAType.SMA ) {
          /* Keep the middle band's divide in the recurrence, where the running
           * sums' dependency chain hides it; everything downstream of the
@@ -317,7 +318,8 @@ public partial class Core
             if( optInNbDevUp == optInNbDevDn ) {
                for( _k = 0; _k < _outIdx - _tileBase; _k += 1 ) {
                   middle = _mid[_k];
-                  tempReal = Math.Sqrt(outReal[_tileBase + _k]) * optInNbDevUp;
+                  double _ld0 = outReal[_tileBase + _k];
+                  tempReal = Math.Sqrt(_ld0) * optInNbDevUp;
                   upper = middle + tempReal;
                   lower = middle - tempReal;
                   outReal[_tileBase + _k] = (upper - lower) / middle * 100.0;
@@ -328,7 +330,8 @@ public partial class Core
             } else {
                for( _k = 0; _k < _outIdx - _tileBase; _k += 1 ) {
                   middle = _mid[_k];
-                  deviation = Math.Sqrt(outReal[_tileBase + _k]);
+                  double _ld1 = outReal[_tileBase + _k];
+                  deviation = Math.Sqrt(_ld1);
                   upper = Math.FusedMultiplyAdd(deviation, optInNbDevUp, middle);
                   lower = middle - deviation * optInNbDevDn;
                   outReal[_tileBase + _k] = (upper - lower) / middle * 100.0;
@@ -347,24 +350,26 @@ public partial class Core
          outNBElement = 0;
          return RetCode.Success ;
       }
-      tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
+      _rent_tempBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)((endIdx - startIdx + 1) * 1));
+      tempBuffer = _rent_tempBuffer.AsSpan(0, (int)((endIdx - startIdx + 1) * 1));
       /* Before the variance: it may be written over inReal. */
-      OutRange _xr0 = Ma(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer);
-      maBegIdx = _xr0.BegIdx;
-      maNbElement = _xr0.Count;
+      OutRange _xr2 = Ma(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer);
+      maBegIdx = _xr2.BegIdx;
+      maNbElement = _xr2.Count;
       retCode = RetCode.Success;
       /* From the moving average's begIdx, as TA_BBANDS enters its deviation:
        * the variance's shift and reseed schedule are anchored on its start.
        */
-      OutRange _xr1 = Var(maBegIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal);
-      outBegIdx = _xr1.BegIdx;
-      outNBElement = _xr1.Count;
+      OutRange _xr3 = Var(maBegIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal);
+      outBegIdx = _xr3.BegIdx;
+      outNBElement = _xr3.Count;
       retCode = RetCode.Success;
       offset = maNbElement - outNBElement;
       if( optInNbDevUp == optInNbDevDn ) {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
             middle = tempBuffer[i + offset];
-            tempReal = Math.Sqrt(outReal[i]) * optInNbDevUp;
+            double _ld4 = outReal[i];
+            tempReal = Math.Sqrt(_ld4) * optInNbDevUp;
             upper = middle + tempReal;
             lower = middle - tempReal;
             outReal[i] = (upper - lower) / middle * 100.0;
@@ -375,7 +380,8 @@ public partial class Core
       } else {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
             middle = tempBuffer[i + offset];
-            deviation = Math.Sqrt(outReal[i]);
+            double _ld5 = outReal[i];
+            deviation = Math.Sqrt(_ld5);
             upper = Math.FusedMultiplyAdd(deviation, optInNbDevUp, middle);
             lower = middle - deviation * optInNbDevDn;
             outReal[i] = (upper - lower) / middle * 100.0;
@@ -384,6 +390,7 @@ public partial class Core
             }
          }
       }
+      ReturnScratch(ref _rent_tempBuffer);
       return RetCode.Success ;
    }
    internal RetCode BbwImpl( int startIdx,
@@ -439,6 +446,7 @@ public partial class Core
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
          return RetCode.BadParam ;
       }
+      double[]? _rent_tempBuffer = null;
       if( optInMAType == MAType.SMA ) {
          double[] _mid = new double[256];
          double maTotal;
@@ -555,7 +563,8 @@ public partial class Core
             if( optInNbDevUp == optInNbDevDn ) {
                for( _k = 0; _k < _outIdx - _tileBase; _k += 1 ) {
                   middle = _mid[_k];
-                  tempReal = Math.Sqrt(outReal[_tileBase + _k]) * optInNbDevUp;
+                  double _ld0 = outReal[_tileBase + _k];
+                  tempReal = Math.Sqrt(_ld0) * optInNbDevUp;
                   upper = middle + tempReal;
                   lower = middle - tempReal;
                   outReal[_tileBase + _k] = (upper - lower) / middle * 100.0;
@@ -566,7 +575,8 @@ public partial class Core
             } else {
                for( _k = 0; _k < _outIdx - _tileBase; _k += 1 ) {
                   middle = _mid[_k];
-                  deviation = Math.Sqrt(outReal[_tileBase + _k]);
+                  double _ld1 = outReal[_tileBase + _k];
+                  deviation = Math.Sqrt(_ld1);
                   upper = Math.FusedMultiplyAdd(deviation, optInNbDevUp, middle);
                   lower = middle - deviation * optInNbDevDn;
                   outReal[_tileBase + _k] = (upper - lower) / middle * 100.0;
@@ -585,20 +595,22 @@ public partial class Core
          outNBElement = 0;
          return RetCode.Success ;
       }
-      tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
-      OutRange _xr0 = Ma(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer);
-      maBegIdx = _xr0.BegIdx;
-      maNbElement = _xr0.Count;
+      _rent_tempBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)((endIdx - startIdx + 1) * 1));
+      tempBuffer = _rent_tempBuffer.AsSpan(0, (int)((endIdx - startIdx + 1) * 1));
+      OutRange _xr2 = Ma(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer);
+      maBegIdx = _xr2.BegIdx;
+      maNbElement = _xr2.Count;
       retCode = RetCode.Success;
-      OutRange _xr1 = Var(maBegIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal);
-      outBegIdx = _xr1.BegIdx;
-      outNBElement = _xr1.Count;
+      OutRange _xr3 = Var(maBegIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal);
+      outBegIdx = _xr3.BegIdx;
+      outNBElement = _xr3.Count;
       retCode = RetCode.Success;
       offset = maNbElement - outNBElement;
       if( optInNbDevUp == optInNbDevDn ) {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
             middle = tempBuffer[i + offset];
-            tempReal = Math.Sqrt(outReal[i]) * optInNbDevUp;
+            double _ld4 = outReal[i];
+            tempReal = Math.Sqrt(_ld4) * optInNbDevUp;
             upper = middle + tempReal;
             lower = middle - tempReal;
             outReal[i] = (upper - lower) / middle * 100.0;
@@ -609,7 +621,8 @@ public partial class Core
       } else {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
             middle = tempBuffer[i + offset];
-            deviation = Math.Sqrt(outReal[i]);
+            double _ld5 = outReal[i];
+            deviation = Math.Sqrt(_ld5);
             upper = Math.FusedMultiplyAdd(deviation, optInNbDevUp, middle);
             lower = middle - deviation * optInNbDevDn;
             outReal[i] = (upper - lower) / middle * 100.0;
@@ -618,6 +631,7 @@ public partial class Core
             }
          }
       }
+      ReturnScratch(ref _rent_tempBuffer);
       return RetCode.Success ;
    }
    /// <summary>
@@ -1101,7 +1115,8 @@ public partial class Core
       if( optInNbDevUp == optInNbDevDn ) {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
             middle = tempBuffer[i + offset];
-            tempReal = Math.Sqrt(sc_outReal[i]) * optInNbDevUp;
+            double _ld0 = sc_outReal[i];
+            tempReal = Math.Sqrt(_ld0) * optInNbDevUp;
             upper = middle + tempReal;
             lower = middle - tempReal;
             sc_outReal[i] = (upper - lower) / middle * 100.0;
@@ -1112,7 +1127,8 @@ public partial class Core
       } else {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
             middle = tempBuffer[i + offset];
-            deviation = Math.Sqrt(sc_outReal[i]);
+            double _ld1 = sc_outReal[i];
+            deviation = Math.Sqrt(_ld1);
             upper = Math.FusedMultiplyAdd(deviation, optInNbDevUp, middle);
             lower = middle - deviation * optInNbDevDn;
             sc_outReal[i] = (upper - lower) / middle * 100.0;

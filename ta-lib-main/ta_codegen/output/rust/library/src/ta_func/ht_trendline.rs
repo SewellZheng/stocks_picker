@@ -64,6 +64,8 @@
  *                constant-cap padded loop for(i<50) if(i<DCPeriodInt) sum +=
  *                inReal[today-i]. Bit-identical (same terms, same order); the
  *                literal cap lets the streaming rescan-window machinery bound it.
+ *  100726 MF,CC  #492. The Auto rule sized on when the integer cycle period
+ *                of two starts stops disagreeing.
  */
 
 // Import types from parent module
@@ -87,7 +89,11 @@ impl Core {
         //
         // 31 is for being compatible with Tradestation.
         // See mama_lookback for an explanation of the "32".
-        return Ok((63 + self.unstable_period[FuncUnstId::HT_TRENDLINE as usize]) as usize);
+        //
+        // Two starts are equal once their integer cycle periods have agreed for
+        // four bars, at either level: the Auto count buys a rarer late
+        // disagreement, never a smaller difference.
+        return Ok((63 + self.unstable_count(FuncUnstId::HT_TRENDLINE, 120 + 20 * 4, 120 + 20 * 8)) as usize);
     }
     /// Display shift of one output of [`Core::ht_trendline`]: how many bars ahead (positive) or
     /// behind (negative) of the bar that computed it a chart draws that output. The values are
@@ -238,7 +244,7 @@ impl Core {
         rad2Deg = 45.0 / tempReal;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = (63 + self.unstable_period[FuncUnstId::HT_TRENDLINE as usize]) as usize;
+        lookbackTotal = self.ht_trendline_lookback().unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -902,6 +908,24 @@ impl Core {
     pub(crate) fn ht_trendline_open_impl(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<HtTrendlineStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, ht_trendline_open_impl_fma, ht_trendline_open_impl_scalar, (inReal, startIdx, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.ht_trendline_open_impl_scalar(inReal, startIdx, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn ht_trendline_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<HtTrendlineStream, RetCode> {
+        self.ht_trendline_open_impl_scalar(inReal, startIdx, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn ht_trendline_open_impl_scalar(
+        &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<HtTrendlineStream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
@@ -996,7 +1020,7 @@ impl Core {
         rad2Deg = 45.0 / tempReal;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = (63 + self.unstable_period[FuncUnstId::HT_TRENDLINE as usize]) as usize;
+        lookbackTotal = self.ht_trendline_lookback()?;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {

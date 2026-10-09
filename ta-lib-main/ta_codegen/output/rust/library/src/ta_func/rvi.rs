@@ -92,7 +92,7 @@ impl Core {
         } else if (((optInStdDevPeriod) as i32) < 2) || (((optInStdDevPeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
-        return Ok((optInStdDevPeriod - 1 + (optInTimePeriod - 1) + self.unstable_period[FuncUnstId::RVI as usize]) as usize);
+        return Ok((optInStdDevPeriod - 1 + (optInTimePeriod - 1) + self.unstable_count(FuncUnstId::RVI, (if optInTimePeriod > 1 { 10 * optInTimePeriod } else { 0 }), (if optInTimePeriod > 1 { 19 * optInTimePeriod } else { 0 }))) as usize);
     }
     /// Display shift of one output of [`Core::rvi`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -333,7 +333,7 @@ impl Core {
         prevUp = upTotal / ((optInTimePeriod) as f64);
         prevDn = dnTotal / ((optInTimePeriod) as f64);
         // Skip the unstable period. Same step, smoothed but not stored.
-        i = (self.unstable_period[FuncUnstId::RVI as usize]) as usize;
+        i = lookbackTotal - (((optInStdDevPeriod - 1 + (optInTimePeriod - 1))) as usize);
         while i != 0 {
             tempReal = inReal[today] - shift;
             periodTotal1 += tempReal;
@@ -748,6 +748,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::rvi_open_internal`]
     /// (stride 0, scalar sink) and [`Core::rvi_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn rvi_open_impl(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, optInStdDevPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<RviStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, rvi_open_impl_fma, rvi_open_impl_scalar, (inReal, startIdx, optInTimePeriod, optInStdDevPeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.rvi_open_impl_scalar(inReal, startIdx, optInTimePeriod, optInStdDevPeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn rvi_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, optInStdDevPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<RviStream, RetCode> {
+        self.rvi_open_impl_scalar(inReal, startIdx, optInTimePeriod, optInStdDevPeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn rvi_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInStdDevPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<RviStream, RetCode> {
         if inReal.is_empty() {
@@ -921,7 +939,7 @@ impl Core {
         prevUp = upTotal / ((optInTimePeriod) as f64);
         prevDn = dnTotal / ((optInTimePeriod) as f64);
         // Skip the unstable period. Same step, smoothed but not stored.
-        i = (self.unstable_period[FuncUnstId::RVI as usize]) as usize;
+        i = lookbackTotal - (((optInStdDevPeriod - 1 + (optInTimePeriod - 1))) as usize);
         while i != 0 {
             tempReal = inReal[today] - shift;
             periodTotal1 += tempReal;

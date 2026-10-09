@@ -139,6 +139,7 @@
 #include "ta_ER.c"
 #include "ta_ERI.c"
 #include "ta_EXP.c"
+#include "ta_FISHER.c"
 #include "ta_FLOOR.c"
 #include "ta_FOSC.c"
 #include "ta_FRACTAL.c"
@@ -197,6 +198,7 @@
 #include "ta_PLUS_DI.c"
 #include "ta_PLUS_DM.c"
 #include "ta_PPO.c"
+#include "ta_PSO.c"
 #include "ta_PVI.c"
 #include "ta_PVO.c"
 #include "ta_PVT.c"
@@ -206,6 +208,7 @@
 #include "ta_ROCP.c"
 #include "ta_ROCR.c"
 #include "ta_ROCR100.c"
+#include "ta_ROGERSSATCHELL.c"
 #include "ta_RSI.c"
 #include "ta_RVI.c"
 #include "ta_RVIR.c"
@@ -2172,6 +2175,23 @@ static void bench_all(const char *filter, int iters) {
         printf("EXP %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "FISHER") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_FISHER(0, g_nPoints - 1, g_high, g_low, 10, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+            g_sink += g_outBuf1[0];
+        }
+        printf("FISHER %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "FLOOR") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -3137,6 +3157,22 @@ static void bench_all(const char *filter, int iters) {
         printf("PPO %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "PSO") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_PSO(0, g_nPoints - 1, g_high, g_low, g_close, 8, 5, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+        }
+        printf("PSO %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "PVI") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -3279,6 +3315,22 @@ static void bench_all(const char *filter, int iters) {
             g_sink += g_outBuf0[0];
         }
         printf("ROCR100 %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "ROGERSSATCHELL") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_ROGERSSATCHELL(0, g_nPoints - 1, g_open, g_high, g_low, g_close, 10, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+        }
+        printf("ROGERSSATCHELL %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "RSI") ) {

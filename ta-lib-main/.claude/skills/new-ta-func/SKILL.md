@@ -136,7 +136,7 @@ Plain C, exactly as it would appear in `src/ta_func`: two functions,
 `int <name>_lookback(...)` and
 `TA_RetCode <name>(int startIdx, int endIdx, const double inReal[], ..., int *outBegIdx, int *outNBElement, double outReal[])`.
 Full syntax and the `ta_defs.h` vocabulary (`TA_IS_ZERO`,
-`TA_GetUnstablePeriod(TA_FUNC_UNST_X)`, `CIRCBUF_*`, …) are in
+`TA_UNSTABLE( TA_FUNC_UNST_<NAME>, <count> )`, `CIRCBUF_*`, …) are in
 `docs/ta_codegen_input_code.md`, which marks the constructs closed to new functions.
 
 **Rules** (the full invariant list is on the contribute page; these are the ones that
@@ -152,6 +152,9 @@ bite while authoring the `.c`):
   writing that bar's output; a trailing index can reach the slot you just wrote, so
   carry what you need in a scalar. `ta_regtest`'s in-place alias gate (issue #130)
   checks every (input, output) pair bitwise on every function.
+- A function with its own `TA_FUNC_UNST_<NAME>` id needs an Auto rule: follow
+  `docs/auto-stabilization-rule.md` from its first section to its last. The rule is sized
+  there by derivation and measurement, never copied from a similar function.
 - Open the file with the contributor / change-history comment block (copy its shape
   from `ta_codegen/input/cmf/cmf.c`): add your initials and a one-line `MMDDYY` entry.
   Do **not** add a license header — the generator injects the BSD-3-Clause notice into
@@ -329,7 +332,7 @@ automatically; Rust is concrete `f64` and has no `_s` variant.
 |---|---|---|
 | Simple loop | MULT | while, assign, array access |
 | Accumulator | SMA | if/else, return, cast, running sum |
-| Stateful | RSI | `TA_GetUnstablePeriod`, `TA_IS_ZERO`, for-loop, complex lookback |
+| Stateful | RSI | `TA_UNSTABLE`, `TA_IS_ZERO`, for-loop, complex lookback |
 | Recursive | EMA | k factor, seeded recursion, operator precedence |
 | Dispatcher | MA | switch/case, cross-call dispatch, `TA_BAD_PARAM`/`TA_SUCCESS` |
 | Multi-output | BBANDS | multiple output arrays |

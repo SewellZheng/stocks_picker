@@ -58,8 +58,10 @@
  *  100326 MF,CC  The newest output on one fused step (#486).
  */
 
-TA_LIB_API int TA_SWAK_BP_Lookback( int optInTimePeriod, double optInDelta )
+TA_NOINLINE TA_LIB_API int TA_SWAK_BP_Lookback( int optInTimePeriod, double optInDelta )
 {
+   int count4;
+   int count8;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 5 || (int)optInTimePeriod > 2000 )
@@ -68,11 +70,16 @@ TA_LIB_API int TA_SWAK_BP_Lookback( int optInTimePeriod, double optInDelta )
       optInDelta = 0.1;
    else if( !(optInDelta >= 5e-2 && optInDelta <= 5e-1) )
       return -1;
+   /* ceil( (K+1)*P / (6*delta) ) per level, in this order of operations: the
+    * count is defined as this double expression, not as the real quotient.
+    */
+   count4 = (int)ceil((double)(11 * optInTimePeriod) / (6.0 * optInDelta));
+   count8 = (int)ceil((double)(20 * optInTimePeriod) / (6.0 * optInDelta));
    /* No structural lookback: the two input slots and the two output slots are
     * seeded from the first bar rather than read from before it, and there is
     * no callee whose lookback could be inherited.
     */
-   return TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_SWAK_BP,Swak_bp);
+   return TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_SWAK_BP,Swak_bp,count4,count8);
 }
 
 TA_LIB_API int TA_SWAK_BP_DisplayShift( int optInTimePeriod, double optInDelta, int outputIdx )
@@ -354,7 +361,7 @@ static TA_FMA_STEP_INLINE void TA_SWAK_BP_StepImpl( struct TA_SWAK_BP_Stream *sp
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_SWAK_BP_OpenImpl( struct TA_SWAK_BP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInDelta, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_SWAK_BP_OpenImpl( struct TA_SWAK_BP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInDelta, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_SWAK_BP_Stream *sp;
    int endIdx;
@@ -498,6 +505,30 @@ static TA_RetCode TA_SWAK_BP_OpenImpl( struct TA_SWAK_BP_Stream **stream, const 
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_SWAK_BP_OpenImplFma( struct TA_SWAK_BP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInDelta, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_SWAK_BP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_SWAK_BP_OpenImplPlain( struct TA_SWAK_BP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInDelta, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_SWAK_BP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_SWAK_BP_OpenSinkFma( struct TA_SWAK_BP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInDelta, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_SWAK_BP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_SWAK_BP_OpenInternal( struct TA_SWAK_BP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInDelta, double *outReal )
 {
@@ -505,7 +536,7 @@ TA_RetCode TA_SWAK_BP_OpenInternal( struct TA_SWAK_BP_Stream **stream, const dou
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_SWAK_BP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_SWAK_BP_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_SWAK_BP_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -520,7 +551,7 @@ TA_LIB_API TA_RetCode TA_SWAK_BP_Open( TA_SWAK_BP_Stream **stream, const double 
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
-   return TA_SWAK_BP_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInDelta, outReal );
+   return TA_FMA_AVAILABLE ? TA_SWAK_BP_OpenSinkFma( stream, inReal, 0, historyLen, optInTimePeriod, optInDelta, outReal ) : TA_SWAK_BP_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInDelta, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_SWAK_BP_OpenAndFill( TA_SWAK_BP_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInDelta, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -537,7 +568,7 @@ TA_LIB_API TA_RetCode TA_SWAK_BP_OpenAndFill( TA_SWAK_BP_Stream **stream, const 
 /* Private function, not in public API. */
 TA_RetCode TA_SWAK_BP_OpenAndFillInternal( struct TA_SWAK_BP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInDelta, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_SWAK_BP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_SWAK_BP_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, outBegIdx, outNBElement, outReal, 1 ) : TA_SWAK_BP_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, optInDelta, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION

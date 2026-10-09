@@ -179,13 +179,13 @@ public partial class Core
        * Dropping it also leaves a pure map, which the branch had kept sqrt out of.
        */
       if( optInNbDev != 1.0 ) {
-         for( i = 0; i < (int)outNBElement; i += 1 ) {
-            outReal[i] = Math.Sqrt(outReal[i]) * optInNbDev;
-         }
+         i = 0;
+         int _sq1 = SqrtRun(outReal, i, (int)outNBElement, outReal, i, optInNbDev);
+         i += _sq1;
       } else {
-         for( i = 0; i < (int)outNBElement; i += 1 ) {
-            outReal[i] = Math.Sqrt(outReal[i]);
-         }
+         i = 0;
+         int _sq2 = SqrtRun(outReal, i, (int)outNBElement, outReal, i);
+         i += _sq2;
       }
       return RetCode.Success ;
    }
@@ -231,13 +231,13 @@ public partial class Core
       outNBElement = _xr0.Count;
       retCode = RetCode.Success;
       if( optInNbDev != 1.0 ) {
-         for( i = 0; i < (int)outNBElement; i += 1 ) {
-            outReal[i] = Math.Sqrt(outReal[i]) * optInNbDev;
-         }
+         i = 0;
+         int _sq1 = SqrtRun(outReal, i, (int)outNBElement, outReal, i, optInNbDev);
+         i += _sq1;
       } else {
-         for( i = 0; i < (int)outNBElement; i += 1 ) {
-            outReal[i] = Math.Sqrt(outReal[i]);
-         }
+         i = 0;
+         int _sq2 = SqrtRun(outReal, i, (int)outNBElement, outReal, i);
+         i += _sq2;
       }
       return RetCode.Success ;
    }
@@ -636,11 +636,13 @@ public partial class Core
        */
       if( optInNbDev != 1.0 ) {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
-            sc_outReal[i] = Math.Sqrt(sc_outReal[i]) * optInNbDev;
+            double _ld0 = sc_outReal[i];
+            sc_outReal[i] = Math.Sqrt(_ld0) * optInNbDev;
          }
       } else {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
-            sc_outReal[i] = Math.Sqrt(sc_outReal[i]);
+            double _ld1 = sc_outReal[i];
+            sc_outReal[i] = Math.Sqrt(_ld1);
          }
       }
       /* Capture the live producer state + sub handles. */

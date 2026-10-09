@@ -131,12 +131,23 @@ static int codegen_lang_has_peek_probe(const char *lang)
  *       special-value problem: C and C# agree bit-for-bit on 0.0, -0.0 and
  *       negatives including the NaN payload, so it is a normal-value 1 ULP
  *       difference. A bitwise claim verified on one machine is a claim about
- *       that machine.
- * Rust: reaches the same libm as the in-process golden — stays bitwise. */
+ *       that machine. */
 int codegen_lang_needs_transcendental_tol(const char *lang)
 {
     if( !lang ) return 0;
     return strcmp(lang, "java") == 0 || strcmp(lang, "csharp") == 0;
+}
+
+int codegen_call_needs_vmath_tol(const char *lang, const char *funcName)
+{
+    if( lang && strcmp(lang, "c") == 0 ) return 0;
+    if( codegen_lang_needs_transcendental_tol(lang) ) return 0;
+    return regtest_vmath_batch(funcName);
+}
+
+int codegen_vmath_near(double a, double b)
+{
+    return fuzz_vmath_near(a, b);
 }
 
 /* Which languages can be ASKED whether TA_INTEGER_DEFAULT on an enum:MAType
@@ -304,6 +315,11 @@ static long g_slackCalls[NUM_LANGUAGES];
  * banner claims a pass only off this, never off a count of servers that
  * started. Zero on an unfiltered run means the sweep went dark. */
 static long g_codegenCompared[NUM_LANGUAGES];
+
+/* Output elements the value comparison held by fuzz_vmath_near instead of by
+ * bits. Per language and two-sided: it must move where a function that
+ * codegen_call_needs_vmath_tol names passed, and nowhere else. */
+static long g_vmathCompared[NUM_LANGUAGES];
 
 /* Offsets above each IntegerRange default that the large-period pass stresses.
  * Two, because one alone fixes the PARITY of every stressed period: the defaults
@@ -688,6 +704,10 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     {"MINUS_DI",     TA_FUNC_UNST_MINUS_DI},
     {"MINUS_DM",     TA_FUNC_UNST_MINUS_DM},
     {"NATR",         TA_FUNC_UNST_NATR},
+    /* PSO inherits: both of its smoothings are sized by ema_lookback, so it
+     * takes no id of its own. Without this row the range-stability leg classifies it
+     * EPSILON and the stream leg never runs it at a non-zero unstable period. */
+    {"PSO",          TA_FUNC_UNST_EMA},
     {"PLUS_DI",      TA_FUNC_UNST_PLUS_DI},
     {"PLUS_DM",      TA_FUNC_UNST_PLUS_DM},
     {"RMA",          TA_FUNC_UNST_RMA},
@@ -782,8 +802,9 @@ static const UnstableLookup UNSTABLE_MAP[] = {
      * warm-up loop the body carries for exactly that setting is never entered on
      * the streaming path in any of the four. */
     {"SUPERTREND",   TA_FUNC_UNST_ATR},
-    /* ADOSC is path_dependent too, and inherits UNST_EMA through both of its
-     * EMA legs: like SUPERTREND, the row buys the stream K-leg alone. */
+    /* ADOSC is the difference of two EMA of the A/D line, both seeded on the
+     * same first A/D value: the offset between two starts' A/D lines cancels
+     * and only the seed error is left, fading at the slower EMA's rate. */
     {"ADOSC",        TA_FUNC_UNST_EMA},
     /* KDJ declares no unstable flag of its own -- its instability arrives
      * through the MA type its two smoothing hops select, and the default is
@@ -792,6 +813,10 @@ static const UnstableLookup UNSTABLE_MAP[] = {
      * ~1e-13; the second consumer is the stream K-leg, whose v == 0 defaults
      * vector runs only for a function this map calls unstable. */
     {"KDJ",          TA_FUNC_UNST_RMA},
+    /* FISHER smooths the channel position with a 0.33/0.67 recursion and
+     * the transform with a 0.5 one, both seeded at zero and both its own:
+     * it calls nothing, so the id is its own rather than inherited. */
+    {"FISHER",       TA_FUNC_UNST_FISHER},
 };
 #define NUM_UNSTABLE_MAP (sizeof(UNSTABLE_MAP) / sizeof(UNSTABLE_MAP[0]))
 
@@ -1415,11 +1440,26 @@ static void compare_codegen_output_generic(
                 optVals[k] = request_opt_value(p, k);
             transcendental = codegen_call_is_transcendental(p->funcInfo->handle, optVals, (int)k);
         }
+        int vmath = !p->widenFloatInputs
+                    && p->langIndex >= 0 && p->langIndex < (int)NUM_LANGUAGES
+                    && codegen_call_needs_vmath_tol(ALL_LANGUAGES[p->langIndex].name,
+                                                    p->funcInfo->name);
         for( int i = 0; i < p->lastNbElement && i < parsed; i++ )
         {
             double cVal = p->outRealBufs[outputNb][i];
             double diff = fabs(cVal - cg_out[i]);
             double threshold;
+            if( vmath )
+            {
+                g_vmathCompared[p->langIndex]++;
+                if( fuzz_vmath_near(cVal, cg_out[i]) )
+                    continue;
+                printf("CODEGEN MISMATCH [TA_%s]: %s[%d] C=%.17g (%a) codegen=%.17g (%a), "
+                       "kernel against libm\n", p->funcInfo->name, fieldName, i,
+                       cVal, cVal, cg_out[i], cg_out[i]);
+                p->codegenError = TA_CODEGEN_OUTPUT_MISMATCH;
+                return;
+            }
             /* The float leg compares one server with itself, its float entry
              * point against its double one on the same widened inputs: the same
              * computation, so the same bits in every language. */
@@ -2360,6 +2400,7 @@ typedef struct {
     int               streamSkipped;
     int               streamRejectArms;
     int               streamFillFunctions; /* funcs whose OpenAndFill == batch(0,n-1) bitwise */
+    long long         streamAutoFillBars[2]; /* output bars fill-compared under PREC_4, PREC_8, where the level moved the first bar */
     int               streamPeekFunctions; /* funcs that ran the peek non-commit leg */
     long long         streamPeekProbes;    /* peeks run by that leg */
     int               streamPeekRepFunctions; /* funcs that ran the repeat probe */
@@ -2375,6 +2416,8 @@ typedef struct {
     long long         streamValueLegs;      /* Value probes run */
     long long         streamCloneLegs;      /* fork legs run */
     long long         streamBenign;        /* cross-tier +0.0/-0.0 pairs (#147) — never a failure */
+    long long         streamVmath;         /* pairs the server held by fuzz_vmath_near */
+    int               vmathFunctions;      /* passed functions codegen_call_needs_vmath_tol names */
     /* Ride-along counters: the server's own batch-vs-stream check on whatever
      * data the request carried. Separate from every stream_verify counter
      * above on purpose -- those are already non-zero corpus-wide, so folding
@@ -2755,6 +2798,8 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     else
         printf("PASS\n");
     ctx->passed++;
+    if( codegen_call_needs_vmath_tol(ctx->lang->name, funcInfo->name) )
+        ctx->vmathFunctions++;
     if( rangeChecked )
     {
         ctx->rangeChecked++;
@@ -3312,6 +3357,9 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 /* Stream-leg variants: 0 = ambient defaults, 1 = unstable period, then one per
  * data shape from MONO_UP up (FUZZ_NSHAPES - 1 of them). */
 #define STREAM_NVARIANT (2 + FUZZ_NSHAPES - 1)
+/* Two more passes of the unstable-period leg, one per Auto level, numbered
+ * after the shape variants. */
+#define STREAM_NAUTO 2
 
 static int stream_flag(const char *resp, const char *key)
 {
@@ -3654,6 +3702,19 @@ static int stream_build_vectors(const TA_FuncInfo *fi,
             }
         }
     }
+    /* The all-EMA MACDEXT whose three periods differ and fit the series under
+     * an Auto level: its batch delegates to MACD while its stream composes
+     * three MAs, each placed by its own lookback. */
+    if( strcmp(fi->name, "MACDEXT") == 0 && fi->nbOptInput == 6 && nvec >= STREAM_MAX_VEC )
+        (*overflow)++;
+    else if( strcmp(fi->name, "MACDEXT") == 0 && fi->nbOptInput == 6 )
+    {
+        static const double fit[6] = { 7, TA_MAType_EMA, 8, TA_MAType_EMA, 2, TA_MAType_EMA };
+        unsigned int j;
+        for( j = 0; j < 6; j++ ) vec[nvec][j] = fit[j];
+        vecIsEnum[nvec] = 1;
+        nvec++;
+    }
     return nvec;
 }
 
@@ -3679,6 +3740,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int valueLegs = 0;
     int cloneLegs = 0;     /* fork legs it ran */
     long long benign = 0;  /* signed-zero cases this function's legs reported */
+    long long vmath = 0;   /* pairs the server held by fuzz_vmath_near */
     int isUnstable;
 
     if( ctx->error != TA_TEST_PASS ) return;
@@ -3712,16 +3774,18 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     for( v = 0; v < nvec; v++ )
     {
+        int begAtZero = -1;
         /* Variants: ambient defaults; plus (defaults vector only) one
          * unstable-period leg and the remaining data shapes so ALL fuzz
          * shapes (incl. CONSTANT, TIE_HEAVY, and FUZZ_CANDLE — the
          * pattern-rich inside-bar shape that makes the candlestick streams
          * non-vacuous) are exercised every run. */
-        for( variant = 0; variant < STREAM_NVARIANT; variant++ )
+        for( variant = 0; variant < STREAM_NVARIANT + STREAM_NAUTO; variant++ )
         {
             int K = 0, shape;
             ErrorNumber pipeErr;
-            if( variant == 1 )
+            int autoPass = variant >= STREAM_NVARIANT;
+            if( variant == 1 || autoPass )
             {
                 /* K-leg: defaults vector when the function is unstable, plus
                  * every enum-sweep vector — the selected sub-stream may be
@@ -3733,6 +3797,13 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 if( !( (v == 0 && isUnstable) || vecIsEnum[v]
                        || (vecIsMin[v] && isUnstable) ) ) continue;
                 K = 3;
+                /* Under a level the count follows the periods, so stream and
+                 * batch are held together where two legs of one function resolve
+                 * different counts. Most default vectors report nothing on this
+                 * series; the minimum-period ones do. */
+                if( autoPass )
+                    K = variant == STREAM_NVARIANT ? (int)TA_UNSTABLE_AUTO_PREC_4
+                                                   : (int)TA_UNSTABLE_AUTO_PREC_8;
             }
             else if( variant >= 2 )
             {
@@ -3767,7 +3838,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
              * MONO_DOWN, and the MONO_DOWN leg is the one that caught a
              * one-bar ring rotation for it. g_streamShapeSeen is the standing
              * floor on that: the mapping below must reach every shape. */
-            shape = (variant >= 2) ? (variant - 1) : (v + variant) % 7;
+            shape = autoPass ? (v + 1) % 7 : (variant >= 2) ? (variant - 1) : (v + variant) % 7;
             if( shape >= 0 && shape < FUZZ_NSHAPES )
                 g_streamShapeSeen[shape] = 1;
             stream_build_request(ctx->requestBuf, funcInfo, vec[v],
@@ -3817,6 +3888,15 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
             {
                 int bars = stream_flag(ctx->responseBuf, "\"fill_bars\":");
                 fillChecked = 1;
+                /* "nb", not "fill_bars": only the C server reports the latter. A
+                 * leg the level did not move proves nothing about the level. */
+                if( variant == 0 )
+                    begAtZero = stream_flag(ctx->responseBuf, "\"beg\":");
+                if( autoPass && begAtZero >= 0
+                    && stream_flag(ctx->responseBuf, "\"beg\":") > begAtZero
+                    && stream_flag(ctx->responseBuf, "\"nb\":") > 0 )
+                    ctx->streamAutoFillBars[variant - STREAM_NVARIANT] +=
+                        stream_flag(ctx->responseBuf, "\"nb\":");
                 if( stream_flag(ctx->responseBuf, "\"fill_ok\":") != 1 )
                 {
                     printf("STREAM FILL MISMATCH [TA_%s] vector=%d K=%d shape=%d "
@@ -4004,7 +4084,9 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                  * field, which stream_flag reports as absent, not as a count. */
                 {
                     int z = stream_flag(ctx->responseBuf, "\"benign\":");
+                    int vm = stream_flag(ctx->responseBuf, "\"vmath\":");
                     if( z > 0 ) benign += z;
+                    if( vm > 0 ) vmath += vm;
                 }
             }
         }
@@ -4022,6 +4104,33 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         ctx->error = TA_CODEGEN_STREAM_MISMATCH;
         return;
     }
+    /* The C server alone compares its own kernel batch with its own libm
+     * step. Two-sided, so a listed function the server does not relax and a
+     * relaxed one that is not listed both fail. */
+    if( strcmp(ctx->lang->name, "c") == 0 &&
+        (vmath > 0) != (regtest_vmath_batch(funcInfo->name) != 0) )
+    {
+        printf("STREAM VMATH MISMATCH [TA_%s]: the server held %lld step-vs-batch "
+               "pair(s) by fuzz_vmath_near, and the function is %sa kernel-batch "
+               "one on this build\n", funcInfo->name, vmath,
+               regtest_vmath_batch(funcInfo->name) ? "" : "not ");
+        ctx->failed++;
+        ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+        return;
+    }
+    /* Its step legs' zero signs go through the lane, so what is left to count
+     * as benign are kernel-against-kernel legs: a zero whose sign depends on
+     * another element. */
+    if( strcmp(ctx->lang->name, "c") == 0 && benign > 0 &&
+        regtest_vmath_batch(funcInfo->name) )
+    {
+        printf("STREAM VMATH MISMATCH [TA_%s]: %lld signed-zero difference(s) between "
+               "two kernel-computed values\n", funcInfo->name, (long long)benign);
+        ctx->failed++;
+        ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+        return;
+    }
+    ctx->streamVmath += vmath;
     ctx->streamFunctions++;
     ctx->streamLegs += legs;
     ctx->streamRejectArms += rejArms;
@@ -4494,8 +4603,10 @@ static ErrorNumber test_unstable_bounds(CodegenPipe *cp, const CodegenLanguage *
     #define UB_SLOW  10
     TA_Real h[UB_NBBAR], l[UB_NBBAR], c[UB_NBBAR], v[UB_NBBAR];
     /* Values every backend must refuse. TA_INDEX_MAX+1 is the first one past the
-     * ceiling; 2^31-1 is the value that overflowed the lookback negative. */
-    const long long rejects[2] = { (long long)TA_INDEX_MAX + 1, 2147483647LL };
+     * ceiling; 2^31-1 is the value that overflowed the lookback negative; the
+     * two offsets sit beside the Auto levels and name none. */
+    const long long rejects[4] = { (long long)TA_INDEX_MAX + 1, 2147483647LL,
+                                   (long long)TA_INDEX_MAX + 5, (long long)TA_INDEX_MAX + 9 };
     const int ids[2] = { (int)TA_FUNC_UNST_EMA, (int)TA_FUNC_UNST_ALL };
     const int marker = 4;   /* the good value a rejected call must not disturb */
     int expected, i, k, r;
@@ -4524,6 +4635,21 @@ static ErrorNumber test_unstable_bounds(CodegenPipe *cp, const CodegenLanguage *
         }
     }
 
+    /* Above the ceiling the Auto levels, and only they, are values. */
+    for( k = 0; k < 2; k++ )
+    {
+        codegen_appendf(reqBuf, JSON_BUF_SIZE, 0,
+                "{\"method\":\"set_unstable_period\",\"params\":{\"id\":%d,\"period\":%u}}",
+                ids[k], k == 0 ? TA_UNSTABLE_AUTO_PREC_4 : TA_UNSTABLE_AUTO_PREC_8);
+        if( codegen_pipe_call(cp, reqBuf, respBuf, JSON_BUF_SIZE) != TA_TEST_PASS
+            || json_is_error(respBuf) )
+        {
+            printf("  UNSTABLE BOUND [%s]: id %d rejected an Auto level, which C accepts: %s\n",
+                   lang->display, ids[k], respBuf);
+            return TA_UNSTABLE_BOUND_CEILING;
+        }
+    }
+
     /* Park a known-good value so step (3) has something to observe. */
     codegen_appendf(reqBuf, JSON_BUF_SIZE, 0,
             "{\"method\":\"set_unstable_period\",\"params\":{\"id\":%d,\"period\":%d}}",
@@ -4541,7 +4667,7 @@ static ErrorNumber test_unstable_bounds(CodegenPipe *cp, const CodegenLanguage *
     TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, 0);
 
     /* (2) and (3): each out-of-range value is refused, and leaves the marker. */
-    for( r = 0; r < 2; r++ )
+    for( r = 0; r < 4; r++ )
     {
         for( k = 0; k < 2; k++ )
         {
@@ -4896,6 +5022,7 @@ static ErrorNumber test_codegen_for_language(
             ctx.streamSkipped       = 0;
             ctx.streamRejectArms    = 0;
             ctx.streamFillFunctions = 0;
+            ctx.streamAutoFillBars[0] = ctx.streamAutoFillBars[1] = 0;
             ctx.streamPeekFunctions = 0;
             ctx.streamPeekProbes = 0;
             ctx.streamPeekRepFunctions = 0;
@@ -4911,6 +5038,7 @@ static ErrorNumber test_codegen_for_language(
             ctx.streamValueFunctions = 0;
             ctx.streamValueLegs     = 0;
             ctx.streamBenign        = 0;
+            ctx.streamVmath         = 0;
             TA_ForEachFunc(stream_one_function, &ctx);
             /* Coverage ratchet: every function with a server stream must ALSO
              * verify OpenAndFill (the emit side and this verify side both gate on
@@ -4926,6 +5054,18 @@ static ErrorNumber test_codegen_for_language(
                        "verified OpenAndFill — every streamable function must also "
                        "gate-verify its fill array\n",
                        ctx.streamFillFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
+            /* An Auto lookback longer than the series compares nothing. */
+            printf("  stream under Auto levels (#492): %lld / %lld output bar(s) compared "
+                   "past a moved first bar\n",
+                   ctx.streamAutoFillBars[0], ctx.streamAutoFillBars[1]);
+            if( ctx.error == TA_TEST_PASS && ctx.functionFilter == NULL && ctx.streamFunctions > 0 &&
+                ( ctx.streamAutoFillBars[0] < 40000 || ctx.streamAutoFillBars[1] < 30000 ) )
+            {
+                printf("STREAM AUTO VACUOUS: %lld / %lld output bar(s) compared under the two "
+                       "Auto unstable levels\n",
+                       ctx.streamAutoFillBars[0], ctx.streamAutoFillBars[1]);
                 ctx.error = TA_CODEGEN_STREAM_MISMATCH;
             }
             /* Shape floor: the variant->shape mapping is three coupled
@@ -5085,6 +5225,10 @@ static ErrorNumber test_codegen_for_language(
             if( ctx.rideBenign > 0 )
                 printf("  BENIGN ride-along: %lld cross-tier signed-zero case(s)\n",
                        ctx.rideBenign);
+            if( ctx.streamVmath > 0 )
+                printf("  kernel lane (stream_verify): %lld step-vs-batch pair(s) within "
+                       "%d representable double(s)\n",
+                       ctx.streamVmath, FUZZ_VMATH_MAX_STEPS);
             /* Without this floor a server that stopped peeking reads exactly
              * like one that peeked and passed. */
             if( ctx.error == TA_TEST_PASS && ctx.streamFunctions != 0 &&
@@ -5213,6 +5357,18 @@ static ErrorNumber test_codegen_for_language(
     if( langIndex >= 0 && (unsigned int)langIndex < NUM_LANGUAGES )
         g_codegenCompared[langIndex] = ctx.passed;
     g_langRan[langIndex] = 1;
+
+    if( (g_vmathCompared[langIndex] > 0) != (ctx.vmathFunctions > 0) )
+    {
+        printf("CODEGEN FAILED: fuzz_vmath_near held %ld value(s) on %s, where %d "
+               "passed function(s) call for it\n",
+               g_vmathCompared[langIndex], lang->name, ctx.vmathFunctions);
+        return TA_CODEGEN_OUTPUT_MISMATCH;
+    }
+    if( ctx.vmathFunctions > 0 )
+        printf("  kernel lane: %ld value(s) of %d function(s) within %d "
+               "representable double(s) of the in-process library\n",
+               g_vmathCompared[langIndex], ctx.vmathFunctions, FUZZ_VMATH_MAX_STEPS);
 
     /* Every passed function with output at its defaults reaches the
      * range-stability leg; one that did not has gone unverified. */
@@ -5551,7 +5707,7 @@ static TA_Integer g_fzRefInt[MAX_OUTPUTS][MAX_NB_TEST_ELEMENT];
 #define REF_MAX_EXCLUDED 16
 
 /* Same order as ta_ref.h's TaRefTolMode; the wire carries the names. */
-enum { TOL_ABS = 0, TOL_REL_IN, TOL_REL_OUT, TOL_REL_OUT_INFLOOR, TOL_NAN_TO };
+enum { TOL_ABS = 0, TOL_REL_IN, TOL_REL_OUT, TOL_REL_OUT_INFLOOR, TOL_REL_OUT_FLOOR1, TOL_NAN_TO };
 
 typedef struct {
     char      func[32];
@@ -5590,6 +5746,7 @@ typedef struct {
     const char  *funcList;   /* the release's list_functions payload (subset gate) */
     RefMember   *m;
     long long    comparisons, matches, benign, tolerated, waived, failures;
+    long long    vmath;             /* cases fuzz_vmath_near alone absorbed */
     int          reportedThisFunc;
     int          funcsWithFailures, funcsBenign, funcsAbsent, funcsExcluded;
     int          funcsUncompared;   /* every case waived: the function went untested */
@@ -5909,7 +6066,7 @@ static int ref_query(CodegenPipe *cp, char *req, char *resp, const char *method,
  * requested release, or whose tables do not fit. */
 static int ref_load(CodegenPipe *cp, char *req, char *resp, const char *version, RefMember *m)
 {
-    static const char *const modes[] = { "abs", "rel_in", "rel_out", "rel_out_infloor", "nan_to" };
+    static const char *const modes[] = { "abs", "rel_in", "rel_out", "rel_out_infloor", "rel_out_floor1", "nan_to" };
     char expectLib[32];
     int i;
 
@@ -6001,7 +6158,8 @@ static int ref_excludes(const RefMember *m, const char *name)
 }
 
 /* Returns 0 if a REAL divergence, 1 if benign (+0.0 vs -0.0), 2 if tolerated
- * by a member row. Prints detail, capped per func. inScale = max |close| over
+ * by a member row, 3 if a kernel-batch function within fuzz_vmath_near of the
+ * release's libm. Prints detail, capped per func. inScale = max |close| over
  * the case (TOL_REL_IN, TOL_REL_OUT_INFLOOR). */
 static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
                                     CodegenRangeTestParam *p, int shape, int seed, int n,
@@ -6028,7 +6186,8 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
     if( !fuzz_call(ctx) || json_is_error(ctx->respBuf) )
         return 0;   /* treat as real; a pipe failure is also counted */
 
-    int realDiff = 0, benignDiff = 0, tolDiff = 0;
+    int realDiff = 0, benignDiff = 0, tolDiff = 0, vmathDiff = 0;
+    int vm = codegen_call_needs_vmath_tol(NULL, fi->name);
     RefTol *row = ref_tol_for(ctx->m, fi->name);
     double inBound = 0.0;
     if( row && row->mode == TOL_REL_IN )
@@ -6054,6 +6213,16 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
         {
             double a = p->outRealBufs[o][j], b = g_fzRefReal[o][j];
             if( memcmp(&a, &b, sizeof(double)) == 0 ) continue;
+            /* Ahead of every row and of the signed-zero test: no member bound
+             * may stand in for this one. Not a row itself, and not floored: it
+             * absorbs nothing on a build without the kernel, or against a
+             * release that has it. */
+            if( vm )
+            {
+                if( fuzz_vmath_near(a, b) ) vmathDiff = 1;
+                else { realDiff = 1; if( firstO < 0 ) { firstO = (int)o; firstJ = j; } }
+                continue;
+            }
             /* Before the signed-zero test: tolerated ONLY when the release is NaN
              * (b != b catches -nan too) AND current is exactly the row's value. */
             if( row && row->mode == TOL_NAN_TO )
@@ -6078,6 +6247,9 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
             case TOL_REL_OUT_INFLOOR:
                 if( inScale > mag ) mag = inScale;
                 bound = row->tol * mag; unit = mag; break;
+            case TOL_REL_OUT_FLOOR1:
+                if( mag < 1.0 ) mag = 1.0;
+                bound = row->tol * mag; unit = mag; break;
             }
             if( row && unit > 0.0 && d <= bound )
             {
@@ -6088,6 +6260,8 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
         }
     }
 
+    if( !realDiff && vmathDiff )
+        return 3;
     if( !realDiff && (benignDiff || tolDiff) )
     {
         if( tolDiff ) { row->cases++; row->funcCases++; }
@@ -6126,6 +6300,7 @@ static void fuzz_print_bound(const RefTol *r)
     case TOL_REL_IN:          printf("%g * max|input|%s", r->tol, r->cap > 0.0 ? " (capped)" : ""); break;
     case TOL_REL_OUT:         printf("%g relative", r->tol); break;
     case TOL_REL_OUT_INFLOOR: printf("%g relative, floored at max|input|", r->tol); break;
+    case TOL_REL_OUT_FLOOR1:  printf("%g relative, floored at 1", r->tol); break;
     case TOL_NAN_TO:          printf("NaN -> %g", r->tol); break;
     }
 }
@@ -6206,6 +6381,7 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     ctx->reportedThisFunc = 0;
     long long failBefore = ctx->failures;
     long long benignBefore = ctx->benign;
+    long long vmathBefore = ctx->vmath;
     long long cases = 0, compared = 0, unstCompared = 0, unstMoved = 0;
     long long fullWithOutput = 0, clampWithOutput = 0, largeWithOutput = 0;
     TA_FuncUnstId unstIds[TA_MAX_SWEPT_UNST];
@@ -6359,8 +6535,17 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 int cls = fuzz_classify_and_report(ctx, funcInfo, &p, shape, seeds[si], n, s, e,
                                              vec[k], unst, inScale, (int)curRc, curBeg, curNb,
                                              refRc, refBeg, refNb);
+                if( cls != 0 && cls != 3 && regtest_vmath_batch(funcInfo->name) )
+                {
+                    /* A member row or the signed-zero rule absorbed what only
+                     * the kernel lane may: the lane was bypassed. */
+                    printf("  KERNEL LANE BYPASSED TA_%s: a case was classed %d\n",
+                           funcInfo->name, cls);
+                    cls = 0;
+                }
                 if( cls == 0 )      ctx->failures++;
                 else if( cls == 2 ) ctx->tolerated++;
+                else if( cls == 3 ) ctx->vmath++;
                 else                ctx->benign++;
             }
         }
@@ -6417,6 +6602,9 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         printf("  BENIGN TA_%s: %lld signed-zero case(s) (numerically equal, +0.0 vs -0.0)\n",
                funcInfo->name, ctx->benign - benignBefore);
     }
+    if( ctx->vmath > vmathBefore )
+        printf("  KERNEL TA_%s: %lld case(s) within %d representable double(s) of %s's libm\n",
+               funcInfo->name, ctx->vmath - vmathBefore, FUZZ_VMATH_MAX_STEPS, m->libVersion);
     free_outputs(&p);
     TA_ParamHolderFree(paramHolder);
 }
@@ -6543,6 +6731,9 @@ ErrorNumber fuzz_ref(const char *version, const char *functionFilter)
         if( member.tol[i].cases > 0 )
             printf("row %s: %lld case(s), max observed %.3g\n",
                    member.tol[i].func, member.tol[i].cases, member.tol[i].maxSeen);
+    if( ctx.vmath > 0 )
+        printf("kernel lane: %lld case(s) within %d representable double(s) of %s's libm\n",
+               ctx.vmath, FUZZ_VMATH_MAX_STEPS, member.libVersion);
     if( g_frozenEnumSkips > 0 )
         printf("enums: %lld MAType value(s) above %s's %d excluded\n",
                g_frozenEnumSkips, member.libVersion, member.maTypeMax);
@@ -6612,8 +6803,7 @@ ErrorNumber fuzz_ref(const char *version, const char *functionFilter)
  * reference (exactly as --ref uses the in-process current library). Each
  * language server crosses the boundary and is diffed against it, per its
  * transport (XlangServer.usesSeed):
- *   - Rust: the seed transport (gen_present + fuzz_in_hash self-check), diffed
- *     BITWISE — Rust uses the system libm, so it is bit-identical to C.
+ *   - Rust: the seed transport (gen_present + fuzz_in_hash self-check).
  *   - Java: no in-server fuzz_gen port (#114 is complete), so the driver sends
  *     the exact seed-generated arrays losslessly (hex-of-IEEE-bits, the #115
  *     server_verify transport) and requests want_hash. Non-transcendental calls
@@ -6631,7 +6821,8 @@ ErrorNumber fuzz_ref(const char *version, const char *functionFilter)
  *     Math.FusedMultiplyAdd IS correctly rounded, so the FMA contract is
  *     unaffected — only the transcendentals moved.
  * Current-vs-current, so no release's carve-outs apply: every case is bitwise
- * except the transcendental calls of Java and C#. See fuzz_data.h and
+ * except the transcendental calls of Java and C#, and a kernel-batch function
+ * on a kernel build. See fuzz_data.h and
  * src/tools/ta_regtest/CLAUDE.md.
  * ======================================================================== */
 
@@ -6667,9 +6858,7 @@ typedef struct {
                                    * bit-for-bit on 0.0/-0.0/negatives incl. the
                                    * NaN payload — it is a normal-value 1 ULP
                                    * difference. A bitwise claim verified on one
-                                   * machine is a claim about that machine.
-                                   * Rust stays 0: it reaches the same libm the
-                                   * golden does.                             */
+                                   * machine is a claim about that machine.  */
     int                enumSentinel; /* 1 = this language's optional-param surface
                                    * can CARRY the integer default sentinel on a
                                    * choice-list parameter, so the #162 sentinel
@@ -6737,6 +6926,9 @@ typedef struct {
                                       * must be non-empty for the gate to bite)   */
     long long    tolCases;           /* Java calls routed to the transcendental
                                       * tolerance path (the rest are bitwise)     */
+    long long    vmathCases;         /* calls whose values fuzz_vmath_near held  */
+    long long    vmathDue;           /* (function, server) pairs swept that
+                                      * codegen_call_needs_vmath_tol names        */
     long long    illcondSkipped;     /* Java HT_DCPHASE/HT_SINE calls skipped on
                                       * the zero-variance constant shape (phase of
                                       * a null signal — see xlang_illcond)    */
@@ -6765,6 +6957,8 @@ typedef struct {
                                       * printed so it cannot go quiet unnoticed  */
     long long    unstFuncs;          /* functions that carried an unstable leg     */
     long long    lbCases;            /* per-server lookback-tier comparisons       */
+    long long    autoLbCases;        /* ... of which under an Auto level           */
+    long long    autoLbMoved;        /* ... whose lookback the level lengthened    */
     long long    lbOorCases;         /* ... of which on an out-of-range vector     */
     long long    lbSentCases;        /* ... of which on a default-sentinel vector  */
 
@@ -6793,6 +6987,7 @@ typedef struct {
     long long    l3OAFCases;
     long long    l3DataCases;
     long long    l3Benign;           /* same two benign classes as tierBenign */
+    long long    l3VmathCases;       /* of l3DataCases, held by fuzz_vmath_near */
     int          reportedThisFunc;
     int          funcsWithFailures;
     ErrorNumber  error;
@@ -6865,10 +7060,10 @@ void codegen_hash_report(const char *who, TA_RetCode goldRc, int goldBeg,
  * sqrt/ceil/floor users (IEEE correctly-rounded) — stays bit-identical across
  * languages. Source-derived from a grep of ta_codegen/input. ---- */
 static const char *const CODEGEN_TRANSCENDENTAL[] = {
-    "ACOS", "ALMA", "ASIN", "ATAN", "CHOP", "CHOPTR", "COS", "COSH", "EXP", "FRAMA",
+    "ACOS", "ALMA", "ASIN", "ATAN", "CHOP", "CHOPTR", "COS", "COSH", "EXP", "FISHER", "FRAMA",
     "HT_DCPERIOD", "HT_DCPHASE", "HT_PHASOR", "HT_SINE", "HT_TRENDLINE",
-    "HT_TRENDMODE", "LINEARREG_ANGLE", "LN", "LOG10", "MAMA",
-    "SIN", "SINH",
+    "HT_TRENDMODE", "LINEARREG_ANGLE", "LN", "LOG10", "MAMA", "PSO",
+    "ROGERSSATCHELL", "SIN", "SINH",
     "SWAK_2PHP", "SWAK_BP", "SWAK_BUTTER", "SWAK_GAUSS", "SWAK_HP",
     "TAN", "TANH",
 };
@@ -6966,7 +7161,12 @@ CTolVerdict codegen_compare_tol(const char *resp,
                 double diff = fabs(c - sv);
                 double t = (fabs(c) > 1.0) ? tol * fabs(c) : tol;
                 int bad;
-                if( tol < 0.0 )
+                if( tol == CODEGEN_TOL_VMATH )
+                {
+                    detail->nbNear++;
+                    bad = !fuzz_vmath_near(c, sv);
+                }
+                else if( tol < 0.0 )
                     bad = memcmp(&c, &sv, sizeof(double)) != 0;
                 else if( !isfinite(c) || !isfinite(sv) )
                     bad = !((isnan(c) && isnan(sv)) || c == sv);
@@ -7471,6 +7671,11 @@ static int xlang_tier_data_diff(const TA_FuncInfo *fi, const LbTierResp *a,
             for( int j = 0; j < n; j++ )
             {
                 double x = a->real[o][j], y = b->real[o][j];
+                if( tol == CODEGEN_TOL_VMATH )
+                {
+                    if( fuzz_vmath_near(x, y) ) continue;
+                    return 1;
+                }
                 if( memcmp(&x, &y, sizeof(double)) == 0 ) continue;
                 if( isnan(x) && isnan(y) ) { (*benign)++; continue; }
                 if( isnan(x) != isnan(y) ) return 1;
@@ -7914,7 +8119,9 @@ static void xlang_tier_gold_check(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
     double tol = ( sv->tolTranscendental &&
                    codegen_call_is_transcendental(funcInfo->handle, optVals,
                                                   (int)funcInfo->nbOptInput) )
-                 ? CODEGEN_TRANSCENDENTAL_TOL : 0.0;
+                 ? CODEGEN_TRANSCENDENTAL_TOL
+                 : codegen_call_needs_vmath_tol(sv->name, funcInfo->name)
+                 ? CODEGEN_TOL_VMATH : 0.0;
 
     if( g->haveBatch && r->haveBatch )
     {
@@ -7942,6 +8149,7 @@ static void xlang_tier_gold_check(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
             long long benignHere = 0;
             sv->cases++;
             ctx->l3DataCases++;
+            if( tol == CODEGEN_TOL_VMATH ) ctx->l3VmathCases++;
             if( xlang_tier_data_diff(funcInfo, &g->batchR, &r->batchR, tol, &benignHere) )
             {
                 sv->mism++;
@@ -8009,6 +8217,7 @@ static void xlang_tier_gold_check(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
             long long benignHere = 0;
             sv->cases++;
             ctx->l3DataCases++;
+            if( tol == CODEGEN_TOL_VMATH ) ctx->l3VmathCases++;
             if( xlang_tier_data_diff(funcInfo, &g->oafR, &r->oafR, tol, &benignHere) )
             {
                 sv->mism++;
@@ -8396,6 +8605,101 @@ static void xlang_lookback_leg(const TA_FuncInfo *funcInfo, XlangCtx *ctx,
     }
 }
 
+/* The lookback under each Auto level of the unstable period, every server
+ * against C, on every accepted vector plus one with every integer period at its
+ * maximum (the only way into VIDYA's saturating arm). An Auto count depends on
+ * the parameters, so this is the one check that the four renderings of every
+ * rule agree: the leg above pins every id at 0.
+ */
+static void xlang_auto_lookback_leg(const TA_FuncInfo *funcInfo, XlangCtx *ctx,
+                                    TA_ParamHolder *paramHolder,
+                                    const double vec[FUZZ_MAX_VEC][FUZZ_MAX_OPT],
+                                    const char *kind, int nvec)
+{
+    static const unsigned int level[2] = { TA_UNSTABLE_AUTO_PREC_4, TA_UNSTABLE_AUTO_PREC_8 };
+    double atMax[FUZZ_MAX_OPT];
+
+    for( unsigned int i = 0; i < funcInfo->nbOptInput && i < FUZZ_MAX_OPT; i++ )
+    {
+        const TA_OptInputParameterInfo *oi;
+        TA_GetOptInputParameterInfo(funcInfo->handle, i, &oi);
+        atMax[i] = vec[0][i];
+        if( oi->type == TA_OptInput_IntegerRange )
+            atMax[i] = (double)((const TA_IntegerRange *)oi->dataSet)->max;
+    }
+
+    for( int l = 0; l <= 2; l++ )
+    {
+        /* The third pass puts every server back at 0, as the legs below expect. */
+        unsigned int setting = l < 2 ? level[l] : 0;
+        TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, setting);
+        codegen_appendf(ctx->reqBuf, JSON_BUF_SIZE, 0,
+            "{\"method\":\"set_unstable_period\",\"params\":{\"id\":%d,\"period\":%u}}",
+            (int)TA_FUNC_UNST_ALL, setting);
+        for( int sIdx = 0; sIdx < ctx->nsv; sIdx++ )
+        {
+            XlangServer *sv = &ctx->sv[sIdx];
+            if( !sv->open ) continue;
+            if( !xlang_call(sv, ctx->reqBuf, ctx->respBuf) || json_is_error(ctx->respBuf) )
+            {
+                printf("  XLANG AUTO LOOKBACK [%s] TA_%s: set_unstable_period(%u) refused: %.120s\n",
+                       sv->display, funcInfo->name, setting, ctx->respBuf);
+                if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_OUTPUT_MISMATCH;
+                sv->mism++;
+            }
+        }
+        if( l == 2 ) break;
+
+        for( int k = 0; k <= nvec; k++ )
+        {
+            const double *v = k < nvec ? vec[k] : atMax;
+            if( k < nvec && kind[k] != FUZZ_VEC_NORMAL ) continue;
+
+            xlang_set_opt_params(paramHolder, funcInfo, v);
+            TA_Integer goldRaw = -1;
+            if( TA_GetLookback(paramHolder, &goldRaw) != TA_SUCCESS ) continue;
+            long long gold = (long long)goldRaw;
+
+            TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, 0);
+            TA_Integer at0 = -1;
+            if( TA_GetLookback(paramHolder, &at0) != TA_SUCCESS ) at0 = goldRaw;
+            TA_SetUnstablePeriod(TA_FUNC_UNST_ALL, setting);
+
+            xlang_build_lookback_request(ctx->reqBuf, funcInfo, v);
+            for( int sIdx = 0; sIdx < ctx->nsv; sIdx++ )
+            {
+                XlangServer *sv = &ctx->sv[sIdx];
+                if( !sv->open ) continue;
+                if( !xlang_call(sv, ctx->reqBuf, ctx->respBuf) )
+                {
+                    if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
+                    sv->mism++;
+                    continue;
+                }
+                int present = 0;
+                long long srv = xlang_lookback_norm(ctx->respBuf, &present);
+                sv->cases++;
+                ctx->autoLbCases++;
+                if( goldRaw != at0 ) ctx->autoLbMoved++;
+                if( !present || srv != gold )
+                {
+                    sv->mism++;
+                    if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_OUTPUT_MISMATCH;
+                    if( ctx->reportedThisFunc < 3 )
+                    {
+                        ctx->reportedThisFunc++;
+                        printf("  XLANG AUTO LOOKBACK MISMATCH TA_%s at TA_INDEX_MAX+%u  C %lld vs %s %lld  params:",
+                               funcInfo->name, setting - (unsigned int)TA_INDEX_MAX, gold, sv->display,
+                               present ? srv : -2LL);
+                        xlang_print_params(funcInfo, v);
+                        printf("\n");
+                    }
+                }
+            }
+        }
+    }
+}
+
 static int xlang_period_selector(const TA_FuncInfo *fi)
 {
     int realIndex = 0;
@@ -8561,10 +8865,16 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     ctx->reportedThisFunc = 0;
     long long mismBefore = 0;
     for( int s = 0; s < ctx->nsv; s++ ) mismBefore += ctx->sv[s].mism;
+    for( int s = 0; s < ctx->nsv; s++ )
+        if( ctx->sv[s].open &&
+            codegen_call_needs_vmath_tol(ctx->sv[s].name, funcInfo->name) )
+            ctx->vmathDue++;
 
     /* Lookback tier first — same vectors, no data needed (issue #148). */
     xlang_lookback_leg(funcInfo, ctx, paramHolder, (const double (*)[FUZZ_MAX_OPT])vec,
                        kind, nvec);
+    xlang_auto_lookback_leg(funcInfo, ctx, paramHolder, (const double (*)[FUZZ_MAX_OPT])vec,
+                            kind, nvec);
     /* xlang_lookback_leg's native Batch check (xlang_tier_native_check, #256)
      * rebinds paramHolder's INPUT pointers to the tier buffers
      * for the duration of that check. Restore them to `hist` (g_fzBuf) before
@@ -8810,10 +9120,14 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                      * call to the element compare — C# stays bitwise on all of
                      * them. */
                     int tolPath = 0;
+                    /* A hash cannot be held within a tolerance, so such a call
+                     * leaves the seed transport for the arrays. */
+                    int vm = kind[k] != FUZZ_VEC_REJECT &&
+                             codegen_call_needs_vmath_tol(sv->name, funcInfo->name);
                     /* curUnst != 0 forces the hex transport even for a seed
                      * server — see xlang_hash_call for why abstract_call cannot
                      * carry an unstable period. */
-                    if( sv->usesSeed && curUnst == 0 && !rampPeriods )
+                    if( sv->usesSeed && curUnst == 0 && !rampPeriods && !vm )
                         fuzz_build_request(ctx->reqBuf, funcInfo, s, e, shape, seeds[si], n, vec[k], 0, 0);
                     else
                     {
@@ -8822,10 +9136,11 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                          * whereas the tolerance path serialises the outputs, and
                          * sending a rejected vector down that path killed the Java
                          * server. */
-                        tolPath = sv->tolTranscendental &&
-                                  kind[k] != FUZZ_VEC_REJECT &&
-                                  codegen_call_is_transcendental(funcInfo->handle, vec[k],
-                                                                 (int)funcInfo->nbOptInput);
+                        tolPath = vm ||
+                                  ( sv->tolTranscendental &&
+                                    kind[k] != FUZZ_VEC_REJECT &&
+                                    codegen_call_is_transcendental(funcInfo->handle, vec[k],
+                                                                   (int)funcInfo->nbOptInput) );
                         /* Chaotic phase of a null signal — not comparable across
                          * libms. Gated on tolPath, so exactly the servers that
                          * cannot be held bitwise on transcendentals skip it
@@ -8844,7 +9159,7 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                         continue;
                     }
                     sv->cases++;
-                    if( tolPath ) ctx->tolCases++;
+                    if( tolPath && !vm ) ctx->tolCases++;
                     if( curUnst )  ctx->unstCases++;
                     if( kind[k] == FUZZ_VEC_REJECT ) ctx->oorCases++;
 
@@ -8854,7 +9169,9 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                         CTolVerdict cv = codegen_compare_tol(ctx->respBuf, funcInfo->nbOutput,
                                                              p.outputIsInteger, goldBufs,
                                                              curRc, curBeg, curNb,
-                                                             CODEGEN_TRANSCENDENTAL_TOL, &d);
+                                                             vm ? CODEGEN_TOL_VMATH
+                                                                : CODEGEN_TRANSCENDENTAL_TOL, &d);
+                        if( d.nbNear > 0 ) ctx->vmathCases++;
                         if( cv != CTOL_MATCH )
                         {
                             sv->mism++;
@@ -8867,7 +9184,12 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                                 xlang_print_params(funcInfo, vec[k]);
                                 printf("\n    retCode %d/%d  begIdx %d/%d  nbElem %d/%d",
                                        (int)curRc, d.rc, curBeg, d.begIdx, curNb, d.nbElement);
-                                if( cv == CTOL_VALUE && !d.isInt )
+                                if( cv == CTOL_VALUE && !d.isInt && vm )
+                                    printf("  out%d[%d] C=%.17g (%a) server=%.17g (%a), "
+                                           "kernel against libm",
+                                           d.output, d.element, d.cReal, d.cReal,
+                                           d.sReal, d.sReal);
+                                else if( cv == CTOL_VALUE && !d.isInt )
                                     printf("  out%d[%d] C=%.17g server=%.17g diff=%.3g (tol %g)",
                                            d.output, d.element, d.cReal, d.sReal,
                                            fabs(d.cReal - d.sReal), CODEGEN_TRANSCENDENTAL_TOL);
@@ -8938,8 +9260,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
      * relax their transcendental-using calls to the 1e-9 element compare
      * (tolTranscendental=1) for different reasons: Java's fdlibm is not the C
      * libm, and .NET does not guarantee `Math.*` reaches the platform libm.
-     * Every non-transcendental call in both stays bitwise. Rust reaches the
-     * same libm as the golden and is bitwise throughout. */
+     * Every non-transcendental call in both stays bitwise. */
     static XlangServer servers[] = {
         {"rust",   "Rust", argv_rust,   1, 0, 0, {0}, 0, 0, 0, 0},
         {"java",   "Java", argv_java,   0, 0, 0, {0}, 0, 0, 0, 0},
@@ -9074,8 +9395,13 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     }
     if( ctx.tolCases > 0 )
         printf("  (%lld tolerance-lane call(s) across Java+C# compared at the "
-               "transcendental tolerance %g; every other call is bitwise)\n",
+               "transcendental tolerance %g)\n",
                ctx.tolCases, CODEGEN_TRANSCENDENTAL_TOL);
+    if( ctx.vmathCases > 0 || ctx.l3VmathCases > 0 )
+        printf("  (%lld kernel-lane call(s) and %lld golden-check compare(s) held "
+               "within %d representable double(s): the in-process batch is a "
+               "vector kernel, the server's is libm)\n",
+               ctx.vmathCases, ctx.l3VmathCases, FUZZ_VMATH_MAX_STEPS);
     if( ctx.illcondSkipped > 0 )
         printf("  (%lld HT_DCPHASE/HT_SINE call(s) skipped on the constant shape "
                "across the tolerance-lane servers: atan2 phase of a null signal, "
@@ -9158,6 +9484,14 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
                ctx.oorCases, ctx.lbOorCases, ctx.sentCases, ctx.lbSentCases);
         return TA_CODEGEN_OUTPUT_MISMATCH;
     }
+    printf("auto levels (#492): %lld lookback case(s), %lld of them lengthened by the level\n",
+           ctx.autoLbCases, ctx.autoLbMoved);
+    if( !functionFilter && ctx.comparisons > 0 && ctx.autoLbMoved < 1000 )
+    {
+        printf("FAIL — VACUOUS AUTO LOOKBACK LEG: %lld case(s), %lld lengthened by a level.\n",
+               ctx.autoLbCases, ctx.autoLbMoved);
+        return TA_CODEGEN_OUTPUT_MISMATCH;
+    }
     /* The unstable-period axis needs a floor of its own for the same reason: it
      * is a strict subset of the case total, which the 148 other functions keep
      * large whether this leg runs or not. Unfiltered runs only — --function=
@@ -9201,6 +9535,17 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
                ctx.l3BatchCases, ctx.l3OpenCases, ctx.l3OAFCases, ctx.l3DataCases);
         return TA_CODEGEN_OUTPUT_MISMATCH;
     }
+    /* Two-sided, so it holds under any filter and on a build without the
+     * kernel, where all three are zero. */
+    if( (ctx.vmathCases > 0) != (ctx.vmathDue > 0) ||
+        (ctx.l3VmathCases > 0) != (ctx.vmathDue > 0) )
+    {
+        printf("FAIL: KERNEL LANE: fuzz_vmath_near held %lld call(s) and %lld "
+               "golden-check compare(s), where %lld (function, server) pair(s) "
+               "swept call for it.\n",
+               ctx.vmathCases, ctx.l3VmathCases, ctx.vmathDue);
+        return TA_CODEGEN_OUTPUT_MISMATCH;
+    }
     /* The choice-list sentinel needs a floor of its OWN. It is a strict subset of
      * sentCases and the range params alone keep that in the thousands, so with
      * this leg excluded the guard above stays green — which is how #162 survived.
@@ -9223,8 +9568,9 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     {
         printf("PASS — %lld function(s) swept: every server matches the in-process C "
                "library: BIT-IDENTICAL (zero tolerance), Java+C# transcendentals "
-               "within %g (current-vs-current, all shapes).\n",
-               ctx.funcsSwept, CODEGEN_TRANSCENDENTAL_TOL);
+               "within %g%s (current-vs-current, all shapes).\n",
+               ctx.funcsSwept, CODEGEN_TRANSCENDENTAL_TOL,
+               ctx.vmathDue > 0 ? ", kernel-batch functions within the kernel lane" : "");
         return TA_TEST_PASS;
     }
     printf("FAIL — %lld output mismatch(es) + %d input-port mismatch(es) + %d "

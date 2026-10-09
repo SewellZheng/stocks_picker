@@ -1248,6 +1248,7 @@ static ErrorNumber testEnumValueContract( void )
       { "TA_FUNC_UNST_SWAK_HP",      33, TA_FUNC_UNST_SWAK_HP },
       { "TA_FUNC_UNST_SWAK_2PHP",    34, TA_FUNC_UNST_SWAK_2PHP },
       { "TA_FUNC_UNST_SWAK_BP",      35, TA_FUNC_UNST_SWAK_BP },
+      { "TA_FUNC_UNST_FISHER",       36, TA_FUNC_UNST_FISHER },
       /* Pinned so adding an indicator can never move it (#144). */
       { "TA_FUNC_UNST_ALL",       65535, TA_FUNC_UNST_ALL }
    };
@@ -1653,6 +1654,38 @@ static ErrorNumber testUnstablePeriodBounds( void )
       printf( "\nFailed: TA_SetUnstablePeriod rejected the TA_INDEX_MAX ceiling\n" );
       return TA_INTERNAL_UNST_VALUE_FAIL;
    }
+
+   /* Above the ceiling only the Auto levels are values: each is stored and read
+    * back as itself, per id and through the wildcard, and an offset that names
+    * no level stays refused and unwritten.
+    */
+   if( TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, TA_UNSTABLE_AUTO_PREC_4 ) != TA_SUCCESS ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != (unsigned int)TA_INDEX_MAX + 4 ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, TA_UNSTABLE_AUTO_PREC_8 ) != TA_SUCCESS ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != (unsigned int)TA_INDEX_MAX + 8 ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_SWAK_BP ) != (unsigned int)TA_INDEX_MAX + 8 ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX + 1 ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX + 2 ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX + 3 ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX + 5 ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX + 6 ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX + 7 ) != TA_BAD_PARAM ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, (unsigned int)TA_INDEX_MAX + 9 ) != TA_BAD_PARAM ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != (unsigned int)TA_INDEX_MAX + 8 ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, (unsigned int)TA_INDEX_MAX + 5 ) != TA_BAD_PARAM ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_SWAK_BP ) != (unsigned int)TA_INDEX_MAX + 8 ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, TA_UNSTABLE_AUTO_PREC_4 ) != TA_SUCCESS ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_SWAK_BP ) != (unsigned int)TA_INDEX_MAX + 4 ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_RSI, TA_UNSTABLE_AUTO_PREC_8 ) != TA_SUCCESS ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_RSI ) != (unsigned int)TA_INDEX_MAX + 8 ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != (unsigned int)TA_INDEX_MAX + 4 ||
+       TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 0 ) != TA_SUCCESS ||
+       TA_GetUnstablePeriod( TA_FUNC_UNST_EMA ) != 0 )
+   {
+      printf( "\nFailed: TA_SetUnstablePeriod and the Auto levels\n" );
+      return TA_INTERNAL_UNST_VALUE_FAIL;
+   }
+   TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 7 );
    TA_SetUnstablePeriod( TA_FUNC_UNST_EMA, 7 );
 
    retCode = TA_SetUnstablePeriod( TA_FUNC_UNST_RSI, 3 );
@@ -1715,6 +1748,10 @@ static ErrorNumber testUnstablePeriodBounds( void )
       for( pass = 0; pass < 2; pass++ )
       {
          TA_RetCode first, second;
+         int initBefore = -1, shutBefore = -1, initAfter = -1, shutAfter = -1;
+         if( TA_GetRuntimeInfo( "count.initialize", &initBefore ) != TA_SUCCESS ||
+             TA_GetRuntimeInfo( "count.shutdown", &shutBefore ) != TA_SUCCESS )
+            return TA_INTERNAL_INIT_RESET_FAIL;
          TA_SetUnstablePeriod( TA_FUNC_UNST_ALL, 5 );
          TA_SetCandleSettings( TA_BodyDoji, TA_RangeType_Shadows, 7, 2.5 );
          first = pass == 0 ? TA_Initialize() : TA_Shutdown();
@@ -1725,6 +1762,15 @@ static ErrorNumber testUnstablePeriodBounds( void )
          {
             printf( "\nFailed: TA_%s answered %d then %d, expected TA_SUCCESS twice\n",
                     pass == 0 ? "Initialize" : "Shutdown", (int)first, (int)second );
+            return TA_INTERNAL_INIT_RESET_FAIL;
+         }
+         if( TA_GetRuntimeInfo( "count.initialize", &initAfter ) != TA_SUCCESS ||
+             TA_GetRuntimeInfo( "count.shutdown", &shutAfter ) != TA_SUCCESS ||
+             initAfter != initBefore + ( pass == 0 ? 2 : 0 ) ||
+             shutAfter != shutBefore + ( pass == 0 ? 0 : 2 ) )
+         {
+            printf( "\nFailed: two calls of TA_%s moved count.initialize %d -> %d and count.shutdown %d -> %d\n",
+                    pass == 0 ? "Initialize" : "Shutdown", initBefore, initAfter, shutBefore, shutAfter );
             return TA_INTERNAL_INIT_RESET_FAIL;
          }
          for( id = 0; id < TA_FUNC_UNST_COUNT; id++ )

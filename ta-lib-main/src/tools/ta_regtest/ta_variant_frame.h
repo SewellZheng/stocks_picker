@@ -4877,6 +4877,49 @@ static TA_RetCode TA_EXP_VFrameS( int startIdx, int endIdx,
 static const TA_VInputKind TA_VIn_EXP[] = { TA_VIN_REAL };
 static const int TA_VOutIsInt_EXP[] = { 0 };
 
+static TA_RetCode TA_FISHER_VFrameD( int startIdx, int endIdx,
+                  const double *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_FISHER(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               (int)optIn[0] /* optInTimePeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outFisher */,
+               outReal[1] /* outTrigger */
+               );
+}
+static TA_RetCode TA_FISHER_VFrameS( int startIdx, int endIdx,
+                  const float *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_S_FISHER(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               (int)optIn[0] /* optInTimePeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outFisher */,
+               outReal[1] /* outTrigger */
+               );
+}
+
+static const TA_VInputKind TA_VIn_FISHER[] = { TA_VIN_HIGH, TA_VIN_LOW };
+static const int TA_VOutIsInt_FISHER[] = { 0, 0 };
+static const TA_VOptSpec TA_VOpt_FISHER[] = {
+   { "optInTimePeriod", TA_VOPT_INT, 2.0, 100000.0, 10.0 },
+};
+
 static TA_RetCode TA_FLOOR_VFrameD( int startIdx, int endIdx,
                   const double *const in[], const double optIn[],
                   int *outBegIdx, int *outNBElement,
@@ -7365,6 +7408,52 @@ static const TA_VOptSpec TA_VOpt_PPO[] = {
    { "optInMAType", TA_VOPT_ENUM, 0.0, 15.0, 1.0 },
 };
 
+static TA_RetCode TA_PSO_VFrameD( int startIdx, int endIdx,
+                  const double *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_PSO(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               in[2] /* inClose */,
+               (int)optIn[0] /* optInFastK_Period */,
+               (int)optIn[1] /* optInEMAPeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outReal */
+               );
+}
+static TA_RetCode TA_PSO_VFrameS( int startIdx, int endIdx,
+                  const float *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_S_PSO(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               in[2] /* inClose */,
+               (int)optIn[0] /* optInFastK_Period */,
+               (int)optIn[1] /* optInEMAPeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outReal */
+               );
+}
+
+static const TA_VInputKind TA_VIn_PSO[] = { TA_VIN_HIGH, TA_VIN_LOW, TA_VIN_CLOSE };
+static const int TA_VOutIsInt_PSO[] = { 0 };
+static const TA_VOptSpec TA_VOpt_PSO[] = {
+   { "optInFastK_Period", TA_VOPT_INT, 1.0, 100000.0, 8.0 },
+   { "optInEMAPeriod", TA_VOPT_INT, 1.0, 100000.0, 5.0 },
+};
+
 static TA_RetCode TA_PVI_VFrameD( int startIdx, int endIdx,
                   const double *const in[], const double optIn[],
                   int *outBegIdx, int *outNBElement,
@@ -7720,6 +7809,54 @@ static const TA_VInputKind TA_VIn_ROCR100[] = { TA_VIN_REAL };
 static const int TA_VOutIsInt_ROCR100[] = { 0 };
 static const TA_VOptSpec TA_VOpt_ROCR100[] = {
    { "optInTimePeriod", TA_VOPT_INT, 1.0, 100000.0, 10.0 },
+};
+
+static TA_RetCode TA_ROGERSSATCHELL_VFrameD( int startIdx, int endIdx,
+                  const double *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_ROGERSSATCHELL(
+               startIdx,
+               endIdx,
+               in[0] /* inOpen */,
+               in[1] /* inHigh */,
+               in[2] /* inLow */,
+               in[3] /* inClose */,
+               (int)optIn[0] /* optInTimePeriod */,
+               optIn[1] /* optInAnnualization */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outReal */
+               );
+}
+static TA_RetCode TA_ROGERSSATCHELL_VFrameS( int startIdx, int endIdx,
+                  const float *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_S_ROGERSSATCHELL(
+               startIdx,
+               endIdx,
+               in[0] /* inOpen */,
+               in[1] /* inHigh */,
+               in[2] /* inLow */,
+               in[3] /* inClose */,
+               (int)optIn[0] /* optInTimePeriod */,
+               optIn[1] /* optInAnnualization */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outReal */
+               );
+}
+
+static const TA_VInputKind TA_VIn_ROGERSSATCHELL[] = { TA_VIN_OPEN, TA_VIN_HIGH, TA_VIN_LOW, TA_VIN_CLOSE };
+static const int TA_VOutIsInt_ROGERSSATCHELL[] = { 0 };
+static const TA_VOptSpec TA_VOpt_ROGERSSATCHELL[] = {
+   { "optInTimePeriod", TA_VOPT_INT, 1.0, 100000.0, 10.0 },
+   { "optInAnnualization", TA_VOPT_REAL, 0.0, 3.00000000000000022e37, 252.0 },
 };
 
 static TA_RetCode TA_RSI_VFrameD( int startIdx, int endIdx,
@@ -9924,6 +10061,8 @@ static const TA_VariantEntry TA_VariantTable[] = {
      3, TA_VIn_ERI, 1, TA_VOpt_ERI, 2, TA_VOutIsInt_ERI, 0 },
    { "EXP", TA_EXP_VFrameD, TA_EXP_VFrameS,
      1, TA_VIn_EXP, 0, NULL, 1, TA_VOutIsInt_EXP, 0 },
+   { "FISHER", TA_FISHER_VFrameD, TA_FISHER_VFrameS,
+     2, TA_VIn_FISHER, 1, TA_VOpt_FISHER, 2, TA_VOutIsInt_FISHER, 0 },
    { "FLOOR", TA_FLOOR_VFrameD, TA_FLOOR_VFrameS,
      1, TA_VIn_FLOOR, 0, NULL, 1, TA_VOutIsInt_FLOOR, 0 },
    { "FOSC", TA_FOSC_VFrameD, TA_FOSC_VFrameS,
@@ -10042,6 +10181,8 @@ static const TA_VariantEntry TA_VariantTable[] = {
      2, TA_VIn_PLUS_DM, 1, TA_VOpt_PLUS_DM, 1, TA_VOutIsInt_PLUS_DM, 0 },
    { "PPO", TA_PPO_VFrameD, TA_PPO_VFrameS,
      1, TA_VIn_PPO, 3, TA_VOpt_PPO, 1, TA_VOutIsInt_PPO, 0 },
+   { "PSO", TA_PSO_VFrameD, TA_PSO_VFrameS,
+     3, TA_VIn_PSO, 2, TA_VOpt_PSO, 1, TA_VOutIsInt_PSO, 0 },
    { "PVI", TA_PVI_VFrameD, TA_PVI_VFrameS,
      2, TA_VIn_PVI, 0, NULL, 1, TA_VOutIsInt_PVI, 0 },
    { "PVO", TA_PVO_VFrameD, TA_PVO_VFrameS,
@@ -10060,6 +10201,8 @@ static const TA_VariantEntry TA_VariantTable[] = {
      1, TA_VIn_ROCR, 1, TA_VOpt_ROCR, 1, TA_VOutIsInt_ROCR, 0 },
    { "ROCR100", TA_ROCR100_VFrameD, TA_ROCR100_VFrameS,
      1, TA_VIn_ROCR100, 1, TA_VOpt_ROCR100, 1, TA_VOutIsInt_ROCR100, 0 },
+   { "ROGERSSATCHELL", TA_ROGERSSATCHELL_VFrameD, TA_ROGERSSATCHELL_VFrameS,
+     4, TA_VIn_ROGERSSATCHELL, 2, TA_VOpt_ROGERSSATCHELL, 1, TA_VOutIsInt_ROGERSSATCHELL, 0 },
    { "RSI", TA_RSI_VFrameD, TA_RSI_VFrameS,
      1, TA_VIn_RSI, 1, TA_VOpt_RSI, 1, TA_VOutIsInt_RSI, 0 },
    { "RVI", TA_RVI_VFrameD, TA_RVI_VFrameS,
@@ -10156,6 +10299,6 @@ static const TA_VariantEntry TA_VariantTable[] = {
      1, TA_VIn_ZLEMA, 1, TA_VOpt_ZLEMA, 1, TA_VOutIsInt_ZLEMA, 0 },
 };
 
-#define TA_VARIANT_TABLE_SIZE 228
+#define TA_VARIANT_TABLE_SIZE 231
 
 #endif /* TA_VARIANT_FRAME_H */

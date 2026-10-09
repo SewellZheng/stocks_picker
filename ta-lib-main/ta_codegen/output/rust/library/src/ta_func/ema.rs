@@ -87,7 +87,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
-        return Ok((optInTimePeriod - 1 + self.unstable_period[FuncUnstId::EMA as usize]) as usize);
+        return Ok((optInTimePeriod - 1 + self.unstable_count(FuncUnstId::EMA, (if optInTimePeriod > 1 { (10 * optInTimePeriod + 1) / 2 } else { 0 }), (if optInTimePeriod > 1 { (19 * optInTimePeriod + 1) / 2 } else { 0 }))) as usize);
     }
     /// Display shift of one output of [`Core::ema`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -172,6 +172,7 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
         let mut startIdx = startIdx;
+        let mut emaBeta: f64 = 0.0_f64;
         let mut optInK_1: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut prevMA: f64 = 0.0_f64;
@@ -179,10 +180,25 @@ impl Core {
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        optInK_1 = 2.0 / ((optInTimePeriod + 1) as f64);
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
         lookbackTotal = self.ema_lookback(optInTimePeriod).unwrap_or(usize::MAX);
+        // After the lookback call: a double live across a call is saved and
+        // restored around every fma call of the loops below, one more instruction
+        // per bar.
+        //
+        // emaBeta + optInK_1 must be exactly 1.0, or a flat input drifts off
+        // its level. Each subtraction is exact only from an operand in
+        // [0.5,1): at a period of 2 that is optInK_1, above it emaBeta.
+        //
+        // Above it emaBeta stays as the divide wrote it: the second subtraction
+        // would not change a bit, and a register last written by a subtraction
+        // costs each FMA reading it one more cycle on Intel P-cores.
+        emaBeta = ((optInTimePeriod - 1) as f64) / ((optInTimePeriod + 1) as f64);
+        optInK_1 = 1.0 - emaBeta;
+        if emaBeta < 0.5 {
+            emaBeta = 1.0 - ((optInK_1) as f64);
+        }
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -196,12 +212,10 @@ impl Core {
         }
         let inReal = &inReal[..=endIdx];
         // No smoothing at period of 1: the output is a copy of the input
-        // (same convention as TA_MA for every MAType). Explicit because at
-        // period 1 optInK_1 is exactly 1.0, so the recursion below reduces to
-        // (x-prev)+prev -- which returns x only while consecutive values stay
-        // within a factor of two of each other. Two-decimal prices already
-        // spend a full mantissa, so a single 3x move breaks it. The unstable
-        // period still delays the first output.
+        // (same convention as TA_MA for every MAType). Explicit because the
+        // recursion below, at a k of 1.0 and a beta of 0.0, does not keep the
+        // sign of a -0.0 input. The unstable period still delays the first
+        // output.
         if optInTimePeriod == 1 {
             (*outBegIdx) = startIdx;
             outIdx = 0;
@@ -223,12 +237,12 @@ impl Core {
         }
         prevMA = tempReal / ((optInTimePeriod) as f64);
         while today <= startIdx {
-            prevMA = (inReal[{ let _v = today; today += 1; _v }] - prevMA as f64).mul_add(optInK_1, prevMA);
+            prevMA = (emaBeta as f64).mul_add(prevMA, ((optInK_1) as f64) * inReal[{ let _v = today; today += 1; _v }]);
         }
         outReal[0] = prevMA;
         outIdx = 1;
         while today <= endIdx {
-            prevMA = (inReal[{ let _v = today; today += 1; _v }] - prevMA as f64).mul_add(optInK_1, prevMA);
+            prevMA = (emaBeta as f64).mul_add(prevMA, ((optInK_1) as f64) * inReal[{ let _v = today; today += 1; _v }]);
             outReal[outIdx] = prevMA;
             outIdx += 1;
         }
@@ -356,6 +370,7 @@ pub struct EmaStream {
 #[allow(non_snake_case, dead_code)]
 struct EmaStreamState {
     optInTimePeriod: i32,
+    emaBeta: f64,
     optInK_1: f64,
     prevMA: f64,
     cur_outReal: f64,
@@ -373,7 +388,7 @@ impl Core {
             sp.cur_outReal = (*outReal);
             return;
         }
-        sp.prevMA = (inReal - sp.prevMA as f64).mul_add(sp.optInK_1, sp.prevMA);
+        sp.prevMA = (sp.emaBeta as f64).mul_add(sp.prevMA, ((sp.optInK_1) as f64) * inReal);
         (*outReal) = sp.prevMA;
         sp.cur_outReal = (*outReal);
     }
@@ -381,6 +396,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::ema_open_internal`]
     /// (stride 0, scalar sink) and [`Core::ema_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn ema_open_impl(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<EmaStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, ema_open_impl_fma, ema_open_impl_scalar, (inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.ema_open_impl_scalar(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn ema_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<EmaStream, RetCode> {
+        self.ema_open_impl_scalar(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn ema_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<EmaStream, RetCode> {
         if inReal.is_empty() {
@@ -413,6 +446,7 @@ impl Core {
             let state = EmaStreamState {
                 cur_outReal: inReal[historyLen - 1],
                 optInTimePeriod: optInTimePeriod,
+                emaBeta: 0.0_f64,
                 optInK_1: 0.0_f64,
                 prevMA: 0.0_f64,
             };
@@ -429,6 +463,7 @@ impl Core {
             }
             return Ok(EmaStream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
         }
+        let mut emaBeta: f64 = 0.0_f64;
         let mut optInK_1: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut prevMA: f64 = 0.0_f64;
@@ -436,10 +471,25 @@ impl Core {
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        optInK_1 = 2.0 / ((optInTimePeriod + 1) as f64);
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
         lookbackTotal = self.ema_lookback(optInTimePeriod)?;
+        // After the lookback call: a double live across a call is saved and
+        // restored around every fma call of the loops below, one more instruction
+        // per bar.
+        //
+        // emaBeta + optInK_1 must be exactly 1.0, or a flat input drifts off
+        // its level. Each subtraction is exact only from an operand in
+        // [0.5,1): at a period of 2 that is optInK_1, above it emaBeta.
+        //
+        // Above it emaBeta stays as the divide wrote it: the second subtraction
+        // would not change a bit, and a register last written by a subtraction
+        // costs each FMA reading it one more cycle on Intel P-cores.
+        emaBeta = ((optInTimePeriod - 1) as f64) / ((optInTimePeriod + 1) as f64);
+        optInK_1 = 1.0 - emaBeta;
+        if emaBeta < 0.5 {
+            emaBeta = 1.0 - ((optInK_1) as f64);
+        }
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -461,12 +511,12 @@ impl Core {
         }
         prevMA = tempReal / ((optInTimePeriod) as f64);
         while today <= startIdx {
-            prevMA = (inReal[{ let _v = today; today += 1; _v }] - prevMA as f64).mul_add(optInK_1, prevMA);
+            prevMA = (emaBeta as f64).mul_add(prevMA, ((optInK_1) as f64) * inReal[{ let _v = today; today += 1; _v }]);
         }
         outReal[(0 * outStride) as usize] = prevMA;
         outIdx = 1;
         while today <= endIdx {
-            prevMA = (inReal[{ let _v = today; today += 1; _v }] - prevMA as f64).mul_add(optInK_1, prevMA);
+            prevMA = (emaBeta as f64).mul_add(prevMA, ((optInK_1) as f64) * inReal[{ let _v = today; today += 1; _v }]);
             outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = prevMA;
         }
         (*outNBElement) = outIdx;
@@ -474,6 +524,7 @@ impl Core {
         // Capture the live batch state into the handle.
         let state = EmaStreamState {
             optInTimePeriod,
+            emaBeta,
             optInK_1,
             prevMA,
             cur_outReal: outReal[(*outNBElement - 1) * outStride],
@@ -647,7 +698,7 @@ impl EmaStream {
                 (*outReal) = inReal;
                 return Ok((*outReal));
             }
-            prevMA = (inReal - prevMA as f64).mul_add(sp.optInK_1, prevMA);
+            prevMA = (sp.emaBeta as f64).mul_add(prevMA, ((sp.optInK_1) as f64) * inReal);
             (*outReal) = prevMA;
         }
         Ok(outReal)

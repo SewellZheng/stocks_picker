@@ -76,7 +76,7 @@ impl Core {
         //
         // 31 is for being compatible with Tradestation.
         // See mama_lookback for an explanation of the "32".
-        return Ok((63 + self.unstable_period[FuncUnstId::HT_DCPHASE as usize]) as usize);
+        return Ok((63 + self.unstable_count(FuncUnstId::HT_DCPHASE, (80 + 50 * 4), (80 + 50 * 8))) as usize);
     }
     /// Display shift of one output of [`Core::ht_dcphase`]: how many bars ahead (positive) or
     /// behind (negative) of the bar that computed it a chart draws that output. The values are
@@ -234,7 +234,7 @@ impl Core {
         constDeg2RadBy360 = tempReal * 8.0;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = (63 + self.unstable_period[FuncUnstId::HT_DCPHASE as usize]) as usize;
+        lookbackTotal = self.ht_dcphase_lookback().unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -939,6 +939,24 @@ impl Core {
     pub(crate) fn ht_dcphase_open_impl(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<HtDcphaseStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, ht_dcphase_open_impl_fma, ht_dcphase_open_impl_scalar, (inReal, startIdx, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.ht_dcphase_open_impl_scalar(inReal, startIdx, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn ht_dcphase_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<HtDcphaseStream, RetCode> {
+        self.ht_dcphase_open_impl_scalar(inReal, startIdx, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn ht_dcphase_open_impl_scalar(
+        &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<HtDcphaseStream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::OutOfRangeStartIndex);
         }
@@ -1040,7 +1058,7 @@ impl Core {
         constDeg2RadBy360 = tempReal * 8.0;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = (63 + self.unstable_period[FuncUnstId::HT_DCPHASE as usize]) as usize;
+        lookbackTotal = self.ht_dcphase_lookback()?;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {

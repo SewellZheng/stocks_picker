@@ -73,12 +73,8 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
       }
-      /* One bar is consumed forming the first close-to-close change, then the
-       * EMA's own warm-up on top:
-       *    1 + ema_lookback(optInTimePeriod)
-       *  = 1 + (optInTimePeriod - 1) + TA_GetUnstablePeriod(TA_FUNC_UNST_EMA)
-       */
-      return optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.EMA] ;
+      /* One bar forms the first close-to-close change. */
+      return 1 + EmaLookback(optInTimePeriod) ;
 
    }
    /// <summary>
@@ -114,6 +110,7 @@ public partial class Core
    {
       outBegIdx = 0;
       outNBElement = 0;
+      double emaBeta = 0;
       double optInK_1 = 0;
       double tempReal = 0;
       double prevMA = 0;
@@ -137,7 +134,6 @@ public partial class Core
       if( (outReal.Overlaps(inClose) && outReal != inClose) || (outReal.Overlaps(inVolume) && outReal != inVolume) ) {
          return RetCode.BadParam ;
       }
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
       /* Alexander Elder's Force Index (Trading for a Living, 1993): the one-bar
        * close-to-close move weighted by that bar's volume, then smoothed with an
        * EMA. Elder's 2-period reading is the short-term form and 13 the
@@ -148,10 +144,10 @@ public partial class Core
        *
        * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
        * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-       * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-       * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-       * contract against the composed reference in test_composite.c -- MOM, then
-       * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+       * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+       * beta. That order IS the bit-exactness contract against the composed
+       * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+       * tidy it. TRIX carries the same warning.
        *
        * Nothing on the data path divides by an input, so issue #112 is satisfied
        * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -168,6 +164,15 @@ public partial class Core
        * to calculate at least one output.
        */
       lookbackTotal = EfiLookback(optInTimePeriod);
+      /* After the lookback call: a double live across a call is saved and
+       * restored around every fma call of the loops below, one more instruction
+       * per bar.
+       */
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 ) {
+         emaBeta = 1.0 - optInK_1;
+      }
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -181,11 +186,8 @@ public partial class Core
          return RetCode.Success ;
       }
       /* No smoothing at a period of 1: the output is the raw Force Index.
-       * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-       * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-       * only while consecutive values stay within a factor of two of each other.
-       * Force values swing by orders of magnitude, far more than the prices EMA
-       * warns about.
+       * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+       * not keep the sign of a -0.0 force: a down bar on zero volume.
        */
       if( optInTimePeriod == 1 ) {
          outBegIdx = startIdx;
@@ -221,7 +223,7 @@ public partial class Core
       while( today <= startIdx ) {
          force = (inClose[today] - prevClose) * inVolume[today];
          prevClose = inClose[today];
-         prevMA = Math.FusedMultiplyAdd(force - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * force);
          today = today + 1;
       }
       outReal[0] = prevMA;
@@ -229,7 +231,7 @@ public partial class Core
       while( today <= endIdx ) {
          force = (inClose[today] - prevClose) * inVolume[today];
          prevClose = inClose[today];
-         prevMA = Math.FusedMultiplyAdd(force - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * force);
          outReal[outIdx] = prevMA;
          outIdx = outIdx + 1;
          today = today + 1;
@@ -248,6 +250,7 @@ public partial class Core
    {
       outBegIdx = 0;
       outNBElement = 0;
+      double emaBeta = 0;
       double optInK_1 = 0;
       double tempReal = 0;
       double prevMA = 0;
@@ -271,8 +274,12 @@ public partial class Core
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inVolume)) ) {
          return RetCode.BadParam ;
       }
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
       lookbackTotal = EfiLookback(optInTimePeriod);
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 ) {
+         emaBeta = 1.0 - optInK_1;
+      }
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -311,7 +318,7 @@ public partial class Core
       while( today <= startIdx ) {
          force = ((double)inClose[today] - prevClose) * (double)inVolume[today];
          prevClose = (double)inClose[today];
-         prevMA = Math.FusedMultiplyAdd(force - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * force);
          today = today + 1;
       }
       outReal[0] = prevMA;
@@ -319,7 +326,7 @@ public partial class Core
       while( today <= endIdx ) {
          force = ((double)inClose[today] - prevClose) * (double)inVolume[today];
          prevClose = (double)inClose[today];
-         prevMA = Math.FusedMultiplyAdd(force - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * force);
          outReal[outIdx] = prevMA;
          outIdx = outIdx + 1;
          today = today + 1;
@@ -536,6 +543,7 @@ public partial class Core
       internal Core core;
       internal int optInTimePeriod;
       internal double prevClose;
+      internal double emaBeta;
       internal double optInK_1;
       internal double prevMA;
       internal double cur_outReal;
@@ -582,6 +590,7 @@ public partial class Core
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevClose = other.prevClose;
+         this.emaBeta = other.emaBeta;
          this.optInK_1 = other.optInK_1;
          this.prevMA = other.prevMA;
          this.cur_outReal = other.cur_outReal;
@@ -648,7 +657,7 @@ public partial class Core
             double prevMA = sp.prevMA;
             force = (inClose - prevClose) * inVolume;
             prevClose = inClose;
-            prevMA = Math.FusedMultiplyAdd(force - prevMA, sp.optInK_1, prevMA);
+            prevMA = Math.FusedMultiplyAdd(sp.emaBeta, prevMA, sp.optInK_1 * force);
             cur_outReal = prevMA;
          }
          return cur_outReal;
@@ -682,7 +691,7 @@ public partial class Core
          double force = 0.0;
          force = (inClose - sp.prevClose) * inVolume;
          sp.prevClose = inClose;
-         sp.prevMA = Math.FusedMultiplyAdd(force - sp.prevMA, sp.optInK_1, sp.prevMA);
+         sp.prevMA = Math.FusedMultiplyAdd(sp.emaBeta, sp.prevMA, sp.optInK_1 * force);
          sp.cur_outReal = sp.prevMA;
       }
    }
@@ -708,6 +717,7 @@ public partial class Core
          return RetCode.BadParam;
       }
       if( optInTimePeriod == 1 ) {
+         double emaBeta = 0;
          double optInK_1 = 0;
          double tempReal = 0;
          double prevMA = 0;
@@ -717,7 +727,6 @@ public partial class Core
          int today = 0;
          int outIdx = 0;
          int lookbackTotal = 0;
-         optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
          /* Alexander Elder's Force Index (Trading for a Living, 1993): the one-bar
           * close-to-close move weighted by that bar's volume, then smoothed with an
           * EMA. Elder's 2-period reading is the short-term form and 13 the
@@ -728,10 +737,10 @@ public partial class Core
           *
           * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
           * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-          * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-          * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-          * contract against the composed reference in test_composite.c -- MOM, then
-          * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+          * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+          * beta. That order IS the bit-exactness contract against the composed
+          * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+          * tidy it. TRIX carries the same warning.
           *
           * Nothing on the data path divides by an input, so issue #112 is satisfied
           * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -748,6 +757,15 @@ public partial class Core
           * to calculate at least one output.
           */
          lookbackTotal = EfiLookback(optInTimePeriod);
+         /* After the lookback call: a double live across a call is saved and
+          * restored around every fma call of the loops below, one more instruction
+          * per bar.
+          */
+         emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+         optInK_1 = 1.0 - emaBeta;
+         if( emaBeta < 0.5 ) {
+            emaBeta = 1.0 - optInK_1;
+         }
          /* Move up the start index if there is not
           * enough initial data.
           */
@@ -761,11 +779,8 @@ public partial class Core
             return RetCode.InsufficientHistory ;
          }
          /* No smoothing at a period of 1: the output is the raw Force Index.
-          * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-          * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-          * only while consecutive values stay within a factor of two of each other.
-          * Force values swing by orders of magnitude, far more than the prices EMA
-          * warns about.
+          * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+          * not keep the sign of a -0.0 force: a down bar on zero volume.
           */
          outBegIdx = startIdx;
          outIdx = 0;
@@ -782,11 +797,13 @@ public partial class Core
          /* Capture the live batch state into the handle. */
          sp.optInTimePeriod = optInTimePeriod;
          sp.prevClose = prevClose;
+         sp.emaBeta = emaBeta;
          sp.optInK_1 = optInK_1;
          sp.prevMA = prevMA;
          sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
          return RetCode.Success;
       } else {
+         double emaBeta = 0;
          double optInK_1 = 0;
          double tempReal = 0;
          double prevMA = 0;
@@ -796,7 +813,6 @@ public partial class Core
          int today = 0;
          int outIdx = 0;
          int lookbackTotal = 0;
-         optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
          /* Alexander Elder's Force Index (Trading for a Living, 1993): the one-bar
           * close-to-close move weighted by that bar's volume, then smoothed with an
           * EMA. Elder's 2-period reading is the short-term form and 13 the
@@ -807,10 +823,10 @@ public partial class Core
           *
           * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
           * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-          * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-          * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-          * contract against the composed reference in test_composite.c -- MOM, then
-          * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+          * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+          * beta. That order IS the bit-exactness contract against the composed
+          * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+          * tidy it. TRIX carries the same warning.
           *
           * Nothing on the data path divides by an input, so issue #112 is satisfied
           * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -827,6 +843,15 @@ public partial class Core
           * to calculate at least one output.
           */
          lookbackTotal = EfiLookback(optInTimePeriod);
+         /* After the lookback call: a double live across a call is saved and
+          * restored around every fma call of the loops below, one more instruction
+          * per bar.
+          */
+         emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+         optInK_1 = 1.0 - emaBeta;
+         if( emaBeta < 0.5 ) {
+            emaBeta = 1.0 - optInK_1;
+         }
          /* Move up the start index if there is not
           * enough initial data.
           */
@@ -840,11 +865,8 @@ public partial class Core
             return RetCode.InsufficientHistory ;
          }
          /* No smoothing at a period of 1: the output is the raw Force Index.
-          * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-          * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-          * only while consecutive values stay within a factor of two of each other.
-          * Force values swing by orders of magnitude, far more than the prices EMA
-          * warns about.
+          * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+          * not keep the sign of a -0.0 force: a down bar on zero volume.
           */
          outBegIdx = startIdx;
          /* The first EMA value is a simple average of the first 'period' force
@@ -865,7 +887,7 @@ public partial class Core
          while( today <= startIdx ) {
             force = (inClose[today] - prevClose) * inVolume[today];
             prevClose = inClose[today];
-            prevMA = Math.FusedMultiplyAdd(force - prevMA, optInK_1, prevMA);
+            prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * force);
             today = today + 1;
          }
          outReal[0 * outStride] = prevMA;
@@ -873,7 +895,7 @@ public partial class Core
          while( today <= endIdx ) {
             force = (inClose[today] - prevClose) * inVolume[today];
             prevClose = inClose[today];
-            prevMA = Math.FusedMultiplyAdd(force - prevMA, optInK_1, prevMA);
+            prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * force);
             outReal[outIdx * outStride] = prevMA;
             outIdx = outIdx + 1;
             today = today + 1;
@@ -882,6 +904,7 @@ public partial class Core
          /* Capture the live batch state into the handle. */
          sp.optInTimePeriod = optInTimePeriod;
          sp.prevClose = prevClose;
+         sp.emaBeta = emaBeta;
          sp.optInK_1 = optInK_1;
          sp.prevMA = prevMA;
          sp.cur_outReal = outReal[(outNBElement - 1) * outStride];

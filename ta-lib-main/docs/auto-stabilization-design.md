@@ -1,8 +1,12 @@
-# Auto warm-up: an "Auto" unstable period
+# Auto-Stabilization: an "Auto" unstable period
 
 **Status:** design for [#492](https://github.com/TA-Lib/ta-lib/issues/492), with its decisions
-ruled by the owner (section 9). Nothing is implemented. The measurements are reproducible from
-[`studies/auto-warm-up/`](studies/auto-warm-up/README.md).
+ruled by the owner (section 9). Implemented in this tree, except the function-page row of section 7;
+sections 5 and 8 describe the change, and "today" there is the tree before it. The measurements are reproducible from
+[`studies/auto-stabilization/`](studies/auto-stabilization/README.md). The rules have been
+re-sized since: the table of record is
+[`website/src/api/unstable-period/README.md`](../website/src/api/unstable-period/README.md), and the
+counts quoted here are the design's.
 
 ## 1. Summary
 
@@ -335,7 +339,7 @@ pages carry the rule.
 | `MASSI` | Composed | 2*E(fast) (through EMA) | inherited | converges |
 | `MAVP` | MA dispatch | M(maxPeriod, type) | inherited | rounding only |
 | `MAX` | Window | 0 |  | bit-identical |
-| `MAXINDEX` | Window | 0 |  | bit-identical except on ties |
+| `MAXINDEX` | Window | 0 |  | bit-identical |
 | `MCGD` | Leaf | 5*X*n | calibrated | converges |
 | `MEDIAN` | Window | 0 |  | bit-identical |
 | `MEDPRICE` | Pointwise | 0 |  | bit-identical |
@@ -343,9 +347,9 @@ pages carry the rule.
 | `MIDPOINT` | Window | 0 |  | bit-identical |
 | `MIDPRICE` | Window | 0 |  | bit-identical |
 | `MIN` | Window | 0 |  | bit-identical |
-| `MININDEX` | Window | 0 |  | bit-identical except on ties |
+| `MININDEX` | Window | 0 |  | bit-identical |
 | `MINMAX` | Window | 0 |  | bit-identical |
-| `MINMAXINDEX` | Window | 0 |  | bit-identical except on ties |
+| `MINMAXINDEX` | Window | 0 |  | bit-identical |
 | `MINUS_DI` | Leaf | W(n) | proven, ratio | converges |
 | `MINUS_DM` | Leaf | W(n) | proven | converges |
 | `MOM` | Window | 0 |  | bit-identical |
@@ -420,14 +424,8 @@ pages carry the rule.
 ### 3.5 What the classification found
 
 Where the reading and the measurement differ, and facts the tree states differently today.
-ADOSC is ruled in section 9, D6, and the index tie-break is scheduled in section 8. The period-1
-item is part of the rules of section 3.2. The rest are separate decisions.
+The period-1 item is part of the rules of section 3.2. The rest are separate decisions.
 
-- **ADOSC is flagged path-dependent and is not.** It is the difference of two EMAs of the A/D
-  line. Both EMAs are seeded on the same first A/D value, so the constant offset between two
-  starts' A/D lines cancels in the difference and what remains decays at the slower EMA's rate.
-  Measured at the defaults: within `e^-10` after 51 bars, against a `PREC_4` count of 55. Under
-  Auto it is as stable as MACD.
 - **SUPERTREND inherits ATR's id but its bands do not converge by decay.** The unstable period
   warms the ATR; the trend flag and both bands are seeded on the first reported bar at every
   setting. Auto lengthens its lookback as a fixed count does today and promises nothing about
@@ -439,9 +437,6 @@ item is part of the rules of section 3.2. The rest are separate decisions.
   not these three.
 - **VWAP is neither.** The difference between two starts shrinks as the early segment's share of
   cumulative volume, roughly as `1/t`. Not a constant offset, not an `e^-K` kernel, no rule.
-- **MAXINDEX, MININDEX and MINMAXINDEX depend on the start when the window holds a tie.** A call
-  that starts at a bar reports the first of two equal extremes; a call that slid there from an
-  earlier bar reports the last. Reproduced on tie-heavy data (`tie_break.c` in the study).
 - **Some windows measure bit-identical although they keep running totals.** ADR, CMOU, ER,
   QSTICK, ULTOSC and VORTEX sum price differences and RVOL sums integer volumes, all exactly on
   the study's two-decimal series; ULTOSC already differs by rounding at tripled periods. The
@@ -584,7 +579,7 @@ The dialect's read gains a second argument, the Auto count for this call as an e
 int ema_lookback(int optInTimePeriod)
 {
    return optInTimePeriod - 1
-        + TA_UNSTABLE( TA_FUNC_UNST_EMA, ta_warmup_ema(K, optInTimePeriod) );
+        + TA_UNSTABLE( TA_FUNC_UNST_EMA, ta_auto_stabilization_ema(K, optInTimePeriod) );
 }
 ```
 
@@ -593,7 +588,7 @@ int ema_lookback(int optInTimePeriod)
 expression per level and a select on the stored value. With every read in the owner's lookback,
 the rule is written once per id, in the helper its reads name.
 
-- **The formulas are helpers.** `ta_warmup_ema`, `ta_warmup_wilder` and the per-function ones
+- **The formulas are helpers.** `ta_auto_stabilization_ema`, `ta_auto_stabilization_wilder` and the per-function ones
   live in `ta_codegen/input/helpers/`, where single-return `int` and `double` functions are
   inlined into all four backends. Every helper takes `K` or `X` as an argument, and the read
   supplies them from the stored level: the dialect has no named constants. No lookback calls a
@@ -708,7 +703,7 @@ compare at every bar both report.
   the rules exactly, and what catches a helper transcribed wrong.
 - **Accumulations and state machines** are not compared. A function flagged `path_dependent`
   that meets the converging criterion on every series and start, with `S` above `T` on at least
-  one, fails the leg: that is how a wrong flag, such as ADOSC's, is caught. NVI and PVI can be
+  one, fails the leg: that is how a wrong flag is caught. NVI and PVI can be
   identical from two early starts, which is why one series is not enough.
 - **Stated exclusions.** KAMA, FRAMA, VIDYA and the KAMA and VIDYA MA arms are compared on the
   trend and random-walk series only: their counts are sized for those (section 9, D3), and the
@@ -717,9 +712,7 @@ compare at every bar both report.
   0. PVO with the KAMA or the VIDYA type is compared only if the corpus's volume itself trends or
   wanders: on volume drawn as noise those arms are range-bound on every series. CRSI is not
   compared when its Auto count is above 0: its streak is a short-lived state machine (section 3.5)
-  that restarts a difference at the first reversal, whatever the warm-up. MAXINDEX, MININDEX and
-  MINMAXINDEX are compared on bars whose window holds its extreme once, until their tie-break is
-  start-independent.
+  that restarts a difference at the first reversal, whatever the warm-up.
 - **Vectors.** Defaults; every integer period at its minimum; every integer period tripled;
   every MA type on every MA-type parameter; and the real parameters a rule reads: SWAK_BP's
   delta at 0.05 and 0.5, and MAMA's limits at (0.01, 0.01), (0.99, 0.99), (0.99, 0.01) and
@@ -766,7 +759,7 @@ compare at every bar both report.
 - **The MACDEXT diagonal.** The all-EMA vector that reaches the MACD delegation is the defaults
   only. Its Auto lookback is 218 bars at `PREC_4`, which leaves 22 bars of that 240-bar series,
   and 385 at `PREC_8`, which leaves none. The gate of section 5.3 needs a longer series or an
-  all-EMA vector with different fast and slow periods that fits, such as (2, 3, 2).
+  all-EMA vector with different fast and slow periods that fits, such as (7, 8, 2).
 - **"Exactly that many bars."** The shift test raises an id by 5 and requires five more bars and
   the same remaining values. Under Auto the same test requires the rule's count and the same
   remaining values. It runs on 252 bars with 512-bar buffers, where many owners report nothing
@@ -788,7 +781,7 @@ compare at every bar both report.
 | Page | Change |
 |---|---|
 | `api/unstable-period` | Auto under approach 3, leading with `PREC_4`; what a level means (section 2.1); the rule table; the tiers; what the promise is and is not. The figure's "stable" boundary is drawn at 1e-3 of price and would contradict the Auto count: redraw or recaption |
-| `functions/stability` and every function page (generated) | the rule beside "Initial Unstable Period"; the MA-type table gains the `M(n, type)` column. Derived from the same lookback read as today's line |
+| `functions/stability` and every function page (generated) | none: ruled out (section 9, D9) |
 | spec rL6 | "adds exactly that many bars" holds for a count; under Auto the id adds its rule's count |
 | spec rL8 | under Auto a `period1_identity` function has a lookback of 0 at a period of 1 |
 | spec rL5 | still true: the count depends on parameters and settings only |
@@ -821,9 +814,6 @@ rules for the mechanics (section 9, D5).
 Steps 1, 4 and 5 each leave the tree releasable. Steps 2 and 3 are one releasable unit: a
 lookback is what callers size history by, so either they land together or step 2 keeps every
 setter refusing `TA_UNSTABLE_AUTO` until the leg is green.
-
-Before step 3: the ADOSC flag (section 9, D6). The tie-break of the index functions either
-lands before step 3 too, or the leg names it as an exemption that the later change removes.
 
 ## 9. Rulings
 
@@ -918,9 +908,14 @@ the advanced details. The specification states no tolerance, so the 2026-10-03 r
 
 - The inheritance stays mechanical. A level lengthens the lookback of ADOSC (through EMA) and
   of SUPERTREND (through ATR) as a fixed count does today.
+  Ruled (owner, 2026-10-07): under a level, and only then, a function may add bars of its
+  own to the count it inherits for what it does with the value; ADOSC and CKSP do.
 - ADOSC is reclassified: it loses its `path_dependent` flag and reads "Initial Unstable Period,
-  inherited from EMA" (section 3.5). This is its own change, outside the Auto work, and lands
-  before the two-start leg, which would otherwise report ADOSC as wrongly flagged.
+  inherited from EMA". Both of its EMAs are seeded on the same first A/D value, so the constant
+  offset between two starts' A/D lines cancels in the difference and what remains decays at the
+  slower EMA's rate: at the defaults, within `e^-10` after 51 bars, against a `PREC_4` count of
+  55. Done in issue #502, ahead of the two-start leg, which would otherwise have reported ADOSC
+  as wrongly flagged.
 - SUPERTREND stays path-dependent.
 
 **D7. The Hilbert functions, MAMA and STC.** Ruled (owner, 2026-10-05): the counts below, each
@@ -975,9 +970,15 @@ MAMA's need follows its larger limit when fast is not below slow, measured at th
   alpha, or a measured bound".
 - No `set_auto_warm_up` in ta-lib-python: its existing `set_unstable_period` takes a level (D1).
 
+**D9. The rule on each function page.** Ruled (owner, 2026-10-06): not needed. Auto is
+documented on the Unstable Period page and in the specification only. A function page keeps its
+"Numerical Stability" line and its link to `functions/stability`, which presents the stability
+classes side by side; the unstable period is a subject large enough for a page of its own, and
+no function page carries a rule, a count or a direct link to the rule table.
+
 ## 10. Evidence
 
-[`studies/auto-warm-up/`](studies/auto-warm-up/README.md) holds the probe, its analysis and the
+[`studies/auto-stabilization/`](studies/auto-stabilization/README.md) holds the probe, its analysis and the
 results. In short:
 
 - **Method.** Every function through the abstraction layer, on 40000 bars of three synthetic

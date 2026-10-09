@@ -81,7 +81,7 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
       }
-      return optInTimePeriod - 1 + this._unstablePeriod[(int)FuncUnstId.EMA] ;
+      return optInTimePeriod - 1 + this.UnstableCount((int)FuncUnstId.EMA, ((optInTimePeriod > 1) ? (10 * optInTimePeriod + 1) / 2 : 0), ((optInTimePeriod > 1) ? (19 * optInTimePeriod + 1) / 2 : 0)) ;
 
    }
    /// <summary>
@@ -116,6 +116,7 @@ public partial class Core
    {
       outBegIdx = 0;
       outNBElement = 0;
+      double emaBeta = 0;
       double optInK_1 = 0;
       double tempReal = 0;
       double prevMA = 0;
@@ -137,11 +138,27 @@ public partial class Core
       if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
          return RetCode.BadParam ;
       }
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
       lookbackTotal = EmaLookback(optInTimePeriod);
+      /* After the lookback call: a double live across a call is saved and
+       * restored around every fma call of the loops below, one more instruction
+       * per bar.
+       *
+       * emaBeta + optInK_1 must be exactly 1.0, or a flat input drifts off
+       * its level. Each subtraction is exact only from an operand in
+       * [0.5,1): at a period of 2 that is optInK_1, above it emaBeta.
+       *
+       * Above it emaBeta stays as the divide wrote it: the second subtraction
+       * would not change a bit, and a register last written by a subtraction
+       * costs each FMA reading it one more cycle on Intel P-cores.
+       */
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 ) {
+         emaBeta = 1.0 - optInK_1;
+      }
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -155,12 +172,10 @@ public partial class Core
          return RetCode.Success ;
       }
       /* No smoothing at period of 1: the output is a copy of the input
-       * (same convention as TA_MA for every MAType). Explicit because at
-       * period 1 optInK_1 is exactly 1.0, so the recursion below reduces to
-       * (x-prev)+prev -- which returns x only while consecutive values stay
-       * within a factor of two of each other. Two-decimal prices already
-       * spend a full mantissa, so a single 3x move breaks it. The unstable
-       * period still delays the first output.
+       * (same convention as TA_MA for every MAType). Explicit because the
+       * recursion below, at a k of 1.0 and a beta of 0.0, does not keep the
+       * sign of a -0.0 input. The unstable period still delays the first
+       * output.
        */
       if( optInTimePeriod == 1 ) {
          outBegIdx = startIdx;
@@ -182,12 +197,12 @@ public partial class Core
       }
       prevMA = tempReal / optInTimePeriod;
       while( today <= startIdx ) {
-         prevMA = Math.FusedMultiplyAdd(inReal[today++] - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * inReal[today++]);
       }
       outReal[0] = prevMA;
       outIdx = 1;
       while( today <= endIdx ) {
-         prevMA = Math.FusedMultiplyAdd(inReal[today++] - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * inReal[today++]);
          outReal[outIdx++] = prevMA;
       }
       outNBElement = outIdx;
@@ -203,6 +218,7 @@ public partial class Core
    {
       outBegIdx = 0;
       outNBElement = 0;
+      double emaBeta = 0;
       double optInK_1 = 0;
       double tempReal = 0;
       double prevMA = 0;
@@ -224,8 +240,12 @@ public partial class Core
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
          return RetCode.BadParam ;
       }
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
       lookbackTotal = EmaLookback(optInTimePeriod);
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 ) {
+         emaBeta = 1.0 - optInK_1;
+      }
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -253,12 +273,12 @@ public partial class Core
       }
       prevMA = tempReal / optInTimePeriod;
       while( today <= startIdx ) {
-         prevMA = Math.FusedMultiplyAdd((double)inReal[today++] - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * (double)inReal[today++]);
       }
       outReal[0] = prevMA;
       outIdx = 1;
       while( today <= endIdx ) {
-         prevMA = Math.FusedMultiplyAdd((double)inReal[today++] - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * (double)inReal[today++]);
          outReal[outIdx++] = prevMA;
       }
       outNBElement = outIdx;
@@ -456,6 +476,7 @@ public partial class Core
    {
       internal Core core;
       internal int optInTimePeriod;
+      internal double emaBeta;
       internal double optInK_1;
       internal double prevMA;
       internal double cur_outReal;
@@ -501,6 +522,7 @@ public partial class Core
       {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
+         this.emaBeta = other.emaBeta;
          this.optInK_1 = other.optInK_1;
          this.prevMA = other.prevMA;
          this.cur_outReal = other.cur_outReal;
@@ -558,7 +580,7 @@ public partial class Core
             cur_outReal = inReal;
             return cur_outReal ;
          }
-         prevMA = Math.FusedMultiplyAdd(inReal - prevMA, sp.optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(sp.emaBeta, prevMA, sp.optInK_1 * inReal);
          cur_outReal = prevMA;
          return cur_outReal;
       }
@@ -586,7 +608,7 @@ public partial class Core
          sp.cur_outReal = inReal;
          return ;
       }
-      sp.prevMA = Math.FusedMultiplyAdd(inReal - sp.prevMA, sp.optInK_1, sp.prevMA);
+      sp.prevMA = Math.FusedMultiplyAdd(sp.emaBeta, sp.prevMA, sp.optInK_1 * inReal);
       sp.cur_outReal = sp.prevMA;
    }
 
@@ -594,6 +616,7 @@ public partial class Core
    {
       outBegIdx = 0;
       outNBElement = 0;
+      double emaBeta = 0;
       double optInK_1 = 0;
       double tempReal = 0;
       double prevMA = 0;
@@ -626,6 +649,7 @@ public partial class Core
             return RetCode.InsufficientHistory;
          }
          sp.optInTimePeriod = optInTimePeriod;
+         sp.emaBeta = 0.0;
          sp.optInK_1 = 0.0;
          sp.prevMA = 0.0;
          outBegIdx = fillLb;
@@ -640,11 +664,27 @@ public partial class Core
          sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
          return RetCode.Success;
       }
-      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
       lookbackTotal = EmaLookback(optInTimePeriod);
+      /* After the lookback call: a double live across a call is saved and
+       * restored around every fma call of the loops below, one more instruction
+       * per bar.
+       *
+       * emaBeta + optInK_1 must be exactly 1.0, or a flat input drifts off
+       * its level. Each subtraction is exact only from an operand in
+       * [0.5,1): at a period of 2 that is optInK_1, above it emaBeta.
+       *
+       * Above it emaBeta stays as the divide wrote it: the second subtraction
+       * would not change a bit, and a register last written by a subtraction
+       * costs each FMA reading it one more cycle on Intel P-cores.
+       */
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 ) {
+         emaBeta = 1.0 - optInK_1;
+      }
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -667,17 +707,18 @@ public partial class Core
       }
       prevMA = tempReal / optInTimePeriod;
       while( today <= startIdx ) {
-         prevMA = Math.FusedMultiplyAdd(inReal[today++] - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * inReal[today++]);
       }
       outReal[0 * outStride] = prevMA;
       outIdx = 1;
       while( today <= endIdx ) {
-         prevMA = Math.FusedMultiplyAdd(inReal[today++] - prevMA, optInK_1, prevMA);
+         prevMA = Math.FusedMultiplyAdd(emaBeta, prevMA, optInK_1 * inReal[today++]);
          outReal[outIdx++ * outStride] = prevMA;
       }
       outNBElement = outIdx;
       /* Capture the live batch state into the handle. */
       sp.optInTimePeriod = optInTimePeriod;
+      sp.emaBeta = emaBeta;
       sp.optInK_1 = optInK_1;
       sp.prevMA = prevMA;
       sp.cur_outReal = outReal[(outNBElement - 1) * outStride];

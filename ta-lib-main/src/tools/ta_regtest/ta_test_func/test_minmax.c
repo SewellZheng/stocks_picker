@@ -48,6 +48,8 @@
  *                referenceMidpoint (the original brute rescan) compared
  *                against the cached-index implementation, like the
  *                existing MIN/MAX reference checks.
+ *  100526 MF,CC  Hold what MININDEX, MAXINDEX and MINMAXINDEX write to the
+ *                input they index (#501).
  */
 
 /* Description:
@@ -147,6 +149,15 @@ static TA_RetCode referenceMidpoint( TA_Integer    startIdx,
 
 static ErrorNumber testCompareToReference( const TA_Real *input, int nbElement );
 
+static ErrorNumber checkIndexOutput( int site, int which, const TA_Real *in,
+                                     int startIdx, int endIdx, int period,
+                                     int outBegIdx, int outNbElement,
+                                     const TA_Integer *out, unsigned char *tied );
+static ErrorNumber verifyIndexCall( int site, const TA_Real *in,
+                                    int startIdx, int endIdx, int period );
+static ErrorNumber testIndexSweep( const TA_Real *in, int nbElement, int exhaustive );
+static ErrorNumber checkIndexFloors( void );
+
 /**** Local variables definitions.     ****/
 
 static TA_Test tableTest[] =
@@ -232,11 +243,21 @@ static TA_Test tableTest[] =
   /*  MINMAX and INDEX Functions tests */
   /*************************************/
 
-   /* Note: for now only range tests done on these */
    { 1, TA_MINMAX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 },
-   { 1, TA_MINMAXINDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 },
-   { 1, TA_MININDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 },
-   { 1, TA_MAXINDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 91.125,  13,  252-13 },
+   { 1, TA_MINMAXINDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 0,  13,  252-13 },
+   { 1, TA_MININDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 0,  13,  252-13 },
+   { 1, TA_MAXINDEX_TEST, 0, 251, 14, TA_SUCCESS, 0, 0,  13,  252-13 },
+
+   { 1, TA_MINMAXINDEX_TEST, 0, 251, 2, TA_SUCCESS, 0, 0,  1,  252-1 },
+   { 1, TA_MININDEX_TEST, 0, 251, 2, TA_SUCCESS, 0, 0,  1,  252-1 },
+   { 1, TA_MAXINDEX_TEST, 0, 251, 2, TA_SUCCESS, 0, 0,  1,  252-1 },
+
+   { 0, TA_MINMAXINDEX_TEST, 20, 99, 14, TA_SUCCESS, 0, 0,  20,  80 },
+   { 0, TA_MININDEX_TEST, 20, 99, 14, TA_SUCCESS, 0, 0,  20,  80 },
+   { 0, TA_MAXINDEX_TEST, 20, 99, 14, TA_SUCCESS, 0, 0,  20,  80 },
+   { 0, TA_MINMAXINDEX_TEST, 20, 99, 2, TA_SUCCESS, 0, 0,  20,  80 },
+   { 0, TA_MININDEX_TEST, 20, 99, 2, TA_SUCCESS, 0, 0,  20,  80 },
+   { 0, TA_MAXINDEX_TEST, 20, 99, 2, TA_SUCCESS, 0, 0,  20,  80 },
 
    /**********************/
    /*   MIDPOINT TEST    */
@@ -282,6 +303,31 @@ static TA_RefTest tableRefTest[] =
 
 #define NB_TEST_REF (sizeof(tableRefTest)/sizeof(TA_RefTest))
 
+/* What the index checks compared, per output and per place the call was made:
+ * the table rows, the range test, and the sweep over the 252-bar and over the
+ * short tied series. Each has its own floors in checkIndexFloors.
+ */
+enum { IDX_MININDEX, IDX_MAXINDEX, IDX_MINMAX_MIN, IDX_MINMAX_MAX, IDX_NB };
+enum { IDX_AT_TABLE, IDX_AT_RANGE, IDX_AT_LONG, IDX_AT_SHORT, IDX_NB_SITE };
+#define IDX_SMALLEST_PERIOD 2
+
+typedef struct
+{
+   unsigned int window;       /* index held to its bar's window */
+   unsigned int value;        /* input there held to the extremum */
+   unsigned int tied;         /* ... in a window holding it twice */
+   unsigned int pastLookback; /* ... from a call starting past the lookback */
+   unsigned int smallest;     /* ... at the smallest period */
+   unsigned int agree;        /* MINMAXINDEX held to the single-output function */
+   unsigned int agreeTied;    /* ... in a window holding the extremum twice */
+} TA_IdxCount;
+
+static const char *idxName[IDX_NB] = { "MININDEX", "MAXINDEX",
+                                       "MINMAXINDEX(min)", "MINMAXINDEX(max)" };
+static const char *idxSite[IDX_NB_SITE] = { "table", "range test",
+                                            "252-bar sweep", "tied-series sweep" };
+static TA_IdxCount gIdx[IDX_NB_SITE][IDX_NB];
+
 /**** Global functions definitions.   ****/
 ErrorNumber test_func_minmax( TA_History *history )
 {
@@ -319,8 +365,26 @@ ErrorNumber test_func_minmax( TA_History *history )
       }
    }
 
-   /* All test succeed. */
-   return TA_TEST_PASS;
+   retValue = testIndexSweep( history->close, (int)history->nbBars, 0 );
+   if( retValue != TA_TEST_PASS )
+   {
+      printf( "%s Failed Index Test on close (Code=%d)\n", __FILE__, retValue );
+      return retValue;
+   }
+
+   for( i=0; i < NB_TEST_REF; i++ )
+   {
+      retValue = testIndexSweep( tableRefTest[i].input,
+                                 (int)tableRefTest[i].nbElement, 1 );
+      if( retValue != TA_TEST_PASS )
+      {
+         printf( "%s Failed Index Test #%d (Code=%d)\n", __FILE__,
+                 i, retValue );
+         return retValue;
+      }
+   }
+
+   return checkIndexFloors();
 }
 
 /**** Local functions definitions.     ****/
@@ -438,6 +502,14 @@ static TA_RetCode rangeTestFunction( TA_Integer    startIdx,
                         out1Int, out2Int );
       *lookback = TA_MINMAXINDEX_Lookback( testParam->test->optInTimePeriod );
       *isOutputInteger = 1;
+      if( retCode == TA_SUCCESS &&
+          ( checkIndexOutput( IDX_AT_RANGE, IDX_MINMAX_MIN, testParam->close,
+                              startIdx, endIdx, testParam->test->optInTimePeriod,
+                              *outBegIdx, *outNbElement, out1Int, NULL ) != TA_TEST_PASS ||
+            checkIndexOutput( IDX_AT_RANGE, IDX_MINMAX_MAX, testParam->close,
+                              startIdx, endIdx, testParam->test->optInTimePeriod,
+                              *outBegIdx, *outNbElement, out2Int, NULL ) != TA_TEST_PASS ) )
+         retCode = TA_INTERNAL_ERROR(130);
       break;
 
    case TA_MININDEX_TEST:
@@ -450,6 +522,11 @@ static TA_RetCode rangeTestFunction( TA_Integer    startIdx,
                         out1Int );
       *lookback = TA_MININDEX_Lookback( testParam->test->optInTimePeriod );
       *isOutputInteger = 1;
+      if( retCode == TA_SUCCESS &&
+          checkIndexOutput( IDX_AT_RANGE, IDX_MININDEX, testParam->close,
+                            startIdx, endIdx, testParam->test->optInTimePeriod,
+                            *outBegIdx, *outNbElement, out1Int, NULL ) != TA_TEST_PASS )
+         retCode = TA_INTERNAL_ERROR(130);
       break;
 
    case TA_MAXINDEX_TEST:
@@ -462,6 +539,11 @@ static TA_RetCode rangeTestFunction( TA_Integer    startIdx,
                         out1Int );
       *lookback = TA_MAXINDEX_Lookback( testParam->test->optInTimePeriod );
       *isOutputInteger = 1;
+      if( retCode == TA_SUCCESS &&
+          checkIndexOutput( IDX_AT_RANGE, IDX_MAXINDEX, testParam->close,
+                            startIdx, endIdx, testParam->test->optInTimePeriod,
+                            *outBegIdx, *outNbElement, out1Int, NULL ) != TA_TEST_PASS )
+         retCode = TA_INTERNAL_ERROR(130);
       break;
 
    default:
@@ -586,6 +668,44 @@ static ErrorNumber do_test( const TA_History *history,
    errNb = checkDataSame( gBuffer[0].in, history->open,history->nbBars );
    if( errNb != TA_TEST_PASS )
       return errNb;
+
+   if( test->theFunction == TA_MININDEX_TEST ||
+       test->theFunction == TA_MAXINDEX_TEST ||
+       test->theFunction == TA_MINMAXINDEX_TEST )
+   {
+      if( retCode != test->expectedRetCode ||
+          outBegIdx != test->expectedBegIdx ||
+          outNbElement != test->expectedNbElement )
+      {
+         printf( "Failure: index test retCode=%d begIdx=%d nbElement=%d, expected %d %d %d\n",
+                 (int)retCode, outBegIdx, outNbElement,
+                 (int)test->expectedRetCode, test->expectedBegIdx,
+                 test->expectedNbElement );
+         return TA_REGTEST_INDEX_CALL;
+      }
+
+      if( test->theFunction == TA_MINMAXINDEX_TEST )
+      {
+         errNb = checkIndexOutput( IDX_AT_TABLE, IDX_MINMAX_MIN, gBuffer[0].in,
+                                   test->startIdx, test->endIdx,
+                                   test->optInTimePeriod,
+                                   outBegIdx, outNbElement, outInt0, NULL );
+         if( errNb == TA_TEST_PASS )
+            errNb = checkIndexOutput( IDX_AT_TABLE, IDX_MINMAX_MAX, gBuffer[0].in,
+                                      test->startIdx, test->endIdx,
+                                      test->optInTimePeriod,
+                                      outBegIdx, outNbElement, outInt1, NULL );
+      }
+      else
+         errNb = checkIndexOutput( IDX_AT_TABLE,
+                                   test->theFunction == TA_MININDEX_TEST ?
+                                   IDX_MININDEX : IDX_MAXINDEX,
+                                   gBuffer[0].in, test->startIdx, test->endIdx,
+                                   test->optInTimePeriod,
+                                   outBegIdx, outNbElement, outInt0, NULL );
+      if( errNb != TA_TEST_PASS )
+         return errNb;
+   }
 
    /* CHECK_EXPECTED_VALUE only applies to functions with real outputs. */
    if( test->theFunction == TA_MIN_TEST ||
@@ -1065,6 +1185,261 @@ static ErrorNumber testCompareToReference( const TA_Real *input, int nbElement )
                      return errNb;
                }
             }
+         }
+      }
+   }
+
+   return TA_TEST_PASS;
+}
+
+/* Holds one index output to the input it was computed from: the index lies in
+ * its bar's window, counted in `in` and not from startIdx, and the input there
+ * is the most recent of the window's bars holding its extremum (rW4). `tied`,
+ * when given, receives which bars had a window holding it more than once.
+ */
+static ErrorNumber checkIndexOutput( int site, int which, const TA_Real *in,
+                                     int startIdx, int endIdx, int period,
+                                     int outBegIdx, int outNbElement,
+                                     const TA_Integer *out, unsigned char *tied )
+{
+   int j, k, bar, first, idx, nbExtremum, newest;
+   int isMax = (which == IDX_MAXINDEX) || (which == IDX_MINMAX_MAX);
+   TA_IdxCount *count = &gIdx[site][which];
+   TA_Real extremum;
+
+   if( outNbElement > 0 &&
+       ( outBegIdx < period-1 || outBegIdx < startIdx ||
+         outBegIdx + outNbElement - 1 > endIdx ) )
+   {
+      printf( "Failure: %s period=%d [%d,%d] reports begIdx=%d nbElement=%d\n",
+              idxName[which], period, startIdx, endIdx, outBegIdx, outNbElement );
+      return TA_REGTEST_INDEX_CALL;
+   }
+
+   for( j=0; j < outNbElement; j++ )
+   {
+      bar   = outBegIdx + j;
+      first = bar - period + 1;
+      idx   = out[j];
+
+      if( idx < first || idx > bar )
+      {
+         printf( "Failure: %s period=%d startIdx=%d bar=%d names %d, outside [%d,%d]\n",
+                 idxName[which], period, startIdx, bar, idx, first, bar );
+         return TA_REGTEST_INDEX_OUTSIDE_WINDOW;
+      }
+      count->window++;
+
+      extremum   = in[first];
+      nbExtremum = 1;
+      newest     = first;
+      for( k=first+1; k <= bar; k++ )
+      {
+         if( in[k] == extremum )
+         {
+            nbExtremum++;
+            newest = k;
+         }
+         else if( isMax ? (in[k] > extremum) : (in[k] < extremum) )
+         {
+            extremum   = in[k];
+            nbExtremum = 1;
+            newest     = k;
+         }
+      }
+
+      if( !(in[idx] == extremum) )
+      {
+         printf( "Failure: %s period=%d startIdx=%d bar=%d names %d (%.17g), window extremum is %.17g\n",
+                 idxName[which], period, startIdx, bar, idx, in[idx], extremum );
+         return TA_REGTEST_INDEX_NOT_EXTREMUM;
+      }
+      count->value++;
+      if( idx != newest )
+      {
+         printf( "Failure: %s period=%d startIdx=%d bar=%d names %d, the most recent bar holding %.17g is %d\n",
+                 idxName[which], period, startIdx, bar, idx, extremum, newest );
+         return TA_REGTEST_INDEX_NOT_NEWEST;
+      }
+      if( nbExtremum > 1 )                count->tied++;
+      if( startIdx > period-1 )           count->pastLookback++;
+      if( period == IDX_SMALLEST_PERIOD ) count->smallest++;
+      if( tied )
+         tied[j] = (unsigned char)(nbExtremum > 1);
+   }
+
+   return TA_TEST_PASS;
+}
+
+/* One range and period through all three functions: each output against the
+ * input, then MINMAXINDEX against the other two.
+ */
+static ErrorNumber verifyIndexCall( int site, const TA_Real *in,
+                                    int startIdx, int endIdx, int period )
+{
+   static TA_Integer out[IDX_NB][MAX_NB_TEST_ELEMENT];
+   static unsigned char tied[IDX_NB][MAX_NB_TEST_ELEMENT];
+   TA_Integer begIdx[3], nbElement[3];
+   TA_Integer expectedBeg, expectedNb;
+   TA_RetCode retCode[3];
+   ErrorNumber errNb;
+   int j, which;
+
+   for( which=0; which < IDX_NB; which++ )
+      for( j=0; j < MAX_NB_TEST_ELEMENT; j++ )
+         out[which][j] = -1;
+   for( j=0; j < 3; j++ )
+      begIdx[j] = nbElement[j] = -1;
+
+   expectedBeg = (startIdx > period-1) ? startIdx : period-1;
+   expectedNb  = endIdx - expectedBeg + 1;
+   if( expectedNb <= 0 )
+      expectedBeg = expectedNb = 0;
+
+   retCode[0] = TA_MININDEX( startIdx, endIdx, in, period,
+                             &begIdx[0], &nbElement[0], out[IDX_MININDEX] );
+   retCode[1] = TA_MAXINDEX( startIdx, endIdx, in, period,
+                             &begIdx[1], &nbElement[1], out[IDX_MAXINDEX] );
+   retCode[2] = TA_MINMAXINDEX( startIdx, endIdx, in, period,
+                                &begIdx[2], &nbElement[2],
+                                out[IDX_MINMAX_MIN], out[IDX_MINMAX_MAX] );
+
+   for( j=0; j < 3; j++ )
+   {
+      if( retCode[j] != TA_SUCCESS ||
+          begIdx[j] != expectedBeg || nbElement[j] != expectedNb )
+      {
+         printf( "Failure: index call %d period=%d [%d,%d]: retCode=%d begIdx=%d nbElement=%d\n",
+                 j, period, startIdx, endIdx, (int)retCode[j], begIdx[j], nbElement[j] );
+         return TA_REGTEST_INDEX_CALL;
+      }
+   }
+
+   for( which=0; which < IDX_NB; which++ )
+   {
+      errNb = checkIndexOutput( site, which, in, startIdx, endIdx, period,
+                                expectedBeg, expectedNb, out[which], tied[which] );
+      if( errNb != TA_TEST_PASS )
+         return errNb;
+   }
+
+   for( which=IDX_MINMAX_MIN; which <= IDX_MINMAX_MAX; which++ )
+   {
+      int single = which - IDX_MINMAX_MIN;
+      for( j=0; j < expectedNb; j++ )
+      {
+         if( out[which][j] != out[single][j] )
+         {
+            printf( "Failure: %s period=%d startIdx=%d bar=%d names %d, %s names %d\n",
+                    idxName[which], period, startIdx, expectedBeg+j,
+                    out[which][j], idxName[single], out[single][j] );
+            return TA_REGTEST_INDEX_DISAGREE;
+         }
+         gIdx[site][which].agree++;
+         if( tied[which][j] )
+            gIdx[site][which].agreeTied++;
+      }
+   }
+
+   return TA_TEST_PASS;
+}
+
+/* Every range of a short series at every period it admits, or a long one at
+ * the periods and ranges that move the origin: startIdx before, at and past
+ * the lookback, where an index counted from startIdx or from outBegIdx leaves
+ * the window.
+ */
+static ErrorNumber testIndexSweep( const TA_Real *in, int nbElement, int exhaustive )
+{
+   static const int periods[] = { IDX_SMALLEST_PERIOD, 3, 14, 30 };
+   int starts[7], ends[3];
+   int p, s, e, k, period, startIdx, endIdx;
+   ErrorNumber errNb;
+
+   if( nbElement > MAX_NB_TEST_ELEMENT )
+      return TA_TESTUTIL_TFRR_BAD_PARAM;
+
+   if( exhaustive )
+   {
+      for( period=IDX_SMALLEST_PERIOD; period <= nbElement; period++ )
+         for( startIdx=0; startIdx < nbElement; startIdx++ )
+            for( endIdx=startIdx; endIdx < nbElement; endIdx++ )
+            {
+               errNb = verifyIndexCall( IDX_AT_SHORT, in, startIdx, endIdx, period );
+               if( errNb != TA_TEST_PASS )
+                  return errNb;
+            }
+      return TA_TEST_PASS;
+   }
+
+   for( p=0; p < (int)(sizeof(periods)/sizeof(periods[0])); p++ )
+   {
+      period = periods[p];
+      if( period > nbElement )
+         continue;
+
+      starts[0] = 0;
+      starts[1] = 1;
+      starts[2] = period-2;
+      starts[3] = period-1;
+      starts[4] = period;
+      starts[5] = nbElement/2;
+      starts[6] = nbElement-1;
+
+      for( s=0; s < 7; s++ )
+      {
+         startIdx = starts[s];
+         for( k=0; k < s && starts[k] != startIdx; k++ ) {}
+         if( k < s || startIdx < 0 || startIdx >= nbElement )
+            continue;
+
+         ends[0] = startIdx;
+         ends[1] = startIdx+1;
+         ends[2] = nbElement-1;
+         for( e=0; e < 3; e++ )
+         {
+            endIdx = ends[e];
+            for( k=0; k < e && ends[k] != endIdx; k++ ) {}
+            if( k < e || endIdx >= nbElement )
+               continue;
+            errNb = verifyIndexCall( IDX_AT_LONG, in, startIdx, endIdx, period );
+            if( errNb != TA_TEST_PASS )
+               return errNb;
+         }
+      }
+   }
+
+   return TA_TEST_PASS;
+}
+
+/* Each place is held to what it can reach: the table calls no second function,
+ * and only the short series are built to tie.
+ */
+static ErrorNumber checkIndexFloors( void )
+{
+   int site, which;
+   const TA_IdxCount *count;
+
+   for( site=0; site < IDX_NB_SITE; site++ )
+   {
+      for( which=0; which < IDX_NB; which++ )
+      {
+         int isSweep  = (site == IDX_AT_LONG) || (site == IDX_AT_SHORT);
+         int hasAgree = isSweep && (which >= IDX_MINMAX_MIN);
+         count = &gIdx[site][which];
+
+         if( !count->window || !count->value || !count->pastLookback ||
+             !count->smallest ||
+             ( site == IDX_AT_SHORT && !count->tied ) ||
+             ( hasAgree && !count->agree ) ||
+             ( hasAgree && site == IDX_AT_SHORT && !count->agreeTied ) )
+         {
+            printf( "Failure: %s in the %s compared window=%u value=%u tied=%u pastLookback=%u smallestPeriod=%u agree=%u agreeTied=%u\n",
+                    idxName[which], idxSite[site],
+                    count->window, count->value, count->tied,
+                    count->pastLookback, count->smallest,
+                    count->agree, count->agreeTied );
+            return TA_REGTEST_INDEX_VACUOUS;
          }
       }
    }

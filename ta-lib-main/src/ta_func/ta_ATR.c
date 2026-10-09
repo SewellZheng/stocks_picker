@@ -61,7 +61,7 @@
  *                loop-carried chain.
  */
 
-TA_LIB_API int TA_ATR_Lookback( int optInTimePeriod )
+TA_NOINLINE TA_LIB_API int TA_ATR_Lookback( int optInTimePeriod )
 {
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
@@ -74,7 +74,7 @@ TA_LIB_API int TA_ATR_Lookback( int optInTimePeriod )
     * (optInTimePeriod-1) is for the simple
     * moving average.
     */
-   return optInTimePeriod + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_ATR,Atr);
+   return optInTimePeriod + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_ATR,Atr,((optInTimePeriod > 1) ? (10 * (2 * optInTimePeriod - 1) + 1) / 2 : 0),((optInTimePeriod > 1) ? (19 * (2 * optInTimePeriod - 1) + 1) / 2 : 0));
 }
 
 TA_LIB_API int TA_ATR_DisplayShift( int optInTimePeriod, int outputIdx )
@@ -217,7 +217,7 @@ TA_LIB_API TA_RetCode TA_ATR( int    startIdx,
    }
    prevATR = periodTotal / optInTimePeriod;
    /* Skip the unstable period. */
-   i = TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_ATR,Atr);
+   i = lookbackTotal - optInTimePeriod;
    while( i != 0 )
    {
       /* Find the greatest of the 3 values. */
@@ -357,7 +357,7 @@ TA_RetCode TA_S_ATR( int    startIdx,
       today += 1;
    }
    prevATR = periodTotal / optInTimePeriod;
-   i = TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_ATR,Atr);
+   i = lookbackTotal - optInTimePeriod;
    while( i != 0 )
    {
       tempLT = (double)inLow[today];
@@ -455,7 +455,7 @@ static TA_FMA_STEP_INLINE void TA_ATR_StepImpl( struct TA_ATR_Stream *sp, double
    sp->lag1_inClose = inClose;
 }
 
-static TA_RetCode TA_ATR_OpenImpl( struct TA_ATR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_ATR_OpenImpl( struct TA_ATR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_ATR_Stream *sp;
    int endIdx;
@@ -578,7 +578,7 @@ static TA_RetCode TA_ATR_OpenImpl( struct TA_ATR_Stream **stream, const double i
       }
       prevATR = periodTotal / optInTimePeriod;
       /* Skip the unstable period. */
-      i = TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_ATR,Atr);
+      i = lookbackTotal - optInTimePeriod;
       while( i != 0 )
       {
          /* Find the greatest of the 3 values. */
@@ -650,6 +650,30 @@ static TA_RetCode TA_ATR_OpenImpl( struct TA_ATR_Stream **stream, const double i
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_ATR_OpenImplFma( struct TA_ATR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_ATR_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_ATR_OpenImplPlain( struct TA_ATR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_ATR_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_ATR_OpenSinkFma( struct TA_ATR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_ATR_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_ATR_OpenInternal( struct TA_ATR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
 {
@@ -657,7 +681,7 @@ TA_RetCode TA_ATR_OpenInternal( struct TA_ATR_Stream **stream, const double inHi
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_ATR_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_ATR_OpenImplFma( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_ATR_OpenImplPlain( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -672,7 +696,7 @@ TA_LIB_API TA_RetCode TA_ATR_Open( TA_ATR_Stream **stream, const double inHigh[]
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   return TA_ATR_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_ATR_OpenSinkFma( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal ) : TA_ATR_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_ATR_OpenAndFill( TA_ATR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -689,7 +713,7 @@ TA_LIB_API TA_RetCode TA_ATR_OpenAndFill( TA_ATR_Stream **stream, const double i
 /* Private function, not in public API. */
 TA_RetCode TA_ATR_OpenAndFillInternal( struct TA_ATR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_ATR_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_ATR_OpenImplFma( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_ATR_OpenImplPlain( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION

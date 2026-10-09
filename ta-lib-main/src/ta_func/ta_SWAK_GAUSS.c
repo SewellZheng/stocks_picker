@@ -56,9 +56,10 @@
  *  -------------------------------------------------------------------
  *  100126 KL,CC  Creation (#486).
  *  100326 MF,CC  The newest output on one fused step (#486).
+ *  100526 MF,CC  b2p without its cancellation at long periods (#486).
  */
 
-TA_LIB_API int TA_SWAK_GAUSS_Lookback( int optInTimePeriod )
+TA_NOINLINE TA_LIB_API int TA_SWAK_GAUSS_Lookback( int optInTimePeriod )
 {
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 20;
@@ -69,7 +70,7 @@ TA_LIB_API int TA_SWAK_GAUSS_Lookback( int optInTimePeriod )
     * from before it -- and there is no callee whose lookback could be
     * inherited, so the function's own unstable period is the whole of it.
     */
-   return TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_SWAK_GAUSS,Swak_gauss);
+   return TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_SWAK_GAUSS,Swak_gauss,(((10 + 3) * (optInTimePeriod + 2) + 8) / 9),(((19 + 3) * (optInTimePeriod + 2) + 8) / 9));
 }
 
 TA_LIB_API int TA_SWAK_GAUSS_DisplayShift( int optInTimePeriod, int outputIdx )
@@ -94,7 +95,7 @@ TA_LIB_API TA_RetCode TA_SWAK_GAUSS( int    startIdx,
    int outIdx;
    int today;
    int lookbackTotal;
-   double w;
+   double s;
    double b2p;
    double a2p;
    double om;
@@ -134,9 +135,12 @@ TA_LIB_API TA_RetCode TA_SWAK_GAUSS( int    startIdx,
    }
    /* The two-pole alpha of Ehlers' "Swiss Army Knife Indicator", Figure 5. The
     * paper's 360/P is a full turn, so 2*pi/P.
+    *
+    * Keep 1 - cos(w) as 2*sin(w/2)^2: the subtraction cancels more of b2p's
+    * digits the longer the period, and the cutoff drifts with them.
     */
-   w = 2.0 * 3.141592653589793 / (double)optInTimePeriod;
-   b2p = 2.415 * (1.0 - cos(w));
+   s = sin(3.141592653589793 / (double)optInTimePeriod);
+   b2p = 2.415 * (2.0 * s * s);
    a2p = -b2p + sqrt(fma(b2p, b2p, 2.0 * b2p));
    /* The Gaussian row of Figure 5: numerator a2p^2 on the bar alone, no
     * x[i-1] or x[i-2] term. Its DC gain is 1, so the line sits on price.
@@ -196,7 +200,7 @@ TA_RetCode TA_S_SWAK_GAUSS( int    startIdx,
    int outIdx;
    int today;
    int lookbackTotal;
-   double w;
+   double s;
    double b2p;
    double a2p;
    double om;
@@ -234,8 +238,8 @@ TA_RetCode TA_S_SWAK_GAUSS( int    startIdx,
    {
       return TA_SUCCESS;
    }
-   w = 2.0 * 3.141592653589793 / (double)optInTimePeriod;
-   b2p = 2.415 * (1.0 - cos(w));
+   s = sin(3.141592653589793 / (double)optInTimePeriod);
+   b2p = 2.415 * (2.0 * s * s);
    a2p = -b2p + sqrt(fma(b2p, b2p, 2.0 * b2p));
    om = 1.0 - a2p;
    c0 = a2p * a2p;
@@ -302,7 +306,7 @@ static TA_FMA_STEP_INLINE void TA_SWAK_GAUSS_StepImpl( struct TA_SWAK_GAUSS_Stre
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_SWAK_GAUSS_OpenImpl( struct TA_SWAK_GAUSS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_SWAK_GAUSS_OpenImpl( struct TA_SWAK_GAUSS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_SWAK_GAUSS_Stream *sp;
    int endIdx;
@@ -330,7 +334,7 @@ static TA_RetCode TA_SWAK_GAUSS_OpenImpl( struct TA_SWAK_GAUSS_Stream **stream, 
       int outIdx;
       int today;
       int lookbackTotal;
-      double w;
+      double s;
       double b2p;
       double a2p;
       double om;
@@ -353,9 +357,12 @@ static TA_RetCode TA_SWAK_GAUSS_OpenImpl( struct TA_SWAK_GAUSS_Stream **stream, 
       }
       /* The two-pole alpha of Ehlers' "Swiss Army Knife Indicator", Figure 5. The
        * paper's 360/P is a full turn, so 2*pi/P.
+       *
+       * Keep 1 - cos(w) as 2*sin(w/2)^2: the subtraction cancels more of b2p's
+       * digits the longer the period, and the cutoff drifts with them.
        */
-      w = 2.0 * 3.141592653589793 / (double)optInTimePeriod;
-      b2p = 2.415 * (1.0 - cos(w));
+      s = sin(3.141592653589793 / (double)optInTimePeriod);
+      b2p = 2.415 * (2.0 * s * s);
       a2p = -b2p + sqrt(fma(b2p, b2p, 2.0 * b2p));
       /* The Gaussian row of Figure 5: numerator a2p^2 on the bar alone, no
        * x[i-1] or x[i-2] term. Its DC gain is 1, so the line sits on price.
@@ -418,6 +425,30 @@ static TA_RetCode TA_SWAK_GAUSS_OpenImpl( struct TA_SWAK_GAUSS_Stream **stream, 
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_SWAK_GAUSS_OpenImplFma( struct TA_SWAK_GAUSS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_SWAK_GAUSS_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_SWAK_GAUSS_OpenImplPlain( struct TA_SWAK_GAUSS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_SWAK_GAUSS_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_SWAK_GAUSS_OpenSinkFma( struct TA_SWAK_GAUSS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_SWAK_GAUSS_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_SWAK_GAUSS_OpenInternal( struct TA_SWAK_GAUSS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
 {
@@ -425,7 +456,7 @@ TA_RetCode TA_SWAK_GAUSS_OpenInternal( struct TA_SWAK_GAUSS_Stream **stream, con
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_SWAK_GAUSS_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_SWAK_GAUSS_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_SWAK_GAUSS_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -440,7 +471,7 @@ TA_LIB_API TA_RetCode TA_SWAK_GAUSS_Open( TA_SWAK_GAUSS_Stream **stream, const d
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
-   return TA_SWAK_GAUSS_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_SWAK_GAUSS_OpenSinkFma( stream, inReal, 0, historyLen, optInTimePeriod, outReal ) : TA_SWAK_GAUSS_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_SWAK_GAUSS_OpenAndFill( TA_SWAK_GAUSS_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -457,7 +488,7 @@ TA_LIB_API TA_RetCode TA_SWAK_GAUSS_OpenAndFill( TA_SWAK_GAUSS_Stream **stream, 
 /* Private function, not in public API. */
 TA_RetCode TA_SWAK_GAUSS_OpenAndFillInternal( struct TA_SWAK_GAUSS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_SWAK_GAUSS_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_SWAK_GAUSS_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_SWAK_GAUSS_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION

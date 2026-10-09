@@ -826,6 +826,7 @@ fn func_unst_id_from_int(id: usize) -> Option<FuncUnstId> {
         33 => Some(FuncUnstId::SWAK_HP),
         34 => Some(FuncUnstId::SWAK_2PHP),
         35 => Some(FuncUnstId::SWAK_BP),
+        36 => Some(FuncUnstId::FISHER),
         _ => None,
     }
 }
@@ -1056,6 +1057,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
         "TA_ER" => rpc_er(core, ref_data, params),
         "TA_ERI" => rpc_eri(core, ref_data, params),
         "TA_EXP" => rpc_exp(core, ref_data, params),
+        "TA_FISHER" => rpc_fisher(core, ref_data, params),
         "TA_FLOOR" => rpc_floor(core, ref_data, params),
         "TA_FOSC" => rpc_fosc(core, ref_data, params),
         "TA_FRACTAL" => rpc_fractal(core, ref_data, params),
@@ -1115,6 +1117,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
         "TA_PLUS_DI" => rpc_plus_di(core, ref_data, params),
         "TA_PLUS_DM" => rpc_plus_dm(core, ref_data, params),
         "TA_PPO" => rpc_ppo(core, ref_data, params),
+        "TA_PSO" => rpc_pso(core, ref_data, params),
         "TA_PVI" => rpc_pvi(core, ref_data, params),
         "TA_PVO" => rpc_pvo(core, ref_data, params),
         "TA_PVT" => rpc_pvt(core, ref_data, params),
@@ -1124,6 +1127,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
         "TA_ROCP" => rpc_rocp(core, ref_data, params),
         "TA_ROCR" => rpc_rocr(core, ref_data, params),
         "TA_ROCR100" => rpc_rocr100(core, ref_data, params),
+        "TA_ROGERSSATCHELL" => rpc_rogerssatchell(core, ref_data, params),
         "TA_RSI" => rpc_rsi(core, ref_data, params),
         "TA_RVI" => rpc_rvi(core, ref_data, params),
         "TA_RVIR" => rpc_rvir(core, ref_data, params),
@@ -1286,6 +1290,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_ER",
                 "TA_ERI",
                 "TA_EXP",
+                "TA_FISHER",
                 "TA_FLOOR",
                 "TA_FOSC",
                 "TA_FRACTAL",
@@ -1345,6 +1350,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_PLUS_DI",
                 "TA_PLUS_DM",
                 "TA_PPO",
+                "TA_PSO",
                 "TA_PVI",
                 "TA_PVO",
                 "TA_PVT",
@@ -1354,6 +1360,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_ROCP",
                 "TA_ROCR",
                 "TA_ROCR100",
+                "TA_ROGERSSATCHELL",
                 "TA_RSI",
                 "TA_RVI",
                 "TA_RVIR",
@@ -1999,6 +2006,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_ER" => sv_er(core, params),
         "TA_ERI" => sv_eri(core, params),
         "TA_EXP" => sv_exp(core, params),
+        "TA_FISHER" => sv_fisher(core, params),
         "TA_FLOOR" => sv_floor(core, params),
         "TA_FOSC" => sv_fosc(core, params),
         "TA_FRACTAL" => sv_fractal(core, params),
@@ -2058,6 +2066,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_PLUS_DI" => sv_plus_di(core, params),
         "TA_PLUS_DM" => sv_plus_dm(core, params),
         "TA_PPO" => sv_ppo(core, params),
+        "TA_PSO" => sv_pso(core, params),
         "TA_PVI" => sv_pvi(core, params),
         "TA_PVO" => sv_pvo(core, params),
         "TA_PVT" => sv_pvt(core, params),
@@ -2067,6 +2076,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_ROCP" => sv_rocp(core, params),
         "TA_ROCR" => sv_rocr(core, params),
         "TA_ROCR100" => sv_rocr100(core, params),
+        "TA_ROGERSSATCHELL" => sv_rogerssatchell(core, params),
         "TA_RSI" => sv_rsi(core, params),
         "TA_RVI" => sv_rvi(core, params),
         "TA_RVIR" => sv_rvir(core, params),
@@ -2446,6 +2456,7 @@ pub(super) fn sv_ac(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -2471,7 +2482,7 @@ pub(super) fn sv_ac(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -2864,6 +2875,7 @@ pub(super) fn sv_accbands(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -2899,7 +2911,7 @@ pub(super) fn sv_accbands(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -3257,6 +3269,7 @@ pub(super) fn sv_acos(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -3282,7 +3295,7 @@ pub(super) fn sv_acos(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -3645,6 +3658,7 @@ pub(super) fn sv_ad(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -3670,7 +3684,7 @@ pub(super) fn sv_ad(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -4023,6 +4037,7 @@ pub(super) fn sv_add(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -4048,7 +4063,7 @@ pub(super) fn sv_add(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -4420,6 +4435,7 @@ pub(super) fn sv_adosc(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -4445,7 +4461,7 @@ pub(super) fn sv_adosc(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -4803,6 +4819,7 @@ pub(super) fn sv_adr(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -4828,7 +4845,7 @@ pub(super) fn sv_adr(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -5193,6 +5210,7 @@ pub(super) fn sv_adx(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -5218,7 +5236,7 @@ pub(super) fn sv_adx(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -5582,6 +5600,7 @@ pub(super) fn sv_adxr(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -5607,7 +5626,7 @@ pub(super) fn sv_adxr(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -5960,6 +5979,7 @@ pub(super) fn sv_alma(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -5985,7 +6005,7 @@ pub(super) fn sv_alma(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -6341,6 +6361,7 @@ pub(super) fn sv_ao(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -6366,7 +6387,7 @@ pub(super) fn sv_ao(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -6733,6 +6754,7 @@ pub(super) fn sv_apo(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -6758,7 +6780,7 @@ pub(super) fn sv_apo(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -7126,6 +7148,7 @@ pub(super) fn sv_aroon(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -7156,7 +7179,7 @@ pub(super) fn sv_aroon(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -7516,6 +7539,7 @@ pub(super) fn sv_aroonosc(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -7541,7 +7565,7 @@ pub(super) fn sv_aroonosc(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -7910,6 +7934,7 @@ pub(super) fn sv_asi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -7935,7 +7960,7 @@ pub(super) fn sv_asi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -8281,6 +8306,7 @@ pub(super) fn sv_asin(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -8306,7 +8332,7 @@ pub(super) fn sv_asin(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -8645,6 +8671,7 @@ pub(super) fn sv_atan(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -8670,7 +8697,7 @@ pub(super) fn sv_atan(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -9032,6 +9059,7 @@ pub(super) fn sv_atr(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -9057,7 +9085,7 @@ pub(super) fn sv_atr(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -9404,6 +9432,7 @@ pub(super) fn sv_avgdev(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -9429,7 +9458,7 @@ pub(super) fn sv_avgdev(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -9793,6 +9822,7 @@ pub(super) fn sv_avgprice(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -9818,7 +9848,7 @@ pub(super) fn sv_avgprice(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -10220,6 +10250,7 @@ pub(super) fn sv_bbands(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -10255,7 +10286,7 @@ pub(super) fn sv_bbands(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -10639,6 +10670,7 @@ pub(super) fn sv_bbw(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -10664,7 +10696,7 @@ pub(super) fn sv_bbw(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -11018,6 +11050,7 @@ pub(super) fn sv_beta(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -11043,7 +11076,7 @@ pub(super) fn sv_beta(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -11409,6 +11442,7 @@ pub(super) fn sv_bop(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -11434,7 +11468,7 @@ pub(super) fn sv_bop(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -11798,6 +11832,7 @@ pub(super) fn sv_cci(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -11823,7 +11858,7 @@ pub(super) fn sv_cci(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -12195,6 +12230,7 @@ pub(super) fn sv_cdl2crows(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -12220,7 +12256,7 @@ pub(super) fn sv_cdl2crows(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -12593,6 +12629,7 @@ pub(super) fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -12618,7 +12655,7 @@ pub(super) fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -12991,6 +13028,7 @@ pub(super) fn sv_cdl3inside(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -13016,7 +13054,7 @@ pub(super) fn sv_cdl3inside(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -13389,6 +13427,7 @@ pub(super) fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -13414,7 +13453,7 @@ pub(super) fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -13787,6 +13826,7 @@ pub(super) fn sv_cdl3outside(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -13812,7 +13852,7 @@ pub(super) fn sv_cdl3outside(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -14185,6 +14225,7 @@ pub(super) fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -14210,7 +14251,7 @@ pub(super) fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -14583,6 +14624,7 @@ pub(super) fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -14608,7 +14650,7 @@ pub(super) fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -14984,6 +15026,7 @@ pub(super) fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -15009,7 +15052,7 @@ pub(super) fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -15383,6 +15426,7 @@ pub(super) fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -15408,7 +15452,7 @@ pub(super) fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -15781,6 +15825,7 @@ pub(super) fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -15806,7 +15851,7 @@ pub(super) fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -16179,6 +16224,7 @@ pub(super) fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -16204,7 +16250,7 @@ pub(super) fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -16577,6 +16623,7 @@ pub(super) fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -16602,7 +16649,7 @@ pub(super) fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -16975,6 +17022,7 @@ pub(super) fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -17000,7 +17048,7 @@ pub(super) fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -17373,6 +17421,7 @@ pub(super) fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -17398,7 +17447,7 @@ pub(super) fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -17774,6 +17823,7 @@ pub(super) fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -17799,7 +17849,7 @@ pub(super) fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -18173,6 +18223,7 @@ pub(super) fn sv_cdldoji(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -18198,7 +18249,7 @@ pub(super) fn sv_cdldoji(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -18571,6 +18622,7 @@ pub(super) fn sv_cdldojistar(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -18596,7 +18648,7 @@ pub(super) fn sv_cdldojistar(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -18969,6 +19021,7 @@ pub(super) fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -18994,7 +19047,7 @@ pub(super) fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -19367,6 +19420,7 @@ pub(super) fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -19392,7 +19446,7 @@ pub(super) fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -19768,6 +19822,7 @@ pub(super) fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -19793,7 +19848,7 @@ pub(super) fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -20170,6 +20225,7 @@ pub(super) fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -20195,7 +20251,7 @@ pub(super) fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -20569,6 +20625,7 @@ pub(super) fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -20594,7 +20651,7 @@ pub(super) fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -20967,6 +21024,7 @@ pub(super) fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -20992,7 +21050,7 @@ pub(super) fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -21365,6 +21423,7 @@ pub(super) fn sv_cdlhammer(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -21390,7 +21449,7 @@ pub(super) fn sv_cdlhammer(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -21763,6 +21822,7 @@ pub(super) fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -21788,7 +21848,7 @@ pub(super) fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -22161,6 +22221,7 @@ pub(super) fn sv_cdlharami(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -22186,7 +22247,7 @@ pub(super) fn sv_cdlharami(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -22559,6 +22620,7 @@ pub(super) fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -22584,7 +22646,7 @@ pub(super) fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -22957,6 +23019,7 @@ pub(super) fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -22982,7 +23045,7 @@ pub(super) fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -23355,6 +23418,7 @@ pub(super) fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -23380,7 +23444,7 @@ pub(super) fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -23753,6 +23817,7 @@ pub(super) fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -23778,7 +23843,7 @@ pub(super) fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -24151,6 +24216,7 @@ pub(super) fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -24176,7 +24242,7 @@ pub(super) fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -24549,6 +24615,7 @@ pub(super) fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -24574,7 +24641,7 @@ pub(super) fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -24947,6 +25014,7 @@ pub(super) fn sv_cdlinneck(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -24972,7 +25040,7 @@ pub(super) fn sv_cdlinneck(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -25345,6 +25413,7 @@ pub(super) fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -25370,7 +25439,7 @@ pub(super) fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -25743,6 +25812,7 @@ pub(super) fn sv_cdlkicking(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -25768,7 +25838,7 @@ pub(super) fn sv_cdlkicking(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -26141,6 +26211,7 @@ pub(super) fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -26166,7 +26237,7 @@ pub(super) fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -26539,6 +26610,7 @@ pub(super) fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -26564,7 +26636,7 @@ pub(super) fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -26937,6 +27009,7 @@ pub(super) fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -26962,7 +27035,7 @@ pub(super) fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -27335,6 +27408,7 @@ pub(super) fn sv_cdllongline(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -27360,7 +27434,7 @@ pub(super) fn sv_cdllongline(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -27733,6 +27807,7 @@ pub(super) fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -27758,7 +27833,7 @@ pub(super) fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -28131,6 +28206,7 @@ pub(super) fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -28156,7 +28232,7 @@ pub(super) fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -28532,6 +28608,7 @@ pub(super) fn sv_cdlmathold(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -28557,7 +28634,7 @@ pub(super) fn sv_cdlmathold(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -28934,6 +29011,7 @@ pub(super) fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -28959,7 +29037,7 @@ pub(super) fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -29336,6 +29414,7 @@ pub(super) fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -29361,7 +29440,7 @@ pub(super) fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -29735,6 +29814,7 @@ pub(super) fn sv_cdlonneck(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -29760,7 +29840,7 @@ pub(super) fn sv_cdlonneck(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -30133,6 +30213,7 @@ pub(super) fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -30158,7 +30239,7 @@ pub(super) fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -30531,6 +30612,7 @@ pub(super) fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -30556,7 +30638,7 @@ pub(super) fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -30929,6 +31011,7 @@ pub(super) fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -30954,7 +31037,7 @@ pub(super) fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -31327,6 +31410,7 @@ pub(super) fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -31352,7 +31436,7 @@ pub(super) fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -31725,6 +31809,7 @@ pub(super) fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -31750,7 +31835,7 @@ pub(super) fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -32123,6 +32208,7 @@ pub(super) fn sv_cdlshortline(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -32148,7 +32234,7 @@ pub(super) fn sv_cdlshortline(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -32521,6 +32607,7 @@ pub(super) fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -32546,7 +32633,7 @@ pub(super) fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -32919,6 +33006,7 @@ pub(super) fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -32944,7 +33032,7 @@ pub(super) fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -33317,6 +33405,7 @@ pub(super) fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -33342,7 +33431,7 @@ pub(super) fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -33715,6 +33804,7 @@ pub(super) fn sv_cdltakuri(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -33740,7 +33830,7 @@ pub(super) fn sv_cdltakuri(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -34113,6 +34203,7 @@ pub(super) fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -34138,7 +34229,7 @@ pub(super) fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -34511,6 +34602,7 @@ pub(super) fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -34536,7 +34628,7 @@ pub(super) fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -34909,6 +35001,7 @@ pub(super) fn sv_cdltristar(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -34934,7 +35027,7 @@ pub(super) fn sv_cdltristar(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -35307,6 +35400,7 @@ pub(super) fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -35332,7 +35426,7 @@ pub(super) fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -35705,6 +35799,7 @@ pub(super) fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -35730,7 +35825,7 @@ pub(super) fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -36103,6 +36198,7 @@ pub(super) fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -36128,7 +36224,7 @@ pub(super) fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -36473,6 +36569,7 @@ pub(super) fn sv_ceil(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -36498,7 +36595,7 @@ pub(super) fn sv_ceil(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -36840,6 +36937,7 @@ pub(super) fn sv_cg(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -36865,7 +36963,7 @@ pub(super) fn sv_cg(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -37224,6 +37322,7 @@ pub(super) fn sv_chop(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -37249,7 +37348,7 @@ pub(super) fn sv_chop(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -37612,6 +37711,7 @@ pub(super) fn sv_choptr(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -37637,7 +37737,7 @@ pub(super) fn sv_choptr(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -38022,6 +38122,7 @@ pub(super) fn sv_cksp(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -38052,7 +38153,7 @@ pub(super) fn sv_cksp(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -38432,6 +38533,7 @@ pub(super) fn sv_cmf(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -38457,7 +38559,7 @@ pub(super) fn sv_cmf(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -38810,6 +38912,7 @@ pub(super) fn sv_cmo(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -38835,7 +38938,7 @@ pub(super) fn sv_cmo(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -39178,6 +39281,7 @@ pub(super) fn sv_cmou(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -39203,7 +39307,7 @@ pub(super) fn sv_cmou(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -39552,6 +39656,7 @@ pub(super) fn sv_coppock(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -39577,7 +39682,7 @@ pub(super) fn sv_coppock(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -39930,6 +40035,7 @@ pub(super) fn sv_correl(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -39955,7 +40061,7 @@ pub(super) fn sv_correl(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -40297,6 +40403,7 @@ pub(super) fn sv_cos(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -40322,7 +40429,7 @@ pub(super) fn sv_cos(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -40661,6 +40768,7 @@ pub(super) fn sv_cosh(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -40686,7 +40794,7 @@ pub(super) fn sv_cosh(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -41035,6 +41143,7 @@ pub(super) fn sv_crsi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -41060,7 +41169,7 @@ pub(super) fn sv_crsi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -41405,6 +41514,7 @@ pub(super) fn sv_cti(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -41430,7 +41540,7 @@ pub(super) fn sv_cti(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -41770,6 +41880,7 @@ pub(super) fn sv_cumsum(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -41795,7 +41906,7 @@ pub(super) fn sv_cumsum(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -42149,6 +42260,7 @@ pub(super) fn sv_cvi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -42174,7 +42286,7 @@ pub(super) fn sv_cvi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -42521,6 +42633,7 @@ pub(super) fn sv_dema(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -42546,7 +42659,7 @@ pub(super) fn sv_dema(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -42894,6 +43007,7 @@ pub(super) fn sv_div(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -42919,7 +43033,7 @@ pub(super) fn sv_div(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -43301,6 +43415,7 @@ pub(super) fn sv_donchian(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -43336,7 +43451,7 @@ pub(super) fn sv_donchian(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -43695,6 +43810,7 @@ pub(super) fn sv_dpo(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -43720,7 +43836,7 @@ pub(super) fn sv_dpo(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -44083,6 +44199,7 @@ pub(super) fn sv_dx(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -44108,7 +44225,7 @@ pub(super) fn sv_dx(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -44464,6 +44581,7 @@ pub(super) fn sv_efi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -44489,7 +44607,7 @@ pub(super) fn sv_efi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -44838,6 +44956,7 @@ pub(super) fn sv_ema(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -44863,7 +44982,7 @@ pub(super) fn sv_ema(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -45225,6 +45344,7 @@ pub(super) fn sv_emv(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -45250,7 +45370,7 @@ pub(super) fn sv_emv(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -45598,6 +45718,7 @@ pub(super) fn sv_er(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -45623,7 +45744,7 @@ pub(super) fn sv_er(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -45998,6 +46119,7 @@ pub(super) fn sv_eri(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -46028,7 +46150,7 @@ pub(super) fn sv_eri(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -46379,6 +46501,7 @@ pub(super) fn sv_exp(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -46404,7 +46527,7 @@ pub(super) fn sv_exp(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -46518,6 +46641,416 @@ pub(super) fn ride_exp(core: &Core, params: &Value, endIdx: usize, inReal: &[f64
 
 }
 use f_exp::*;
+
+mod f_fisher {
+use super::*;
+
+pub(super) fn rpc_fisher(core: &mut Core, ref_data: &mut RefData, params: &Value) -> String {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inHigh: Vec<f64> = Vec::new();
+            let mut _json_inLow: Vec<f64> = Vec::new();
+            let inHigh: &[f64];
+            let inLow: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inHigh = _fz_h.clone();
+                inHigh = &_json_inHigh;
+                _json_inLow = _fz_l.clone();
+                inLow = &_json_inLow;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inHigh = &ref_data.high[..ref_data.n];
+                inLow = &ref_data.low[..ref_data.n];
+            } else {
+                _json_inHigh = parse_f64_array(&params["inHigh"]);
+                inHigh = &_json_inHigh;
+                _json_inLow = parse_f64_array(&params["inLow"]);
+                inLow = &_json_inLow;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(10) as i32;
+            if let Some(period) = params["unstablePeriod"].as_i64() {
+                let _ = apply_unstable_period(core, 36, period);
+            }
+            // The output buffers are sized to the count the call actually PRODUCES --
+            // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
+            // never below one. Not to the width of the requested range: that is the bound the
+            // managed backends check and the Rust asserts state, and at the range width it was
+            // slack by exactly the lookback, so no call could ever approach it.
+            // The pad is there because a bound is a MINIMUM, never an equality. A caller
+            // re-using a pre-allocated buffer passes a larger one, and that is not an error --
+            // the reported OutRange is what says which part was written. So the harness sends
+            // both: the startIdx axis sends no pad (the bound is reachable) while the
+            // full-range value comparison sends one (slack is legal). Sizing every call one way
+            // would silently drop the other property.
+            // FLOORED AT ONE, deliberately. Zero is what the formula gives for a rejected call
+            // (the lookback is -1, or usize::MAX in Rust, for an out-of-range parameter) and
+            // for a range shorter than the lookback, where the output bound switches off.
+            // An empty output is an absent one, so sizing to zero here would turn the second
+            // into a rejection of the buffer.
+            // The C server keeps its MAX_ARRAY_SIZE statics: C is handed bare pointers, has no
+            // sizes and cannot make the check, so an exact buffer would test nothing there.
+            let _lb = core.fisher_lookback(optInTimePeriod).unwrap_or(usize::MAX);
+            let _cs = if startIdx > _lb { startIdx } else { _lb };
+            let out_size = (if _cs > endIdx { 1 } else { endIdx - _cs + 1 }) + params["out_pad"].as_u64().unwrap_or(0) as usize;
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBuf1: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            let _out = core.fisher(
+                startIdx, endIdx,
+                &inHigh,
+                &inLow,
+                optInTimePeriod,
+                &mut outBuf0, &mut outBuf1,
+            );
+            rc = match _out {
+                Ok(r) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success }
+                Err(e) => { outBegIdx = 0; outNBElement = 0; e }
+            };
+            } else {
+            if bench_mode == 1 {
+                rc = match core.fisher_open(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.fisher_open_and_fill(&inHigh[..=endIdx], &inLow[..=endIdx], optInTimePeriod, &mut outBuf0, &mut outBuf1) { Ok((_h, r)) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success } Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf1[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                let mut hresp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+                ride_fisher(&core, params, endIdx, &inHigh, &inLow, optInTimePeriod, &mut hresp);
+                hresp.push('}');
+                return hresp;
+            }
+            let lookback: i64 = core.fisher_lookback(optInTimePeriod).map_or(-1, |v| v as i64);
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_len\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, out_size, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push_str(",\"outReal1\":"); resp.push_str(&json_f64_array(&outBuf1[..outNBElement]));
+            ride_fisher(&core, params, endIdx, &inHigh, &inLow, optInTimePeriod, &mut resp);
+            resp.push('}');
+            resp
+}
+
+pub(super) fn sv_fisher(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(10) as i32;
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut b1: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rejects = 0i64;
+    let mut peek_rep_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut range_checked = 0i32;
+    let mut range_ok = true;
+    let mut range_legs = 0i64;
+    let mut range_sites = 0i32;
+    let mut value_checked = 0i32;
+    let mut value_ok = true;
+    let mut value_legs = 0i64;
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let mut cb = core.to_builder();
+        if let Some(id) = func_unst_id_from_int(36usize) { cb = cb.unstable_period(id, svK); }
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = match c2.fisher(0, svN - 1, &fz_h, &fz_l, optInTimePeriod, &mut b0, &mut b1) { Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success } Err(e) => { beg = 0; nb = 0; e } };
+        let lb = c2.fisher_lookback(optInTimePeriod).unwrap_or(usize::MAX);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.fisher_open(&fz_h, &fz_l, optInTimePeriod).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+        let mut f1: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+        match c2.fisher_open_and_fill(&fz_h, &fz_l, optInTimePeriod, &mut f0, &mut f1) {
+            Err(_) => { fill_ok = false; }
+            Ok((_h, fr)) => {
+                range_checked = 1; range_legs += 1; range_sites |= 1;
+                if _h.out_range().beg_idx != beg || _h.out_range().count != nb { range_ok = false; }
+                if fr.beg_idx != beg || fr.count != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                    for i in 0..nb { if sv_xtier_ne(f1[i], b1[i], &mut zsign) { fill_ok = false; } }
+                    for i in nb..svN { if f0[i] != -1.2345678901234e300f64 { fill_ok = false; } }
+                    for i in nb..svN { if f1[i] != -1.2345678901234e300f64 { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let mut pcs = vec![lb + 1, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.fisher_open(&fz_h[..p], &fz_l[..p], optInTimePeriod) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
+                    { let va = st.value(); value_checked = 1; value_legs += 1;
+                      if va.0.to_bits() != v0.0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                      if va.1.to_bits() != v0.1.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                    }
+                    for t in p..svN {
+                        let pk_res = st.peek(fz_h[t], fz_l[t]);
+                        if pk_res.is_err() { peek_rejects += 1; }
+                        if t % 7 == 0 {
+                            if st.peek(fz_h[t - 1], fz_l[t - 1]).is_err() { peek_rejects += 1; }
+                            match (pk_res, st.peek(fz_h[t], fz_l[t])) {
+                                (Ok(pk), Ok(rp)) => {
+                                    peek_reps += 1;
+                                    if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                                    if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
+                                }
+                                _ => { peek_rejects += 1; }
+                            }
+                        }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if let Ok(pk) = pk_res {
+                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                    }
+                    if all_ok {
+                        range_checked = 1; range_legs += 1; range_sites |= 2;
+                        if st.out_range().beg_idx != beg || st.out_range().count != nb { range_ok = false; }
+                        range_legs += 1; range_sites |= 16;
+                        if st.advance().is_err() { range_ok = false; }
+                        if st.out_range().beg_idx != beg || st.out_range().count != nb + 1 { range_ok = false; }
+                    }
+                }
+            }
+        }
+        if let Some(&p) = pcs.first() {
+            let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+            let mut f1: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+            match c2.fisher_open_and_fill(&fz_h[..p], &fz_l[..p], optInTimePeriod, &mut f0, &mut f1) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"copyOpenReject\":1".to_string(); } }
+                Ok((mut sa, _fr)) => {
+                    { let va = sa.value(); value_checked = 1; value_legs += 1;
+                      if va.0.to_bits() != f0[0].to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterFill\":1".to_string(); } }
+                      if va.1.to_bits() != f1[0].to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterFill\":1".to_string(); } }
+                    }
+                    let mid = (p + svN) / 2;
+                    let mut forked = true;
+                    for t in p..mid {
+                        let Ok(u_pre) = sa.update(fz_h[t], fz_l[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyPreRejected\":{}", t); } break; };
+                        if sv_xtier_ne(u_pre.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyPreDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_pre.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyPreDiverged\":{}", t); } }
+                    }
+                    let mut sb = sa.clone();
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    let mut fk = Vec::with_capacity(svN - mid);
+                    if forked {
+                    for t in mid..svN {
+                        let Ok(u_fork) = sb.update(fz_h[t], fz_l[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        if sv_xtier_ne(u_fork.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_fork.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        { let v = sb.value(); value_checked = 1; value_legs += 1;
+                          if v.0.to_bits() != u_fork.0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                          if v.1.to_bits() != u_fork.1.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                        }
+                        fk.push(u_fork);
+                    }
+                    }
+                    if forked {
+                    for t in mid..svN {
+                        let Ok(u_src) = sa.update(fz_h[t], fz_l[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        let u_fork = fk[t - mid];
+                        if u_src.0.to_bits() != u_fork.0.to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_src.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if u_src.1.to_bits() != u_fork.1.to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_src.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        { let v = sa.value(); value_checked = 1; value_legs += 1;
+                          if v.0.to_bits() != u_src.0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                          if v.1.to_bits() != u_src.1.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                        }
+                    }
+                    }
+                    if all_ok && forked {
+                        range_checked = 1; range_legs += 1; range_sites |= 8;
+                        if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            match c2.fisher_open(&fz_h[..lb], &fz_l[..lb], optInTimePeriod) { Err(RetCode::InsufficientHistory) => {} Ok(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } } Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryWrongType\":1".to_string(); } } }
+            {
+            let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+            let mut f1: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+            match c2.fisher_open_and_fill(&fz_h[..lb], &fz_l[..lb], optInTimePeriod, &mut f0, &mut f1) { Err(RetCode::InsufficientHistory) => {} Ok(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryFillAccepted\":1".to_string(); } } Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryFillWrongType\":1".to_string(); } } }
+            }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":27,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"step_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"peek_rejects\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok), i32::from(all_ok && fill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), peek_rejects, zsign, diag)
+}
+
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+pub(super) fn ride_fisher(core: &Core, params: &Value, endIdx: usize, inHigh: &[f64], inLow: &[f64], optInTimePeriod: i32, resp: &mut String) {
+    if !ride_gate(params) { return; }
+    let mut r = RideResult::new();
+    let lb_opt = core.fisher_lookback(optInTimePeriod).ok();
+    r.lb = match lb_opt { Some(v) => v as i32, None => -1 };
+    let mut navail = endIdx + 1;
+    if inHigh.len() < navail { navail = inHigh.len(); }
+    if inLow.len() < navail { navail = inLow.len(); }
+    let mut m = match lb_opt { Some(lb) => 2 * lb + 10, None => navail };
+    if m > navail { m = navail; }
+    r.m = m as i32;
+    if m > RIDE_MAX_BARS { r.skip = 1; r.emit(resp); return; }
+    if m < 1 { r.skip = 2; r.emit(resp); return; }
+    if matches!(lb_opt, Some(lb) if m < lb + 2) { r.skip = 3; r.emit(resp); return; }
+    if !ride_finite(&inHigh[..m]) || !ride_finite(&inLow[..m]) || false { r.skip = 4; r.emit(resp); return; }
+
+    let mut key = fuzz_hash_init();
+    key = ride_mix_str(key, "TA_FISHER");
+    key = ride_mix_u64(key, m as u64);
+    key = ride_mix_u64(key, RIDE_GEN.with(std::cell::Cell::get));
+    key = ride_mix_u64(key, params["unstablePeriod"].as_i64().unwrap_or(0) as u64);
+    key = ride_mix_u64(key, optInTimePeriod as u64);
+    key = ride_mix_f64s(key, &inHigh[..m]);
+    key = ride_mix_f64s(key, &inLow[..m]);
+    key = fuzz_hash_fin(key);
+    let slot = (key as usize) % RIDE_SEEN_N;
+    if let Some((ob, fb)) = RIDE_SEEN.with(|t| { let t = t.borrow(); let e = t[slot]; if e.0 == key { Some((e.1, e.2)) } else { None } }) {
+        r.dedup = 1; r.open_bars = ob; r.fill_bars = fb; r.emit(resp); return;
+    }
+
+    let mut rb0 = vec![0.0f64; m];
+    let mut rb1 = vec![0.0f64; m];
+    let (beg, nb) = match core.fisher(0, m - 1, &inHigh[..m], &inLow[..m], optInTimePeriod, &mut rb0, &mut rb1) {
+        Ok(rr) => (rr.beg_idx, rr.count),
+        Err(rc) => {
+            r.rc_batch = retcode_to_int(rc);
+            r.rc_open = match core.fisher_open(&inHigh[..m], &inLow[..m], optInTimePeriod) { Ok(_) => 0, Err(e) => retcode_to_int(e) };
+            let mut fb0 = vec![0.0f64; m];
+            let mut fb1 = vec![0.0f64; m];
+            r.rc_fill = match core.fisher_open_and_fill(&inHigh[..m], &inLow[..m], optInTimePeriod, &mut fb0, &mut fb1) { Ok(_) => 0, Err(e) => retcode_to_int(e) };
+            let mut cmp = r.rc_open == r.rc_batch;
+            if cmp { r.rej += 1; }
+            if !cmp { r.ok = false; r.leg = 3; }
+            cmp = r.rc_fill == r.rc_batch;
+            if cmp { r.rej += 1; }
+            if !cmp { r.ok = false; r.leg = 3; }
+            r.emit(resp);
+            return;
+        }
+    };
+    let lb = match lb_opt { Some(v) => v, None => { r.skip = 7; r.emit(resp); return; } };
+    if nb == 0 { r.skip = 5; r.emit(resp); return; }
+    if beg != lb { r.skip = 6; r.emit(resp); return; }
+
+    match core.fisher_open(&inHigh[..=lb], &inLow[..=lb], optInTimePeriod) {
+        Err(_) => { r.ok = false; r.leg = 1; r.bar = lb as i32; }
+        Ok((mut st, u)) => {
+            let mut cmp = true;
+            if cmp && sv_xtier_ne(rb0[lb - beg], u.0, &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[lb - beg].to_bits(); r.stream = u.0.to_bits(); }
+            if cmp && sv_xtier_ne(rb1[lb - beg], u.1, &mut r.benign) { cmp = false; r.out = 1; r.batch = rb1[lb - beg].to_bits(); r.stream = u.1.to_bits(); }
+            if cmp { r.open_bars += 1; }
+            if !cmp { r.ok = false; r.leg = 1; r.bar = lb as i32; }
+            for t in (lb + 1)..m {
+                match st.update(inHigh[t], inLow[t]) {
+                    Err(_) => { r.ok = false; r.leg = 1; r.bar = t as i32; break; }
+                    Ok(u) => {
+                        let mut cmp = true;
+                        if cmp && sv_xtier_ne(rb0[t - beg], u.0, &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[t - beg].to_bits(); r.stream = u.0.to_bits(); }
+                        if cmp && sv_xtier_ne(rb1[t - beg], u.1, &mut r.benign) { cmp = false; r.out = 1; r.batch = rb1[t - beg].to_bits(); r.stream = u.1.to_bits(); }
+                        if cmp { r.open_bars += 1; }
+                        if !cmp { r.ok = false; r.leg = 1; r.bar = t as i32; }
+                    }
+                }
+                if !r.ok { break; }
+            }
+        }
+    }
+
+    if r.ok {
+        let mut fb0 = vec![0.0f64; m];
+        let mut fb1 = vec![0.0f64; m];
+        match core.fisher_open_and_fill(&inHigh[..m], &inLow[..m], optInTimePeriod, &mut fb0, &mut fb1) {
+            Err(_) => { r.ok = false; r.leg = 2; }
+            Ok((_st, rng)) => {
+                if rng.beg_idx != beg || rng.count != nb { r.ok = false; r.leg = 2; }
+                if r.ok {
+                    for k in 0..nb {
+                        let mut cmp = true;
+                        if cmp && sv_xtier_ne(rb0[k], fb0[k], &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[k].to_bits(); r.stream = fb0[k].to_bits(); }
+                        if cmp && sv_xtier_ne(rb1[k], fb1[k], &mut r.benign) { cmp = false; r.out = 1; r.batch = rb1[k].to_bits(); r.stream = fb1[k].to_bits(); }
+                        if cmp { r.fill_bars += 1; }
+                        if !cmp { r.ok = false; r.leg = 2; r.bar = (beg + k) as i32; break; }
+                    }
+                }
+            }
+        }
+    }
+
+    if r.ok {
+        RIDE_SEEN.with(|t| { t.borrow_mut()[slot] = (key, r.open_bars, r.fill_bars); });
+    }
+    r.emit(resp);
+}
+
+}
+use f_fisher::*;
 
 mod f_floor {
 use super::*;
@@ -46743,6 +47276,7 @@ pub(super) fn sv_floor(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -46768,7 +47302,7 @@ pub(super) fn sv_floor(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -47110,6 +47644,7 @@ pub(super) fn sv_fosc(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -47135,7 +47670,7 @@ pub(super) fn sv_fosc(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -47504,6 +48039,7 @@ pub(super) fn sv_fractal(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -47534,7 +48070,7 @@ pub(super) fn sv_fractal(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -47899,6 +48435,7 @@ pub(super) fn sv_frama(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -47924,7 +48461,7 @@ pub(super) fn sv_frama(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -48339,6 +48876,7 @@ pub(super) fn sv_ha(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -48379,7 +48917,7 @@ pub(super) fn sv_ha(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -48748,6 +49286,7 @@ pub(super) fn sv_hma(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -48773,7 +49312,7 @@ pub(super) fn sv_hma(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -49117,6 +49656,7 @@ pub(super) fn sv_ht_dcperiod(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -49142,7 +49682,7 @@ pub(super) fn sv_ht_dcperiod(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -49485,6 +50025,7 @@ pub(super) fn sv_ht_dcphase(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -49510,7 +50051,7 @@ pub(super) fn sv_ht_dcphase(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -49868,6 +50409,7 @@ pub(super) fn sv_ht_phasor(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -49898,7 +50440,7 @@ pub(super) fn sv_ht_phasor(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -50263,6 +50805,7 @@ pub(super) fn sv_ht_sine(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -50293,7 +50836,7 @@ pub(super) fn sv_ht_sine(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -50643,6 +51186,7 @@ pub(super) fn sv_ht_trendline(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -50668,7 +51212,7 @@ pub(super) fn sv_ht_trendline(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -51011,6 +51555,7 @@ pub(super) fn sv_ht_trendmode(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -51036,7 +51581,7 @@ pub(super) fn sv_ht_trendmode(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -51391,6 +51936,7 @@ pub(super) fn sv_ibs(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -51416,7 +51962,7 @@ pub(super) fn sv_ibs(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -51770,6 +52316,7 @@ pub(super) fn sv_imi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -51795,7 +52342,7 @@ pub(super) fn sv_imi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -52144,6 +52691,7 @@ pub(super) fn sv_kama(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -52169,7 +52717,7 @@ pub(super) fn sv_kama(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -52566,6 +53114,7 @@ pub(super) fn sv_kc(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -52601,7 +53150,7 @@ pub(super) fn sv_kc(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -53043,6 +53592,7 @@ pub(super) fn sv_kdj(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -53078,7 +53628,7 @@ pub(super) fn sv_kdj(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -53482,6 +54032,7 @@ pub(super) fn sv_kst(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -53512,7 +54063,7 @@ pub(super) fn sv_kst(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -53936,6 +54487,7 @@ pub(super) fn sv_kstext(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -53966,7 +54518,7 @@ pub(super) fn sv_kstext(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -54326,6 +54878,7 @@ pub(super) fn sv_kurtosis(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -54351,7 +54904,7 @@ pub(super) fn sv_kurtosis(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -54694,6 +55247,7 @@ pub(super) fn sv_linearreg(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -54719,7 +55273,7 @@ pub(super) fn sv_linearreg(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -55062,6 +55616,7 @@ pub(super) fn sv_linearreg_angle(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -55087,7 +55642,7 @@ pub(super) fn sv_linearreg_angle(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -55430,6 +55985,7 @@ pub(super) fn sv_linearreg_intercept(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -55455,7 +56011,7 @@ pub(super) fn sv_linearreg_intercept(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -55798,6 +56354,7 @@ pub(super) fn sv_linearreg_slope(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -55823,7 +56380,7 @@ pub(super) fn sv_linearreg_slope(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -56163,6 +56720,7 @@ pub(super) fn sv_ln(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -56188,7 +56746,7 @@ pub(super) fn sv_ln(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -56527,6 +57085,7 @@ pub(super) fn sv_log10(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -56552,7 +57111,7 @@ pub(super) fn sv_log10(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -56912,6 +57471,7 @@ pub(super) fn sv_ma(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -56937,7 +57497,7 @@ pub(super) fn sv_ma(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -57318,6 +57878,7 @@ pub(super) fn sv_macd(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -57353,7 +57914,7 @@ pub(super) fn sv_macd(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -57784,6 +58345,7 @@ pub(super) fn sv_macdext(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -57819,7 +58381,7 @@ pub(super) fn sv_macdext(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -58212,6 +58774,7 @@ pub(super) fn sv_macdfix(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -58247,7 +58810,7 @@ pub(super) fn sv_macdfix(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -58626,6 +59189,7 @@ pub(super) fn sv_mama(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -58656,7 +59220,7 @@ pub(super) fn sv_mama(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -59020,6 +59584,7 @@ pub(super) fn sv_marketfi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -59045,7 +59610,7 @@ pub(super) fn sv_marketfi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -59403,6 +59968,7 @@ pub(super) fn sv_massi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -59428,7 +59994,7 @@ pub(super) fn sv_massi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -59804,6 +60370,7 @@ pub(super) fn sv_mavp(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -59829,7 +60396,7 @@ pub(super) fn sv_mavp(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -60176,6 +60743,7 @@ pub(super) fn sv_max(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -60201,7 +60769,7 @@ pub(super) fn sv_max(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -60544,6 +61112,7 @@ pub(super) fn sv_maxindex(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -60569,7 +61138,7 @@ pub(super) fn sv_maxindex(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -60916,6 +61485,7 @@ pub(super) fn sv_mcgd(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -60941,7 +61511,7 @@ pub(super) fn sv_mcgd(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -61284,6 +61854,7 @@ pub(super) fn sv_median(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -61309,7 +61880,7 @@ pub(super) fn sv_median(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -61657,6 +62228,7 @@ pub(super) fn sv_medprice(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -61682,7 +62254,7 @@ pub(super) fn sv_medprice(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -62050,6 +62622,7 @@ pub(super) fn sv_mfi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -62075,7 +62648,7 @@ pub(super) fn sv_mfi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -62424,6 +62997,7 @@ pub(super) fn sv_midpoint(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -62449,7 +63023,7 @@ pub(super) fn sv_midpoint(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -62800,6 +63374,7 @@ pub(super) fn sv_midprice(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -62825,7 +63400,7 @@ pub(super) fn sv_midprice(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -63170,6 +63745,7 @@ pub(super) fn sv_min(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -63195,7 +63771,7 @@ pub(super) fn sv_min(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -63538,6 +64114,7 @@ pub(super) fn sv_minindex(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -63563,7 +64140,7 @@ pub(super) fn sv_minindex(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -63921,6 +64498,7 @@ pub(super) fn sv_minmax(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -63951,7 +64529,7 @@ pub(super) fn sv_minmax(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -64316,6 +64894,7 @@ pub(super) fn sv_minmaxindex(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -64346,7 +64925,7 @@ pub(super) fn sv_minmaxindex(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -64716,6 +65295,7 @@ pub(super) fn sv_minus_di(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -64741,7 +65321,7 @@ pub(super) fn sv_minus_di(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -65100,6 +65680,7 @@ pub(super) fn sv_minus_dm(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -65125,7 +65706,7 @@ pub(super) fn sv_minus_dm(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -65470,6 +66051,7 @@ pub(super) fn sv_mom(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -65495,7 +66077,7 @@ pub(super) fn sv_mom(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -65843,6 +66425,7 @@ pub(super) fn sv_mult(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -65868,7 +66451,7 @@ pub(super) fn sv_mult(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -66232,6 +66815,7 @@ pub(super) fn sv_natr(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -66257,7 +66841,7 @@ pub(super) fn sv_natr(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -66609,6 +67193,7 @@ pub(super) fn sv_nvi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -66634,7 +67219,7 @@ pub(super) fn sv_nvi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -66983,6 +67568,7 @@ pub(super) fn sv_obv(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -67008,7 +67594,7 @@ pub(super) fn sv_obv(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -67376,6 +67962,7 @@ pub(super) fn sv_percentb(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -67401,7 +67988,7 @@ pub(super) fn sv_percentb(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -67750,6 +68337,7 @@ pub(super) fn sv_percentile(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -67775,7 +68363,7 @@ pub(super) fn sv_percentile(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -68119,6 +68707,7 @@ pub(super) fn sv_percentrank(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -68144,7 +68733,7 @@ pub(super) fn sv_percentrank(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -68507,6 +69096,7 @@ pub(super) fn sv_plus_di(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -68532,7 +69122,7 @@ pub(super) fn sv_plus_di(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -68891,6 +69481,7 @@ pub(super) fn sv_plus_dm(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -68916,7 +69507,7 @@ pub(super) fn sv_plus_dm(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -69282,6 +69873,7 @@ pub(super) fn sv_ppo(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -69307,7 +69899,7 @@ pub(super) fn sv_ppo(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -69424,6 +70016,400 @@ pub(super) fn ride_ppo(core: &Core, params: &Value, endIdx: usize, inReal: &[f64
 
 }
 use f_ppo::*;
+
+mod f_pso {
+use super::*;
+
+pub(super) fn rpc_pso(core: &mut Core, ref_data: &mut RefData, params: &Value) -> String {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inHigh: Vec<f64> = Vec::new();
+            let mut _json_inLow: Vec<f64> = Vec::new();
+            let mut _json_inClose: Vec<f64> = Vec::new();
+            let inHigh: &[f64];
+            let inLow: &[f64];
+            let inClose: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inHigh = _fz_h.clone();
+                inHigh = &_json_inHigh;
+                _json_inLow = _fz_l.clone();
+                inLow = &_json_inLow;
+                _json_inClose = _fz_c.clone();
+                inClose = &_json_inClose;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inHigh = &ref_data.high[..ref_data.n];
+                inLow = &ref_data.low[..ref_data.n];
+                inClose = &ref_data.close[..ref_data.n];
+            } else {
+                _json_inHigh = parse_f64_array(&params["inHigh"]);
+                inHigh = &_json_inHigh;
+                _json_inLow = parse_f64_array(&params["inLow"]);
+                inLow = &_json_inLow;
+                _json_inClose = parse_f64_array(&params["inClose"]);
+                inClose = &_json_inClose;
+            }
+            let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(8) as i32;
+            let optInEMAPeriod = params["optInEMAPeriod"].as_i64().unwrap_or(5) as i32;
+            // The output buffers are sized to the count the call actually PRODUCES --
+            // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
+            // never below one. Not to the width of the requested range: that is the bound the
+            // managed backends check and the Rust asserts state, and at the range width it was
+            // slack by exactly the lookback, so no call could ever approach it.
+            // The pad is there because a bound is a MINIMUM, never an equality. A caller
+            // re-using a pre-allocated buffer passes a larger one, and that is not an error --
+            // the reported OutRange is what says which part was written. So the harness sends
+            // both: the startIdx axis sends no pad (the bound is reachable) while the
+            // full-range value comparison sends one (slack is legal). Sizing every call one way
+            // would silently drop the other property.
+            // FLOORED AT ONE, deliberately. Zero is what the formula gives for a rejected call
+            // (the lookback is -1, or usize::MAX in Rust, for an out-of-range parameter) and
+            // for a range shorter than the lookback, where the output bound switches off.
+            // An empty output is an absent one, so sizing to zero here would turn the second
+            // into a rejection of the buffer.
+            // The C server keeps its MAX_ARRAY_SIZE statics: C is handed bare pointers, has no
+            // sizes and cannot make the check, so an exact buffer would test nothing there.
+            let _lb = core.pso_lookback(optInFastK_Period, optInEMAPeriod).unwrap_or(usize::MAX);
+            let _cs = if startIdx > _lb { startIdx } else { _lb };
+            let out_size = (if _cs > endIdx { 1 } else { endIdx - _cs + 1 }) + params["out_pad"].as_u64().unwrap_or(0) as usize;
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            let _out = core.pso(
+                startIdx, endIdx,
+                &inHigh,
+                &inLow,
+                &inClose,
+                optInFastK_Period,
+                optInEMAPeriod,
+                &mut outBuf0,
+            );
+            rc = match _out {
+                Ok(r) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success }
+                Err(e) => { outBegIdx = 0; outNBElement = 0; e }
+            };
+            } else {
+            if bench_mode == 1 {
+                rc = match core.pso_open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInFastK_Period, optInEMAPeriod, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.pso_open_and_fill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInFastK_Period, optInEMAPeriod, &mut outBuf0) { Ok((_h, r)) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success } Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                let mut hresp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+                ride_pso(&core, params, endIdx, &inHigh, &inLow, &inClose, optInFastK_Period, optInEMAPeriod, &mut hresp);
+                hresp.push('}');
+                return hresp;
+            }
+            let lookback: i64 = core.pso_lookback(optInFastK_Period, optInEMAPeriod).map_or(-1, |v| v as i64);
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_len\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, out_size, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            ride_pso(&core, params, endIdx, &inHigh, &inLow, &inClose, optInFastK_Period, optInEMAPeriod, &mut resp);
+            resp.push('}');
+            resp
+}
+
+pub(super) fn sv_pso(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let optInFastK_Period = params["optInFastK_Period"].as_i64().unwrap_or(8) as i32;
+    let optInEMAPeriod = params["optInEMAPeriod"].as_i64().unwrap_or(5) as i32;
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rejects = 0i64;
+    let mut peek_rep_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut range_checked = 0i32;
+    let mut range_ok = true;
+    let mut range_legs = 0i64;
+    let mut range_sites = 0i32;
+    let mut value_checked = 0i32;
+    let mut value_ok = true;
+    let mut value_legs = 0i64;
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let mut cb = core.to_builder();
+        if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = match c2.pso(0, svN - 1, &fz_h, &fz_l, &fz_c, optInFastK_Period, optInEMAPeriod, &mut b0) { Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success } Err(e) => { beg = 0; nb = 0; e } };
+        let lb = c2.pso_lookback(optInFastK_Period, optInEMAPeriod).unwrap_or(usize::MAX);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.pso_open(&fz_h, &fz_l, &fz_c, optInFastK_Period, optInEMAPeriod).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+        match c2.pso_open_and_fill(&fz_h, &fz_l, &fz_c, optInFastK_Period, optInEMAPeriod, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok((_h, fr)) => {
+                range_checked = 1; range_legs += 1; range_sites |= 1;
+                if _h.out_range().beg_idx != beg || _h.out_range().count != nb { range_ok = false; }
+                if fr.beg_idx != beg || fr.count != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                    for i in nb..svN { if f0[i] != -1.2345678901234e300f64 { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let mut pcs = vec![lb + 1, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.pso_open(&fz_h[..p], &fz_l[..p], &fz_c[..p], optInFastK_Period, optInEMAPeriod) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    { let va = st.value(); value_checked = 1; value_legs += 1;
+                      if va.to_bits() != v0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                    }
+                    for t in p..svN {
+                        let pk_res = st.peek(fz_h[t], fz_l[t], fz_c[t]);
+                        if pk_res.is_err() { peek_rejects += 1; }
+                        if t % 7 == 0 {
+                            if st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]).is_err() { peek_rejects += 1; }
+                            match (pk_res, st.peek(fz_h[t], fz_l[t], fz_c[t])) {
+                                (Ok(pk), Ok(rp)) => {
+                                    peek_reps += 1;
+                                    if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
+                                }
+                                _ => { peek_rejects += 1; }
+                            }
+                        }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if let Ok(pk) = pk_res {
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                    }
+                    if all_ok {
+                        range_checked = 1; range_legs += 1; range_sites |= 2;
+                        if st.out_range().beg_idx != beg || st.out_range().count != nb { range_ok = false; }
+                        range_legs += 1; range_sites |= 16;
+                        if st.advance().is_err() { range_ok = false; }
+                        if st.out_range().beg_idx != beg || st.out_range().count != nb + 1 { range_ok = false; }
+                    }
+                }
+            }
+        }
+        if let Some(&p) = pcs.first() {
+            let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+            match c2.pso_open_and_fill(&fz_h[..p], &fz_l[..p], &fz_c[..p], optInFastK_Period, optInEMAPeriod, &mut f0) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"copyOpenReject\":1".to_string(); } }
+                Ok((mut sa, _fr)) => {
+                    { let va = sa.value(); value_checked = 1; value_legs += 1;
+                      if va.to_bits() != f0[0].to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterFill\":1".to_string(); } }
+                    }
+                    let mid = (p + svN) / 2;
+                    let mut forked = true;
+                    for t in p..mid {
+                        let Ok(u_pre) = sa.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyPreRejected\":{}", t); } break; };
+                        if sv_xtier_ne(u_pre, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyPreDiverged\":{}", t); } }
+                    }
+                    let mut sb = sa.clone();
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    let mut fk = Vec::with_capacity(svN - mid);
+                    if forked {
+                    for t in mid..svN {
+                        let Ok(u_fork) = sb.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        if sv_xtier_ne(u_fork, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        { let v = sb.value(); value_checked = 1; value_legs += 1;
+                          if v.to_bits() != u_fork.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                        }
+                        fk.push(u_fork);
+                    }
+                    }
+                    if forked {
+                    for t in mid..svN {
+                        let Ok(u_src) = sa.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        let u_fork = fk[t - mid];
+                        if u_src.to_bits() != u_fork.to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_src, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        { let v = sa.value(); value_checked = 1; value_legs += 1;
+                          if v.to_bits() != u_src.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                        }
+                    }
+                    }
+                    if all_ok && forked {
+                        range_checked = 1; range_legs += 1; range_sites |= 8;
+                        if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            match c2.pso_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInFastK_Period, optInEMAPeriod) { Err(RetCode::InsufficientHistory) => {} Ok(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } } Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryWrongType\":1".to_string(); } } }
+            {
+            let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+            match c2.pso_open_and_fill(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInFastK_Period, optInEMAPeriod, &mut f0) { Err(RetCode::InsufficientHistory) => {} Ok(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryFillAccepted\":1".to_string(); } } Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryFillWrongType\":1".to_string(); } } }
+            }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":27,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"step_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"peek_rejects\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok), i32::from(all_ok && fill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), peek_rejects, zsign, diag)
+}
+
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+pub(super) fn ride_pso(core: &Core, params: &Value, endIdx: usize, inHigh: &[f64], inLow: &[f64], inClose: &[f64], optInFastK_Period: i32, optInEMAPeriod: i32, resp: &mut String) {
+    if !ride_gate(params) { return; }
+    let mut r = RideResult::new();
+    let lb_opt = core.pso_lookback(optInFastK_Period, optInEMAPeriod).ok();
+    r.lb = match lb_opt { Some(v) => v as i32, None => -1 };
+    let mut navail = endIdx + 1;
+    if inHigh.len() < navail { navail = inHigh.len(); }
+    if inLow.len() < navail { navail = inLow.len(); }
+    if inClose.len() < navail { navail = inClose.len(); }
+    let mut m = match lb_opt { Some(lb) => 2 * lb + 10, None => navail };
+    if m > navail { m = navail; }
+    r.m = m as i32;
+    if m > RIDE_MAX_BARS { r.skip = 1; r.emit(resp); return; }
+    if m < 1 { r.skip = 2; r.emit(resp); return; }
+    if matches!(lb_opt, Some(lb) if m < lb + 2) { r.skip = 3; r.emit(resp); return; }
+    if !ride_finite(&inHigh[..m]) || !ride_finite(&inLow[..m]) || !ride_finite(&inClose[..m]) || false { r.skip = 4; r.emit(resp); return; }
+
+    let mut key = fuzz_hash_init();
+    key = ride_mix_str(key, "TA_PSO");
+    key = ride_mix_u64(key, m as u64);
+    key = ride_mix_u64(key, RIDE_GEN.with(std::cell::Cell::get));
+    key = ride_mix_u64(key, params["unstablePeriod"].as_i64().unwrap_or(0) as u64);
+    key = ride_mix_u64(key, optInFastK_Period as u64);
+    key = ride_mix_u64(key, optInEMAPeriod as u64);
+    key = ride_mix_f64s(key, &inHigh[..m]);
+    key = ride_mix_f64s(key, &inLow[..m]);
+    key = ride_mix_f64s(key, &inClose[..m]);
+    key = fuzz_hash_fin(key);
+    let slot = (key as usize) % RIDE_SEEN_N;
+    if let Some((ob, fb)) = RIDE_SEEN.with(|t| { let t = t.borrow(); let e = t[slot]; if e.0 == key { Some((e.1, e.2)) } else { None } }) {
+        r.dedup = 1; r.open_bars = ob; r.fill_bars = fb; r.emit(resp); return;
+    }
+
+    let mut rb0 = vec![0.0f64; m];
+    let (beg, nb) = match core.pso(0, m - 1, &inHigh[..m], &inLow[..m], &inClose[..m], optInFastK_Period, optInEMAPeriod, &mut rb0) {
+        Ok(rr) => (rr.beg_idx, rr.count),
+        Err(rc) => {
+            r.rc_batch = retcode_to_int(rc);
+            r.rc_open = match core.pso_open(&inHigh[..m], &inLow[..m], &inClose[..m], optInFastK_Period, optInEMAPeriod) { Ok(_) => 0, Err(e) => retcode_to_int(e) };
+            let mut fb0 = vec![0.0f64; m];
+            r.rc_fill = match core.pso_open_and_fill(&inHigh[..m], &inLow[..m], &inClose[..m], optInFastK_Period, optInEMAPeriod, &mut fb0) { Ok(_) => 0, Err(e) => retcode_to_int(e) };
+            let mut cmp = r.rc_open == r.rc_batch;
+            if cmp { r.rej += 1; }
+            if !cmp { r.ok = false; r.leg = 3; }
+            cmp = r.rc_fill == r.rc_batch;
+            if cmp { r.rej += 1; }
+            if !cmp { r.ok = false; r.leg = 3; }
+            r.emit(resp);
+            return;
+        }
+    };
+    let lb = match lb_opt { Some(v) => v, None => { r.skip = 7; r.emit(resp); return; } };
+    if nb == 0 { r.skip = 5; r.emit(resp); return; }
+    if beg != lb { r.skip = 6; r.emit(resp); return; }
+
+    match core.pso_open(&inHigh[..=lb], &inLow[..=lb], &inClose[..=lb], optInFastK_Period, optInEMAPeriod) {
+        Err(_) => { r.ok = false; r.leg = 1; r.bar = lb as i32; }
+        Ok((mut st, u)) => {
+            let mut cmp = true;
+            if cmp && sv_xtier_ne(rb0[lb - beg], u, &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[lb - beg].to_bits(); r.stream = u.to_bits(); }
+            if cmp { r.open_bars += 1; }
+            if !cmp { r.ok = false; r.leg = 1; r.bar = lb as i32; }
+            for t in (lb + 1)..m {
+                match st.update(inHigh[t], inLow[t], inClose[t]) {
+                    Err(_) => { r.ok = false; r.leg = 1; r.bar = t as i32; break; }
+                    Ok(u) => {
+                        let mut cmp = true;
+                        if cmp && sv_xtier_ne(rb0[t - beg], u, &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[t - beg].to_bits(); r.stream = u.to_bits(); }
+                        if cmp { r.open_bars += 1; }
+                        if !cmp { r.ok = false; r.leg = 1; r.bar = t as i32; }
+                    }
+                }
+                if !r.ok { break; }
+            }
+        }
+    }
+
+    if r.ok {
+        let mut fb0 = vec![0.0f64; m];
+        match core.pso_open_and_fill(&inHigh[..m], &inLow[..m], &inClose[..m], optInFastK_Period, optInEMAPeriod, &mut fb0) {
+            Err(_) => { r.ok = false; r.leg = 2; }
+            Ok((_st, rng)) => {
+                if rng.beg_idx != beg || rng.count != nb { r.ok = false; r.leg = 2; }
+                if r.ok {
+                    for k in 0..nb {
+                        let mut cmp = true;
+                        if cmp && sv_xtier_ne(rb0[k], fb0[k], &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[k].to_bits(); r.stream = fb0[k].to_bits(); }
+                        if cmp { r.fill_bars += 1; }
+                        if !cmp { r.ok = false; r.leg = 2; r.bar = (beg + k) as i32; break; }
+                    }
+                }
+            }
+        }
+    }
+
+    if r.ok {
+        RIDE_SEEN.with(|t| { t.borrow_mut()[slot] = (key, r.open_bars, r.fill_bars); });
+    }
+    r.emit(resp);
+}
+
+}
+use f_pso::*;
 
 mod f_pvi {
 use super::*;
@@ -69657,6 +70643,7 @@ pub(super) fn sv_pvi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -69682,7 +70669,7 @@ pub(super) fn sv_pvi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -70047,6 +71034,7 @@ pub(super) fn sv_pvo(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -70072,7 +71060,7 @@ pub(super) fn sv_pvo(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -70422,6 +71410,7 @@ pub(super) fn sv_pvt(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -70447,7 +71436,7 @@ pub(super) fn sv_pvt(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -70799,6 +71788,7 @@ pub(super) fn sv_qstick(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -70824,7 +71814,7 @@ pub(super) fn sv_qstick(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -71173,6 +72163,7 @@ pub(super) fn sv_rma(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -71198,7 +72189,7 @@ pub(super) fn sv_rma(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -71541,6 +72532,7 @@ pub(super) fn sv_roc(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -71566,7 +72558,7 @@ pub(super) fn sv_roc(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -71909,6 +72901,7 @@ pub(super) fn sv_rocp(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -71934,7 +72927,7 @@ pub(super) fn sv_rocp(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -72277,6 +73270,7 @@ pub(super) fn sv_rocr(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -72302,7 +73296,7 @@ pub(super) fn sv_rocr(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -72645,6 +73639,7 @@ pub(super) fn sv_rocr100(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -72670,7 +73665,7 @@ pub(super) fn sv_rocr100(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -72785,6 +73780,409 @@ pub(super) fn ride_rocr100(core: &Core, params: &Value, endIdx: usize, inReal: &
 
 }
 use f_rocr100::*;
+
+mod f_rogerssatchell {
+use super::*;
+
+pub(super) fn rpc_rogerssatchell(core: &mut Core, ref_data: &mut RefData, params: &Value) -> String {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inOpen: Vec<f64> = Vec::new();
+            let mut _json_inHigh: Vec<f64> = Vec::new();
+            let mut _json_inLow: Vec<f64> = Vec::new();
+            let mut _json_inClose: Vec<f64> = Vec::new();
+            let inOpen: &[f64];
+            let inHigh: &[f64];
+            let inLow: &[f64];
+            let inClose: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inOpen = _fz_o.clone();
+                inOpen = &_json_inOpen;
+                _json_inHigh = _fz_h.clone();
+                inHigh = &_json_inHigh;
+                _json_inLow = _fz_l.clone();
+                inLow = &_json_inLow;
+                _json_inClose = _fz_c.clone();
+                inClose = &_json_inClose;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inOpen = &ref_data.open[..ref_data.n];
+                inHigh = &ref_data.high[..ref_data.n];
+                inLow = &ref_data.low[..ref_data.n];
+                inClose = &ref_data.close[..ref_data.n];
+            } else {
+                _json_inOpen = parse_f64_array(&params["inOpen"]);
+                inOpen = &_json_inOpen;
+                _json_inHigh = parse_f64_array(&params["inHigh"]);
+                inHigh = &_json_inHigh;
+                _json_inLow = parse_f64_array(&params["inLow"]);
+                inLow = &_json_inLow;
+                _json_inClose = parse_f64_array(&params["inClose"]);
+                inClose = &_json_inClose;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(10) as i32;
+            let optInAnnualization = params["optInAnnualization"].as_f64().unwrap_or(252.0) as f64;
+            // The output buffers are sized to the count the call actually PRODUCES --
+            // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
+            // never below one. Not to the width of the requested range: that is the bound the
+            // managed backends check and the Rust asserts state, and at the range width it was
+            // slack by exactly the lookback, so no call could ever approach it.
+            // The pad is there because a bound is a MINIMUM, never an equality. A caller
+            // re-using a pre-allocated buffer passes a larger one, and that is not an error --
+            // the reported OutRange is what says which part was written. So the harness sends
+            // both: the startIdx axis sends no pad (the bound is reachable) while the
+            // full-range value comparison sends one (slack is legal). Sizing every call one way
+            // would silently drop the other property.
+            // FLOORED AT ONE, deliberately. Zero is what the formula gives for a rejected call
+            // (the lookback is -1, or usize::MAX in Rust, for an out-of-range parameter) and
+            // for a range shorter than the lookback, where the output bound switches off.
+            // An empty output is an absent one, so sizing to zero here would turn the second
+            // into a rejection of the buffer.
+            // The C server keeps its MAX_ARRAY_SIZE statics: C is handed bare pointers, has no
+            // sizes and cannot make the check, so an exact buffer would test nothing there.
+            let _lb = core.rogerssatchell_lookback(optInTimePeriod, optInAnnualization).unwrap_or(usize::MAX);
+            let _cs = if startIdx > _lb { startIdx } else { _lb };
+            let out_size = (if _cs > endIdx { 1 } else { endIdx - _cs + 1 }) + params["out_pad"].as_u64().unwrap_or(0) as usize;
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            let _out = core.rogerssatchell(
+                startIdx, endIdx,
+                &inOpen,
+                &inHigh,
+                &inLow,
+                &inClose,
+                optInTimePeriod,
+                optInAnnualization,
+                &mut outBuf0,
+            );
+            rc = match _out {
+                Ok(r) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success }
+                Err(e) => { outBegIdx = 0; outNBElement = 0; e }
+            };
+            } else {
+            if bench_mode == 1 {
+                rc = match core.rogerssatchell_open(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, optInAnnualization, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.rogerssatchell_open_and_fill(&inOpen[..=endIdx], &inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, optInAnnualization, &mut outBuf0) { Ok((_h, r)) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success } Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                let mut hresp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+                ride_rogerssatchell(&core, params, endIdx, &inOpen, &inHigh, &inLow, &inClose, optInTimePeriod, optInAnnualization, &mut hresp);
+                hresp.push('}');
+                return hresp;
+            }
+            let lookback: i64 = core.rogerssatchell_lookback(optInTimePeriod, optInAnnualization).map_or(-1, |v| v as i64);
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_len\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, out_size, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            ride_rogerssatchell(&core, params, endIdx, &inOpen, &inHigh, &inLow, &inClose, optInTimePeriod, optInAnnualization, &mut resp);
+            resp.push('}');
+            resp
+}
+
+pub(super) fn sv_rogerssatchell(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(10) as i32;
+    let optInAnnualization = params["optInAnnualization"].as_f64().unwrap_or(252.0);
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rejects = 0i64;
+    let mut peek_rep_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut range_checked = 0i32;
+    let mut range_ok = true;
+    let mut range_legs = 0i64;
+    let mut range_sites = 0i32;
+    let mut value_checked = 0i32;
+    let mut value_ok = true;
+    let mut value_legs = 0i64;
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let cb = core.to_builder();
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = match c2.rogerssatchell(0, svN - 1, &fz_o, &fz_h, &fz_l, &fz_c, optInTimePeriod, optInAnnualization, &mut b0) { Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success } Err(e) => { beg = 0; nb = 0; e } };
+        let lb = c2.rogerssatchell_lookback(optInTimePeriod, optInAnnualization).unwrap_or(usize::MAX);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.rogerssatchell_open(&fz_o, &fz_h, &fz_l, &fz_c, optInTimePeriod, optInAnnualization).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+        match c2.rogerssatchell_open_and_fill(&fz_o, &fz_h, &fz_l, &fz_c, optInTimePeriod, optInAnnualization, &mut f0) {
+            Err(_) => { fill_ok = false; }
+            Ok((_h, fr)) => {
+                range_checked = 1; range_legs += 1; range_sites |= 1;
+                if _h.out_range().beg_idx != beg || _h.out_range().count != nb { range_ok = false; }
+                if fr.beg_idx != beg || fr.count != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                    for i in nb..svN { if f0[i] != -1.2345678901234e300f64 { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let mut pcs = vec![lb + 1, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.rogerssatchell_open(&fz_o[..p], &fz_h[..p], &fz_l[..p], &fz_c[..p], optInTimePeriod, optInAnnualization) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    { let va = st.value(); value_checked = 1; value_legs += 1;
+                      if va.to_bits() != v0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                    }
+                    for t in p..svN {
+                        let pk_res = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]);
+                        if pk_res.is_err() { peek_rejects += 1; }
+                        if t % 7 == 0 {
+                            if st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]).is_err() { peek_rejects += 1; }
+                            match (pk_res, st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t])) {
+                                (Ok(pk), Ok(rp)) => {
+                                    peek_reps += 1;
+                                    if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
+                                }
+                                _ => { peek_rejects += 1; }
+                            }
+                        }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if let Ok(pk) = pk_res {
+                            if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                    }
+                    if all_ok {
+                        range_checked = 1; range_legs += 1; range_sites |= 2;
+                        if st.out_range().beg_idx != beg || st.out_range().count != nb { range_ok = false; }
+                        range_legs += 1; range_sites |= 16;
+                        if st.advance().is_err() { range_ok = false; }
+                        if st.out_range().beg_idx != beg || st.out_range().count != nb + 1 { range_ok = false; }
+                    }
+                }
+            }
+        }
+        if let Some(&p) = pcs.first() {
+            let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+            match c2.rogerssatchell_open_and_fill(&fz_o[..p], &fz_h[..p], &fz_l[..p], &fz_c[..p], optInTimePeriod, optInAnnualization, &mut f0) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"copyOpenReject\":1".to_string(); } }
+                Ok((mut sa, _fr)) => {
+                    { let va = sa.value(); value_checked = 1; value_legs += 1;
+                      if va.to_bits() != f0[0].to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterFill\":1".to_string(); } }
+                    }
+                    let mid = (p + svN) / 2;
+                    let mut forked = true;
+                    for t in p..mid {
+                        let Ok(u_pre) = sa.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyPreRejected\":{}", t); } break; };
+                        if sv_xtier_ne(u_pre, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyPreDiverged\":{}", t); } }
+                    }
+                    let mut sb = sa.clone();
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    let mut fk = Vec::with_capacity(svN - mid);
+                    if forked {
+                    for t in mid..svN {
+                        let Ok(u_fork) = sb.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        if sv_xtier_ne(u_fork, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        { let v = sb.value(); value_checked = 1; value_legs += 1;
+                          if v.to_bits() != u_fork.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                        }
+                        fk.push(u_fork);
+                    }
+                    }
+                    if forked {
+                    for t in mid..svN {
+                        let Ok(u_src) = sa.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        let u_fork = fk[t - mid];
+                        if u_src.to_bits() != u_fork.to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_src, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        { let v = sa.value(); value_checked = 1; value_legs += 1;
+                          if v.to_bits() != u_src.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                        }
+                    }
+                    }
+                    if all_ok && forked {
+                        range_checked = 1; range_legs += 1; range_sites |= 8;
+                        if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            match c2.rogerssatchell_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod, optInAnnualization) { Err(RetCode::InsufficientHistory) => {} Ok(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } } Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryWrongType\":1".to_string(); } } }
+            {
+            let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+            match c2.rogerssatchell_open_and_fill(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod, optInAnnualization, &mut f0) { Err(RetCode::InsufficientHistory) => {} Ok(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryFillAccepted\":1".to_string(); } } Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryFillWrongType\":1".to_string(); } } }
+            }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":27,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"step_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"peek_rejects\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok), i32::from(all_ok && fill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), peek_rejects, zsign, diag)
+}
+
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+pub(super) fn ride_rogerssatchell(core: &Core, params: &Value, endIdx: usize, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], optInTimePeriod: i32, optInAnnualization: f64, resp: &mut String) {
+    if !ride_gate(params) { return; }
+    let mut r = RideResult::new();
+    let lb_opt = core.rogerssatchell_lookback(optInTimePeriod, optInAnnualization).ok();
+    r.lb = match lb_opt { Some(v) => v as i32, None => -1 };
+    let mut navail = endIdx + 1;
+    if inOpen.len() < navail { navail = inOpen.len(); }
+    if inHigh.len() < navail { navail = inHigh.len(); }
+    if inLow.len() < navail { navail = inLow.len(); }
+    if inClose.len() < navail { navail = inClose.len(); }
+    let mut m = match lb_opt { Some(lb) => 2 * lb + 10, None => navail };
+    if m > navail { m = navail; }
+    r.m = m as i32;
+    if m > RIDE_MAX_BARS { r.skip = 1; r.emit(resp); return; }
+    if m < 1 { r.skip = 2; r.emit(resp); return; }
+    if matches!(lb_opt, Some(lb) if m < lb + 2) { r.skip = 3; r.emit(resp); return; }
+    if !ride_finite(&inOpen[..m]) || !ride_finite(&inHigh[..m]) || !ride_finite(&inLow[..m]) || !ride_finite(&inClose[..m]) || false { r.skip = 4; r.emit(resp); return; }
+
+    let mut key = fuzz_hash_init();
+    key = ride_mix_str(key, "TA_ROGERSSATCHELL");
+    key = ride_mix_u64(key, m as u64);
+    key = ride_mix_u64(key, RIDE_GEN.with(std::cell::Cell::get));
+    key = ride_mix_u64(key, params["unstablePeriod"].as_i64().unwrap_or(0) as u64);
+    key = ride_mix_u64(key, optInTimePeriod as u64);
+    key = ride_mix_u64(key, optInAnnualization.to_bits());
+    key = ride_mix_f64s(key, &inOpen[..m]);
+    key = ride_mix_f64s(key, &inHigh[..m]);
+    key = ride_mix_f64s(key, &inLow[..m]);
+    key = ride_mix_f64s(key, &inClose[..m]);
+    key = fuzz_hash_fin(key);
+    let slot = (key as usize) % RIDE_SEEN_N;
+    if let Some((ob, fb)) = RIDE_SEEN.with(|t| { let t = t.borrow(); let e = t[slot]; if e.0 == key { Some((e.1, e.2)) } else { None } }) {
+        r.dedup = 1; r.open_bars = ob; r.fill_bars = fb; r.emit(resp); return;
+    }
+
+    let mut rb0 = vec![0.0f64; m];
+    let (beg, nb) = match core.rogerssatchell(0, m - 1, &inOpen[..m], &inHigh[..m], &inLow[..m], &inClose[..m], optInTimePeriod, optInAnnualization, &mut rb0) {
+        Ok(rr) => (rr.beg_idx, rr.count),
+        Err(rc) => {
+            r.rc_batch = retcode_to_int(rc);
+            r.rc_open = match core.rogerssatchell_open(&inOpen[..m], &inHigh[..m], &inLow[..m], &inClose[..m], optInTimePeriod, optInAnnualization) { Ok(_) => 0, Err(e) => retcode_to_int(e) };
+            let mut fb0 = vec![0.0f64; m];
+            r.rc_fill = match core.rogerssatchell_open_and_fill(&inOpen[..m], &inHigh[..m], &inLow[..m], &inClose[..m], optInTimePeriod, optInAnnualization, &mut fb0) { Ok(_) => 0, Err(e) => retcode_to_int(e) };
+            let mut cmp = r.rc_open == r.rc_batch;
+            if cmp { r.rej += 1; }
+            if !cmp { r.ok = false; r.leg = 3; }
+            cmp = r.rc_fill == r.rc_batch;
+            if cmp { r.rej += 1; }
+            if !cmp { r.ok = false; r.leg = 3; }
+            r.emit(resp);
+            return;
+        }
+    };
+    let lb = match lb_opt { Some(v) => v, None => { r.skip = 7; r.emit(resp); return; } };
+    if nb == 0 { r.skip = 5; r.emit(resp); return; }
+    if beg != lb { r.skip = 6; r.emit(resp); return; }
+
+    match core.rogerssatchell_open(&inOpen[..=lb], &inHigh[..=lb], &inLow[..=lb], &inClose[..=lb], optInTimePeriod, optInAnnualization) {
+        Err(_) => { r.ok = false; r.leg = 1; r.bar = lb as i32; }
+        Ok((mut st, u)) => {
+            let mut cmp = true;
+            if cmp && sv_xtier_ne(rb0[lb - beg], u, &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[lb - beg].to_bits(); r.stream = u.to_bits(); }
+            if cmp { r.open_bars += 1; }
+            if !cmp { r.ok = false; r.leg = 1; r.bar = lb as i32; }
+            for t in (lb + 1)..m {
+                match st.update(inOpen[t], inHigh[t], inLow[t], inClose[t]) {
+                    Err(_) => { r.ok = false; r.leg = 1; r.bar = t as i32; break; }
+                    Ok(u) => {
+                        let mut cmp = true;
+                        if cmp && sv_xtier_ne(rb0[t - beg], u, &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[t - beg].to_bits(); r.stream = u.to_bits(); }
+                        if cmp { r.open_bars += 1; }
+                        if !cmp { r.ok = false; r.leg = 1; r.bar = t as i32; }
+                    }
+                }
+                if !r.ok { break; }
+            }
+        }
+    }
+
+    if r.ok {
+        let mut fb0 = vec![0.0f64; m];
+        match core.rogerssatchell_open_and_fill(&inOpen[..m], &inHigh[..m], &inLow[..m], &inClose[..m], optInTimePeriod, optInAnnualization, &mut fb0) {
+            Err(_) => { r.ok = false; r.leg = 2; }
+            Ok((_st, rng)) => {
+                if rng.beg_idx != beg || rng.count != nb { r.ok = false; r.leg = 2; }
+                if r.ok {
+                    for k in 0..nb {
+                        let mut cmp = true;
+                        if cmp && sv_xtier_ne(rb0[k], fb0[k], &mut r.benign) { cmp = false; r.out = 0; r.batch = rb0[k].to_bits(); r.stream = fb0[k].to_bits(); }
+                        if cmp { r.fill_bars += 1; }
+                        if !cmp { r.ok = false; r.leg = 2; r.bar = (beg + k) as i32; break; }
+                    }
+                }
+            }
+        }
+    }
+
+    if r.ok {
+        RIDE_SEEN.with(|t| { t.borrow_mut()[slot] = (key, r.open_bars, r.fill_bars); });
+    }
+    r.emit(resp);
+}
+
+}
+use f_rogerssatchell::*;
 
 mod f_rsi {
 use super::*;
@@ -73017,6 +74415,7 @@ pub(super) fn sv_rsi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -73042,7 +74441,7 @@ pub(super) fn sv_rsi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -73392,6 +74791,7 @@ pub(super) fn sv_rvi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -73417,7 +74817,7 @@ pub(super) fn sv_rvi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -73773,6 +75173,7 @@ pub(super) fn sv_rvir(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -73798,7 +75199,7 @@ pub(super) fn sv_rvir(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -74144,6 +75545,7 @@ pub(super) fn sv_rvol(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -74169,7 +75571,7 @@ pub(super) fn sv_rvol(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -74523,6 +75925,7 @@ pub(super) fn sv_sar(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -74548,7 +75951,7 @@ pub(super) fn sv_sar(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -74923,6 +76326,7 @@ pub(super) fn sv_sarext(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -74948,7 +76352,7 @@ pub(super) fn sv_sarext(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -75324,6 +76728,7 @@ pub(super) fn sv_si(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -75349,7 +76754,7 @@ pub(super) fn sv_si(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -75695,6 +77100,7 @@ pub(super) fn sv_sin(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -75720,7 +77126,7 @@ pub(super) fn sv_sin(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -76059,6 +77465,7 @@ pub(super) fn sv_sinh(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -76084,7 +77491,7 @@ pub(super) fn sv_sinh(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -76426,6 +77833,7 @@ pub(super) fn sv_sma(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -76451,7 +77859,7 @@ pub(super) fn sv_sma(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -76835,6 +78243,7 @@ pub(super) fn sv_smi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -76865,7 +78274,7 @@ pub(super) fn sv_smi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -77219,6 +78628,7 @@ pub(super) fn sv_sqrt(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -77244,7 +78654,7 @@ pub(super) fn sv_sqrt(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -77597,6 +79007,7 @@ pub(super) fn sv_stc(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -77622,7 +79033,7 @@ pub(super) fn sv_stc(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -77970,6 +79381,7 @@ pub(super) fn sv_stddev(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -77995,7 +79407,7 @@ pub(super) fn sv_stddev(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -78403,6 +79815,7 @@ pub(super) fn sv_stoch(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -78433,7 +79846,7 @@ pub(super) fn sv_stoch(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -78843,6 +80256,7 @@ pub(super) fn sv_stochf(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -78873,7 +80287,7 @@ pub(super) fn sv_stochf(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -79269,6 +80683,7 @@ pub(super) fn sv_stochrsi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -79299,7 +80714,7 @@ pub(super) fn sv_stochrsi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -79657,6 +81072,7 @@ pub(super) fn sv_sub(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -79682,7 +81098,7 @@ pub(super) fn sv_sub(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -80026,6 +81442,7 @@ pub(super) fn sv_sum(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -80051,7 +81468,7 @@ pub(super) fn sv_sum(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -80429,6 +81846,7 @@ pub(super) fn sv_supertrend(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -80459,7 +81877,7 @@ pub(super) fn sv_supertrend(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -80818,6 +82236,7 @@ pub(super) fn sv_swak_2php(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -80843,7 +82262,7 @@ pub(super) fn sv_swak_2php(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -81193,6 +82612,7 @@ pub(super) fn sv_swak_bp(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -81218,7 +82638,7 @@ pub(super) fn sv_swak_bp(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -81566,6 +82986,7 @@ pub(super) fn sv_swak_butter(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -81591,7 +83012,7 @@ pub(super) fn sv_swak_butter(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -81938,6 +83359,7 @@ pub(super) fn sv_swak_gauss(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -81963,7 +83385,7 @@ pub(super) fn sv_swak_gauss(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -82310,6 +83732,7 @@ pub(super) fn sv_swak_hp(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -82335,7 +83758,7 @@ pub(super) fn sv_swak_hp(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -82685,6 +84108,7 @@ pub(super) fn sv_t3(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -82710,7 +84134,7 @@ pub(super) fn sv_t3(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -83051,6 +84475,7 @@ pub(super) fn sv_tan(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -83076,7 +84501,7 @@ pub(super) fn sv_tan(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -83415,6 +84840,7 @@ pub(super) fn sv_tanh(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -83440,7 +84866,7 @@ pub(super) fn sv_tanh(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -83783,6 +85209,7 @@ pub(super) fn sv_tema(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -83808,7 +85235,7 @@ pub(super) fn sv_tema(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -84164,6 +85591,7 @@ pub(super) fn sv_trange(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -84189,7 +85617,7 @@ pub(super) fn sv_trange(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -84535,6 +85963,7 @@ pub(super) fn sv_trima(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -84560,7 +85989,7 @@ pub(super) fn sv_trima(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -84904,6 +86333,7 @@ pub(super) fn sv_trix(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -84929,7 +86359,7 @@ pub(super) fn sv_trix(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -85272,6 +86702,7 @@ pub(super) fn sv_tsf(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -85297,7 +86728,7 @@ pub(super) fn sv_tsf(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -85644,6 +87075,7 @@ pub(super) fn sv_tsi(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -85669,7 +87101,7 @@ pub(super) fn sv_tsi(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -86026,6 +87458,7 @@ pub(super) fn sv_typprice(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -86051,7 +87484,7 @@ pub(super) fn sv_typprice(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -86419,6 +87852,7 @@ pub(super) fn sv_ultosc(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -86444,7 +87878,7 @@ pub(super) fn sv_ultosc(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -86796,6 +88230,7 @@ pub(super) fn sv_var(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -86821,7 +88256,7 @@ pub(super) fn sv_var(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -87165,6 +88600,7 @@ pub(super) fn sv_vhf(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -87190,7 +88626,7 @@ pub(super) fn sv_vhf(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -87540,6 +88976,7 @@ pub(super) fn sv_vidya(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -87565,7 +89002,7 @@ pub(super) fn sv_vidya(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -87940,6 +89377,7 @@ pub(super) fn sv_vortex(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -87970,7 +89408,7 @@ pub(super) fn sv_vortex(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -88345,6 +89783,7 @@ pub(super) fn sv_vwap(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -88370,7 +89809,7 @@ pub(super) fn sv_vwap(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -88726,6 +90165,7 @@ pub(super) fn sv_vwma(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -88751,7 +90191,7 @@ pub(super) fn sv_vwma(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -89109,6 +90549,7 @@ pub(super) fn sv_wad(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -89134,7 +90575,7 @@ pub(super) fn sv_wad(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -89493,6 +90934,7 @@ pub(super) fn sv_wclprice(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -89518,7 +90960,7 @@ pub(super) fn sv_wclprice(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -89880,6 +91322,7 @@ pub(super) fn sv_willr(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -89905,7 +91348,7 @@ pub(super) fn sv_willr(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -90252,6 +91695,7 @@ pub(super) fn sv_wma(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -90277,7 +91721,7 @@ pub(super) fn sv_wma(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }
@@ -90621,6 +92065,7 @@ pub(super) fn sv_zlema(core: &Core, params: &Value) -> String {
                     }
                     let mut sb = sa.clone();
                     if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
+                    if sb.advance().is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = ",\"copyAdvanceRejected\":1".to_string(); } }
                     let mut fk = Vec::with_capacity(svN - mid);
                     if forked {
                     for t in mid..svN {
@@ -90646,7 +92091,7 @@ pub(super) fn sv_zlema(core: &Core, params: &Value) -> String {
                     if all_ok && forked {
                         range_checked = 1; range_legs += 1; range_sites |= 8;
                         if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
-                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 1 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb + 2 { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
                     }
                 }
             }

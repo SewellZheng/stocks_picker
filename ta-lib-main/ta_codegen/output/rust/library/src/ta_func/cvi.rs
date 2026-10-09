@@ -194,6 +194,7 @@ impl Core {
         let mut laggedEMA: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut optInK_1: f64 = 0.0_f64;
+        let mut emaBeta: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
@@ -207,7 +208,7 @@ impl Core {
         // EMA is anchored optInROCPeriod bars behind startIdx.
         //
         // The arithmetic below is TA_EMA's and TA_ROCP's verbatim -- seed sum
-        // accumulated from 0.0 in ascending bar order, ((x-prev)*k)+prev, and
+        // accumulated from 0.0 in ascending bar order, k*x + beta*prev, and
         // 100*((a-b)/b) under an exact zero test. That is what makes this fused pass
         // bit-identical to composing TA_SUB, TA_EMA and TA_ROCP, which test_cvi.c
         // holds it to memcmp-exact; reshaping any of it breaks that silently. The
@@ -234,7 +235,11 @@ impl Core {
             emaRing = &mut heap_emaRing;
         }
         emaRing_Idx = 0;
-        optInK_1 = 2.0 / ((optInTimePeriod + 1) as f64);
+        emaBeta = ((optInTimePeriod - 1) as f64) / ((optInTimePeriod + 1) as f64);
+        optInK_1 = 1.0 - emaBeta;
+        if emaBeta < 0.5 {
+            emaBeta = 1.0 - ((optInK_1) as f64);
+        }
         today = startIdx - lookbackTotal;
         i = (optInTimePeriod) as usize;
         tempReal = 0.0;
@@ -260,7 +265,7 @@ impl Core {
         if emaRing_Idx >= emaRing.len() { emaRing_Idx = 0; }
         while today < startIdx {
             tempReal = inHigh[today] - inLow[today];
-            prevEMA = (tempReal - prevEMA as f64).mul_add(optInK_1, prevEMA);
+            prevEMA = (emaBeta as f64).mul_add(prevEMA, ((optInK_1) as f64) * tempReal);
             today += 1;
             emaRing[emaRing_Idx] = prevEMA;
             emaRing_Idx += 1;
@@ -271,7 +276,7 @@ impl Core {
         outIdx = 0;
         while today <= endIdx {
             tempReal = inHigh[today] - inLow[today];
-            prevEMA = (tempReal - prevEMA as f64).mul_add(optInK_1, prevEMA);
+            prevEMA = (emaBeta as f64).mul_add(prevEMA, ((optInK_1) as f64) * tempReal);
             today += 1;
             laggedEMA = emaRing[emaRing_Idx];
             emaRing[emaRing_Idx] = prevEMA;
@@ -441,6 +446,7 @@ struct CviStreamState {
     optInROCPeriod: i32,
     prevEMA: f64,
     optInK_1: f64,
+    emaBeta: f64,
     emaRing_Idx: usize,
     maxIdx_emaRing: usize,
     cbSize_emaRing: usize,
@@ -458,7 +464,7 @@ impl Core {
         let mut laggedEMA: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         tempReal = inHigh - inLow;
-        sp.prevEMA = (tempReal - sp.prevEMA as f64).mul_add(sp.optInK_1, sp.prevEMA);
+        sp.prevEMA = (sp.emaBeta as f64).mul_add(sp.prevEMA, ((sp.optInK_1) as f64) * tempReal);
         laggedEMA = sp.cb_emaRing[sp.emaRing_Idx];
         sp.cb_emaRing[sp.emaRing_Idx] = sp.prevEMA;
         sp.emaRing_Idx = sp.emaRing_Idx + 1;
@@ -476,6 +482,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::cvi_open_internal`]
     /// (stride 0, scalar sink) and [`Core::cvi_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn cvi_open_impl(
+        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, optInTimePeriod: i32, optInROCPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<CviStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, cvi_open_impl_fma, cvi_open_impl_scalar, (inHigh, inLow, startIdx, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.cvi_open_impl_scalar(inHigh, inLow, startIdx, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn cvi_open_impl_fma(
+        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, optInTimePeriod: i32, optInROCPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<CviStream, RetCode> {
+        self.cvi_open_impl_scalar(inHigh, inLow, startIdx, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn cvi_open_impl_scalar(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInROCPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<CviStream, RetCode> {
         if inHigh.is_empty() {
@@ -511,6 +535,7 @@ impl Core {
         let mut laggedEMA: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut optInK_1: f64 = 0.0_f64;
+        let mut emaBeta: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
@@ -523,7 +548,7 @@ impl Core {
         // EMA is anchored optInROCPeriod bars behind startIdx.
         //
         // The arithmetic below is TA_EMA's and TA_ROCP's verbatim -- seed sum
-        // accumulated from 0.0 in ascending bar order, ((x-prev)*k)+prev, and
+        // accumulated from 0.0 in ascending bar order, k*x + beta*prev, and
         // 100*((a-b)/b) under an exact zero test. That is what makes this fused pass
         // bit-identical to composing TA_SUB, TA_EMA and TA_ROCP, which test_cvi.c
         // holds it to memcmp-exact; reshaping any of it breaks that silently. The
@@ -544,7 +569,11 @@ impl Core {
         emaRing = vec![0.0_f64; (optInROCPeriod) as usize];
         maxIdx_emaRing = ((optInROCPeriod) as usize) - 1;
         emaRing_Idx = 0;
-        optInK_1 = 2.0 / ((optInTimePeriod + 1) as f64);
+        emaBeta = ((optInTimePeriod - 1) as f64) / ((optInTimePeriod + 1) as f64);
+        optInK_1 = 1.0 - emaBeta;
+        if emaBeta < 0.5 {
+            emaBeta = 1.0 - ((optInK_1) as f64);
+        }
         today = startIdx - lookbackTotal;
         i = (optInTimePeriod) as usize;
         tempReal = 0.0;
@@ -561,7 +590,7 @@ impl Core {
         if emaRing_Idx > maxIdx_emaRing { emaRing_Idx = 0; }
         while today < startIdx {
             tempReal = inHigh[today] - inLow[today];
-            prevEMA = (tempReal - prevEMA as f64).mul_add(optInK_1, prevEMA);
+            prevEMA = (emaBeta as f64).mul_add(prevEMA, ((optInK_1) as f64) * tempReal);
             today += 1;
             emaRing[emaRing_Idx] = prevEMA;
             emaRing_Idx += 1;
@@ -572,7 +601,7 @@ impl Core {
         outIdx = 0;
         while today <= endIdx {
             tempReal = inHigh[today] - inLow[today];
-            prevEMA = (tempReal - prevEMA as f64).mul_add(optInK_1, prevEMA);
+            prevEMA = (emaBeta as f64).mul_add(prevEMA, ((optInK_1) as f64) * tempReal);
             today += 1;
             laggedEMA = emaRing[emaRing_Idx];
             emaRing[emaRing_Idx] = prevEMA;
@@ -597,6 +626,7 @@ impl Core {
             optInROCPeriod,
             prevEMA,
             optInK_1,
+            emaBeta,
             emaRing_Idx,
             maxIdx_emaRing,
             cur_outReal: outReal[(*outNBElement - 1) * outStride],
@@ -777,7 +807,7 @@ impl CviStream {
             let mut emaRing_Idx = sp.emaRing_Idx;
             let mut prevEMA = sp.prevEMA;
             tempReal = inHigh - inLow;
-            prevEMA = (tempReal - prevEMA as f64).mul_add(sp.optInK_1, prevEMA);
+            prevEMA = (sp.emaBeta as f64).mul_add(prevEMA, ((sp.optInK_1) as f64) * tempReal);
             laggedEMA = sp.cb_emaRing[emaRing_Idx];
             emaRing_Idx = emaRing_Idx + 1;
             if emaRing_Idx > sp.maxIdx_emaRing {

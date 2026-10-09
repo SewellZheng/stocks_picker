@@ -153,6 +153,7 @@ extern const TA_FuncDef TA_DEF_EMV;
 extern const TA_FuncDef TA_DEF_ER;
 extern const TA_FuncDef TA_DEF_ERI;
 extern const TA_FuncDef TA_DEF_EXP;
+extern const TA_FuncDef TA_DEF_FISHER;
 extern const TA_FuncDef TA_DEF_FLOOR;
 extern const TA_FuncDef TA_DEF_FOSC;
 extern const TA_FuncDef TA_DEF_FRACTAL;
@@ -212,6 +213,7 @@ extern const TA_FuncDef TA_DEF_PERCENTRANK;
 extern const TA_FuncDef TA_DEF_PLUS_DI;
 extern const TA_FuncDef TA_DEF_PLUS_DM;
 extern const TA_FuncDef TA_DEF_PPO;
+extern const TA_FuncDef TA_DEF_PSO;
 extern const TA_FuncDef TA_DEF_PVI;
 extern const TA_FuncDef TA_DEF_PVO;
 extern const TA_FuncDef TA_DEF_PVT;
@@ -221,6 +223,7 @@ extern const TA_FuncDef TA_DEF_ROC;
 extern const TA_FuncDef TA_DEF_ROCP;
 extern const TA_FuncDef TA_DEF_ROCR;
 extern const TA_FuncDef TA_DEF_ROCR100;
+extern const TA_FuncDef TA_DEF_ROGERSSATCHELL;
 extern const TA_FuncDef TA_DEF_RSI;
 extern const TA_FuncDef TA_DEF_RVI;
 extern const TA_FuncDef TA_DEF_RVIR;
@@ -348,6 +351,7 @@ const TA_FuncDef *TA_PerGroupFunc_3[] = {
 &TA_DEF_MASSI,
 &TA_DEF_NATR,
 &TA_DEF_PERCENTB,
+&TA_DEF_ROGERSSATCHELL,
 &TA_DEF_RVI,
 &TA_DEF_RVIR,
 &TA_DEF_TRANGE,
@@ -377,6 +381,7 @@ const TA_FuncDef *TA_PerGroupFunc_4[] = {
 &TA_DEF_DX,
 &TA_DEF_ER,
 &TA_DEF_ERI,
+&TA_DEF_FISHER,
 &TA_DEF_FOSC,
 &TA_DEF_FRACTAL,
 &TA_DEF_IBS,
@@ -394,6 +399,7 @@ const TA_FuncDef *TA_PerGroupFunc_4[] = {
 &TA_DEF_PLUS_DI,
 &TA_DEF_PLUS_DM,
 &TA_DEF_PPO,
+&TA_DEF_PSO,
 &TA_DEF_QSTICK,
 &TA_DEF_ROC,
 &TA_DEF_ROCP,

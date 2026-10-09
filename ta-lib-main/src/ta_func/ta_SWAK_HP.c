@@ -56,9 +56,10 @@
  *  -------------------------------------------------------------------
  *  100126 KL,CC  Creation (#486).
  *  100326 MF,CC  The newest output on one fused step (#486).
+ *  100526 MF,CC  a1p without its cancellation at long periods (#486).
  */
 
-TA_LIB_API int TA_SWAK_HP_Lookback( int optInTimePeriod )
+TA_NOINLINE TA_LIB_API int TA_SWAK_HP_Lookback( int optInTimePeriod )
 {
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 20;
@@ -68,7 +69,7 @@ TA_LIB_API int TA_SWAK_HP_Lookback( int optInTimePeriod )
     * seeded from the first bar rather than read from before it, and there is
     * no callee whose lookback could be inherited.
     */
-   return TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_SWAK_HP,Swak_hp);
+   return TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_SWAK_HP,Swak_hp,(10 * optInTimePeriod + 5) / 6,(19 * optInTimePeriod + 5) / 6);
 }
 
 TA_LIB_API int TA_SWAK_HP_DisplayShift( int optInTimePeriod, int outputIdx )
@@ -93,8 +94,9 @@ TA_LIB_API TA_RetCode TA_SWAK_HP( int    startIdx,
    int outIdx;
    int today;
    int lookbackTotal;
-   double w;
-   double cw;
+   double h;
+   double sh;
+   double ch;
    double a1p;
    double c0;
    double a1;
@@ -136,14 +138,19 @@ TA_LIB_API TA_RetCode TA_SWAK_HP( int    startIdx,
     * 2/(n+1). The paper's 360/P is a full turn, so 2*pi/P.
     *
     * The period range starts at 5 because of what this expression does below
-    * it, not for taste: at P = 4, cos(w) is 6.1e-17 and `cos w + sin w - 1`
-    * rounds to exactly 0.0, so a1p is 0, c0 and a1 are both 1, and the filter
-    * degenerates into the integrator x - x[s]. At P = 2, cos(w) is -1 and c0
-    * is 0, a dead filter. No contiguous range below 5 avoids both.
+    * it, not for taste: at P = 4 it is 0/0, and what the doubles make of that
+    * is no filter. At P = 2, cos(w) is -1 and c0 is 0, a dead filter. No
+    * contiguous range below 5 avoids both.
+    *
+    * Keep it in the half angle h = w/2, where it is 2*sin h*(cos h - sin h)
+    * over 1 - 2*sin(h)^2. Written in w, cos(w) - 1 cancels more of the
+    * numerator's digits the longer the period, and the cutoff drifts with
+    * them.
     */
-   w = 2.0 * 3.141592653589793 / (double)optInTimePeriod;
-   cw = cos(w);
-   a1p = (cw + sin(w) - 1.0) / cw;
+   h = 3.141592653589793 / (double)optInTimePeriod;
+   sh = sin(h);
+   ch = cos(h);
+   a1p = 2.0 * sh * (ch - sh) / (1.0 - 2.0 * sh * sh);
    /* The high-pass row: a (1, -1) numerator, so its DC gain is 0 and the line
     * is centred on zero rather than on price.
     */
@@ -202,8 +209,9 @@ TA_RetCode TA_S_SWAK_HP( int    startIdx,
    int outIdx;
    int today;
    int lookbackTotal;
-   double w;
-   double cw;
+   double h;
+   double sh;
+   double ch;
    double a1p;
    double c0;
    double a1;
@@ -239,9 +247,10 @@ TA_RetCode TA_S_SWAK_HP( int    startIdx,
    {
       return TA_SUCCESS;
    }
-   w = 2.0 * 3.141592653589793 / (double)optInTimePeriod;
-   cw = cos(w);
-   a1p = (cw + sin(w) - 1.0) / cw;
+   h = 3.141592653589793 / (double)optInTimePeriod;
+   sh = sin(h);
+   ch = cos(h);
+   a1p = 2.0 * sh * (ch - sh) / (1.0 - 2.0 * sh * sh);
    c0 = 1.0 - a1p / 2.0;
    a1 = 1.0 - a1p;
    today = startIdx - lookbackTotal;
@@ -308,7 +317,7 @@ static TA_FMA_STEP_INLINE void TA_SWAK_HP_StepImpl( struct TA_SWAK_HP_Stream *sp
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_SWAK_HP_OpenImpl( struct TA_SWAK_HP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_SWAK_HP_OpenImpl( struct TA_SWAK_HP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_SWAK_HP_Stream *sp;
    int endIdx;
@@ -336,8 +345,9 @@ static TA_RetCode TA_SWAK_HP_OpenImpl( struct TA_SWAK_HP_Stream **stream, const 
       int outIdx;
       int today;
       int lookbackTotal;
-      double w;
-      double cw;
+      double h;
+      double sh;
+      double ch;
       double a1p;
       double c0 = 0.0;
       double a1 = 0.0;
@@ -362,14 +372,19 @@ static TA_RetCode TA_SWAK_HP_OpenImpl( struct TA_SWAK_HP_Stream **stream, const 
        * 2/(n+1). The paper's 360/P is a full turn, so 2*pi/P.
        *
        * The period range starts at 5 because of what this expression does below
-       * it, not for taste: at P = 4, cos(w) is 6.1e-17 and `cos w + sin w - 1`
-       * rounds to exactly 0.0, so a1p is 0, c0 and a1 are both 1, and the filter
-       * degenerates into the integrator x - x[s]. At P = 2, cos(w) is -1 and c0
-       * is 0, a dead filter. No contiguous range below 5 avoids both.
+       * it, not for taste: at P = 4 it is 0/0, and what the doubles make of that
+       * is no filter. At P = 2, cos(w) is -1 and c0 is 0, a dead filter. No
+       * contiguous range below 5 avoids both.
+       *
+       * Keep it in the half angle h = w/2, where it is 2*sin h*(cos h - sin h)
+       * over 1 - 2*sin(h)^2. Written in w, cos(w) - 1 cancels more of the
+       * numerator's digits the longer the period, and the cutoff drifts with
+       * them.
        */
-      w = 2.0 * 3.141592653589793 / (double)optInTimePeriod;
-      cw = cos(w);
-      a1p = (cw + sin(w) - 1.0) / cw;
+      h = 3.141592653589793 / (double)optInTimePeriod;
+      sh = sin(h);
+      ch = cos(h);
+      a1p = 2.0 * sh * (ch - sh) / (1.0 - 2.0 * sh * sh);
       /* The high-pass row: a (1, -1) numerator, so its DC gain is 0 and the line
        * is centred on zero rather than on price.
        */
@@ -430,6 +445,30 @@ static TA_RetCode TA_SWAK_HP_OpenImpl( struct TA_SWAK_HP_Stream **stream, const 
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_SWAK_HP_OpenImplFma( struct TA_SWAK_HP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_SWAK_HP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_SWAK_HP_OpenImplPlain( struct TA_SWAK_HP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_SWAK_HP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_SWAK_HP_OpenSinkFma( struct TA_SWAK_HP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_SWAK_HP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_SWAK_HP_OpenInternal( struct TA_SWAK_HP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
 {
@@ -437,7 +476,7 @@ TA_RetCode TA_SWAK_HP_OpenInternal( struct TA_SWAK_HP_Stream **stream, const dou
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_SWAK_HP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_SWAK_HP_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_SWAK_HP_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -452,7 +491,7 @@ TA_LIB_API TA_RetCode TA_SWAK_HP_Open( TA_SWAK_HP_Stream **stream, const double 
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
-   return TA_SWAK_HP_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_SWAK_HP_OpenSinkFma( stream, inReal, 0, historyLen, optInTimePeriod, outReal ) : TA_SWAK_HP_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_SWAK_HP_OpenAndFill( TA_SWAK_HP_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -469,7 +508,7 @@ TA_LIB_API TA_RetCode TA_SWAK_HP_OpenAndFill( TA_SWAK_HP_Stream **stream, const 
 /* Private function, not in public API. */
 TA_RetCode TA_SWAK_HP_OpenAndFillInternal( struct TA_SWAK_HP_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_SWAK_HP_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_SWAK_HP_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_SWAK_HP_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION

@@ -54,6 +54,7 @@
  *  -------------------------------------------------------------------
  *  093026 KL,CC  Creation (#477).
  *  093026 MF,CC  Rolling extrema in a fixed number of comparisons per bar.
+ *  100726 MF,CC  #492. Under an Auto level the stop window is counted again.
  */
 
 // Import types from parent module
@@ -105,7 +106,11 @@ impl Core {
         // stop window reaches optInStopPeriod-1 first stops further back. The ATR
         // term is never restated here, which is what makes CKSP inherit
         // TA_FUNC_UNST_ATR.
-        return Ok((self.atr_lookback(optInTimePeriod)? + ((optInStopPeriod) as usize) - 1) as usize);
+        //
+        // A stop can rest on a first stop optInStopPeriod-1 bars old, whose ATR
+        // was that much closer to its seed: the first difference two starts show
+        // is the smaller for it, and an Auto level is held against that one.
+        return Ok((self.atr_lookback(optInTimePeriod)? + ((optInStopPeriod) as usize) - 1 + (((if self.unstable_count(FuncUnstId::ATR, 1, 1) != self.unstable_count(FuncUnstId::ATR, 0, 0) { self.unstable_count(FuncUnstId::ATR, ((optInStopPeriod - 1) as i32), ((optInStopPeriod - 1) as i32)) - self.unstable_count(FuncUnstId::ATR, 0, 0) } else { 0 })) as usize)) as usize);
     }
     /// Display shift of one output of [`Core::cksp`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -363,8 +368,9 @@ impl Core {
             i = i.wrapping_sub(1);
         }
         prevATR = periodTotal / ((optInTimePeriod) as f64);
-        // Skip the Average True Range's unstable period. Taking the count from the
-        // lookback rather than naming the setting keeps the two from disagreeing.
+        // Skip the bars the lookback adds for the unstable period. Taking the count
+        // from the lookback rather than naming the setting keeps the two from
+        // disagreeing.
         i = lookbackTotal - lastQ - ((optInTimePeriod) as usize);
         if i != 0 {
             let _wn: usize = i;
@@ -940,6 +946,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::cksp_open_internal`]
     /// (stride 0, scalar sink) and [`Core::cksp_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn cksp_open_impl(
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, optInTimePeriod: i32, optInMultiplier: f64, optInStopPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outHighStop: &mut [f64], outLowStop: &mut [f64], outStride: usize,
+    ) -> Result<CkspStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, cksp_open_impl_fma, cksp_open_impl_scalar, (inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, optInStopPeriod, outBegIdx, outNBElement, outHighStop, outLowStop, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.cksp_open_impl_scalar(inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, optInStopPeriod, outBegIdx, outNBElement, outHighStop, outLowStop, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn cksp_open_impl_fma(
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, optInTimePeriod: i32, optInMultiplier: f64, optInStopPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outHighStop: &mut [f64], outLowStop: &mut [f64], outStride: usize,
+    ) -> Result<CkspStream, RetCode> {
+        self.cksp_open_impl_scalar(inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, optInStopPeriod, outBegIdx, outNBElement, outHighStop, outLowStop, outStride)
+    }
+
+    #[inline(always)]
+    fn cksp_open_impl_scalar(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInMultiplier: f64, mut optInStopPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outHighStop: &mut [f64], outLowStop: &mut [f64], outStride: usize,
     ) -> Result<CkspStream, RetCode> {
         if inHigh.is_empty() {
@@ -1084,8 +1108,9 @@ impl Core {
             today += 1;
         }
         prevATR = periodTotal / ((optInTimePeriod) as f64);
-        // Skip the Average True Range's unstable period. Taking the count from the
-        // lookback rather than naming the setting keeps the two from disagreeing.
+        // Skip the bars the lookback adds for the unstable period. Taking the count
+        // from the lookback rather than naming the setting keeps the two from
+        // disagreeing.
         i = lookbackTotal - lastQ - ((optInTimePeriod) as usize);
         while i != 0 {
             tempLT = inLow[today];

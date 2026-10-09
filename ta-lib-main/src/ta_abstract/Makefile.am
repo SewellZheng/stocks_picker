@@ -33,9 +33,4 @@ libta_abstract_la_SOURCES = ta_group_idx.c \
 	tables/table_y.c \
 	tables/table_z.c
 
-libta_abstract_la_CPPFLAGS = -I../ta_common/ -Iframes/
-
-libta_abstractdir=$(includedir)/ta-lib/
-libta_abstract_HEADERS = ../../include/ta_defs.h \
-	../../include/ta_libc.h \
-	../../include/ta_abstract.h
+libta_abstract_la_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/src/ta_common -I$(srcdir)/frames

@@ -14,8 +14,8 @@ writes — the build-system source lists and the ta-lib.org function pages inclu
 whole-dir symlink breaks autotools' per-dir libtool recursion (`make` enters the
 symlink's *physical* path, so the Makefile's relative `../../libtool` fails with
 `Error 127`), and it would force a packaging dereference step. Real files in
-`src/` avoid both — and downstream consumers (notably the PHP `trader` extension)
-glob `src/ta_func/*.c` straight out of the released source tarball.
+`src/` avoid both — and downstream consumers glob `src/ta_func/*.c` straight out
+of the released source tarball.
 
 **Build separation (important):** the C build systems (CMake + autotools) build
 **only C** — the library plus `ta_regtest` and `ta_bench`. `ta_codegen` is Rust,
@@ -110,6 +110,14 @@ PUB  <N>_OpenAndFill(in, params, outs)      -> aliasing guard; <N>_OpenAndFillIn
 PKG  <N>_OpenAndFillInternal(in, sIdx, ..)  -> <N>_OpenImpl(.., 1)
 PRV  <N>_OpenImpl(sp, in, sIdx, params, outBeg, outNb, outs, outStride)
 ```
+
+A fused `_OpenImpl` (C, Rust) runs in a private frame compiled for hardware
+FMA or in a plain one, picked per call on the running CPU. Kept on one path: C
+candlesticks; Rust stateless maps and `HT_TRENDMODE`. In C the public
+`Open` has an FMA frame of its own that declares the sinks: a sink a frame is
+handed is stored on every bar, with everything that feeds it, where a local one
+is computed once. Both seams still call the shared frame, one per stride; drop
+either call and the compiler specialises the fill's loop differently.
 
 Both public entries delegate at anchor 0, so **no seam is emitted unreachable**.
 The guard sits on the public frame because that is the only one handed an array

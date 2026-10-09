@@ -22,7 +22,7 @@
 //!   not-serializable for free.
 //!
 //! - **The step stays a method on `Core`, not on the handle.** Transcribed
-//!   bodies read the unstable period as `this._unstablePeriod[(int)FuncUnstId.X]`,
+//!   bodies read the unstable period as `this.UnstableCount((int)FuncUnstId.X, ..)`,
 //!   which only compiles inside a `Core` instance method; passing the handle in
 //!   measured indistinguishable from `this`.
 //!
@@ -1297,6 +1297,9 @@ fn stream_ctx<'a>(
         fma: Some(fma_sets),
         matype_map: HashMap::new(),
         plain_selects: Cell::new(false),
+        in_reduction_loop: Cell::new(false),
+        batch: false,
+        pooled: None,
     }
 }
 
@@ -1630,7 +1633,7 @@ fn peek_frame_arm_named(
 /// per-bar transition; `Update` runs it on live state, `Peek` on a copy.
 ///
 /// It stays a method on `Core` rather than on the handle because transcribed
-/// bodies render unstable-period reads as `this._unstablePeriod[(int)FuncUnstId.X]`,
+/// bodies render unstable-period reads as `this.UnstableCount((int)FuncUnstId.X, ..)`,
 /// which only compiles inside a `Core` instance method.
 #[allow(clippy::too_many_arguments)]
 fn emit_step(
@@ -2189,6 +2192,9 @@ fn emit_open_region(
         fma: Some(stream_fma),
         matype_map: build_matype_map(enums),
         plain_selects: Cell::new(false),
+        in_reduction_loop: Cell::new(false),
+        batch: false,
+        pooled: None,
     };
 
     // VarDecl initializations (mirrors gen_func_inner).
@@ -4827,6 +4833,9 @@ fn emit_composed_open(
         fma: Some(stream_fma),
         matype_map: HashMap::new(),
         plain_selects: Cell::new(false),
+        in_reduction_loop: Cell::new(false),
+        batch: false,
+        pooled: None,
     };
     let region_len = region_stmts.len();
     // Own inputs are exactly `historyLen` long — `emit_open_validation` above

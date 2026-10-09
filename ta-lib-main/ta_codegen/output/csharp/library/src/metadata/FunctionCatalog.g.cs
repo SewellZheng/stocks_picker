@@ -228,6 +228,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeEr(),
             MakeEri(),
             MakeExp(),
+            MakeFisher(),
             MakeFloor(),
             MakeFosc(),
             MakeFractal(),
@@ -287,6 +288,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakePlusDi(),
             MakePlusDm(),
             MakePpo(),
+            MakePso(),
             MakePvi(),
             MakePvo(),
             MakePvt(),
@@ -296,6 +298,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeRocp(),
             MakeRocr(),
             MakeRocr100(),
+            MakeRogerssatchell(),
             MakeRsi(),
             MakeRvi(),
             MakeRvir(),
@@ -505,7 +508,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "ADOSC",
         group: FunctionGroup.VolumeIndicators,
         hint: "Chaikin A/D Oscillator",
-        flags: FuncFlags.Stream | FuncFlags.PathDependent,
+        flags: FuncFlags.Stream,
         unstableId: null,
         inputs:
         [
@@ -2931,6 +2934,31 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Exp(
                 startIdx, endIdx, c.Series(0), c.RealOut(0)));
 
+    private static FuncInfo MakeFisher() => new(
+        name: "FISHER",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Fisher Transform",
+        flags: FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        unstableId: FuncUnstId.FISHER,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHL", PriceComponents.High | PriceComponents.Low, [PriceComponents.High, PriceComponents.Low]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 10, 5, 50, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outFisher", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outTrigger", OutputFlags.DashLine),
+        ],
+        lookback: static (core, c) => core.FisherLookback(c.IntOpt(0)),
+        displayShift: static (core, c, outputIdx) => core.FisherDisplayShift(c.IntOpt(0), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Fisher(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.RealOut(0), c.RealOut(1)));
+
     private static FuncInfo MakeFloor() => new(
         name: "FLOOR",
         group: FunctionGroup.MathTransform,
@@ -4366,6 +4394,31 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Ppo(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOpt(1), (MAType)c.IntOpt(2), c.RealOut(0)));
 
+    private static FuncInfo MakePso() => new(
+        name: "PSO",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Premier Stochastic Oscillator",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInFastK_Period", "Fast-K Period", "Time period for building the Fast-K line", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 8, 1, 200, 1)),
+            new OptInputInfo("optInEMAPeriod", "EMA Period", "Period of each of the two smoothing passes", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 5, 1, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.PsoLookback(c.IntOpt(0), c.IntOpt(1)),
+        displayShift: static (core, c, outputIdx) => core.PsoDisplayShift(c.IntOpt(0), c.IntOpt(1), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Pso(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), c.RealOut(0)));
+
     private static FuncInfo MakePvi() => new(
         name: "PVI",
         group: FunctionGroup.VolumeIndicators,
@@ -4577,6 +4630,31 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Rocr100(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeRogerssatchell() => new(
+        name: "ROGERSSATCHELL",
+        group: FunctionGroup.VolatilityIndicators,
+        hint: "Rogers-Satchell Volatility",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceOHLC", PriceComponents.Open | PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.Open, PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Number of bars in the window", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 2, 200, 1)),
+            new OptInputInfo("optInAnnualization", "Annualization", "Periods per year; 1 leaves the per-bar figure", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 3e37, 2, 252.0, 1.0, 365.0, 1.0)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.RogerssatchellLookback(c.IntOpt(0), c.RealOpt(1)),
+        displayShift: static (core, c, outputIdx) => core.RogerssatchellDisplayShift(c.IntOpt(0), c.RealOpt(1), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Rogerssatchell(
+                startIdx, endIdx, c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.RealOut(0)));
 
     private static FuncInfo MakeRsi() => new(
         name: "RSI",

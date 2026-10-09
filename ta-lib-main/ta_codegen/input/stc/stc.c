@@ -15,6 +15,7 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  092926 MF,CC  Initial version (#478).
+ *  100726 MF,CC  #492. The Auto rule takes the bars the shorter EMA count gives up.
  *
  */
 
@@ -35,7 +36,7 @@ int stc_lookback(int optInFastPeriod, int optInSlowPeriod, int optInCyclePeriod)
     */
    return ema_lookback( optInSlowPeriod )
    + 2 * (optInCyclePeriod - 1)
-   + TA_GetUnstablePeriod(TA_FUNC_UNST_STC);
+   + TA_UNSTABLE( TA_FUNC_UNST_STC, (5 * K + 1) / 2 + 3 * (optInSlowPeriod + 1) );
 }
 
 TA_RetCode stc(int startIdx, int endIdx,
@@ -53,9 +54,10 @@ TA_RetCode stc(int startIdx, int endIdx,
    CIRCBUF_PROLOG(pfSufHi,double,30);
    CIRCBUF_PROLOG(pfSufLo,double,30);
    double prevFast, prevSlow, fastK, slowK, tempReal, lineValue;
+   double fastBeta, slowBeta;
    double lowest, highest, range, frac1, frac2, pf, pff;
    double lineHi, lineLo, pfHi, pfLo, sufHi, sufLo;
-   int i, today, lineStart, outIdx, tempInteger, lookbackTotal, lastIdx;
+   int i, today, fastToday, lineStart, outIdx, tempInteger, lookbackTotal, lookbackSlow, lastIdx;
    int nLine, nPF;
 
    if( optInSlowPeriod < optInFastPeriod )
@@ -79,8 +81,12 @@ TA_RetCode stc(int startIdx, int endIdx,
 
    *outBegIdx = startIdx;
 
-   fastK = 2.0 / ((double)(optInFastPeriod + 1));
-   slowK = 2.0 / ((double)(optInSlowPeriod + 1));
+   fastBeta = ((double)(optInFastPeriod - 1)) / ((double)(optInFastPeriod + 1));
+   fastK = 1.0 - fastBeta;
+   if( fastBeta < 0.5 ) fastBeta = 1.0 - fastK;
+   slowBeta = ((double)(optInSlowPeriod - 1)) / ((double)(optInSlowPeriod + 1));
+   slowK = 1.0 - slowBeta;
+   if( slowBeta < 0.5 ) slowBeta = 1.0 - slowK;
 
    /* Rolling extrema, van Herk / Gil-Werman: the window ending in slot j is
     * the current block's prefix extremum joined with the previous block's
@@ -95,36 +101,43 @@ TA_RetCode stc(int startIdx, int endIdx,
    CIRCBUF_INIT(pfSufLo,double,optInCyclePeriod);
    lastIdx = optInCyclePeriod - 1;
 
-   /* The line is TA_MACD's: co-terminal SMA seeds, then both EMAs advanced
-    * through TA_FUNC_UNST_EMA to lineStart, so that from lineStart on it is
-    * TA_EMA(fast) - TA_EMA(slow) bit for bit. The chain is fed from
+   /* The line is TA_MACD's: each SMA seed placed by its own EMA lookback, then
+    * both EMAs advanced to lineStart, so that from lineStart on it is
+    * TA_EMA(fast) - TA_EMA(slow) bit for bit. That placement reads out of
+    * bounds or skips bars unless ema_lookback(n) - n never decreases as n
+    * grows. The chain is fed from
     * lineStart, not from the EMA seed: TA_FUNC_UNST_EMA then reaches only the
     * line, while TA_FUNC_UNST_STC moves the whole chain back and so warms the
     * line and both smoothers.
     */
-   lineStart = startIdx - (lookbackTotal - ema_lookback( optInSlowPeriod ));
+   lookbackSlow = ema_lookback( optInSlowPeriod );
+   lineStart = startIdx - (lookbackTotal - lookbackSlow);
 
    today = startIdx - lookbackTotal;
    tempReal = 0.0;
-   i = optInSlowPeriod - optInFastPeriod;
+   i = optInSlowPeriod;
    while( i-- > 0 )
       tempReal += inReal[today++];
+   prevSlow = tempReal / optInSlowPeriod;
 
+   fastToday = startIdx - lookbackTotal + (lookbackSlow - ema_lookback( optInFastPeriod ));
    prevFast = 0.0;
    i = optInFastPeriod;
    while( i-- > 0 )
-   {
-      prevFast += inReal[today];
-      tempReal += inReal[today++];
-   }
-   prevSlow = tempReal / optInSlowPeriod;
+      prevFast += inReal[fastToday++];
    prevFast = prevFast / optInFastPeriod;
+
+   while( today < fastToday )
+   {
+      tempReal = inReal[today++];
+      prevSlow = slowK * tempReal + slowBeta * prevSlow;
+   }
 
    while( today <= lineStart )
    {
       tempReal = inReal[today++];
-      prevFast = ((tempReal-prevFast)*fastK) + prevFast;
-      prevSlow = ((tempReal-prevSlow)*slowK) + prevSlow;
+      prevFast = fastK * tempReal + fastBeta * prevFast;
+      prevSlow = slowK * tempReal + slowBeta * prevSlow;
    }
 
    /* A zero range holds the previous fraction (0.0 before any), and the test
@@ -152,8 +165,8 @@ TA_RetCode stc(int startIdx, int endIdx,
    while( today <= startIdx )
    {
       tempReal = inReal[today];
-      prevFast = ((tempReal-prevFast)*fastK) + prevFast;
-      prevSlow = ((tempReal-prevSlow)*slowK) + prevSlow;
+      prevFast = fastK * tempReal + fastBeta * prevFast;
+      prevSlow = slowK * tempReal + slowBeta * prevSlow;
       lineValue = prevFast - prevSlow;
       nLine = nLine + 1;
       lineRing[lineRing_Idx] = lineValue;
@@ -279,8 +292,8 @@ TA_RetCode stc(int startIdx, int endIdx,
    while( today <= endIdx )
    {
       tempReal = inReal[today];
-      prevFast = ((tempReal-prevFast)*fastK) + prevFast;
-      prevSlow = ((tempReal-prevSlow)*slowK) + prevSlow;
+      prevFast = fastK * tempReal + fastBeta * prevFast;
+      prevSlow = slowK * tempReal + slowBeta * prevSlow;
       lineValue = prevFast - prevSlow;
       lineRing[lineRing_Idx] = lineValue;
       if( lineRing_Idx == 0 )

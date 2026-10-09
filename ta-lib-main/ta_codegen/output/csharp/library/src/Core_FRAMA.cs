@@ -55,6 +55,8 @@ public partial class Core
     *  -------------------------------------------------------------------
     *  092826 MF,CC  First version (issue #464).
     *  100226 MF,CC  #497. An odd period is refused before the range is written.
+    *  100726 MF,CC  #492. The Auto rule grows with the period and stops at the
+    *                slowest alpha's bound.
     */
    /// <summary>
    /// Number of leading input bars <c>Frama</c> consumes before it can produce
@@ -79,13 +81,15 @@ public partial class Core
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return -1;
       }
+      int root = 0;
+      root = (int)Math.Sqrt((double)optInTimePeriod);
       /* The range check cannot demand an even period; without this the lookback
        * answers a usable number for a call that cannot run.
        */
       if( optInTimePeriod % 2 != 0 ) {
          return -1 ;
       }
-      return optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.FRAMA] ;
+      return optInTimePeriod + this.UnstableCount((int)FuncUnstId.FRAMA, ((9 * (4 + 4) * (root + 2) / 2 < 99 * 10) ? 9 * (4 + 4) * (root + 2) / 2 : 99 * 10), ((9 * (8 + 4) * (root + 2) / 2 < 99 * 19) ? 9 * (8 + 4) * (root + 2) / 2 : 99 * 19)) ;
 
    }
    /// <summary>
@@ -171,7 +175,7 @@ public partial class Core
       }
       outBegIdx = 0;
       outNBElement = 0;
-      lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.FRAMA];
+      lookbackTotal = FramaLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -197,7 +201,7 @@ public partial class Core
       maxIdx_slot = (half)-1;
       slot_Idx = 0;
       today = startIdx - lookbackTotal + 1;
-      seedIdx = startIdx - this._unstablePeriod[(int)FuncUnstId.FRAMA] - 1;
+      seedIdx = startIdx - (lookbackTotal - optInTimePeriod) - 1;
       /* The first block's suffix reads must see a bar inside the window. */
       i = 0;
       while( i < half ) {
@@ -375,7 +379,7 @@ public partial class Core
       }
       outBegIdx = 0;
       outNBElement = 0;
-      lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.FRAMA];
+      lookbackTotal = FramaLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -392,7 +396,7 @@ public partial class Core
       maxIdx_slot = (half)-1;
       slot_Idx = 0;
       today = startIdx - lookbackTotal + 1;
-      seedIdx = startIdx - this._unstablePeriod[(int)FuncUnstId.FRAMA] - 1;
+      seedIdx = startIdx - (lookbackTotal - optInTimePeriod) - 1;
       i = 0;
       while( i < half ) {
          slot_sufHigh[i] = (double)inHigh[today];
@@ -1024,7 +1028,7 @@ public partial class Core
       }
       outBegIdx = 0;
       outNBElement = 0;
-      lookbackTotal = optInTimePeriod + this._unstablePeriod[(int)FuncUnstId.FRAMA];
+      lookbackTotal = FramaLookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -1050,7 +1054,7 @@ public partial class Core
       maxIdx_slot = (half)-1;
       slot_Idx = 0;
       today = startIdx - lookbackTotal + 1;
-      seedIdx = startIdx - this._unstablePeriod[(int)FuncUnstId.FRAMA] - 1;
+      seedIdx = startIdx - (lookbackTotal - optInTimePeriod) - 1;
       /* The first block's suffix reads must see a bar inside the window. */
       i = 0;
       while( i < half ) {

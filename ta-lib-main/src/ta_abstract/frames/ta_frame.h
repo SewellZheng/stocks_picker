@@ -1290,6 +1290,17 @@ unsigned int TA_EXP_FramePPLB( const TA_ParamHolderPriv *params )
 int TA_EXP_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
+TA_RetCode TA_FISHER_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_FISHER_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_FISHER_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
 TA_RetCode TA_FLOOR_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -1939,6 +1950,17 @@ unsigned int TA_PPO_FramePPLB( const TA_ParamHolderPriv *params )
 int TA_PPO_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
+TA_RetCode TA_PSO_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_PSO_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_PSO_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
 TA_RetCode TA_PVI_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -2036,6 +2058,17 @@ TA_RetCode TA_ROCR100_FramePP( const TA_ParamHolderPriv *params,
 unsigned int TA_ROCR100_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 int TA_ROCR100_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
+TA_RetCode TA_ROGERSSATCHELL_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_ROGERSSATCHELL_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_ROGERSSATCHELL_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
 TA_RetCode TA_RSI_FramePP( const TA_ParamHolderPriv *params,

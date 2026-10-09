@@ -56,8 +56,9 @@
  *  092926 MF,CC  First version (issue #474).
  */
 
-TA_LIB_API int TA_VIDYA_Lookback( int optInTimePeriod, int optInCMOPeriod )
+TA_NOINLINE TA_LIB_API int TA_VIDYA_Lookback( int optInTimePeriod, int optInCMOPeriod )
 {
+   int root;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 12;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -66,11 +67,12 @@ TA_LIB_API int TA_VIDYA_Lookback( int optInTimePeriod, int optInCMOPeriod )
       optInCMOPeriod = 9;
    else if( (int)optInCMOPeriod < 2 || (int)optInCMOPeriod > 100000 )
       return -1;
+   root = (int)sqrt((double)optInCMOPeriod);
    if( optInTimePeriod == 1 )
    {
-      return TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_VIDYA,Vidya);
+      return TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_VIDYA,Vidya,0,0);
    }
-   return optInCMOPeriod + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_VIDYA,Vidya);
+   return optInCMOPeriod + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_VIDYA,Vidya,((2 * 4 * (optInTimePeriod + 1) * root > 100000000) ? 100000000 : 2 * 4 * (optInTimePeriod + 1) * root),((2 * 8 * (optInTimePeriod + 1) * root > 100000000) ? 100000000 : 2 * 8 * (optInTimePeriod + 1) * root));
 }
 
 TA_LIB_API int TA_VIDYA_DisplayShift( int optInTimePeriod, int optInCMOPeriod, int outputIdx )
@@ -136,7 +138,7 @@ TA_LIB_API TA_RetCode TA_VIDYA( int    startIdx,
     */
    if( optInTimePeriod == 1 )
    {
-      lookbackTotal = TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_VIDYA,Vidya);
+      lookbackTotal = TA_VIDYA_Lookback(optInTimePeriod,optInCMOPeriod);
       if( startIdx < lookbackTotal )
       {
          startIdx = lookbackTotal;
@@ -364,7 +366,7 @@ TA_RetCode TA_S_VIDYA( int    startIdx,
    *outNBElement= 0;
    if( optInTimePeriod == 1 )
    {
-      lookbackTotal = TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_VIDYA,Vidya);
+      lookbackTotal = TA_VIDYA_Lookback(optInTimePeriod,optInCMOPeriod);
       if( startIdx < lookbackTotal )
       {
          startIdx = lookbackTotal;
@@ -634,7 +636,7 @@ static TA_FMA_STEP_INLINE void TA_VIDYA_StepImpl( struct TA_VIDYA_Stream *sp, do
    }
 }
 
-static TA_RetCode TA_VIDYA_OpenImpl( struct TA_VIDYA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInCMOPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_VIDYA_OpenImpl( struct TA_VIDYA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInCMOPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_VIDYA_Stream *sp;
    int endIdx;
@@ -910,6 +912,30 @@ static TA_RetCode TA_VIDYA_OpenImpl( struct TA_VIDYA_Stream **stream, const doub
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_VIDYA_OpenImplFma( struct TA_VIDYA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInCMOPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_VIDYA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_VIDYA_OpenImplPlain( struct TA_VIDYA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInCMOPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_VIDYA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_VIDYA_OpenSinkFma( struct TA_VIDYA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInCMOPeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_VIDYA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_VIDYA_OpenInternal( struct TA_VIDYA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInCMOPeriod, double *outReal )
 {
@@ -917,7 +943,7 @@ TA_RetCode TA_VIDYA_OpenInternal( struct TA_VIDYA_Stream **stream, const double 
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_VIDYA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_VIDYA_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_VIDYA_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -932,7 +958,7 @@ TA_LIB_API TA_RetCode TA_VIDYA_Open( TA_VIDYA_Stream **stream, const double inRe
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
-   return TA_VIDYA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInCMOPeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_VIDYA_OpenSinkFma( stream, inReal, 0, historyLen, optInTimePeriod, optInCMOPeriod, outReal ) : TA_VIDYA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInCMOPeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_VIDYA_OpenAndFill( TA_VIDYA_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int optInCMOPeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -949,7 +975,7 @@ TA_LIB_API TA_RetCode TA_VIDYA_OpenAndFill( TA_VIDYA_Stream **stream, const doub
 /* Private function, not in public API. */
 TA_RetCode TA_VIDYA_OpenAndFillInternal( struct TA_VIDYA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInCMOPeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_VIDYA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_VIDYA_OpenImplFma( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_VIDYA_OpenImplPlain( stream, inReal, startIdx, historyLen, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION

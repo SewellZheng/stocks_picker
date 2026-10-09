@@ -66,9 +66,11 @@
  *                constant-cap padded loop for(i<50) if(i<DCPeriodInt) sum +=
  *                inReal[today-i]. Bit-identical (same terms, same order); the
  *                literal cap lets the streaming rescan-window machinery bound it.
+ *  100726 MF,CC  #492. The Auto rule sized on when the integer cycle period
+ *                of two starts stops disagreeing.
  */
 
-TA_LIB_API int TA_HT_TRENDLINE_Lookback( void )
+TA_NOINLINE TA_LIB_API int TA_HT_TRENDLINE_Lookback( void )
 {
    /* 31 input are skip
     * +32 output are skip to account for misc lookback
@@ -77,8 +79,12 @@ TA_LIB_API int TA_HT_TRENDLINE_Lookback( void )
     *
     * 31 is for being compatible with Tradestation.
     * See mama_lookback for an explanation of the "32".
+    *
+    * Two starts are equal once their integer cycle periods have agreed for
+    * four bars, at either level: the Auto count buys a rarer late
+    * disagreement, never a smaller difference.
     */
-   return 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_TRENDLINE,Ht_trendline);
+   return 63 + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_HT_TRENDLINE,Ht_trendline,120 + 20 * 4,120 + 20 * 8);
 }
 
 TA_LIB_API int TA_HT_TRENDLINE_DisplayShift( int outputIdx )
@@ -188,7 +194,7 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE( int    startIdx,
    /* Identify the minimum number of price bar needed
     * to calculate at least one output.
     */
-   lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_TRENDLINE,Ht_trendline);
+   lookbackTotal = TA_HT_TRENDLINE_Lookback();
    /* Move up the start index if there is not
     * enough initial data.
     */
@@ -584,7 +590,7 @@ TA_RetCode TA_S_HT_TRENDLINE( int    startIdx,
    iTrend1 = iTrend2;
    tempReal = atan(1);
    rad2Deg = 45.0 / tempReal;
-   lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_TRENDLINE,Ht_trendline);
+   lookbackTotal = TA_HT_TRENDLINE_Lookback();
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -1113,7 +1119,7 @@ static TA_FMA_STEP_INLINE void TA_HT_TRENDLINE_StepImpl( struct TA_HT_TRENDLINE_
    sp->streamParity = 1 - sp->streamParity;
 }
 
-static TA_RetCode TA_HT_TRENDLINE_OpenImpl( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_HT_TRENDLINE_OpenImpl( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_HT_TRENDLINE_Stream *sp;
    int endIdx;
@@ -1210,7 +1216,7 @@ static TA_RetCode TA_HT_TRENDLINE_OpenImpl( struct TA_HT_TRENDLINE_Stream **stre
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
        */
-      lookbackTotal = 63 + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_HT_TRENDLINE,Ht_trendline);
+      lookbackTotal = TA_HT_TRENDLINE_Lookback();
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -1584,6 +1590,30 @@ static TA_RetCode TA_HT_TRENDLINE_OpenImpl( struct TA_HT_TRENDLINE_Stream **stre
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_HT_TRENDLINE_OpenImplFma( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_HT_TRENDLINE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_HT_TRENDLINE_OpenImplPlain( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_HT_TRENDLINE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_HT_TRENDLINE_OpenSinkFma( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_HT_TRENDLINE_OpenImpl( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_HT_TRENDLINE_OpenInternal( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outReal )
 {
@@ -1591,7 +1621,7 @@ TA_RetCode TA_HT_TRENDLINE_OpenInternal( struct TA_HT_TRENDLINE_Stream **stream,
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_HT_TRENDLINE_OpenImpl( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_HT_TRENDLINE_OpenImplFma( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_HT_TRENDLINE_OpenImplPlain( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -1606,7 +1636,7 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE_Open( TA_HT_TRENDLINE_Stream **stream, con
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
-   return TA_HT_TRENDLINE_OpenInternal( stream, inReal, 0, historyLen, outReal );
+   return TA_FMA_AVAILABLE ? TA_HT_TRENDLINE_OpenSinkFma( stream, inReal, 0, historyLen, outReal ) : TA_HT_TRENDLINE_OpenInternal( stream, inReal, 0, historyLen, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_HT_TRENDLINE_OpenAndFill( TA_HT_TRENDLINE_Stream **stream, const double inReal[], int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -1623,7 +1653,7 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE_OpenAndFill( TA_HT_TRENDLINE_Stream **stre
 /* Private function, not in public API. */
 TA_RetCode TA_HT_TRENDLINE_OpenAndFillInternal( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_HT_TRENDLINE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_HT_TRENDLINE_OpenImplFma( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 ) : TA_HT_TRENDLINE_OpenImplPlain( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION

@@ -55,7 +55,13 @@
  *  -------------------------------------------------------------------
  *  120802 MF   Template creation.
  *  052603 MF   Adapt code to compile with .NET Managed C++
+ *  100726 MF,CC  #492. Under an Auto level the bars its two EMAs' cancelling costs.
  */
+
+static TA_COLD int adosc_auto_offset( int optInFastPeriod, int optInSlowPeriod )
+{
+   return TA_GLOBALS_UNSTABLE_AUTO(TA_FUNC_UNST_EMA,Ema,((15 * min(optInFastPeriod,optInSlowPeriod) + 3 * (min(max(optInFastPeriod,optInSlowPeriod) / 2,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 4,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 8,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 16,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 32,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 64,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 128,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 256,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 512,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 1024,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 2048,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 4096,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 8192,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 16384,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 32768,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 65536,min(optInFastPeriod,optInSlowPeriod))) + 7) / 8),((15 * min(optInFastPeriod,optInSlowPeriod) + 3 * (min(max(optInFastPeriod,optInSlowPeriod) / 2,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 4,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 8,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 16,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 32,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 64,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 128,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 256,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 512,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 1024,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 2048,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 4096,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 8192,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 16384,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 32768,min(optInFastPeriod,optInSlowPeriod)) + min(max(optInFastPeriod,optInSlowPeriod) / 65536,min(optInFastPeriod,optInSlowPeriod))) + 7) / 8));
+}
 
 TA_LIB_API int TA_ADOSC_Lookback( int optInFastPeriod, int optInSlowPeriod )
 {
@@ -76,8 +82,11 @@ TA_LIB_API int TA_ADOSC_Lookback( int optInFastPeriod, int optInSlowPeriod )
    {
       slowestPeriod = optInFastPeriod;
    }
-   /* Adjust startIdx to account for the lookback period. */
-   return TA_EMA_Lookback(slowestPeriod);
+   /* Both EMAs seed on one value at one bar, so two starts differ by a fast
+    * term less a slow one, and the two can cancel in the first outputs: an
+    * Auto level is held against what is left.
+    */
+   return TA_EMA_Lookback(slowestPeriod) + TA_GLOBALS_UNSTABLE_OFFSET(TA_FUNC_UNST_EMA,adosc_auto_offset(optInFastPeriod, optInSlowPeriod));
 }
 
 TA_LIB_API int TA_ADOSC_DisplayShift( int optInFastPeriod, int optInSlowPeriod, int outputIdx )
@@ -105,7 +114,6 @@ TA_LIB_API TA_RetCode TA_ADOSC( int    startIdx,
    int today;
    int outIdx;
    int lookbackTotal;
-   int slowestPeriod;
    double high;
    double low;
    double close;
@@ -166,19 +174,8 @@ TA_LIB_API TA_RetCode TA_ADOSC( int    startIdx,
     *     This gives more flexibility to the user if they want to
     *     experiment with unusual parameter settings.
     */
-   /* Identify the slowest period.
-    * This infomration is used soleley to bootstrap
-    * the algorithm (skip the lookback period).
-    */
-   if( optInFastPeriod < optInSlowPeriod )
-   {
-      slowestPeriod = optInSlowPeriod;
-   } else 
-   {
-      slowestPeriod = optInFastPeriod;
-   }
    /* Adjust startIdx to account for the lookback period. */
-   lookbackTotal = TA_EMA_Lookback(slowestPeriod);
+   lookbackTotal = TA_ADOSC_Lookback(optInFastPeriod,optInSlowPeriod);
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -196,11 +193,21 @@ TA_LIB_API TA_RetCode TA_ADOSC( int    startIdx,
     * calculate the "ad".
     */
    ad = 0.0;
-   /* Constants for EMA */
-   fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-   one_minus_fastk = 1.0 - fastk;
-   slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-   one_minus_slowk = 1.0 - slowk;
+   /* Constants for EMA. Each pair must sum to exactly 1.0, or a flat A/D
+    * line drifts off its level.
+    */
+   one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+   fastk = 1.0 - one_minus_fastk;
+   if( one_minus_fastk < 0.5 )
+   {
+      one_minus_fastk = 1.0 - fastk;
+   }
+   one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+   slowk = 1.0 - one_minus_slowk;
+   if( one_minus_slowk < 0.5 )
+   {
+      one_minus_slowk = 1.0 - slowk;
+   }
    /* Initialize the two EMA
     *
     * Use the same range of initialization inputs for
@@ -271,7 +278,6 @@ TA_RetCode TA_S_ADOSC( int    startIdx,
    int today;
    int outIdx;
    int lookbackTotal;
-   int slowestPeriod;
    double high;
    double low;
    double close;
@@ -310,14 +316,7 @@ TA_RetCode TA_S_ADOSC( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   if( optInFastPeriod < optInSlowPeriod )
-   {
-      slowestPeriod = optInSlowPeriod;
-   } else 
-   {
-      slowestPeriod = optInFastPeriod;
-   }
-   lookbackTotal = TA_EMA_Lookback(slowestPeriod);
+   lookbackTotal = TA_ADOSC_Lookback(optInFastPeriod,optInSlowPeriod);
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -331,10 +330,18 @@ TA_RetCode TA_S_ADOSC( int    startIdx,
    *outBegIdx= startIdx;
    today = startIdx - lookbackTotal;
    ad = 0.0;
-   fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-   one_minus_fastk = 1.0 - fastk;
-   slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-   one_minus_slowk = 1.0 - slowk;
+   one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+   fastk = 1.0 - one_minus_fastk;
+   if( one_minus_fastk < 0.5 )
+   {
+      one_minus_fastk = 1.0 - fastk;
+   }
+   one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+   slowk = 1.0 - one_minus_slowk;
+   if( one_minus_slowk < 0.5 )
+   {
+      one_minus_slowk = 1.0 - slowk;
+   }
    high = (double)inHigh[today];
    low = (double)inLow[today];
    tmp = high - low;
@@ -425,7 +432,7 @@ static TA_FMA_STEP_INLINE void TA_ADOSC_StepImpl( struct TA_ADOSC_Stream *sp, do
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_ADOSC_OpenImpl( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_ADOSC_OpenImpl( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_ADOSC_Stream *sp;
    int endIdx;
@@ -456,7 +463,6 @@ static TA_RetCode TA_ADOSC_OpenImpl( struct TA_ADOSC_Stream **stream, const doub
       int today;
       int outIdx;
       int lookbackTotal;
-      int slowestPeriod;
       double high;
       double low;
       double close;
@@ -490,19 +496,8 @@ static TA_RetCode TA_ADOSC_OpenImpl( struct TA_ADOSC_Stream **stream, const doub
        *     This gives more flexibility to the user if they want to
        *     experiment with unusual parameter settings.
        */
-      /* Identify the slowest period.
-       * This infomration is used soleley to bootstrap
-       * the algorithm (skip the lookback period).
-       */
-      if( optInFastPeriod < optInSlowPeriod )
-      {
-         slowestPeriod = optInSlowPeriod;
-      } else 
-      {
-         slowestPeriod = optInFastPeriod;
-      }
       /* Adjust startIdx to account for the lookback period. */
-      lookbackTotal = TA_EMA_Lookback(slowestPeriod);
+      lookbackTotal = TA_ADOSC_Lookback(optInFastPeriod,optInSlowPeriod);
       if( startIdx < lookbackTotal )
       {
          startIdx = lookbackTotal;
@@ -520,11 +515,21 @@ static TA_RetCode TA_ADOSC_OpenImpl( struct TA_ADOSC_Stream **stream, const doub
        * calculate the "ad".
        */
       ad = 0.0;
-      /* Constants for EMA */
-      fastk = 2.0 / ((double)optInFastPeriod + 1.0);
-      one_minus_fastk = 1.0 - fastk;
-      slowk = 2.0 / ((double)optInSlowPeriod + 1.0);
-      one_minus_slowk = 1.0 - slowk;
+      /* Constants for EMA. Each pair must sum to exactly 1.0, or a flat A/D
+       * line drifts off its level.
+       */
+      one_minus_fastk = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      fastk = 1.0 - one_minus_fastk;
+      if( one_minus_fastk < 0.5 )
+      {
+         one_minus_fastk = 1.0 - fastk;
+      }
+      one_minus_slowk = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      slowk = 1.0 - one_minus_slowk;
+      if( one_minus_slowk < 0.5 )
+      {
+         one_minus_slowk = 1.0 - slowk;
+      }
       /* Initialize the two EMA
        *
        * Use the same range of initialization inputs for
@@ -598,6 +603,30 @@ static TA_RetCode TA_ADOSC_OpenImpl( struct TA_ADOSC_Stream **stream, const doub
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_ADOSC_OpenImplFma( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_ADOSC_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_ADOSC_OpenImplPlain( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_ADOSC_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_ADOSC_OpenSinkFma( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_ADOSC_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_ADOSC_OpenInternal( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, double *outReal )
 {
@@ -605,7 +634,7 @@ TA_RetCode TA_ADOSC_OpenInternal( struct TA_ADOSC_Stream **stream, const double 
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_ADOSC_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_ADOSC_OpenImplFma( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_ADOSC_OpenImplPlain( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -620,7 +649,7 @@ TA_LIB_API TA_RetCode TA_ADOSC_Open( TA_ADOSC_Stream **stream, const double inHi
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   return TA_ADOSC_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInFastPeriod, optInSlowPeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_ADOSC_OpenSinkFma( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInFastPeriod, optInSlowPeriod, outReal ) : TA_ADOSC_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInFastPeriod, optInSlowPeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_ADOSC_OpenAndFill( TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -637,7 +666,7 @@ TA_LIB_API TA_RetCode TA_ADOSC_OpenAndFill( TA_ADOSC_Stream **stream, const doub
 /* Private function, not in public API. */
 TA_RetCode TA_ADOSC_OpenAndFillInternal( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_ADOSC_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_ADOSC_OpenImplFma( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_ADOSC_OpenImplPlain( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION

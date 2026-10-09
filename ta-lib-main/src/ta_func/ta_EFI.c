@@ -61,12 +61,8 @@ TA_LIB_API int TA_EFI_Lookback( int optInTimePeriod )
       optInTimePeriod = 13;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return -1;
-   /* One bar is consumed forming the first close-to-close change, then the
-    * EMA's own warm-up on top:
-    *    1 + ema_lookback(optInTimePeriod)
-    *  = 1 + (optInTimePeriod - 1) + TA_GetUnstablePeriod(TA_FUNC_UNST_EMA)
-    */
-   return optInTimePeriod + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_EMA,Ema);
+   /* One bar forms the first close-to-close change. */
+   return 1 + TA_EMA_Lookback(optInTimePeriod);
 }
 
 TA_LIB_API int TA_EFI_DisplayShift( int optInTimePeriod, int outputIdx )
@@ -88,6 +84,7 @@ TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
                               int          *outNBElement,
                               double        outReal[] )
 {
+   double emaBeta;
    double optInK_1;
    double tempReal;
    double prevMA;
@@ -116,7 +113,6 @@ TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
    /* Alexander Elder's Force Index (Trading for a Living, 1993): the one-bar
     * close-to-close move weighted by that bar's volume, then smoothed with an
     * EMA. Elder's 2-period reading is the short-term form and 13 the
@@ -127,10 +123,10 @@ TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
     *
     * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
     * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-    * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-    * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-    * contract against the composed reference in test_composite.c -- MOM, then
-    * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+    * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+    * beta. That order IS the bit-exactness contract against the composed
+    * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+    * tidy it. TRIX carries the same warning.
     *
     * Nothing on the data path divides by an input, so issue #112 is satisfied
     * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -147,6 +143,16 @@ TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
     * to calculate at least one output.
     */
    lookbackTotal = TA_EFI_Lookback(optInTimePeriod);
+   /* After the lookback call: a double live across a call is saved and
+    * restored around every fma call of the loops below, one more instruction
+    * per bar.
+    */
+   emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+   optInK_1 = 1.0 - emaBeta;
+   if( emaBeta < 0.5 )
+   {
+      emaBeta = 1.0 - optInK_1;
+   }
    /* Move up the start index if there is not
     * enough initial data.
     */
@@ -162,11 +168,8 @@ TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
       return TA_SUCCESS;
    }
    /* No smoothing at a period of 1: the output is the raw Force Index.
-    * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-    * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-    * only while consecutive values stay within a factor of two of each other.
-    * Force values swing by orders of magnitude, far more than the prices EMA
-    * warns about.
+    * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+    * not keep the sign of a -0.0 force: a down bar on zero volume.
     */
    if( optInTimePeriod == 1 )
    {
@@ -206,7 +209,7 @@ TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
    {
       force = (inClose[today] - prevClose) * inVolume[today];
       prevClose = inClose[today];
-      prevMA = fma(force - prevMA, optInK_1, prevMA);
+      prevMA = fma(emaBeta, prevMA, optInK_1 * force);
       today = today + 1;
    }
    outReal[0] = prevMA;
@@ -215,7 +218,7 @@ TA_LIB_API TA_RetCode TA_EFI( int    startIdx,
    {
       force = (inClose[today] - prevClose) * inVolume[today];
       prevClose = inClose[today];
-      prevMA = fma(force - prevMA, optInK_1, prevMA);
+      prevMA = fma(emaBeta, prevMA, optInK_1 * force);
       outReal[outIdx] = prevMA;
       outIdx = outIdx + 1;
       today = today + 1;
@@ -234,6 +237,7 @@ TA_RetCode TA_S_EFI( int    startIdx,
                      int          *outNBElement,
                      double        outReal[] )
 {
+   double emaBeta;
    double optInK_1;
    double tempReal;
    double prevMA;
@@ -262,8 +266,13 @@ TA_RetCode TA_S_EFI( int    startIdx,
    if( !outReal )
       return TA_BAD_PARAM;
 
-   optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
    lookbackTotal = TA_EFI_Lookback(optInTimePeriod);
+   emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+   optInK_1 = 1.0 - emaBeta;
+   if( emaBeta < 0.5 )
+   {
+      emaBeta = 1.0 - optInK_1;
+   }
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -308,7 +317,7 @@ TA_RetCode TA_S_EFI( int    startIdx,
    {
       force = ((double)inClose[today] - prevClose) * (double)inVolume[today];
       prevClose = (double)inClose[today];
-      prevMA = fma(force - prevMA, optInK_1, prevMA);
+      prevMA = fma(emaBeta, prevMA, optInK_1 * force);
       today = today + 1;
    }
    outReal[0] = prevMA;
@@ -317,7 +326,7 @@ TA_RetCode TA_S_EFI( int    startIdx,
    {
       force = ((double)inClose[today] - prevClose) * (double)inVolume[today];
       prevClose = (double)inClose[today];
-      prevMA = fma(force - prevMA, optInK_1, prevMA);
+      prevMA = fma(emaBeta, prevMA, optInK_1 * force);
       outReal[outIdx] = prevMA;
       outIdx = outIdx + 1;
       today = today + 1;
@@ -337,6 +346,7 @@ struct TA_EFI_Stream {
    int optInTimePeriod;
    double prevClose;
    double pad_0;
+   double emaBeta;
    double optInK_1;
    double pad_1;
    double prevMA;
@@ -360,13 +370,13 @@ static TA_FMA_STEP_INLINE void TA_EFI_StepImpl( struct TA_EFI_Stream *sp, double
 
       force = (inClose - sp->prevClose) * inVolume;
       sp->prevClose = inClose;
-      sp->prevMA = fma(force - sp->prevMA, sp->optInK_1, sp->prevMA);
+      sp->prevMA = fma(sp->emaBeta, sp->prevMA, sp->optInK_1 * force);
       *outReal= sp->prevMA;
       sp->cur_outReal = *outReal;
    }
 }
 
-static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_EFI_Stream *sp;
    int endIdx;
@@ -393,6 +403,8 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
    {
 
    {
+      double emaBeta;
+      double optInK_1;
       double prevClose = 0.0;
       double force;
       int today;
@@ -408,10 +420,10 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
        *
        * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
        * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-       * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-       * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-       * contract against the composed reference in test_composite.c -- MOM, then
-       * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+       * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+       * beta. That order IS the bit-exactness contract against the composed
+       * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+       * tidy it. TRIX carries the same warning.
        *
        * Nothing on the data path divides by an input, so issue #112 is satisfied
        * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -428,6 +440,16 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
        * to calculate at least one output.
        */
       lookbackTotal = TA_EFI_Lookback(optInTimePeriod);
+      /* After the lookback call: a double live across a call is saved and
+       * restored around every fma call of the loops below, one more instruction
+       * per bar.
+       */
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 )
+      {
+         emaBeta = 1.0 - optInK_1;
+      }
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -443,11 +465,8 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
          return TA_INSUFFICIENT_HISTORY;
       }
       /* No smoothing at a period of 1: the output is the raw Force Index.
-       * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-       * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-       * only while consecutive values stay within a factor of two of each other.
-       * Force values swing by orders of magnitude, far more than the prices EMA
-       * warns about.
+       * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+       * not keep the sign of a -0.0 force: a down bar on zero volume.
        */
       *outBegIdx= startIdx;
       outIdx = 0;
@@ -480,7 +499,8 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
    {
 
    {
-      double optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+      double emaBeta = 0.0;
+      double optInK_1 = 0.0;
       double tempReal;
       double prevMA = 0.0;
       double prevClose = 0.0;
@@ -499,10 +519,10 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
        *
        * The arithmetic below is ema.c's with inReal[t] replaced by force[t], kept
        * in exactly that shape on purpose: the seed accumulates from 0.0 in the
-       * same order, and the recurrence is (x - prevMA)*k + prevMA rather than the
-       * algebraically equal k*x + (1-k)*prevMA. That order IS the bit-exactness
-       * contract against the composed reference in test_composite.c -- MOM, then
-       * MULT, then EMA -- so do not tidy it. TRIX carries the same warning.
+       * same order, and the recurrence is k*x + beta*prevMA with ema.c's k and
+       * beta. That order IS the bit-exactness contract against the composed
+       * reference in test_composite.c -- MOM, then MULT, then EMA -- so do not
+       * tidy it. TRIX carries the same warning.
        *
        * Nothing on the data path divides by an input, so issue #112 is satisfied
        * structurally: a flat close gives force exactly 0.0 and output exactly
@@ -519,6 +539,16 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
        * to calculate at least one output.
        */
       lookbackTotal = TA_EFI_Lookback(optInTimePeriod);
+      /* After the lookback call: a double live across a call is saved and
+       * restored around every fma call of the loops below, one more instruction
+       * per bar.
+       */
+      emaBeta = (double)(optInTimePeriod - 1) / (double)(optInTimePeriod + 1);
+      optInK_1 = 1.0 - emaBeta;
+      if( emaBeta < 0.5 )
+      {
+         emaBeta = 1.0 - optInK_1;
+      }
       /* Move up the start index if there is not
        * enough initial data.
        */
@@ -534,11 +564,8 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
          return TA_INSUFFICIENT_HISTORY;
       }
       /* No smoothing at a period of 1: the output is the raw Force Index.
-       * Explicit for the reason spelled out in ema.c -- at period 1 optInK_1 is
-       * exactly 1.0, so the recursion reduces to (x-prev)+prev, which returns x
-       * only while consecutive values stay within a factor of two of each other.
-       * Force values swing by orders of magnitude, far more than the prices EMA
-       * warns about.
+       * Explicit because the recursion, at a k of 1.0 and a beta of 0.0, does
+       * not keep the sign of a -0.0 force: a down bar on zero volume.
        */
       *outBegIdx= startIdx;
       /* The first EMA value is a simple average of the first 'period' force
@@ -561,7 +588,7 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
       {
          force = (inClose[today] - prevClose) * inVolume[today];
          prevClose = inClose[today];
-         prevMA = fma(force - prevMA, optInK_1, prevMA);
+         prevMA = fma(emaBeta, prevMA, optInK_1 * force);
          today = today + 1;
       }
       outReal[0 * outStride] = prevMA;
@@ -570,7 +597,7 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
       {
          force = (inClose[today] - prevClose) * inVolume[today];
          prevClose = inClose[today];
-         prevMA = fma(force - prevMA, optInK_1, prevMA);
+         prevMA = fma(emaBeta, prevMA, optInK_1 * force);
          outReal[outIdx * outStride] = prevMA;
          outIdx = outIdx + 1;
          today = today + 1;
@@ -582,6 +609,7 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->optInTimePeriod = optInTimePeriod;
+      sp->emaBeta = emaBeta;
       sp->optInK_1 = optInK_1;
       sp->prevMA = prevMA;
       sp->prevClose = prevClose;
@@ -596,6 +624,30 @@ static TA_RetCode TA_EFI_OpenImpl( struct TA_EFI_Stream **stream, const double i
    return TA_INTERNAL_ERROR(318);
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_EFI_OpenImplFma( struct TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_EFI_OpenImpl( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_EFI_OpenImplPlain( struct TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_EFI_OpenImpl( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_EFI_OpenSinkFma( struct TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_EFI_OpenImpl( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_EFI_OpenInternal( struct TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
 {
@@ -603,7 +655,7 @@ TA_RetCode TA_EFI_OpenInternal( struct TA_EFI_Stream **stream, const double inCl
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_EFI_OpenImpl( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_EFI_OpenImplFma( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_EFI_OpenImplPlain( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -618,7 +670,7 @@ TA_LIB_API TA_RetCode TA_EFI_Open( TA_EFI_Stream **stream, const double inClose[
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   return TA_EFI_OpenInternal( stream, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_EFI_OpenSinkFma( stream, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal ) : TA_EFI_OpenInternal( stream, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_EFI_OpenAndFill( TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -635,7 +687,7 @@ TA_LIB_API TA_RetCode TA_EFI_OpenAndFill( TA_EFI_Stream **stream, const double i
 /* Private function, not in public API. */
 TA_RetCode TA_EFI_OpenAndFillInternal( struct TA_EFI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_EFI_OpenImpl( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_EFI_OpenImplFma( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_EFI_OpenImplPlain( stream, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION
@@ -678,7 +730,7 @@ TA_LIB_API TA_RetCode TA_EFI_Peek( const TA_EFI_Stream *stream, double inClose, 
       prevMA = sp->prevMA;
       force = (inClose - prevClose) * inVolume;
       prevClose = inClose;
-      prevMA = fma(force - prevMA, sp->optInK_1, prevMA);
+      prevMA = fma(sp->emaBeta, prevMA, sp->optInK_1 * force);
       *outReal= prevMA;
    }
    return TA_SUCCESS;

@@ -797,6 +797,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, c.Series(0), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["FISHER"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.FisherImpl(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), out int b, out int n, c.RealOut(0), c.RealOut(1));
+            return new CallOutcome(rc, b, n);
+        },
         ["FLOOR"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.FloorImpl(
@@ -1151,6 +1157,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.IntOpt(1), (MAType)c.IntOpt(2), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["PSO"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.PsoImpl(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
         ["PVI"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.PviImpl(
@@ -1203,6 +1215,12 @@ internal static class NoPhantomIoBinder
         {
             RetCode rc = core.Rocr100Impl(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
+        ["ROGERSSATCHELL"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.RogerssatchellImpl(
+                startIdx, endIdx, c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
         ["RSI"] = static (core, c, startIdx, endIdx) =>
@@ -2170,6 +2188,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, Narrow(c.Series(0)), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["FISHER"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.FisherImpl(
+                startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), c.IntOpt(0), out int b, out int n, c.RealOut(0), c.RealOut(1));
+            return new CallOutcome(rc, b, n);
+        },
         ["FLOOR"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.FloorImpl(
@@ -2524,6 +2548,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, Narrow(c.Series(0)), c.IntOpt(0), c.IntOpt(1), (MAType)c.IntOpt(2), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["PSO"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.PsoImpl(
+                startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), Narrow(c.Price(0, PriceComponents.Close)), c.IntOpt(0), c.IntOpt(1), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
         ["PVI"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.PviImpl(
@@ -2576,6 +2606,12 @@ internal static class NoPhantomIoBinder
         {
             RetCode rc = core.Rocr100Impl(
                 startIdx, endIdx, Narrow(c.Series(0)), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
+        ["ROGERSSATCHELL"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.RogerssatchellImpl(
+                startIdx, endIdx, Narrow(c.Price(0, PriceComponents.Open)), Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), Narrow(c.Price(0, PriceComponents.Close)), c.IntOpt(0), c.RealOpt(1), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
         ["RSI"] = static (core, c, startIdx, endIdx) =>
@@ -2978,6 +3014,7 @@ internal static class NoPhantomIoBinder
         ["ER"] = static (core, c) => core.ErOpen(c.Series(0), c.IntOpt(0)),
         ["ERI"] = static (core, c) => core.EriOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0)),
         ["EXP"] = static (core, c) => core.ExpOpen(c.Series(0)),
+        ["FISHER"] = static (core, c) => core.FisherOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0)),
         ["FLOOR"] = static (core, c) => core.FloorOpen(c.Series(0)),
         ["FOSC"] = static (core, c) => core.FoscOpen(c.Series(0), c.IntOpt(0)),
         ["FRACTAL"] = static (core, c) => core.FractalOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1)),
@@ -3037,6 +3074,7 @@ internal static class NoPhantomIoBinder
         ["PLUS_DI"] = static (core, c) => core.PlusDiOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0)),
         ["PLUS_DM"] = static (core, c) => core.PlusDmOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0)),
         ["PPO"] = static (core, c) => core.PpoOpen(c.Series(0), c.IntOpt(0), c.IntOpt(1), (MAType)c.IntOpt(2)),
+        ["PSO"] = static (core, c) => core.PsoOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1)),
         ["PVI"] = static (core, c) => core.PviOpen(c.Price(0, PriceComponents.Close), c.Price(0, PriceComponents.Volume)),
         ["PVO"] = static (core, c) => core.PvoOpen(c.Price(0, PriceComponents.Volume), c.IntOpt(0), c.IntOpt(1), (MAType)c.IntOpt(2)),
         ["PVT"] = static (core, c) => core.PvtOpen(c.Price(0, PriceComponents.Close), c.Price(0, PriceComponents.Volume)),
@@ -3046,6 +3084,7 @@ internal static class NoPhantomIoBinder
         ["ROCP"] = static (core, c) => core.RocpOpen(c.Series(0), c.IntOpt(0)),
         ["ROCR"] = static (core, c) => core.RocrOpen(c.Series(0), c.IntOpt(0)),
         ["ROCR100"] = static (core, c) => core.Rocr100Open(c.Series(0), c.IntOpt(0)),
+        ["ROGERSSATCHELL"] = static (core, c) => core.RogerssatchellOpen(c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1)),
         ["RSI"] = static (core, c) => core.RsiOpen(c.Series(0), c.IntOpt(0)),
         ["RVI"] = static (core, c) => core.RviOpen(c.Series(0), c.IntOpt(0), c.IntOpt(1)),
         ["RVIR"] = static (core, c) => core.RvirOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1)),

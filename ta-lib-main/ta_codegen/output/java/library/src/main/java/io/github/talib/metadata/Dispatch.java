@@ -397,6 +397,9 @@ final class Dispatch {
          case "EXP":
             return core.exp(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
+         case "FISHER":
+            return core.fisher(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.realOutput(0), h.realOutput(1));
          case "FLOOR":
             return core.floor(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
@@ -574,6 +577,9 @@ final class Dispatch {
          case "PPO":
             return core.ppo(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.maTypeOpt(2), h.realOutput(0));
+         case "PSO":
+            return core.pso(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.intOpt(1), h.realOutput(0));
          case "PVI":
             return core.pvi(
                startIdx, endIdx, h.price(0, 3), h.price(0, 4), h.realOutput(0));
@@ -601,6 +607,9 @@ final class Dispatch {
          case "ROCR100":
             return core.rocr100(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
+         case "ROGERSSATCHELL":
+            return core.rogerssatchell(
+               startIdx, endIdx, h.price(0, 0), h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOpt(1), h.realOutput(0));
          case "RSI":
             return core.rsi(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
@@ -979,6 +988,8 @@ final class Dispatch {
             return core.eriLookback(h.intOpt(0));
          case "EXP":
             return core.expLookback();
+         case "FISHER":
+            return core.fisherLookback(h.intOpt(0));
          case "FLOOR":
             return core.floorLookback();
          case "FOSC":
@@ -1097,6 +1108,8 @@ final class Dispatch {
             return core.plusDmLookback(h.intOpt(0));
          case "PPO":
             return core.ppoLookback(h.intOpt(0), h.intOpt(1), h.maTypeOpt(2));
+         case "PSO":
+            return core.psoLookback(h.intOpt(0), h.intOpt(1));
          case "PVI":
             return core.pviLookback();
          case "PVO":
@@ -1115,6 +1128,8 @@ final class Dispatch {
             return core.rocrLookback(h.intOpt(0));
          case "ROCR100":
             return core.rocr100Lookback(h.intOpt(0));
+         case "ROGERSSATCHELL":
+            return core.rogerssatchellLookback(h.intOpt(0), h.realOpt(1));
          case "RSI":
             return core.rsiLookback(h.intOpt(0));
          case "RVI":
@@ -1443,6 +1458,8 @@ final class Dispatch {
             return core.eriDisplayShift(h.intOpt(0), outputIdx);
          case "EXP":
             return core.expDisplayShift(outputIdx);
+         case "FISHER":
+            return core.fisherDisplayShift(h.intOpt(0), outputIdx);
          case "FLOOR":
             return core.floorDisplayShift(outputIdx);
          case "FOSC":
@@ -1561,6 +1578,8 @@ final class Dispatch {
             return core.plusDmDisplayShift(h.intOpt(0), outputIdx);
          case "PPO":
             return core.ppoDisplayShift(h.intOpt(0), h.intOpt(1), h.maTypeOpt(2), outputIdx);
+         case "PSO":
+            return core.psoDisplayShift(h.intOpt(0), h.intOpt(1), outputIdx);
          case "PVI":
             return core.pviDisplayShift(outputIdx);
          case "PVO":
@@ -1579,6 +1598,8 @@ final class Dispatch {
             return core.rocrDisplayShift(h.intOpt(0), outputIdx);
          case "ROCR100":
             return core.rocr100DisplayShift(h.intOpt(0), outputIdx);
+         case "ROGERSSATCHELL":
+            return core.rogerssatchellDisplayShift(h.intOpt(0), h.realOpt(1), outputIdx);
          case "RSI":
             return core.rsiDisplayShift(h.intOpt(0), outputIdx);
          case "RVI":

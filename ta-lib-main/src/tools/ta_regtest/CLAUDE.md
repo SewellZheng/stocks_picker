@@ -110,6 +110,22 @@ that reach a transcendental, which take `server_verify`'s 1e-9 rule (below).
 Integer outputs compare exactly. Integer parameters sweep from each one's
 declared minimum.
 
+**The kernel lane.** Where the batch tier is a vector kernel (`TA_VMATH_KERNEL`
+is 1), every "bitwise" in this file has one exception: for a
+`regtest_vmath_batch` function, a kernel value against a libm value (a Rust
+server, a frozen release, the C server's own Update) is held by
+`fuzz_vmath_near`. Kernel against kernel stays bitwise. The lane compiles to
+nothing on every other build, so a comparison site added without it stays green
+there.
+
+The lane cannot tell a kernel that silently gave way to the plain loop: the
+values still pass, and only the speed is lost. `ta_regtest` asks the library
+instead, on every build: right after its first `TA_Initialize`, which loads the
+kernel, and before any function has run, `TA_GetRuntimeInfo` must report it
+loaded on the kernel's platform, which the check states for itself. Keep it a
+state query: a value cannot tell a kernel from a math library that happens to
+agree with it.
+
 The sweep **compares values by default** for every function; checking only
 coherency is how the TRIX partial-range mislabeling survived two decades.
 EMA-derived functions map to `TA_FUNC_UNST_EMA` in `UNSTABLE_MAP` so the
@@ -142,9 +158,9 @@ which is why they cannot reach EXACT.
 `stability_class()` assigns it: an explicit `exact[]` list from a source audit,
 `SKIP` **derived** from `get_integer_tolerance` so it cannot desync from the
 integer-output skip, `CONVERGING` from `UNSTABLE_MAP`, else `EPSILON`.
-`doRangeTestEx` guards the invariant — `CONVERGING` must carry an unstId,
-`EXACT`/`EPSILON` must not, `SKIP` is exempt (ADOSC legitimately sweeps an
-internal EMA).
+`doRangeTestMulti` guards the invariant — `CONVERGING` must carry an unstId,
+`EXACT`/`EPSILON` must not, `SKIP` is exempt (SUPERTREND legitimately sweeps an
+internal ATR).
 
 ### Unstable-period functions
 
@@ -204,13 +220,15 @@ tiers cannot be wrong together. All four counts are asserted non-zero.
 
 **The display shift** rides the same vectors: `abstract_check_display_shift`
 asks C and the server for every output plus the two indices that name none, at
-the defaults and at each `d2_param_vectors` vector. The lookback is the reference
-for which vectors are rejected, because a lookback body can refuse a parameter
-the declared range allows (FRAMA's odd period) and a query that only
+the defaults and at each `d2_param_vectors` vector. The lookback is the
+reference for which vectors are rejected, because a lookback body can refuse a
+parameter the declared range allows (FRAMA's odd period) and a query that only
 range-checked would accept it. `ds_param_vectors` adds each integer range's
-bounds and one step outside each, with or without a server, so a bare run
-reaches rejected parameters too. Each counter is asserted non-zero; the server
-one only when a server is attached.
+bounds and one step outside each, each real range's bounds and a value outside
+each, and each integer list's values and one step outside it, with or without a
+server, so a bare run reaches rejected parameters too. A value outside its
+declared domain that the lookback accepts fails. Each counter is asserted
+non-zero; the server one only when a server is attached.
 
 Opt-level `hint` is compared too. For a bespoke descriptor that is a genuine
 YAML-vs-C check; for a slot folded onto a predefined `TA_DEF_UI_*` it is not —
@@ -389,8 +407,8 @@ of floors: every streaming function must report a non-zero `peek_reps`, and
 refusals outnumbering completed probes on one request is a failure of its own.
 
 | **state equivalence** | the whole handle after `Open(P)` + `n-P` updates vs the handle after `Open(n)` | a defect present in BOTH tiers |
-| **fork** | a handle opened by `OpenAndFill` on the shortest history, updated to mid, forked; the fork calls `Advance` once, then both are fed to the end. Every update of the original and of the fork vs batch, and the two against each other bit for bit | what the fill opener captures at any history but the shortest, and an `Advance` anywhere but right after the fork. The only leg that updates a handle `OpenAndFill` returned, or feeds a handle after it counted a bar |
-| **range** | the handle's `OutRange` against the batch range, at five sites: the `OpenAndFill` handle, `Open(P)` + updates, the anchored `OpenInternal`, the fork and its original, and the same prefix handle after one `Advance` (which must succeed and report exactly one more; rule rU4's ceiling is 100 000 000 bars away at these sizes). The fork reports one bar more than its original (see the fork row) | an anchor the history does not reach — every site keeps `lb < Sidx < svN - 1`, so the post-clamp history re-check is pinned in the generator instead |
+| **fork** | a handle opened by `OpenAndFill` on the shortest history, updated to mid, forked; the fork calls `Advance` twice, then both are fed to the end. Every update of the original and of the fork vs batch, and the two against each other bit for bit | what the fill opener captures at any history but the shortest, and an `Advance` anywhere but right after the fork. The only leg that updates a handle `OpenAndFill` returned, or feeds a handle after it counted a bar, and the only one that counts a second bar |
+| **range** | the handle's `OutRange` against the batch range, at five sites: the `OpenAndFill` handle, `Open(P)` + updates, the anchored `OpenInternal`, the fork and its original, and the same prefix handle after one `Advance` (which must succeed and report exactly one more; rule rU4's ceiling is 100 000 000 bars away at these sizes). | an anchor the history does not reach — every site keeps `lb < Sidx < svN - 1`, so the post-clamp history re-check is pinned in the generator instead |
 
 Of the six value families, two delegate to the batch transcription — the
 `OpenAndFill` and anchored `OpenInternal` legs — leaving the prefix sweep's
@@ -696,7 +714,7 @@ on it. Needs cmake + gcc + cargo plus the **JDK** and the **.NET SDK**.
 
 Scope rules (deliberate):
 
-- **No waivers; one tolerance and two skips.** Current against current, so no
+- **No waivers; the transcendental tolerance, the kernel lane and two skips.** Current against current, so no
   frozen-release carve-out applies. A non-tolerated mismatch is a real
   fusion-site or codegen divergence to fix.
 - **The choice-list default sentinel, Java only.** Every optional parameter gets
@@ -732,7 +750,7 @@ exact arrays instead of a seed, sharing the driver core in `test_codegen.c`.
 The hard-coded tests validate in-process C against the expected constants at a
 legitimate tolerance; this runs the *transitive* check, feeding the same inputs
 to another language and requiring **exact** agreement with what C computed (same
-algorithm + same inputs ⇒ same bits). Do not give it a tolerance: a 1e-6
+algorithm + same inputs ⇒ same bits). Do not give it a tolerance of its own: a 1e-6
 re-compare would be strictly weaker than "C == server, then C == expected ⇒
 server == expected".
 

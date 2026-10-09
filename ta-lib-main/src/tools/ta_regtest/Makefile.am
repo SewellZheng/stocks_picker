@@ -54,6 +54,9 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_composite1.c \
 	ta_test_func/test_composite2.c \
 	ta_test_func/test_marketfi.c \
+	ta_test_func/test_fisher.c \
+	ta_test_func/test_pso.c \
+	ta_test_func/test_rogerssatchell.c \
 	ta_test_func/test_emv.c \
 	ta_test_func/test_kst.c \
 	ta_test_func/test_kstext.c \
@@ -81,6 +84,7 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_vidya.c \
 	ta_test_func/test_alma.c \
 	ta_test_func/test_stc.c \
+	ta_test_func/test_auto_stabilization.c \
 	ta_test_func/test_swak.c \
 	ta_test_func/test_fractal.c \
 	ta_test_func/test_ha.c \
@@ -103,15 +107,17 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_legacy.c \
 	test_internals.c
 
-ta_regtest_CPPFLAGS = -I../../ta_func \
-		      -I../../ta_common/trio \
-		      -I../../ta_common/mt \
-		      -I../../ta_common \
-		      -I../../ta_abstract
+ta_regtest_CPPFLAGS = -I$(top_srcdir)/include \
+		      -I$(top_srcdir)/src/ta_func \
+		      -I$(top_srcdir)/src/ta_common \
+		      -I$(top_srcdir)/src/ta_abstract
 ta_regtest_LDFLAGS = -no-undefined
 # Keep linking the libtool library: packagers install and run
 # .libs/ta_regtest, which libtool creates only for a libtool-linked binary.
 ta_regtest_LDADD = ../../libta-lib.la $(LIBM)
 
 all-local: ta_regtest
-	$(LIBTOOL) --mode=execute ../post-build-bin.sh ta_regtest
+	$(LIBTOOL) --mode=execute $(srcdir)/../post-build-bin.sh ta_regtest
+
+clean-local:
+	-rm -f $(top_builddir)/bin/ta_regtest$(EXEEXT)

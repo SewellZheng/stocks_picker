@@ -113,12 +113,15 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
    double kSlow;
    double kFast;
    double kSignal;
+   double betaSlow;
+   double betaFast;
+   double betaSignal;
    double highest;
    double lowest;
    double tmp;
    double emaSlowNum;
-   double emaSlowDen;
    double emaFastNum;
+   double emaSlowDen;
    double emaFastDen;
    double sumSlowNum;
    double sumSlowDen;
@@ -179,6 +182,10 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
    if( outSMI == outSMISignal )
       return TA_BAD_PARAM;
 
+   /* Declared Num, Num, Den, Den: the stream state keeps this order, and with
+    * each stage's pair adjacent gcc 13 packs the steps two by two and then
+    * reads 16 bytes across two of its own stores, which cannot be forwarded.
+    */
    lookbackTotal = TA_SMI_Lookback(optInTimePeriod,optInFastPeriod,optInSlowPeriod,optInSignalPeriod);
    if( startIdx < lookbackTotal )
    {
@@ -205,9 +212,24 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
     * composed form does. The seed sums accumulate from 0.0 in production
     * order; do not reorder or fuse them (0.0+x is not x for x=-0.0).
     */
-   kSlow = 2.0 / (double)(optInSlowPeriod + 1);
-   kFast = 2.0 / (double)(optInFastPeriod + 1);
-   kSignal = 2.0 / (double)(optInSignalPeriod + 1);
+   betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+   kSlow = 1.0 - betaSlow;
+   if( betaSlow < 0.5 )
+   {
+      betaSlow = 1.0 - kSlow;
+   }
+   betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+   kFast = 1.0 - betaFast;
+   if( betaFast < 0.5 )
+   {
+      betaFast = 1.0 - kFast;
+   }
+   betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+   kSignal = 1.0 - betaSignal;
+   if( betaSignal < 0.5 )
+   {
+      betaSignal = 1.0 - kSignal;
+   }
    lookbackSlow = TA_EMA_Lookback(optInSlowPeriod);
    lookbackFast = TA_EMA_Lookback(optInFastPeriod);
    emaSlowNum = 0.0;
@@ -290,8 +312,8 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
          }
       } else 
       {
-         emaSlowNum = fma(num - emaSlowNum, kSlow, emaSlowNum);
-         emaSlowDen = fma(den - emaSlowDen, kSlow, emaSlowDen);
+         emaSlowNum = fma(betaSlow, emaSlowNum, kSlow * num);
+         emaSlowDen = fma(betaSlow, emaSlowDen, kSlow * den);
       }
       /* Stage 2: the fast EMA, over what stage 1 publishes.
        *
@@ -319,8 +341,8 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
             }
          } else 
          {
-            emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-            emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+            emaFastNum = fma(betaFast, emaFastNum, kFast * emaSlowNum);
+            emaFastDen = fma(betaFast, emaFastDen, kFast * emaSlowDen);
          }
       }
       /* Stage 3: the SMI line, then the signal EMA over it. */
@@ -344,7 +366,7 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
             }
          } else 
          {
-            prevSignal = fma(smiValue - prevSignal, kSignal, prevSignal);
+            prevSignal = fma(betaSignal, prevSignal, kSignal * smiValue);
          }
       }
       nBar = nBar + 1;
@@ -401,10 +423,10 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
       }
       den = highest - lowest;
       num = inClose[today] - (highest + lowest) * 0.5;
-      emaSlowNum = fma(num - emaSlowNum, kSlow, emaSlowNum);
-      emaSlowDen = fma(den - emaSlowDen, kSlow, emaSlowDen);
-      emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-      emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+      emaSlowNum = fma(betaSlow, emaSlowNum, kSlow * num);
+      emaSlowDen = fma(betaSlow, emaSlowDen, kSlow * den);
+      emaFastNum = fma(betaFast, emaFastNum, kFast * emaSlowNum);
+      emaFastDen = fma(betaFast, emaFastDen, kFast * emaSlowDen);
       /* The denominator is an EMA of an EMA of the high-low range: every term
        * is non-negative and every weight is positive, so it carries no
        * cancellation residue and is zero only when every range that reached it
@@ -424,7 +446,7 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
       {
          smiValue = 0.0;
       }
-      prevSignal = fma(smiValue - prevSignal, kSignal, prevSignal);
+      prevSignal = fma(betaSignal, prevSignal, kSignal * smiValue);
       outSMI[outIdx] = smiValue;
       outSMISignal[outIdx] = prevSignal;
       outIdx = outIdx + 1;
@@ -453,12 +475,15 @@ TA_RetCode TA_S_SMI( int    startIdx,
    double kSlow;
    double kFast;
    double kSignal;
+   double betaSlow;
+   double betaFast;
+   double betaSignal;
    double highest;
    double lowest;
    double tmp;
    double emaSlowNum;
-   double emaSlowDen;
    double emaFastNum;
+   double emaSlowDen;
    double emaFastDen;
    double sumSlowNum;
    double sumSlowDen;
@@ -531,9 +556,24 @@ TA_RetCode TA_S_SMI( int    startIdx,
       return TA_SUCCESS;
    }
    *outBegIdx= startIdx;
-   kSlow = 2.0 / (double)(optInSlowPeriod + 1);
-   kFast = 2.0 / (double)(optInFastPeriod + 1);
-   kSignal = 2.0 / (double)(optInSignalPeriod + 1);
+   betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+   kSlow = 1.0 - betaSlow;
+   if( betaSlow < 0.5 )
+   {
+      betaSlow = 1.0 - kSlow;
+   }
+   betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+   kFast = 1.0 - betaFast;
+   if( betaFast < 0.5 )
+   {
+      betaFast = 1.0 - kFast;
+   }
+   betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+   kSignal = 1.0 - betaSignal;
+   if( betaSignal < 0.5 )
+   {
+      betaSignal = 1.0 - kSignal;
+   }
    lookbackSlow = TA_EMA_Lookback(optInSlowPeriod);
    lookbackFast = TA_EMA_Lookback(optInFastPeriod);
    emaSlowNum = 0.0;
@@ -609,8 +649,8 @@ TA_RetCode TA_S_SMI( int    startIdx,
          }
       } else 
       {
-         emaSlowNum = fma(num - emaSlowNum, kSlow, emaSlowNum);
-         emaSlowDen = fma(den - emaSlowDen, kSlow, emaSlowDen);
+         emaSlowNum = fma(betaSlow, emaSlowNum, kSlow * num);
+         emaSlowDen = fma(betaSlow, emaSlowDen, kSlow * den);
       }
       if( nBar >= lookbackSlow )
       {
@@ -626,8 +666,8 @@ TA_RetCode TA_S_SMI( int    startIdx,
             }
          } else 
          {
-            emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-            emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+            emaFastNum = fma(betaFast, emaFastNum, kFast * emaSlowNum);
+            emaFastDen = fma(betaFast, emaFastDen, kFast * emaSlowDen);
          }
       }
       if( nBar >= lookbackSlow + lookbackFast )
@@ -650,7 +690,7 @@ TA_RetCode TA_S_SMI( int    startIdx,
             }
          } else 
          {
-            prevSignal = fma(smiValue - prevSignal, kSignal, prevSignal);
+            prevSignal = fma(betaSignal, prevSignal, kSignal * smiValue);
          }
       }
       nBar = nBar + 1;
@@ -704,10 +744,10 @@ TA_RetCode TA_S_SMI( int    startIdx,
       }
       den = highest - lowest;
       num = (double)inClose[today] - (highest + lowest) * 0.5;
-      emaSlowNum = fma(num - emaSlowNum, kSlow, emaSlowNum);
-      emaSlowDen = fma(den - emaSlowDen, kSlow, emaSlowDen);
-      emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-      emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+      emaSlowNum = fma(betaSlow, emaSlowNum, kSlow * num);
+      emaSlowDen = fma(betaSlow, emaSlowDen, kSlow * den);
+      emaFastNum = fma(betaFast, emaFastNum, kFast * emaSlowNum);
+      emaFastDen = fma(betaFast, emaFastDen, kFast * emaSlowDen);
       halfDen = 0.5 * emaFastDen;
       if( halfDen > 0.0 )
       {
@@ -716,7 +756,7 @@ TA_RetCode TA_S_SMI( int    startIdx,
       {
          smiValue = 0.0;
       }
-      prevSignal = fma(smiValue - prevSignal, kSignal, prevSignal);
+      prevSignal = fma(betaSignal, prevSignal, kSignal * smiValue);
       outSMI[outIdx] = smiValue;
       outSMISignal[outIdx] = prevSignal;
       outIdx = outIdx + 1;
@@ -743,12 +783,15 @@ struct TA_SMI_Stream {
    double kSlow;
    double kFast;
    double kSignal;
+   double betaSlow;
+   double betaFast;
+   double betaSignal;
    double pad_0;
    double highest;
    double lowest;
    double emaSlowNum;
-   double emaSlowDen;
    double emaFastNum;
+   double emaSlowDen;
    double emaFastDen;
    double prevSignal;
    int trailingIdx;
@@ -832,10 +875,10 @@ static TA_FMA_STEP_INLINE void TA_SMI_StepImpl( struct TA_SMI_Stream *sp, double
    }
    den = sp->highest - sp->lowest;
    num = sp->x_inClose[sp->today & sp->xMask] - (sp->highest + sp->lowest) * 0.5;
-   sp->emaSlowNum = fma(num - sp->emaSlowNum, sp->kSlow, sp->emaSlowNum);
-   sp->emaSlowDen = fma(den - sp->emaSlowDen, sp->kSlow, sp->emaSlowDen);
-   sp->emaFastNum = fma(sp->emaSlowNum - sp->emaFastNum, sp->kFast, sp->emaFastNum);
-   sp->emaFastDen = fma(sp->emaSlowDen - sp->emaFastDen, sp->kFast, sp->emaFastDen);
+   sp->emaSlowNum = fma(sp->betaSlow, sp->emaSlowNum, sp->kSlow * num);
+   sp->emaSlowDen = fma(sp->betaSlow, sp->emaSlowDen, sp->kSlow * den);
+   sp->emaFastNum = fma(sp->betaFast, sp->emaFastNum, sp->kFast * sp->emaSlowNum);
+   sp->emaFastDen = fma(sp->betaFast, sp->emaFastDen, sp->kFast * sp->emaSlowDen);
    /* The denominator is an EMA of an EMA of the high-low range: every term
     * is non-negative and every weight is positive, so it carries no
     * cancellation residue and is zero only when every range that reached it
@@ -855,7 +898,7 @@ static TA_FMA_STEP_INLINE void TA_SMI_StepImpl( struct TA_SMI_Stream *sp, double
    {
       smiValue = 0.0;
    }
-   prevSignal = fma(smiValue - prevSignal, sp->kSignal, prevSignal);
+   prevSignal = fma(sp->betaSignal, prevSignal, sp->kSignal * smiValue);
    *outSMI= smiValue;
    *outSMISignal= prevSignal;
    sp->trailingIdx = sp->trailingIdx + 1;
@@ -865,7 +908,7 @@ static TA_FMA_STEP_INLINE void TA_SMI_StepImpl( struct TA_SMI_Stream *sp, double
    sp->prevSignal = prevSignal;
 }
 
-static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[], int outStride )
 {
    struct TA_SMI_Stream *sp;
    int endIdx;
@@ -904,12 +947,19 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
       double kSlow = 0.0;
       double kFast = 0.0;
       double kSignal = 0.0;
+      double betaSlow = 0.0;
+      double betaFast = 0.0;
+      double betaSignal = 0.0;
       double highest = 0.0;
       double lowest = 0.0;
       double tmp;
+      /* Declared Num, Num, Den, Den: the stream state keeps this order, and with
+       * each stage's pair adjacent gcc 13 packs the steps two by two and then
+       * reads 16 bytes across two of its own stores, which cannot be forwarded.
+       */
       double emaSlowNum = 0.0;
-      double emaSlowDen = 0.0;
       double emaFastNum = 0.0;
+      double emaSlowDen = 0.0;
       double emaFastDen = 0.0;
       double sumSlowNum;
       double sumSlowDen;
@@ -959,9 +1009,24 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
        * composed form does. The seed sums accumulate from 0.0 in production
        * order; do not reorder or fuse them (0.0+x is not x for x=-0.0).
        */
-      kSlow = 2.0 / (double)(optInSlowPeriod + 1);
-      kFast = 2.0 / (double)(optInFastPeriod + 1);
-      kSignal = 2.0 / (double)(optInSignalPeriod + 1);
+      betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      kSlow = 1.0 - betaSlow;
+      if( betaSlow < 0.5 )
+      {
+         betaSlow = 1.0 - kSlow;
+      }
+      betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      kFast = 1.0 - betaFast;
+      if( betaFast < 0.5 )
+      {
+         betaFast = 1.0 - kFast;
+      }
+      betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+      kSignal = 1.0 - betaSignal;
+      if( betaSignal < 0.5 )
+      {
+         betaSignal = 1.0 - kSignal;
+      }
       lookbackSlow = TA_EMA_Lookback(optInSlowPeriod);
       lookbackFast = TA_EMA_Lookback(optInFastPeriod);
       emaSlowNum = 0.0;
@@ -1044,8 +1109,8 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
             }
          } else 
          {
-            emaSlowNum = fma(num - emaSlowNum, kSlow, emaSlowNum);
-            emaSlowDen = fma(den - emaSlowDen, kSlow, emaSlowDen);
+            emaSlowNum = fma(betaSlow, emaSlowNum, kSlow * num);
+            emaSlowDen = fma(betaSlow, emaSlowDen, kSlow * den);
          }
          /* Stage 2: the fast EMA, over what stage 1 publishes.
           *
@@ -1073,8 +1138,8 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
                }
             } else 
             {
-               emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-               emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+               emaFastNum = fma(betaFast, emaFastNum, kFast * emaSlowNum);
+               emaFastDen = fma(betaFast, emaFastDen, kFast * emaSlowDen);
             }
          }
          /* Stage 3: the SMI line, then the signal EMA over it. */
@@ -1098,7 +1163,7 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
                }
             } else 
             {
-               prevSignal = fma(smiValue - prevSignal, kSignal, prevSignal);
+               prevSignal = fma(betaSignal, prevSignal, kSignal * smiValue);
             }
          }
          nBar = nBar + 1;
@@ -1155,10 +1220,10 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
          }
          den = highest - lowest;
          num = inClose[today] - (highest + lowest) * 0.5;
-         emaSlowNum = fma(num - emaSlowNum, kSlow, emaSlowNum);
-         emaSlowDen = fma(den - emaSlowDen, kSlow, emaSlowDen);
-         emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
-         emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
+         emaSlowNum = fma(betaSlow, emaSlowNum, kSlow * num);
+         emaSlowDen = fma(betaSlow, emaSlowDen, kSlow * den);
+         emaFastNum = fma(betaFast, emaFastNum, kFast * emaSlowNum);
+         emaFastDen = fma(betaFast, emaFastDen, kFast * emaSlowDen);
          /* The denominator is an EMA of an EMA of the high-low range: every term
           * is non-negative and every weight is positive, so it carries no
           * cancellation residue and is zero only when every range that reached it
@@ -1178,7 +1243,7 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
          {
             smiValue = 0.0;
          }
-         prevSignal = fma(smiValue - prevSignal, kSignal, prevSignal);
+         prevSignal = fma(betaSignal, prevSignal, kSignal * smiValue);
          outSMI[outIdx * outStride] = smiValue;
          outSMISignal[outIdx * outStride] = prevSignal;
          outIdx = outIdx + 1;
@@ -1198,11 +1263,14 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
       sp->kSlow = kSlow;
       sp->kFast = kFast;
       sp->kSignal = kSignal;
+      sp->betaSlow = betaSlow;
+      sp->betaFast = betaFast;
+      sp->betaSignal = betaSignal;
       sp->highest = highest;
       sp->lowest = lowest;
       sp->emaSlowNum = emaSlowNum;
-      sp->emaSlowDen = emaSlowDen;
       sp->emaFastNum = emaFastNum;
+      sp->emaSlowDen = emaSlowDen;
       sp->emaFastDen = emaFastDen;
       sp->prevSignal = prevSignal;
       sp->trailingIdx = trailingIdx;
@@ -1238,8 +1306,17 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
    }
 }
 
-/* Private function, not in public API. */
-TA_RetCode TA_SMI_OpenInternal( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double *outSMI, double *outSMISignal )
+TA_FMA_OPEN_CLONE static TA_RetCode TA_SMI_OpenImplFma( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[], int outStride )
+{
+   return TA_SMI_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_SMI_OpenImplPlain( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[], int outStride )
+{
+   return TA_SMI_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_SMI_OpenSinkFma( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double *outSMI, double *outSMISignal )
 {
    TA_RetCode retCode;
    int dummyBegIdx = 0;
@@ -1255,6 +1332,23 @@ TA_RetCode TA_SMI_OpenInternal( struct TA_SMI_Stream **stream, const double inHi
    return retCode;
 }
 
+/* Private function, not in public API. */
+TA_RetCode TA_SMI_OpenInternal( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double *outSMI, double *outSMISignal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outSMI = 0.0;
+   double sink_outSMISignal = 0.0;
+   retCode = TA_FMA_AVAILABLE ? TA_SMI_OpenImplFma( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &dummyBegIdx, &dummyNBElement, &sink_outSMI, &sink_outSMISignal, 0 ) : TA_SMI_OpenImplPlain( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &dummyBegIdx, &dummyNBElement, &sink_outSMI, &sink_outSMISignal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outSMI = sink_outSMI;
+      *outSMISignal = sink_outSMISignal;
+   }
+   return retCode;
+}
+
 TA_LIB_API TA_RetCode TA_SMI_Open( TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double *outSMI, double *outSMISignal )
 {
    if( !stream ) return TA_BAD_PARAM;
@@ -1262,7 +1356,7 @@ TA_LIB_API TA_RetCode TA_SMI_Open( TA_SMI_Stream **stream, const double inHigh[]
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
-   return TA_SMI_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outSMI, outSMISignal );
+   return TA_FMA_AVAILABLE ? TA_SMI_OpenSinkFma( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outSMI, outSMISignal ) : TA_SMI_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outSMI, outSMISignal );
 }
 
 TA_LIB_API TA_RetCode TA_SMI_OpenAndFill( TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[] )
@@ -1279,7 +1373,7 @@ TA_LIB_API TA_RetCode TA_SMI_OpenAndFill( TA_SMI_Stream **stream, const double i
 /* Private function, not in public API. */
 TA_RetCode TA_SMI_OpenAndFillInternal( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[] )
 {
-   return TA_SMI_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1 );
+   return TA_FMA_AVAILABLE ? TA_SMI_OpenImplFma( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1 ) : TA_SMI_OpenImplPlain( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1 );
 }
 
 TA_FMA_MULTIVERSION
@@ -1389,10 +1483,10 @@ TA_LIB_API TA_RetCode TA_SMI_Peek( const TA_SMI_Stream *stream, double inHigh, d
    }
    den = highest - lowest;
    num = (((sp->today & sp->xMask) != pkSlot2) ? x_inClose[sp->today & sp->xMask] : pkVal2) - (highest + lowest) * 0.5;
-   emaSlowNum = fma(num - emaSlowNum, sp->kSlow, emaSlowNum);
-   emaSlowDen = fma(den - emaSlowDen, sp->kSlow, emaSlowDen);
-   emaFastNum = fma(emaSlowNum - emaFastNum, sp->kFast, emaFastNum);
-   emaFastDen = fma(emaSlowDen - emaFastDen, sp->kFast, emaFastDen);
+   emaSlowNum = fma(sp->betaSlow, emaSlowNum, sp->kSlow * num);
+   emaSlowDen = fma(sp->betaSlow, emaSlowDen, sp->kSlow * den);
+   emaFastNum = fma(sp->betaFast, emaFastNum, sp->kFast * emaSlowNum);
+   emaFastDen = fma(sp->betaFast, emaFastDen, sp->kFast * emaSlowDen);
    /* The denominator is an EMA of an EMA of the high-low range: every term
     * is non-negative and every weight is positive, so it carries no
     * cancellation residue and is zero only when every range that reached it
@@ -1412,7 +1506,7 @@ TA_LIB_API TA_RetCode TA_SMI_Peek( const TA_SMI_Stream *stream, double inHigh, d
    {
       smiValue = 0.0;
    }
-   prevSignal = fma(smiValue - prevSignal, sp->kSignal, prevSignal);
+   prevSignal = fma(sp->betaSignal, prevSignal, sp->kSignal * smiValue);
    *outSMI= smiValue;
    *outSMISignal= prevSignal;
    return TA_SUCCESS;

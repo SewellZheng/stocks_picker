@@ -41,6 +41,9 @@ ErrorNumber test_func_div_zero( TA_History *history );
 ErrorNumber test_func_composite1( TA_History *history );
 ErrorNumber test_func_composite2( TA_History *history );
 ErrorNumber test_func_marketfi( TA_History *history );
+ErrorNumber test_func_fisher( TA_History *history );
+ErrorNumber test_func_pso( TA_History *history );
+ErrorNumber test_func_rogerssatchell( TA_History *history );
 ErrorNumber test_func_emv     ( TA_History *history );
 ErrorNumber test_func_kst     ( TA_History *history );
 ErrorNumber test_func_kstext  ( TA_History *history );
@@ -92,5 +95,6 @@ ErrorNumber test_func_legacy  ( TA_History *history );
 ErrorNumber test_func_stream_finite( TA_History *history );
 ErrorNumber test_func_open_contract( TA_History *history );
 ErrorNumber test_func_unstable_shift( TA_History *history );
+ErrorNumber test_func_auto_stabilization( TA_History *history );
 
 #endif

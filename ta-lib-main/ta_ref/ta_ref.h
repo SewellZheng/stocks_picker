@@ -11,6 +11,7 @@ typedef enum
    TA_REF_TOL_REL_IN,          /* tol * max|close| over the case, capped at cap    */
    TA_REF_TOL_REL_OUT,         /* tol * max(|current|, |frozen|)                   */
    TA_REF_TOL_REL_OUT_INFLOOR, /* tol * max(|current|, |frozen|, max|close|)       */
+   TA_REF_TOL_REL_OUT_FLOOR1,  /* tol * max(|current|, |frozen|, 1.0)              */
    TA_REF_TOL_NAN_TO           /* frozen is NaN and current is exactly tol         */
 } TaRefTolMode;
 
@@ -46,6 +47,10 @@ typedef struct
 
 /* Opt param `name` of the case, or `dflt` when the function has none. */
 double ta_ref_opt( const TaRefCase *c, const char *name, double dflt );
+
+/* Whether MAXINDEX, MININDEX or MINMAXINDEX (c->func) has, somewhere in the
+ * case's range, a window holding the extreme it indexes on more than one bar. */
+int ta_ref_index_tie( const TaRefCase *c );
 
 typedef struct
 {

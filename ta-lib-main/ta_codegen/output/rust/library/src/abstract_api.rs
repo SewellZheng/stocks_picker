@@ -268,6 +268,8 @@ pub enum FuncId {
     ERI,
     /// Vector Arithmetic Exp — [`Core::exp`](crate::Core::exp).
     EXP,
+    /// Fisher Transform — [`Core::fisher`](crate::Core::fisher).
+    FISHER,
     /// Vector Floor — [`Core::floor`](crate::Core::floor).
     FLOOR,
     /// Forecast Oscillator — [`Core::fosc`](crate::Core::fosc).
@@ -386,6 +388,8 @@ pub enum FuncId {
     PLUS_DM,
     /// Percentage Price Oscillator — [`Core::ppo`](crate::Core::ppo).
     PPO,
+    /// Premier Stochastic Oscillator — [`Core::pso`](crate::Core::pso).
+    PSO,
     /// Positive Volume Index — [`Core::pvi`](crate::Core::pvi).
     PVI,
     /// Percentage Volume Oscillator — [`Core::pvo`](crate::Core::pvo).
@@ -404,6 +408,8 @@ pub enum FuncId {
     ROCR,
     /// Rate of change ratio 100 scale: (price/prevPrice)*100 — [`Core::rocr100`](crate::Core::rocr100).
     ROCR100,
+    /// Rogers-Satchell Volatility — [`Core::rogerssatchell`](crate::Core::rogerssatchell).
+    ROGERSSATCHELL,
     /// Relative Strength Index — [`Core::rsi`](crate::Core::rsi).
     RSI,
     /// Relative Volatility Index — [`Core::rvi`](crate::Core::rvi).
@@ -502,7 +508,7 @@ pub enum FuncId {
 
 impl FuncId {
     /// Number of functions in the registry.
-    pub const COUNT: usize = 228;
+    pub const COUNT: usize = 231;
     /// Metadata for this function (O(1) index into the const table).
     #[inline] pub fn info(self) -> &'static FuncInfo { &FUNC_TABLE[self as usize] }
     /// Upper-case TA name, e.g. "RSI".
@@ -630,8 +636,8 @@ flag_newtype!(
     CANDLESTICK = 0x1000_0000,
     /// Output is path-dependent: built up from the first bar, so it depends on
     /// the requested `startIdx` and never converges across ranges — the same bar
-    /// computed from a different `startIdx` can differ. E.g. AD, ADOSC, OBV,
-    /// NVI, PVI, SAR, SAREXT.
+    /// computed from a different `startIdx` can differ. E.g. AD, OBV, NVI,
+    /// PVI, SAR, SAREXT.
     PATH_DEPENDENT = 0x2000_0000,
     /// Inputs of ordinary magnitude can have no finite result, so a successful
     /// call may write NaN or ±Inf (e.g. ACOS outside `[-1, 1]`, LN of zero,
@@ -842,7 +848,7 @@ impl FuncInfo {
 
 /// Backing storage for [`FUNCS`], indexed by [`FuncId`]. Link-time const, in
 /// `.rodata`. Private, so its length is nobody's business but this module's.
-static FUNC_TABLE: [FuncInfo; 228] = [
+static FUNC_TABLE: [FuncInfo; 231] = [
     FuncInfo {
         id: FuncId::AC,
         name: "AC",
@@ -903,7 +909,7 @@ static FUNC_TABLE: [FuncInfo; 228] = [
         name: "ADOSC",
         group: Group::VolumeIndicators,
         hint: "Chaikin A/D Oscillator",
-        flags: FuncFlags(0x22000000),
+        flags: FuncFlags(0x02000000),
         inputs: &[InputInfo { param_name: "inPriceHLCV", kind: InputType::Price, flags: InputFlags(0x0000001e) }, ],
         opt_inputs: &[OptInputInfo { param_name: "optInFastPeriod", display_name: "Fast Period", hint: "Period of the fast MA", flags: OptInputFlags(0x00000000), kind: OptInputType::IntegerRange { min: 2, max: 100000, default: 3, suggested: (4, 200, 1) } }, OptInputInfo { param_name: "optInSlowPeriod", display_name: "Slow Period", hint: "Period of the slow MA", flags: OptInputFlags(0x00000000), kind: OptInputType::IntegerRange { min: 2, max: 100000, default: 10, suggested: (4, 200, 1) } }, ],
         outputs: &[OutputInfo { param_name: "outReal", kind: OutputType::Real, flags: OutputFlags(0x00000001) }, ],
@@ -2087,6 +2093,17 @@ static FUNC_TABLE: [FuncInfo; 228] = [
         unst_id: None,
     },
     FuncInfo {
+        id: FuncId::FISHER,
+        name: "FISHER",
+        group: Group::MomentumIndicators,
+        hint: "Fisher Transform",
+        flags: FuncFlags(0x0a000000),
+        inputs: &[InputInfo { param_name: "inPriceHL", kind: InputType::Price, flags: InputFlags(0x00000006) }, ],
+        opt_inputs: &[OptInputInfo { param_name: "optInTimePeriod", display_name: "Time Period", hint: "Time period", flags: OptInputFlags(0x00000000), kind: OptInputType::IntegerRange { min: 2, max: 100000, default: 10, suggested: (5, 50, 1) } }, ],
+        outputs: &[OutputInfo { param_name: "outFisher", kind: OutputType::Real, flags: OutputFlags(0x00000001) }, OutputInfo { param_name: "outTrigger", kind: OutputType::Real, flags: OutputFlags(0x00000004) }, ],
+        unst_id: Some(FuncUnstId::FISHER),
+    },
+    FuncInfo {
         id: FuncId::FLOOR,
         name: "FLOOR",
         group: Group::MathTransform,
@@ -2736,6 +2753,17 @@ static FUNC_TABLE: [FuncInfo; 228] = [
         unst_id: None,
     },
     FuncInfo {
+        id: FuncId::PSO,
+        name: "PSO",
+        group: Group::MomentumIndicators,
+        hint: "Premier Stochastic Oscillator",
+        flags: FuncFlags(0x02000000),
+        inputs: &[InputInfo { param_name: "inPriceHLC", kind: InputType::Price, flags: InputFlags(0x0000000e) }, ],
+        opt_inputs: &[OptInputInfo { param_name: "optInFastK_Period", display_name: "Fast-K Period", hint: "Time period for building the Fast-K line", flags: OptInputFlags(0x00000000), kind: OptInputType::IntegerRange { min: 1, max: 100000, default: 8, suggested: (1, 200, 1) } }, OptInputInfo { param_name: "optInEMAPeriod", display_name: "EMA Period", hint: "Period of each of the two smoothing passes", flags: OptInputFlags(0x00000000), kind: OptInputType::IntegerRange { min: 1, max: 100000, default: 5, suggested: (1, 200, 1) } }, ],
+        outputs: &[OutputInfo { param_name: "outReal", kind: OutputType::Real, flags: OutputFlags(0x00000001) }, ],
+        unst_id: None,
+    },
+    FuncInfo {
         id: FuncId::PVI,
         name: "PVI",
         group: Group::VolumeIndicators,
@@ -2831,6 +2859,17 @@ static FUNC_TABLE: [FuncInfo; 228] = [
         flags: FuncFlags(0x02000000),
         inputs: &[InputInfo { param_name: "inReal", kind: InputType::Real, flags: InputFlags(0x00000000) }, ],
         opt_inputs: &[OptInputInfo { param_name: "optInTimePeriod", display_name: "Time Period", hint: "Time period", flags: OptInputFlags(0x00000000), kind: OptInputType::IntegerRange { min: 1, max: 100000, default: 10, suggested: (1, 200, 1) } }, ],
+        outputs: &[OutputInfo { param_name: "outReal", kind: OutputType::Real, flags: OutputFlags(0x00000001) }, ],
+        unst_id: None,
+    },
+    FuncInfo {
+        id: FuncId::ROGERSSATCHELL,
+        name: "ROGERSSATCHELL",
+        group: Group::VolatilityIndicators,
+        hint: "Rogers-Satchell Volatility",
+        flags: FuncFlags(0x02000000),
+        inputs: &[InputInfo { param_name: "inPriceOHLC", kind: InputType::Price, flags: InputFlags(0x0000000f) }, ],
+        opt_inputs: &[OptInputInfo { param_name: "optInTimePeriod", display_name: "Time Period", hint: "Number of bars in the window", flags: OptInputFlags(0x00000000), kind: OptInputType::IntegerRange { min: 1, max: 100000, default: 10, suggested: (2, 200, 1) } }, OptInputInfo { param_name: "optInAnnualization", display_name: "Annualization", hint: "Periods per year; 1 leaves the per-bar figure", flags: OptInputFlags(0x00000000), kind: OptInputType::RealRange { min: 0.0, max: 3e37, precision: 2, default: 252.0, suggested: (1.0, 365.0, 1.0) } }, ],
         outputs: &[OutputInfo { param_name: "outReal", kind: OutputType::Real, flags: OutputFlags(0x00000001) }, ],
         unst_id: None,
     },
@@ -3482,6 +3521,7 @@ fn get_func_handle_exact(name: &str) -> Option<FuncId> {
         "ER" => FuncId::ER,
         "ERI" => FuncId::ERI,
         "EXP" => FuncId::EXP,
+        "FISHER" => FuncId::FISHER,
         "FLOOR" => FuncId::FLOOR,
         "FOSC" => FuncId::FOSC,
         "FRACTAL" => FuncId::FRACTAL,
@@ -3541,6 +3581,7 @@ fn get_func_handle_exact(name: &str) -> Option<FuncId> {
         "PLUS_DI" => FuncId::PLUS_DI,
         "PLUS_DM" => FuncId::PLUS_DM,
         "PPO" => FuncId::PPO,
+        "PSO" => FuncId::PSO,
         "PVI" => FuncId::PVI,
         "PVO" => FuncId::PVO,
         "PVT" => FuncId::PVT,
@@ -3550,6 +3591,7 @@ fn get_func_handle_exact(name: &str) -> Option<FuncId> {
         "ROCP" => FuncId::ROCP,
         "ROCR" => FuncId::ROCR,
         "ROCR100" => FuncId::ROCR100,
+        "ROGERSSATCHELL" => FuncId::ROGERSSATCHELL,
         "RSI" => FuncId::RSI,
         "RVI" => FuncId::RVI,
         "RVIR" => FuncId::RVIR,
@@ -3978,6 +4020,7 @@ impl<'a> ParamHolder<'a> {
             FuncId::ER => self.core.er_lookback(self.int_opt[0]),
             FuncId::ERI => self.core.eri_lookback(self.int_opt[0]),
             FuncId::EXP => self.core.exp_lookback(),
+            FuncId::FISHER => self.core.fisher_lookback(self.int_opt[0]),
             FuncId::FLOOR => self.core.floor_lookback(),
             FuncId::FOSC => self.core.fosc_lookback(self.int_opt[0]),
             FuncId::FRACTAL => self.core.fractal_lookback(self.int_opt[0], self.int_opt[1]),
@@ -4037,6 +4080,7 @@ impl<'a> ParamHolder<'a> {
             FuncId::PLUS_DI => self.core.plus_di_lookback(self.int_opt[0]),
             FuncId::PLUS_DM => self.core.plus_dm_lookback(self.int_opt[0]),
             FuncId::PPO => self.core.ppo_lookback(self.int_opt[0], self.int_opt[1], MAType::try_from(self.int_opt[2])?),
+            FuncId::PSO => self.core.pso_lookback(self.int_opt[0], self.int_opt[1]),
             FuncId::PVI => self.core.pvi_lookback(),
             FuncId::PVO => self.core.pvo_lookback(self.int_opt[0], self.int_opt[1], MAType::try_from(self.int_opt[2])?),
             FuncId::PVT => self.core.pvt_lookback(),
@@ -4046,6 +4090,7 @@ impl<'a> ParamHolder<'a> {
             FuncId::ROCP => self.core.rocp_lookback(self.int_opt[0]),
             FuncId::ROCR => self.core.rocr_lookback(self.int_opt[0]),
             FuncId::ROCR100 => self.core.rocr100_lookback(self.int_opt[0]),
+            FuncId::ROGERSSATCHELL => self.core.rogerssatchell_lookback(self.int_opt[0], self.real_opt[1]),
             FuncId::RSI => self.core.rsi_lookback(self.int_opt[0]),
             FuncId::RVI => self.core.rvi_lookback(self.int_opt[0], self.int_opt[1]),
             FuncId::RVIR => self.core.rvir_lookback(self.int_opt[0], self.int_opt[1]),
@@ -4219,6 +4264,7 @@ impl<'a> ParamHolder<'a> {
             FuncId::ER => self.core.er_display_shift(self.int_opt[0], output_idx),
             FuncId::ERI => self.core.eri_display_shift(self.int_opt[0], output_idx),
             FuncId::EXP => self.core.exp_display_shift(output_idx),
+            FuncId::FISHER => self.core.fisher_display_shift(self.int_opt[0], output_idx),
             FuncId::FLOOR => self.core.floor_display_shift(output_idx),
             FuncId::FOSC => self.core.fosc_display_shift(self.int_opt[0], output_idx),
             FuncId::FRACTAL => self.core.fractal_display_shift(self.int_opt[0], self.int_opt[1], output_idx),
@@ -4278,6 +4324,7 @@ impl<'a> ParamHolder<'a> {
             FuncId::PLUS_DI => self.core.plus_di_display_shift(self.int_opt[0], output_idx),
             FuncId::PLUS_DM => self.core.plus_dm_display_shift(self.int_opt[0], output_idx),
             FuncId::PPO => self.core.ppo_display_shift(self.int_opt[0], self.int_opt[1], MAType::try_from(self.int_opt[2])?, output_idx),
+            FuncId::PSO => self.core.pso_display_shift(self.int_opt[0], self.int_opt[1], output_idx),
             FuncId::PVI => self.core.pvi_display_shift(output_idx),
             FuncId::PVO => self.core.pvo_display_shift(self.int_opt[0], self.int_opt[1], MAType::try_from(self.int_opt[2])?, output_idx),
             FuncId::PVT => self.core.pvt_display_shift(output_idx),
@@ -4287,6 +4334,7 @@ impl<'a> ParamHolder<'a> {
             FuncId::ROCP => self.core.rocp_display_shift(self.int_opt[0], output_idx),
             FuncId::ROCR => self.core.rocr_display_shift(self.int_opt[0], output_idx),
             FuncId::ROCR100 => self.core.rocr100_display_shift(self.int_opt[0], output_idx),
+            FuncId::ROGERSSATCHELL => self.core.rogerssatchell_display_shift(self.int_opt[0], self.real_opt[1], output_idx),
             FuncId::RSI => self.core.rsi_display_shift(self.int_opt[0], output_idx),
             FuncId::RVI => self.core.rvi_display_shift(self.int_opt[0], self.int_opt[1], output_idx),
             FuncId::RVIR => self.core.rvir_display_shift(self.int_opt[0], self.int_opt[1], output_idx),
@@ -5978,6 +6026,21 @@ impl<'a> ParamHolder<'a> {
                     Err(e) => e,
                 }
             }
+            FuncId::FISHER => {
+                let i0_1 = self.price[0][1].ok_or(RetCode::InputNotAllInitialize)?;
+                let i0_2 = self.price[0][2].ok_or(RetCode::InputNotAllInitialize)?;
+                if self.real_out[0].is_none() || self.real_out[1].is_none() { return Err(RetCode::OutputNotAllInitialize); }
+                Self::check_range(start_idx, end_idx)?;
+                let mut o0 = self.real_out[0].take().ok_or(RetCode::OutputNotAllInitialize)?;
+                let mut o1 = self.real_out[1].take().ok_or(RetCode::OutputNotAllInitialize)?;
+                let res = self.core.fisher(start_idx, end_idx, i0_1, i0_2, self.int_opt[0], &mut *o0, &mut *o1);
+                self.real_out[0] = Some(o0);
+                self.real_out[1] = Some(o1);
+                match res {
+                    Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success }
+                    Err(e) => e,
+                }
+            }
             FuncId::FLOOR => {
                 let i0 = self.real_in[0].ok_or(RetCode::InputNotAllInitialize)?;
                 if self.real_out[0].is_none() { return Err(RetCode::OutputNotAllInitialize); }
@@ -6771,6 +6834,20 @@ impl<'a> ParamHolder<'a> {
                     Err(e) => e,
                 }
             }
+            FuncId::PSO => {
+                let i0_1 = self.price[0][1].ok_or(RetCode::InputNotAllInitialize)?;
+                let i0_2 = self.price[0][2].ok_or(RetCode::InputNotAllInitialize)?;
+                let i0_3 = self.price[0][3].ok_or(RetCode::InputNotAllInitialize)?;
+                if self.real_out[0].is_none() { return Err(RetCode::OutputNotAllInitialize); }
+                Self::check_range(start_idx, end_idx)?;
+                let mut o0 = self.real_out[0].take().ok_or(RetCode::OutputNotAllInitialize)?;
+                let res = self.core.pso(start_idx, end_idx, i0_1, i0_2, i0_3, self.int_opt[0], self.int_opt[1], &mut *o0);
+                self.real_out[0] = Some(o0);
+                match res {
+                    Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success }
+                    Err(e) => e,
+                }
+            }
             FuncId::PVI => {
                 let i0_3 = self.price[0][3].ok_or(RetCode::InputNotAllInitialize)?;
                 let i0_4 = self.price[0][4].ok_or(RetCode::InputNotAllInitialize)?;
@@ -6877,6 +6954,21 @@ impl<'a> ParamHolder<'a> {
                 Self::check_range(start_idx, end_idx)?;
                 let mut o0 = self.real_out[0].take().ok_or(RetCode::OutputNotAllInitialize)?;
                 let res = self.core.rocr100(start_idx, end_idx, i0, self.int_opt[0], &mut *o0);
+                self.real_out[0] = Some(o0);
+                match res {
+                    Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success }
+                    Err(e) => e,
+                }
+            }
+            FuncId::ROGERSSATCHELL => {
+                let i0_0 = self.price[0][0].ok_or(RetCode::InputNotAllInitialize)?;
+                let i0_1 = self.price[0][1].ok_or(RetCode::InputNotAllInitialize)?;
+                let i0_2 = self.price[0][2].ok_or(RetCode::InputNotAllInitialize)?;
+                let i0_3 = self.price[0][3].ok_or(RetCode::InputNotAllInitialize)?;
+                if self.real_out[0].is_none() { return Err(RetCode::OutputNotAllInitialize); }
+                Self::check_range(start_idx, end_idx)?;
+                let mut o0 = self.real_out[0].take().ok_or(RetCode::OutputNotAllInitialize)?;
+                let res = self.core.rogerssatchell(start_idx, end_idx, i0_0, i0_1, i0_2, i0_3, self.int_opt[0], self.real_opt[1], &mut *o0);
                 self.real_out[0] = Some(o0);
                 match res {
                     Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success }
@@ -7814,6 +7906,68 @@ mod binder_tests {
         assert!(
             (0..want.count).any(|i| after_rebind[i].to_bits() != reference[i].to_bits()),
             "a correct rebind must reach the output"
+        );
+    }
+
+    /// rE3 for every function. Every row is a rejection the public entry makes,
+    /// not the holder. The short last output must not cost the outputs declared
+    /// before it.
+    #[test]
+    fn a_rejected_call_writes_no_output() {
+        const PAINT: f64 = -1.2345678901234e300;
+        const PAINT_INT: i32 = 0x5A5A_A5A5;
+        let core = Core::new();
+        let close = series(0.0);
+        let high: Vec<f64> = close.iter().map(|v| v + 2.0).collect();
+        let low: Vec<f64> = close.iter().map(|v| v - 2.0).collect();
+        let vol: Vec<f64> = (0..N).map(|i| 1.0e6 + i as f64).collect();
+        let ints: Vec<i32> = (0..N as i32).collect();
+
+        let (mut outside, mut at_bound, mut above_min) = (0, 0, 0);
+        for f in FUNCS.iter() {
+            let rejected = |what: &str, vector: &[(usize, i32)], bars: usize, last: usize| {
+                let len = |k: usize, kind: OutputType| {
+                    if f.outputs[k].kind != kind { 0 } else if k + 1 == f.outputs.len() { last } else { N }
+                };
+                let mut r: Vec<Vec<f64>> =
+                    (0..f.outputs.len()).map(|k| vec![PAINT; len(k, OutputType::Real)]).collect();
+                let mut i: Vec<Vec<i32>> =
+                    (0..f.outputs.len()).map(|k| vec![PAINT_INT; len(k, OutputType::Integer)]).collect();
+                let painted = r.iter().flatten().count() + i.iter().flatten().count();
+                assert!(painted > 0, "{} {what}: nothing to compare", f.name);
+                let set = |h: &mut ParamHolder<'_>| {
+                    for &(k, v) in vector { h.set_opt_input(k, v).unwrap(); }
+                };
+                let res = drive(&core, f, &set, &close[..bars], &high[..bars], &low[..bars],
+                                &vol[..bars], &ints[..bars], &mut r, &mut i);
+                assert_eq!(res.err(), Some(RetCode::BadParam), "{} {what}", f.name);
+                assert!(
+                    r.iter().flatten().all(|v| v.to_bits() == PAINT.to_bits())
+                        && i.iter().flatten().all(|v| *v == PAINT_INT),
+                    "{} {what}: a rejected call wrote an output", f.name
+                );
+            };
+            rejected("with an input one bar short", &[], N - 1, N);
+            rejected("with a last output of one element", &[], N, 1);
+            for (k, o) in f.opt_inputs.iter().enumerate() {
+                let OptInputType::IntegerRange { min, max, .. } = o.kind else { continue };
+                for v in [min.checked_sub(1), max.checked_add(1)].into_iter().flatten() {
+                    rejected("outside its range", &[(k, v)], N, N);
+                    outside += 1;
+                }
+                for (v, bound) in [(min, true), (max, true), ((min + 1).min(max), false)] {
+                    let mut probe = f.id.new_call(&core);
+                    probe.set_opt_input(k, v).unwrap();
+                    if probe.lookback().is_err() {
+                        rejected("inside its range", &[(k, v)], N, N);
+                        if bound { at_bound += 1 } else { above_min += 1 }
+                    }
+                }
+            }
+        }
+        assert!(
+            outside > 0 && at_bound > 0 && above_min > 0,
+            "outside {outside}, at a bound {at_bound}, above the minimum {above_min}"
         );
     }
 

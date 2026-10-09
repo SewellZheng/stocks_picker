@@ -55,14 +55,18 @@
  *  -------------------------------------------------------------------
  *  092826 MF,CC  First version (issue #464).
  *  100226 MF,CC  #497. An odd period is refused before the range is written.
+ *  100726 MF,CC  #492. The Auto rule grows with the period and stops at the
+ *                slowest alpha's bound.
  */
 
-TA_LIB_API int TA_FRAMA_Lookback( int optInTimePeriod )
+TA_NOINLINE TA_LIB_API int TA_FRAMA_Lookback( int optInTimePeriod )
 {
+   int root;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 16;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return -1;
+   root = (int)sqrt((double)optInTimePeriod);
    /* The range check cannot demand an even period; without this the lookback
     * answers a usable number for a call that cannot run.
     */
@@ -70,7 +74,7 @@ TA_LIB_API int TA_FRAMA_Lookback( int optInTimePeriod )
    {
       return -1;
    }
-   return optInTimePeriod + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_FRAMA,Frama);
+   return optInTimePeriod + TA_GLOBALS_UNSTABLE(TA_FUNC_UNST_FRAMA,Frama,((9 * (4 + 4) * (root + 2) / 2 < 99 * 10) ? 9 * (4 + 4) * (root + 2) / 2 : 99 * 10),((9 * (8 + 4) * (root + 2) / 2 < 99 * 19) ? 9 * (8 + 4) * (root + 2) / 2 : 99 * 19));
 }
 
 TA_LIB_API int TA_FRAMA_DisplayShift( int optInTimePeriod, int outputIdx )
@@ -152,7 +156,7 @@ TA_LIB_API TA_RetCode TA_FRAMA( int    startIdx,
    }
    *outBegIdx= 0;
    *outNBElement= 0;
-   lookbackTotal = optInTimePeriod + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_FRAMA,Frama);
+   lookbackTotal = TA_FRAMA_Lookback(optInTimePeriod);
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -212,7 +216,7 @@ TA_LIB_API TA_RetCode TA_FRAMA( int    startIdx,
    maxIdx_slot = (half-1);
    slot_Idx = 0;
    today = startIdx - lookbackTotal + 1;
-   seedIdx = startIdx - TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_FRAMA,Frama) - 1;
+   seedIdx = startIdx - (lookbackTotal - optInTimePeriod) - 1;
    /* The first block's suffix reads must see a bar inside the window. */
    i = 0;
    while( i < half )
@@ -450,7 +454,7 @@ TA_RetCode TA_S_FRAMA( int    startIdx,
    }
    *outBegIdx= 0;
    *outNBElement= 0;
-   lookbackTotal = optInTimePeriod + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_FRAMA,Frama);
+   lookbackTotal = TA_FRAMA_Lookback(optInTimePeriod);
    if( startIdx < lookbackTotal )
    {
       startIdx = lookbackTotal;
@@ -501,7 +505,7 @@ TA_RetCode TA_S_FRAMA( int    startIdx,
    maxIdx_slot = (half-1);
    slot_Idx = 0;
    today = startIdx - lookbackTotal + 1;
-   seedIdx = startIdx - TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_FRAMA,Frama) - 1;
+   seedIdx = startIdx - (lookbackTotal - optInTimePeriod) - 1;
    i = 0;
    while( i < half )
    {
@@ -795,7 +799,7 @@ static TA_FMA_STEP_INLINE void TA_FRAMA_StepImpl( struct TA_FRAMA_Stream *sp, do
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_FRAMA_OpenImpl( struct TA_FRAMA_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_FMA_STEP_INLINE TA_RetCode TA_FRAMA_OpenImpl( struct TA_FRAMA_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_FRAMA_Stream *sp;
    double local_slot_sufHigh[32];
@@ -859,7 +863,7 @@ static TA_RetCode TA_FRAMA_OpenImpl( struct TA_FRAMA_Stream **stream, const doub
       }
       *outBegIdx= 0;
       *outNBElement= 0;
-      lookbackTotal = optInTimePeriod + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_FRAMA,Frama);
+      lookbackTotal = TA_FRAMA_Lookback(optInTimePeriod);
       if( startIdx < lookbackTotal )
       {
          startIdx = lookbackTotal;
@@ -919,7 +923,7 @@ static TA_RetCode TA_FRAMA_OpenImpl( struct TA_FRAMA_Stream **stream, const doub
       maxIdx_slot = (half-1);
       slot_Idx = 0;
       today = startIdx - lookbackTotal + 1;
-      seedIdx = startIdx - TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_FRAMA,Frama) - 1;
+      seedIdx = startIdx - (lookbackTotal - optInTimePeriod) - 1;
       /* The first block's suffix reads must see a bar inside the window. */
       i = 0;
       while( i < half )
@@ -1118,6 +1122,30 @@ static TA_RetCode TA_FRAMA_OpenImpl( struct TA_FRAMA_Stream **stream, const doub
    }
 }
 
+TA_FMA_OPEN_CLONE static TA_RetCode TA_FRAMA_OpenImplFma( struct TA_FRAMA_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_FRAMA_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_PLAIN static TA_RetCode TA_FRAMA_OpenImplPlain( struct TA_FRAMA_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   return TA_FRAMA_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride );
+}
+
+TA_FMA_OPEN_CLONE static TA_RetCode TA_FRAMA_OpenSinkFma( struct TA_FRAMA_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
+{
+   TA_RetCode retCode;
+   int dummyBegIdx = 0;
+   int dummyNBElement = 0;
+   double sink_outReal = 0.0;
+   retCode = TA_FRAMA_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_FRAMA_OpenInternal( struct TA_FRAMA_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, double *outReal )
 {
@@ -1125,7 +1153,7 @@ TA_RetCode TA_FRAMA_OpenInternal( struct TA_FRAMA_Stream **stream, const double 
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_FRAMA_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_FMA_AVAILABLE ? TA_FRAMA_OpenImplFma( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 ) : TA_FRAMA_OpenImplPlain( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -1140,7 +1168,7 @@ TA_LIB_API TA_RetCode TA_FRAMA_Open( TA_FRAMA_Stream **stream, const double inHi
    if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   return TA_FRAMA_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outReal );
+   return TA_FMA_AVAILABLE ? TA_FRAMA_OpenSinkFma( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outReal ) : TA_FRAMA_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_FRAMA_OpenAndFill( TA_FRAMA_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
@@ -1157,7 +1185,7 @@ TA_LIB_API TA_RetCode TA_FRAMA_OpenAndFill( TA_FRAMA_Stream **stream, const doub
 /* Private function, not in public API. */
 TA_RetCode TA_FRAMA_OpenAndFillInternal( struct TA_FRAMA_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_FRAMA_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_FMA_AVAILABLE ? TA_FRAMA_OpenImplFma( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 ) : TA_FRAMA_OpenImplPlain( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_FMA_MULTIVERSION

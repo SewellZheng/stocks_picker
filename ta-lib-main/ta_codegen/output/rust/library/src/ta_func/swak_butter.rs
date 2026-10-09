@@ -54,6 +54,7 @@
  *  -------------------------------------------------------------------
  *  100126 KL,CC  Creation (#486).
  *  100326 MF,CC  The newest output on one fused step (#486).
+ *  100526 MF,CC  b2p without its cancellation at long periods (#486).
  */
 
 // Import types from parent module
@@ -90,7 +91,7 @@ impl Core {
         // seeded from the first bar rather than read from before it, and there is
         // no callee whose lookback could be inherited, so the function's own
         // unstable period is the whole of it.
-        return Ok((self.unstable_period[FuncUnstId::SWAK_BUTTER as usize]) as usize);
+        return Ok((self.unstable_count(FuncUnstId::SWAK_BUTTER, (((10 + 3) * (optInTimePeriod + 2) + 8) / 9), (((19 + 3) * (optInTimePeriod + 2) + 8) / 9))) as usize);
     }
     /// Display shift of one output of [`Core::swak_butter`]: how many bars ahead (positive) or
     /// behind (negative) of the bar that computed it a chart draws that output. The values are
@@ -179,7 +180,7 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        let mut w: f64 = 0.0_f64;
+        let mut s: f64 = 0.0_f64;
         let mut b2p: f64 = 0.0_f64;
         let mut a2p: f64 = 0.0_f64;
         let mut om: f64 = 0.0_f64;
@@ -204,8 +205,11 @@ impl Core {
         let inReal = &inReal[..=endIdx];
         // The two-pole alpha of Ehlers' "Swiss Army Knife Indicator", Figure 5. The
         // paper's 360/P is a full turn, so 2*pi/P.
-        w = 2.0 * 3.141592653589793 / (optInTimePeriod as f64);
-        b2p = 2.415 * (1.0 - (w).cos());
+        //
+        // Keep 1 - cos(w) as 2*sin(w/2)^2: the subtraction cancels more of b2p's
+        // digits the longer the period, and the cutoff drifts with them.
+        s = (3.141592653589793 / (optInTimePeriod as f64)).sin();
+        b2p = 2.415 * (2.0 * s * s);
         a2p = -b2p + ((b2p as f64).mul_add(b2p, 2.0 * b2p)).sqrt();
         // The Butterworth row: the Gaussian's double real pole with two zeros added
         // at Nyquist, which is what the (1, 2, 1) numerator is. The quarter in c0
@@ -436,6 +440,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::swak_butter_open_internal`]
     /// (stride 0, scalar sink) and [`Core::swak_butter_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn swak_butter_open_impl(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<SwakButterStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, swak_butter_open_impl_fma, swak_butter_open_impl_scalar, (inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.swak_butter_open_impl_scalar(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn swak_butter_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
+    ) -> Result<SwakButterStream, RetCode> {
+        self.swak_butter_open_impl_scalar(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, outStride)
+    }
+
+    #[inline(always)]
+    fn swak_butter_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<SwakButterStream, RetCode> {
         if inReal.is_empty() {
@@ -463,7 +485,7 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        let mut w: f64 = 0.0_f64;
+        let mut s: f64 = 0.0_f64;
         let mut b2p: f64 = 0.0_f64;
         let mut a2p: f64 = 0.0_f64;
         let mut om: f64 = 0.0_f64;
@@ -487,8 +509,11 @@ impl Core {
         }
         // The two-pole alpha of Ehlers' "Swiss Army Knife Indicator", Figure 5. The
         // paper's 360/P is a full turn, so 2*pi/P.
-        w = 2.0 * 3.141592653589793 / (optInTimePeriod as f64);
-        b2p = 2.415 * (1.0 - (w).cos());
+        //
+        // Keep 1 - cos(w) as 2*sin(w/2)^2: the subtraction cancels more of b2p's
+        // digits the longer the period, and the cutoff drifts with them.
+        s = (3.141592653589793 / (optInTimePeriod as f64)).sin();
+        b2p = 2.415 * (2.0 * s * s);
         a2p = -b2p + ((b2p as f64).mul_add(b2p, 2.0 * b2p)).sqrt();
         // The Butterworth row: the Gaussian's double real pole with two zeros added
         // at Nyquist, which is what the (1, 2, 1) numerator is. The quarter in c0

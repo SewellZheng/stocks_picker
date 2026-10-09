@@ -236,12 +236,17 @@ impl Core {
         let mut slowK: f64 = 0.0_f64;
         let mut fastK: f64 = 0.0_f64;
         let mut signalK: f64 = 0.0_f64;
+        let mut slowBeta: f64 = 0.0_f64;
+        let mut fastBeta: f64 = 0.0_f64;
+        let mut signalBeta: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut tempInteger: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         let mut lookbackSignal: usize = 0_usize;
+        let mut lookbackSlow: usize = 0_usize;
+        let mut fastToday: usize = 0_usize;
         // Make sure slow is really slower than
         // the fast period! if not, swap...
         if optInSlowPeriod < optInFastPeriod {
@@ -250,34 +255,44 @@ impl Core {
             optInSlowPeriod = optInFastPeriod;
             optInFastPeriod = (tempInteger) as i32;
         }
-        // Catch special case for fix 26/12 MACD.
-        // Use hardcoded k values matching the original algorithm.
+        // The fixed 26/12 MACD: k of 0.075 and 0.15, as near as a pair summing
+        // to exactly 1.0 comes.
         if optInSlowPeriod == 0 {
             // Fix 26
             optInSlowPeriod = 26;
-            slowK = 0.075;
+            slowBeta = 1.0 - 0.075;
         } else {
-            slowK = 2.0 / ((optInSlowPeriod + 1) as f64);
+            slowBeta = ((optInSlowPeriod - 1) as f64) / ((optInSlowPeriod + 1) as f64);
+        }
+        slowK = 1.0 - slowBeta;
+        if slowBeta < 0.5 {
+            slowBeta = 1.0 - slowK;
         }
         if optInFastPeriod == 0 {
             // Fix 12
             optInFastPeriod = 12;
-            fastK = 0.15;
+            fastBeta = 1.0 - 0.15;
         } else {
-            fastK = 2.0 / ((optInFastPeriod + 1) as f64);
+            fastBeta = ((optInFastPeriod - 1) as f64) / ((optInFastPeriod + 1) as f64);
+        }
+        fastK = 1.0 - fastBeta;
+        if fastBeta < 0.5 {
+            fastBeta = 1.0 - fastK;
         }
         // A signal period of 1 disables signal-line smoothing: the signal IS the
-        // MACD line and the histogram is exactly zero. signalK is then exactly
-        // 1.0, so the recursion below reduces to (x-prev)+prev -- which returns x
-        // only while consecutive MACD-line values stay within a factor of two of
-        // each other. The MACD line oscillates through zero, so it leaves that
-        // window on ordinary data; hence the explicit arm at each step.
-        signalK = 2.0 / ((optInSignalPeriod + 1) as f64);
+        // MACD line and the histogram is exactly zero. The recursion
+        // below, at a k of 1.0 and a beta of 0.0, does not keep the sign of a
+        // -0.0 line value; hence the explicit arm at each step.
+        signalBeta = ((optInSignalPeriod - 1) as f64) / ((optInSignalPeriod + 1) as f64);
+        signalK = 1.0 - signalBeta;
+        if signalBeta < 0.5 {
+            signalBeta = 1.0 - signalK;
+        }
         lookbackSignal = self.ema_lookback(optInSignalPeriod).unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
-        lookbackTotal = lookbackSignal;
-        lookbackTotal += self.ema_lookback(optInSlowPeriod).unwrap_or(usize::MAX);
+        lookbackSlow = self.ema_lookback(optInSlowPeriod).unwrap_or(usize::MAX);
+        lookbackTotal = lookbackSignal + lookbackSlow;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -295,40 +310,48 @@ impl Core {
         //
         // The arithmetic order below is the bit-exactness contract
         // (do not reorder or fuse operations):
-        //  - EMA recursion: ((x-prev)*k)+prev.
+        //  - EMA recursion: k*x + beta*prev, with ema.c's k and beta.
         //  - Each EMA is seeded with the sum of its first 'period'
         //    inputs, accumulated from 0.0 in input order, divided by
-        //    the period. The fast and slow seed windows end on the
-        //    same bar. The signal EMA is seeded the same way from the
+        //    the period. The signal EMA is seeded the same way from the
         //    first 'signal period' MACD-line values.
         //
         // In-place (an output == inReal) is supported: outputs at
         // [outIdx] are written only after inReal[startIdx+outIdx] was
         // read.
         // Seed each price EMA with a simple average of its first
-        // 'period' price bars. The fast window is the tail of the
-        // slow window: consume the leading slow-only bars first,
-        // then accumulate both over the shared bars.
+        // 'period' price bars, each window placed by that EMA's own
+        // lookback, so that the line is TA_EMA(fast) - TA_EMA(slow) bit
+        // for bit. The slow EMA then runs alone to the end of the fast
+        // window.
+        //
+        // ema_lookback(n) - n must never decrease as n grows: a fast
+        // window ending before the slow one would skip bars of the fast
+        // EMA, and one starting before it would read below the lookback.
         today = startIdx - lookbackTotal;
         tempReal = 0.0;
-        i = (optInSlowPeriod - optInFastPeriod) as usize;
+        i = (optInSlowPeriod) as usize;
         while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            tempReal += inReal[{ let _v = today; today += 1; _v }];
-        }
-        prevFast = 0.0;
-        i = (optInFastPeriod) as usize;
-        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            prevFast += inReal[today];
             tempReal += inReal[{ let _v = today; today += 1; _v }];
         }
         prevSlow = tempReal / ((optInSlowPeriod) as f64);
+        fastToday = startIdx - lookbackTotal + (lookbackSlow - self.ema_lookback(optInFastPeriod).unwrap_or(usize::MAX));
+        prevFast = 0.0;
+        i = (optInFastPeriod) as usize;
+        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
+            prevFast += inReal[{ let _v = fastToday; fastToday += 1; _v }];
+        }
         prevFast = prevFast / ((optInFastPeriod) as f64);
+        while today < fastToday {
+            tempReal = inReal[{ let _v = today; today += 1; _v }];
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
+        }
         // Advance both EMA through their unstable period, up to the
         // first MACD-line bar.
         while today <= startIdx - lookbackSignal {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
         }
         macdValue = prevFast - prevSlow;
         // Seed the signal EMA with a simple average of the first
@@ -344,8 +367,8 @@ impl Core {
                 i -= 1;
                 tempReal = _w0[_wk];
                 today += 1;
-                prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-                prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+                prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+                prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
                 macdValue = prevFast - prevSlow;
                 prevSignal += macdValue;
             }
@@ -358,13 +381,13 @@ impl Core {
         // of the signal EMA, up to the first output bar.
         while today <= startIdx {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             macdValue = prevFast - prevSlow;
             if optInSignalPeriod == 1 {
                 prevSignal = macdValue;
             } else {
-                prevSignal = (macdValue - prevSignal as f64).mul_add(signalK, prevSignal);
+                prevSignal = (signalBeta as f64).mul_add(prevSignal, signalK * macdValue);
             }
         }
         // Stable zone: keep advancing in lockstep and write the three
@@ -375,13 +398,13 @@ impl Core {
         outIdx = 1;
         while today <= endIdx {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             macdValue = prevFast - prevSlow;
             if optInSignalPeriod == 1 {
                 prevSignal = macdValue;
             } else {
-                prevSignal = (macdValue - prevSignal as f64).mul_add(signalK, prevSignal);
+                prevSignal = (signalBeta as f64).mul_add(prevSignal, signalK * macdValue);
             }
             outMACD[outIdx] = macdValue;
             outMACDSignal[outIdx] = prevSignal;
@@ -546,6 +569,9 @@ struct MacdStreamState {
     slowK: f64,
     fastK: f64,
     signalK: f64,
+    slowBeta: f64,
+    fastBeta: f64,
+    signalBeta: f64,
     cur_outMACD: f64,
     cur_outMACDSignal: f64,
     cur_outMACDHist: f64,
@@ -562,13 +588,13 @@ impl Core {
         let mut macdValue: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         tempReal = inReal;
-        sp.prevFast = (tempReal - sp.prevFast as f64).mul_add(sp.fastK, sp.prevFast);
-        sp.prevSlow = (tempReal - sp.prevSlow as f64).mul_add(sp.slowK, sp.prevSlow);
+        sp.prevFast = (sp.fastBeta as f64).mul_add(sp.prevFast, sp.fastK * tempReal);
+        sp.prevSlow = (sp.slowBeta as f64).mul_add(sp.prevSlow, sp.slowK * tempReal);
         macdValue = sp.prevFast - sp.prevSlow;
         if sp.optInSignalPeriod == 1 {
             sp.prevSignal = macdValue;
         } else {
-            sp.prevSignal = (macdValue - sp.prevSignal as f64).mul_add(sp.signalK, sp.prevSignal);
+            sp.prevSignal = (sp.signalBeta as f64).mul_add(sp.prevSignal, sp.signalK * macdValue);
         }
         (*outMACD) = macdValue;
         (*outMACDSignal) = sp.prevSignal;
@@ -581,6 +607,24 @@ impl Core {
     /// The single whole-history transcription behind [`Core::macd_open_internal`]
     /// (stride 0, scalar sink) and [`Core::macd_open_and_fill`] (stride 1, caller slices).
     pub(crate) fn macd_open_impl(
+        &self, inReal: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64], outStride: usize,
+    ) -> Result<MacdStream, RetCode> {
+        #[cfg(target_arch = "x86_64")]
+        return ta_lib_dispatch::dispatch_fma!(self, macd_open_impl_fma, macd_open_impl_scalar, (inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, outStride));
+        #[cfg(not(target_arch = "x86_64"))]
+        self.macd_open_impl_scalar(inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, outStride)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "fma")]
+    fn macd_open_impl_fma(
+        &self, inReal: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64], outStride: usize,
+    ) -> Result<MacdStream, RetCode> {
+        self.macd_open_impl_scalar(inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, outStride)
+    }
+
+    #[inline(always)]
+    fn macd_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64], outStride: usize,
     ) -> Result<MacdStream, RetCode> {
         if inReal.is_empty() {
@@ -622,12 +666,17 @@ impl Core {
         let mut slowK: f64 = 0.0_f64;
         let mut fastK: f64 = 0.0_f64;
         let mut signalK: f64 = 0.0_f64;
+        let mut slowBeta: f64 = 0.0_f64;
+        let mut fastBeta: f64 = 0.0_f64;
+        let mut signalBeta: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut tempInteger: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         let mut lookbackSignal: usize = 0_usize;
+        let mut lookbackSlow: usize = 0_usize;
+        let mut fastToday: usize = 0_usize;
         // Make sure slow is really slower than
         // the fast period! if not, swap...
         if optInSlowPeriod < optInFastPeriod {
@@ -636,34 +685,44 @@ impl Core {
             optInSlowPeriod = optInFastPeriod;
             optInFastPeriod = (tempInteger) as i32;
         }
-        // Catch special case for fix 26/12 MACD.
-        // Use hardcoded k values matching the original algorithm.
+        // The fixed 26/12 MACD: k of 0.075 and 0.15, as near as a pair summing
+        // to exactly 1.0 comes.
         if optInSlowPeriod == 0 {
             // Fix 26
             optInSlowPeriod = 26;
-            slowK = 0.075;
+            slowBeta = 1.0 - 0.075;
         } else {
-            slowK = 2.0 / ((optInSlowPeriod + 1) as f64);
+            slowBeta = ((optInSlowPeriod - 1) as f64) / ((optInSlowPeriod + 1) as f64);
+        }
+        slowK = 1.0 - slowBeta;
+        if slowBeta < 0.5 {
+            slowBeta = 1.0 - slowK;
         }
         if optInFastPeriod == 0 {
             // Fix 12
             optInFastPeriod = 12;
-            fastK = 0.15;
+            fastBeta = 1.0 - 0.15;
         } else {
-            fastK = 2.0 / ((optInFastPeriod + 1) as f64);
+            fastBeta = ((optInFastPeriod - 1) as f64) / ((optInFastPeriod + 1) as f64);
+        }
+        fastK = 1.0 - fastBeta;
+        if fastBeta < 0.5 {
+            fastBeta = 1.0 - fastK;
         }
         // A signal period of 1 disables signal-line smoothing: the signal IS the
-        // MACD line and the histogram is exactly zero. signalK is then exactly
-        // 1.0, so the recursion below reduces to (x-prev)+prev -- which returns x
-        // only while consecutive MACD-line values stay within a factor of two of
-        // each other. The MACD line oscillates through zero, so it leaves that
-        // window on ordinary data; hence the explicit arm at each step.
-        signalK = 2.0 / ((optInSignalPeriod + 1) as f64);
+        // MACD line and the histogram is exactly zero. The recursion
+        // below, at a k of 1.0 and a beta of 0.0, does not keep the sign of a
+        // -0.0 line value; hence the explicit arm at each step.
+        signalBeta = ((optInSignalPeriod - 1) as f64) / ((optInSignalPeriod + 1) as f64);
+        signalK = 1.0 - signalBeta;
+        if signalBeta < 0.5 {
+            signalBeta = 1.0 - signalK;
+        }
         lookbackSignal = self.ema_lookback(optInSignalPeriod)?;
         // Move up the start index if there is not
         // enough initial data.
-        lookbackTotal = lookbackSignal;
-        lookbackTotal += self.ema_lookback(optInSlowPeriod)?;
+        lookbackSlow = self.ema_lookback(optInSlowPeriod)?;
+        lookbackTotal = lookbackSignal + lookbackSlow;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -680,40 +739,48 @@ impl Core {
         //
         // The arithmetic order below is the bit-exactness contract
         // (do not reorder or fuse operations):
-        //  - EMA recursion: ((x-prev)*k)+prev.
+        //  - EMA recursion: k*x + beta*prev, with ema.c's k and beta.
         //  - Each EMA is seeded with the sum of its first 'period'
         //    inputs, accumulated from 0.0 in input order, divided by
-        //    the period. The fast and slow seed windows end on the
-        //    same bar. The signal EMA is seeded the same way from the
+        //    the period. The signal EMA is seeded the same way from the
         //    first 'signal period' MACD-line values.
         //
         // In-place (an output == inReal) is supported: outputs at
         // [outIdx] are written only after inReal[startIdx+outIdx] was
         // read.
         // Seed each price EMA with a simple average of its first
-        // 'period' price bars. The fast window is the tail of the
-        // slow window: consume the leading slow-only bars first,
-        // then accumulate both over the shared bars.
+        // 'period' price bars, each window placed by that EMA's own
+        // lookback, so that the line is TA_EMA(fast) - TA_EMA(slow) bit
+        // for bit. The slow EMA then runs alone to the end of the fast
+        // window.
+        //
+        // ema_lookback(n) - n must never decrease as n grows: a fast
+        // window ending before the slow one would skip bars of the fast
+        // EMA, and one starting before it would read below the lookback.
         today = startIdx - lookbackTotal;
         tempReal = 0.0;
-        i = (optInSlowPeriod - optInFastPeriod) as usize;
+        i = (optInSlowPeriod) as usize;
         while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            tempReal += inReal[{ let _v = today; today += 1; _v }];
-        }
-        prevFast = 0.0;
-        i = (optInFastPeriod) as usize;
-        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
-            prevFast += inReal[today];
             tempReal += inReal[{ let _v = today; today += 1; _v }];
         }
         prevSlow = tempReal / ((optInSlowPeriod) as f64);
+        fastToday = startIdx - lookbackTotal + (lookbackSlow - self.ema_lookback(optInFastPeriod)?);
+        prevFast = 0.0;
+        i = (optInFastPeriod) as usize;
+        while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
+            prevFast += inReal[{ let _v = fastToday; fastToday += 1; _v }];
+        }
         prevFast = prevFast / ((optInFastPeriod) as f64);
+        while today < fastToday {
+            tempReal = inReal[{ let _v = today; today += 1; _v }];
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
+        }
         // Advance both EMA through their unstable period, up to the
         // first MACD-line bar.
         while today <= startIdx - lookbackSignal {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
         }
         macdValue = prevFast - prevSlow;
         // Seed the signal EMA with a simple average of the first
@@ -724,8 +791,8 @@ impl Core {
         i = (optInSignalPeriod - 1) as usize;
         while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             macdValue = prevFast - prevSlow;
             prevSignal += macdValue;
         }
@@ -734,13 +801,13 @@ impl Core {
         // of the signal EMA, up to the first output bar.
         while today <= startIdx {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             macdValue = prevFast - prevSlow;
             if optInSignalPeriod == 1 {
                 prevSignal = macdValue;
             } else {
-                prevSignal = (macdValue - prevSignal as f64).mul_add(signalK, prevSignal);
+                prevSignal = (signalBeta as f64).mul_add(prevSignal, signalK * macdValue);
             }
         }
         // Stable zone: keep advancing in lockstep and write the three
@@ -751,13 +818,13 @@ impl Core {
         outIdx = 1;
         while today <= endIdx {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
-            prevFast = (tempReal - prevFast as f64).mul_add(fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(slowK, prevSlow);
+            prevFast = (fastBeta as f64).mul_add(prevFast, fastK * tempReal);
+            prevSlow = (slowBeta as f64).mul_add(prevSlow, slowK * tempReal);
             macdValue = prevFast - prevSlow;
             if optInSignalPeriod == 1 {
                 prevSignal = macdValue;
             } else {
-                prevSignal = (macdValue - prevSignal as f64).mul_add(signalK, prevSignal);
+                prevSignal = (signalBeta as f64).mul_add(prevSignal, signalK * macdValue);
             }
             outMACD[(outIdx * outStride) as usize] = macdValue;
             outMACDSignal[(outIdx * outStride) as usize] = prevSignal;
@@ -779,6 +846,9 @@ impl Core {
             slowK,
             fastK,
             signalK,
+            slowBeta,
+            fastBeta,
+            signalBeta,
             cur_outMACD: outMACD[(*outNBElement - 1) * outStride],
             cur_outMACDSignal: outMACDSignal[(*outNBElement - 1) * outStride],
             cur_outMACDHist: outMACDHist[(*outNBElement - 1) * outStride],
@@ -991,13 +1061,13 @@ impl MacdStream {
             let mut prevSignal = sp.prevSignal;
             let mut prevSlow = sp.prevSlow;
             tempReal = inReal;
-            prevFast = (tempReal - prevFast as f64).mul_add(sp.fastK, prevFast);
-            prevSlow = (tempReal - prevSlow as f64).mul_add(sp.slowK, prevSlow);
+            prevFast = (sp.fastBeta as f64).mul_add(prevFast, sp.fastK * tempReal);
+            prevSlow = (sp.slowBeta as f64).mul_add(prevSlow, sp.slowK * tempReal);
             macdValue = prevFast - prevSlow;
             if sp.optInSignalPeriod == 1 {
                 prevSignal = macdValue;
             } else {
-                prevSignal = (macdValue - prevSignal as f64).mul_add(sp.signalK, prevSignal);
+                prevSignal = (sp.signalBeta as f64).mul_add(prevSignal, sp.signalK * macdValue);
             }
             (*outMACD) = macdValue;
             (*outMACDSignal) = prevSignal;
