@@ -28,7 +28,7 @@ of a property of library output; it moves with FMA dispatch, libm and compiler.
 
 | Flag | Description |
 |------|-------------|
-| `--function=CSV` | Substring filter matched against the **group tag** in `DO_TEST`, not the function name — a function absent from its group's tag is unreachable by it, which is why the composite groups spell their members out. A tag element ending in `*` is a prefix claim (`CDL*`). Matching no group is `TA_REGTEST_FILTER_MATCHED_NOTHING`, except on the three self-contained legs below, which filter by real function name and legitimately match no group. |
+| `--function=CSV` | Substring filter matched against the **group tag** in `DO_TEST`, not the function name — a function absent from its group's tag is unreachable by it, which is why the composite groups spell their members out. A tag element ending in `*` is a prefix claim (`CDL*`). `--codegen` also matches each entry against real function names; `--xlang-hash` and `--ref` match only those. An entry that matches nothing at all is `TA_REGTEST_FILTER_MATCHED_NOTHING`, even beside entries that matched. |
 | `--codegen` | Codegen verification after the C reference tests |
 | `--language=CSV` | Narrow it (`c,rust,java,csharp`) |
 | `--ref=X_Y_Z` | Differential fuzz vs one frozen release. **Self-contained** |
@@ -124,7 +124,8 @@ instead, on every build: right after its first `TA_Initialize`, which loads the
 kernel, and before any function has run, `TA_GetRuntimeInfo` must report it
 loaded on the kernel's platform, which the check states for itself. Keep it a
 state query: a value cannot tell a kernel from a math library that happens to
-agree with it.
+agree with it. `--codegen` asks every language server the same keys before any
+function request, against values the check states per language.
 
 The sweep **compares values by default** for every function; checking only
 coherency is how the TRIX partial-range mislabeling survived two decades.
@@ -229,6 +230,15 @@ each, and each integer list's values and one step outside it, with or without a
 server, so a bare run reaches rejected parameters too. A value outside its
 declared domain that the lookback accepts fails. Each counter is asserted
 non-zero; the server one only when a server is attached.
+
+At each of those holders every output's shift is read again with every
+unstable period changed, then with every candle setting changed, and it must
+not move (rule rL12). C answers, then the server, which is handed the same
+settings and must also report C's lookback under them wherever C has one. A
+setter that refuses the change fails. Each axis has two floors, counted apart
+for C and for the server: a shift held while the change moved that function's
+own lookback, and a non-zero shift held. No shipped function meets both at
+once: the flagged outputs belong to functions no setting reaches.
 
 Opt-level `hint` is compared too. For a bespoke descriptor that is a genuine
 YAML-vs-C check; for a slot folded onto a predefined `TA_DEF_UI_*` it is not —
@@ -723,13 +733,14 @@ Scope rules (deliberate):
   and the driver never sends it (withheld cases counted and printed) while C,
   Rust and C# are held to it. These cases carry their own count and floor, being
   a subset of `sentCases` whose stopping the combined total could not show.
-- **The ill-conditioning skip: HT_DCPHASE / HT_SINE on the constant shape, for
-  the tolerance-lane servers.** Both derive their output from `atan` of a ratio
+- **The ill-conditioning skip: HT_DCPHASE / HT_SINE / HT_TRENDMODE on the constant
+  shape, for the tolerance-lane servers.** The first two derive their output from `atan` of a ratio
   of two sums, `realPart/imagPart`; on `FUZZ_CONSTANT` both are floating-point
   noise, so the phase is `atan(≈0/≈0)`: chaotically sensitive to the last bit of
-  every transcendental step, which amplifies ~1 ULP to whole degrees. C and Rust
+  every transcendental step, which amplifies ~1 ULP to whole degrees, and
+  HT_TRENDMODE branches on that phase, so its integer output flips. C and Rust
   share the system libm and stay bit-identical there, so `xlang_illcond` skips
-  exactly those two functions on exactly that shape for exactly the
+  exactly those three functions on exactly that shape for exactly the
   tolerance-lane servers, and reports the count. Not a codegen bug: every
   non-degenerate shape agrees within 1e-9, and the phase of a null signal is
   undefined, so no fixed tolerance could separate it from libm noise.

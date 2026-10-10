@@ -54,6 +54,7 @@ const EMITTED: &[&str] = &[
     "FunctionCatalog.g.cs",
     "CatalogFacts.g.cs",
     "FunctionDescription.g.cs",
+    "RuntimeInfo.g.cs",
 ];
 
 /// Generate the whole `TALib.Metadata` namespace into `dir`
@@ -79,6 +80,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, dir: &Path)
     write(dir, "FunctionCatalog.g.cs", &catalog(&rows, &by_name));
     write(dir, "CatalogFacts.g.cs", &catalog_facts(&rows));
     write(dir, "FunctionDescription.g.cs", &function_description(funcs));
+    write(dir, "RuntimeInfo.g.cs", &(header() + &super::runtime_info::csharp_class(NAMESPACE)));
 
     println!("  C# metadata registry -> {} ({} functions)", dir.display(), rows.len());
 
@@ -360,6 +362,13 @@ const FUNC_FLAGS: &[(&str, &str, &str)] = &[
         "display_shift",
         "DisplayShift",
         "At least one output carries <c>OutputFlags.DisplayShift</c>; without it every output's display shift is 0.",
+    ),
+    (
+        "uses_transcendental",
+        "UsesTranscendental",
+        "The function calls a transcendental math function, so a value may differ slightly between \
+         languages, between a stream and a batch call, and between machines. Not set on a function \
+         that reaches one only when an MA-type parameter selects MAMA or ALMA.",
     ),
 ];
 

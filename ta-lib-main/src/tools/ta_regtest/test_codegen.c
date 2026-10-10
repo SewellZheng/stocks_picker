@@ -6,6 +6,7 @@
  * and unstable periods.
  */
 #include "test_codegen.h"
+#include "ta_test_priv.h"
 #include "codegen_pipe.h"
 #include "server_verify.h"
 
@@ -2322,26 +2323,6 @@ int codegen_short_filter_token_matches(const char *name, const char *token)
     return 0;
 }
 
-static int codegen_matches_filter(const char *filter, const char *name)
-{
-    char filterCopy[1024];
-    char *token;
-    if( filter == NULL ) return 1;
-    strncpy(filterCopy, filter, sizeof(filterCopy) - 1);
-    filterCopy[sizeof(filterCopy) - 1] = '\0';
-    token = strtok(filterCopy, ",");
-    while( token != NULL )
-    {
-        if( strlen(token) <= 2 )
-        {
-            if( codegen_short_filter_token_matches(name, token) ) return 1;
-        }
-        else if( strstr(name, token) != NULL ) return 1;
-        token = strtok(NULL, ",");
-    }
-    return 0;
-}
-
 /* A server's response, read into the baseline fields compare_codegen_output_
  * generic() diffs against: the float leg's baseline is the server's own double
  * answer. Field names mirror compare_codegen_output_generic() exactly (output 0
@@ -2481,7 +2462,7 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         return;
 
     /* Apply function filter */
-    if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) )
+    if( !filterMatchesName(ctx->functionFilter, funcInfo->name) )
         return;
 
     /* Skip functions with integer inputs (very rare, no test data) */
@@ -3158,7 +3139,7 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 
     if( ctx->error != TA_TEST_PASS )
         return;
-    if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) )
+    if( !filterMatchesName(ctx->functionFilter, funcInfo->name) )
         return;
     if( funcInfo->nbOptInput == 0 || funcInfo->nbOptInput > SWEEP_MAX_OPT )
         return;
@@ -3744,7 +3725,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int isUnstable;
 
     if( ctx->error != TA_TEST_PASS ) return;
-    if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) ) return;
+    if( !filterMatchesName(ctx->functionFilter, funcInfo->name) ) return;
 
     /* K-leg eligibility: the function's own unstable flag, or an internal
      * unstable dependency (DEMA/TEMA/TRIX/MACD map to EMA in UNSTABLE_MAP —
@@ -4851,6 +4832,58 @@ static ErrorNumber codegen_check_gencode_digest( CodegenPipe *cp, const CodegenL
    return TA_TEST_PASS;
 }
 
+/* What each language's library reports about itself, asked before any function
+ * request: afterwards the C server's loops have loaded their own routines.
+ *
+ * The values are stated here per language. Rust, Java and C# have no kernel and
+ * no TA_Initialize; the C server is this library in another process, which has
+ * called TA_Initialize once, and ta_regtest held its own kernel answer to the
+ * platform before any function ran.
+ */
+static long g_runtimeInfoChecked = 0;
+
+static ErrorNumber codegen_check_runtime_info( CodegenPipe *cp, const CodegenLanguage *lang )
+{
+   static const char *const key[] = { "vmath.transcendental", "count.initialize", "count.shutdown", "vmath" };
+   const int isC = strcmp( lang->name, "c" ) == 0;
+   int want[4] = { 0, 0, 0, 0 };
+   unsigned int i;
+
+   if( isC )
+   {
+      if( TA_GetRuntimeInfo( key[0], &want[0] ) != TA_SUCCESS ) return TA_CODEGEN_RUNTIME_INFO;
+      want[1] = 1;
+   }
+
+   for( i = 0; i < sizeof(key)/sizeof(key[0]); i++ )
+   {
+      const int wantCode = i < 3 ? (int)TA_SUCCESS : (int)TA_BAD_PARAM;
+      char req[128], resp[256];
+      ErrorNumber errNb;
+
+      (void)snprintf( req, sizeof(req), "{\"method\":\"TA_GetRuntimeInfo\",\"params\":{\"key\":\"%s\"}}", key[i] );
+      errNb = codegen_pipe_call( cp, req, resp, (int)sizeof(resp) );
+      if( errNb != TA_TEST_PASS )
+      {
+         printf( "\nCODEGEN FAILED: the %s server did not answer TA_GetRuntimeInfo( \"%s\" )\n",
+                 lang->display, key[i] );
+         return errNb;
+      }
+      if( !strstr( resp, "\"retCode\":" ) || !strstr( resp, "\"value\":" )
+          || json_get_int( resp, "retCode" ) != wantCode
+          || json_get_int( resp, "value" ) != want[i] )
+      {
+         printf( "\nCODEGEN FAILED: the %s server answers TA_GetRuntimeInfo( \"%s\" ) with\n"
+                 "  %s\n  want retCode %d and value %d\n",
+                 lang->display, key[i], resp, wantCode, want[i] );
+         return TA_CODEGEN_RUNTIME_INFO;
+      }
+   }
+
+   g_runtimeInfoChecked++;
+   return TA_TEST_PASS;
+}
+
 static ErrorNumber test_codegen_for_language(
     const CodegenLanguage *lang,
     int langIndex,
@@ -4880,6 +4913,13 @@ static ErrorNumber test_codegen_for_language(
 
     /* Before anything is measured: prove this server IS the shipped library. */
     errNb = codegen_check_gencode_digest(&cp, lang);
+    if( errNb != TA_TEST_PASS )
+    {
+        codegen_pipe_close(&cp);
+        return errNb;
+    }
+
+    errNb = codegen_check_runtime_info(&cp, lang);
     if( errNb != TA_TEST_PASS )
     {
         codegen_pipe_close(&cp);
@@ -6313,7 +6353,7 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int w;
 
     if( ctx->error != TA_TEST_PASS ) return;
-    if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) ) return;
+    if( !filterMatchesName(ctx->functionFilter, funcInfo->name) ) return;
 
     /* Overflowing the cap must FAIL, not skip. A silent return here would drop
      * the function from the differential entirely — no message, no counter — so
@@ -6809,7 +6849,7 @@ ErrorNumber fuzz_ref(const char *version, const char *functionFilter)
  *     server_verify transport) and requests want_hash. Non-transcendental calls
  *     are diffed BITWISE; a call that reaches a transcendental (fdlibm != the C
  *     libm, ~1 ULP) drops to a CODEGEN_TRANSCENDENTAL_TOL (1e-9) element
- *     compare, and HT_DCPHASE/HT_SINE on the zero-variance constant shape are
+ *     compare, and HT_DCPHASE/HT_SINE/HT_TRENDMODE on the zero-variance constant shape are
  *     skipped outright (xlang_illcond — atan2 of a null signal amplifies
  *     the ULP unboundedly; C and Rust stay bitwise there).
  *   - C#: the same hex-bits transport as Java (the managed server has no
@@ -6929,7 +6969,7 @@ typedef struct {
     long long    vmathCases;         /* calls whose values fuzz_vmath_near held  */
     long long    vmathDue;           /* (function, server) pairs swept that
                                       * codegen_call_needs_vmath_tol names        */
-    long long    illcondSkipped;     /* Java HT_DCPHASE/HT_SINE calls skipped on
+    long long    illcondSkipped;     /* HT_DCPHASE/HT_SINE/HT_TRENDMODE calls skipped on
                                       * the zero-variance constant shape (phase of
                                       * a null signal — see xlang_illcond)    */
     long long    oorCases;           /* per-server comparisons on an out-of-range
@@ -7058,24 +7098,7 @@ void codegen_hash_report(const char *who, TA_RetCode goldRc, int goldBeg,
  * hence the only ones --xlang-hash's Java leg and server_verify relax from
  * bitwise to CODEGEN_TRANSCENDENTAL_TOL. Every other function — including
  * sqrt/ceil/floor users (IEEE correctly-rounded) — stays bit-identical across
- * languages. Source-derived from a grep of ta_codegen/input. ---- */
-static const char *const CODEGEN_TRANSCENDENTAL[] = {
-    "ACOS", "ALMA", "ASIN", "ATAN", "CHOP", "CHOPTR", "COS", "COSH", "EXP", "FISHER", "FRAMA",
-    "HT_DCPERIOD", "HT_DCPHASE", "HT_PHASOR", "HT_SINE", "HT_TRENDLINE",
-    "HT_TRENDMODE", "LINEARREG_ANGLE", "LN", "LOG10", "MAMA", "PSO",
-    "ROGERSSATCHELL", "SIN", "SINH",
-    "SWAK_2PHP", "SWAK_BP", "SWAK_BUTTER", "SWAK_GAUSS", "SWAK_HP",
-    "TAN", "TANH",
-};
-
-int codegen_is_transcendental(const char *name)
-{
-    for( unsigned int i = 0;
-         i < sizeof(CODEGEN_TRANSCENDENTAL) / sizeof(CODEGEN_TRANSCENDENTAL[0]); i++ )
-        if( strcmp(CODEGEN_TRANSCENDENTAL[i], name) == 0 )
-            return 1;
-    return 0;
-}
+ * languages. ---- */
 
 /* The MA-dispatch functions (MA, MAVP, BBANDS, MACDEXT, APO, PPO, STOCH*) route
  * to MAMA (atan) or ALMA (exp) when a MAType optional parameter selects it, so
@@ -7087,7 +7110,7 @@ int codegen_call_is_transcendental(const TA_FuncHandle *handle,
     const TA_FuncInfo *fi;
     if( TA_GetFuncInfo(handle, &fi) != TA_SUCCESS )
         return 0;
-    if( codegen_is_transcendental(fi->name) )
+    if( fi->flags & TA_FUNC_FLG_USES_TRANSCENDENTAL )
         return 1;
     for( unsigned int i = 0; i < fi->nbOptInput; i++ )
     {
@@ -7272,13 +7295,16 @@ static int xlang_selfcheck_inputs(XlangCtx *ctx)
  * ill-conditioning amplifies that to whole degrees. It is not a codegen
  * divergence — every non-degenerate shape agrees within the 1e-9 tolerance, and
  * atan2 of a null signal is mathematically undefined — so no fixed tolerance can
- * separate it from fdlibm noise. The Java leg skips exactly these two functions
- * on exactly the constant shape (reported as a skip count for transparency);
- * every other shape, function, and language stays fully gated. */
+ * separate it from fdlibm noise. HT_TRENDMODE branches on the same phase, so
+ * there the difference is its integer output flipping. The tolerance-lane legs
+ * skip exactly these three functions on exactly the constant shape (reported as
+ * a skip count for transparency); every other shape, function, and language
+ * stays fully gated. */
 static int xlang_illcond(const char *name, int shape)
 {
     return shape == FUZZ_CONSTANT &&
-           (strcmp(name, "HT_DCPHASE") == 0 || strcmp(name, "HT_SINE") == 0);
+           (strcmp(name, "HT_DCPHASE") == 0 || strcmp(name, "HT_SINE") == 0 ||
+            strcmp(name, "HT_TRENDMODE") == 0);
 }
 
 /* Build a per-function TA_<name> request with LOSSLESS hex-bits inputs (the
@@ -8343,7 +8369,7 @@ static void xlang_array_transport_one(const TA_FuncInfo *fi, void *opaqueData)
     XlangArrayTransportCtx *actx = (XlangArrayTransportCtx *)opaqueData;
     XlangCtx *ctx = actx->ctx;
 
-    if( !codegen_matches_filter(ctx->functionFilter, fi->name) ) return;
+    if( !filterMatchesName(ctx->functionFilter, fi->name) ) return;
 
     for( unsigned int i = 0; i < fi->nbInput; i++ )
     {
@@ -8754,7 +8780,7 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     unsigned int i;
 
     if( ctx->error != TA_TEST_PASS ) return;
-    if( !codegen_matches_filter(ctx->functionFilter, funcInfo->name) ) return;
+    if( !filterMatchesName(ctx->functionFilter, funcInfo->name) ) return;
     ctx->funcsSwept++;
 
     /* See fuzz_one_function: a silent skip would remove this function from the
@@ -9403,7 +9429,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
                "vector kernel, the server's is libm)\n",
                ctx.vmathCases, ctx.l3VmathCases, FUZZ_VMATH_MAX_STEPS);
     if( ctx.illcondSkipped > 0 )
-        printf("  (%lld HT_DCPHASE/HT_SINE call(s) skipped on the constant shape "
+        printf("  (%lld HT_DCPHASE/HT_SINE/HT_TRENDMODE call(s) skipped on the constant shape "
                "across the tolerance-lane servers: atan2 phase of a null signal, "
                "ill-conditioned across libms — C and Rust bitwise there)\n",
                ctx.illcondSkipped);
@@ -10002,6 +10028,13 @@ ErrorNumber test_codegen(const TA_History *history,
         return TA_CODEGEN_GENCODE_DIGEST_VACUOUS;
     }
 
+    if( g_runtimeInfoChecked != langsTested )
+    {
+        printf("\nCODEGEN FAILED: TA_GetRuntimeInfo was checked on %ld of %d language server(s)\n",
+               g_runtimeInfoChecked, (int)langsTested);
+        return TA_CODEGEN_RUNTIME_INFO;
+    }
+
     /* Non-vacuity for the float leg: it compares a language's single-precision
      * entry point against its own double one, and a server that silently ignored
      * "use_float" would compare the double result with itself and pass. The
@@ -10236,7 +10269,8 @@ ErrorNumber test_codegen(const TA_History *history,
                 }
                 printf("NO VALUE COMPARISON: %d language server(s) started and ran "
                        "the structural legs, but --function=%s selected no function "
-                       "this sweep can value-compare. This is NOT a pass.\n",
+                       "this sweep can value-compare, so it asserted no output "
+                       "value.\n",
                        langsTested, functionFilter);
                 printf("=============================================\n");
                 write_timing_report("ta_regtest_timing.jsonl");

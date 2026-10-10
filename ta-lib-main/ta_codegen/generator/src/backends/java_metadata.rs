@@ -208,6 +208,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, lib_src: &P
         ("ParamHolder.java", param_holder_class()),
         ("Dispatch.java", dispatch_class(&rows)),
         ("FunctionDescription.java", function_description_class(funcs)),
+        ("RuntimeInfo.java", header("MF,CC") + &super::runtime_info::java_class()),
     ];
     for (name, body) in &files {
         write(&dir, name, body);
@@ -429,6 +430,14 @@ fn func_flags_class() -> String {
                 0x0000_0002,
                 "At least one output carries {@code OutputFlags.DISPLAY_SHIFT}; without it every \
                  output's display shift is 0.",
+            ),
+            (
+                "USES_TRANSCENDENTAL",
+                0x0000_0004,
+                "The function calls a transcendental math function, so a value may differ \
+                 slightly between languages, between a stream and a batch call, and between \
+                 machines. Not set on a function that reaches one only when an MA-type \
+                 parameter selects MAMA or ALMA.",
             ),
         ],
         &[],
