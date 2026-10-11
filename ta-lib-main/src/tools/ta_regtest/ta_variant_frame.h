@@ -4549,6 +4549,54 @@ static const TA_VOptSpec TA_VOpt_DONCHIAN[] = {
    { "optInTimePeriod", TA_VOPT_INT, 2.0, 100000.0, 20.0 },
 };
 
+static TA_RetCode TA_DOSC_VFrameD( int startIdx, int endIdx,
+                  const double *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_DOSC(
+               startIdx,
+               endIdx,
+               in[0] /* inReal */,
+               (int)optIn[0] /* optInTimePeriod */,
+               (int)optIn[1] /* optInFirstPeriod */,
+               (int)optIn[2] /* optInSecondPeriod */,
+               (int)optIn[3] /* optInSignalPeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outReal */
+               );
+}
+static TA_RetCode TA_DOSC_VFrameS( int startIdx, int endIdx,
+                  const float *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_S_DOSC(
+               startIdx,
+               endIdx,
+               in[0] /* inReal */,
+               (int)optIn[0] /* optInTimePeriod */,
+               (int)optIn[1] /* optInFirstPeriod */,
+               (int)optIn[2] /* optInSecondPeriod */,
+               (int)optIn[3] /* optInSignalPeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outReal */
+               );
+}
+
+static const TA_VInputKind TA_VIn_DOSC[] = { TA_VIN_REAL };
+static const int TA_VOutIsInt_DOSC[] = { 0 };
+static const TA_VOptSpec TA_VOpt_DOSC[] = {
+   { "optInTimePeriod", TA_VOPT_INT, 2.0, 100000.0, 14.0 },
+   { "optInFirstPeriod", TA_VOPT_INT, 2.0, 100000.0, 5.0 },
+   { "optInSecondPeriod", TA_VOPT_INT, 2.0, 100000.0, 3.0 },
+   { "optInSignalPeriod", TA_VOPT_INT, 2.0, 100000.0, 9.0 },
+};
+
 static TA_RetCode TA_DPO_VFrameD( int startIdx, int endIdx,
                   const double *const in[], const double optIn[],
                   int *outBegIdx, int *outNBElement,
@@ -9673,6 +9721,57 @@ static TA_RetCode TA_WAD_VFrameS( int startIdx, int endIdx,
 static const TA_VInputKind TA_VIn_WAD[] = { TA_VIN_HIGH, TA_VIN_LOW, TA_VIN_CLOSE };
 static const int TA_VOutIsInt_WAD[] = { 0 };
 
+static TA_RetCode TA_WAVETREND_VFrameD( int startIdx, int endIdx,
+                  const double *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_WAVETREND(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               in[2] /* inClose */,
+               (int)optIn[0] /* optInChannelPeriod */,
+               (int)optIn[1] /* optInAveragePeriod */,
+               (int)optIn[2] /* optInSignalPeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outWT1 */,
+               outReal[1] /* outWT2 */
+               );
+}
+static TA_RetCode TA_WAVETREND_VFrameS( int startIdx, int endIdx,
+                  const float *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_S_WAVETREND(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               in[2] /* inClose */,
+               (int)optIn[0] /* optInChannelPeriod */,
+               (int)optIn[1] /* optInAveragePeriod */,
+               (int)optIn[2] /* optInSignalPeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outWT1 */,
+               outReal[1] /* outWT2 */
+               );
+}
+
+static const TA_VInputKind TA_VIn_WAVETREND[] = { TA_VIN_HIGH, TA_VIN_LOW, TA_VIN_CLOSE };
+static const int TA_VOutIsInt_WAVETREND[] = { 0, 0 };
+static const TA_VOptSpec TA_VOpt_WAVETREND[] = {
+   { "optInChannelPeriod", TA_VOPT_INT, 2.0, 100000.0, 10.0 },
+   { "optInAveragePeriod", TA_VOPT_INT, 1.0, 100000.0, 21.0 },
+   { "optInSignalPeriod", TA_VOPT_INT, 1.0, 100000.0, 4.0 },
+};
+
 static TA_RetCode TA_WCLPRICE_VFrameD( int startIdx, int endIdx,
                   const double *const in[], const double optIn[],
                   int *outBegIdx, int *outNBElement,
@@ -10045,6 +10144,8 @@ static const TA_VariantEntry TA_VariantTable[] = {
      2, TA_VIn_DIV, 0, NULL, 1, TA_VOutIsInt_DIV, 0 },
    { "DONCHIAN", TA_DONCHIAN_VFrameD, TA_DONCHIAN_VFrameS,
      2, TA_VIn_DONCHIAN, 1, TA_VOpt_DONCHIAN, 3, TA_VOutIsInt_DONCHIAN, 0 },
+   { "DOSC", TA_DOSC_VFrameD, TA_DOSC_VFrameS,
+     1, TA_VIn_DOSC, 4, TA_VOpt_DOSC, 1, TA_VOutIsInt_DOSC, 0 },
    { "DPO", TA_DPO_VFrameD, TA_DPO_VFrameS,
      1, TA_VIn_DPO, 1, TA_VOpt_DPO, 1, TA_VOutIsInt_DPO, 0 },
    { "DX", TA_DX_VFrameD, TA_DX_VFrameS,
@@ -10289,6 +10390,8 @@ static const TA_VariantEntry TA_VariantTable[] = {
      2, TA_VIn_VWMA, 1, TA_VOpt_VWMA, 1, TA_VOutIsInt_VWMA, 0 },
    { "WAD", TA_WAD_VFrameD, TA_WAD_VFrameS,
      3, TA_VIn_WAD, 0, NULL, 1, TA_VOutIsInt_WAD, 0 },
+   { "WAVETREND", TA_WAVETREND_VFrameD, TA_WAVETREND_VFrameS,
+     3, TA_VIn_WAVETREND, 3, TA_VOpt_WAVETREND, 2, TA_VOutIsInt_WAVETREND, 0 },
    { "WCLPRICE", TA_WCLPRICE_VFrameD, TA_WCLPRICE_VFrameS,
      3, TA_VIn_WCLPRICE, 0, NULL, 1, TA_VOutIsInt_WCLPRICE, 0 },
    { "WILLR", TA_WILLR_VFrameD, TA_WILLR_VFrameS,
@@ -10299,6 +10402,6 @@ static const TA_VariantEntry TA_VariantTable[] = {
      1, TA_VIn_ZLEMA, 1, TA_VOpt_ZLEMA, 1, TA_VOutIsInt_ZLEMA, 0 },
 };
 
-#define TA_VARIANT_TABLE_SIZE 231
+#define TA_VARIANT_TABLE_SIZE 233
 
 #endif /* TA_VARIANT_FRAME_H */
