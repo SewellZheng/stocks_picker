@@ -18351,6 +18351,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/bbw">ta-lib.org/functions/bbw</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The middle band is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>With Bollinger's settings (a simple moving average and two deviations on each side) BBW is 400 times the window's coefficient of variation: its standard deviation divided by its mean.</li>
     * <li>The two deviation multipliers enter only through their sum.</li>
     * <li>The result is in percent: 10 means the bands are 10% of the middle band apart.</li>
@@ -18431,6 +18432,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/bbw">ta-lib.org/functions/bbw</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The middle band is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>With Bollinger's settings (a simple moving average and two deviations on each side) BBW is 400 times the window's coefficient of variation: its standard deviation divided by its mean.</li>
     * <li>The two deviation multipliers enter only through their sum.</li>
     * <li>The result is in percent: 10 means the bands are 10% of the middle band apart.</li>
@@ -75463,6 +75465,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/cg">ta-lib.org/functions/cg</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The sum of the window is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>Ehlers' default input is the median price (H+L)/2: pass the output of MEDPRICE to reproduce it.</li>
     * <li>His 2004 book presents the same oscillator shifted up by (optInTimePeriod+1)/2, so that a flat window reads 0: add (optInTimePeriod+1)/2 to the output to obtain that form.</li>
     * <li>Where the window sums to exactly zero the author's listing keeps its previous value; TA-Lib returns -(optInTimePeriod+1)/2, so every value depends on its own window alone.</li>
@@ -75533,6 +75536,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/cg">ta-lib.org/functions/cg</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The sum of the window is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>Ehlers' default input is the median price (H+L)/2: pass the output of MEDPRICE to reproduce it.</li>
     * <li>His 2004 book presents the same oscillator shifted up by (optInTimePeriod+1)/2, so that a flat window reads 0: add (optInTimePeriod+1)/2 to the output to obtain that form.</li>
     * <li>Where the window sums to exactly zero the author's listing keeps its previous value; TA-Lib returns -(optInTimePeriod+1)/2, so every value depends on its own window alone.</li>
@@ -84114,6 +84118,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/coppock">ta-lib.org/functions/coppock</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The price each rate of change looks back to is its divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The single fused pass is bit-identical to running {@code ROC + ROC} into <a href="https://ta-lib.org/functions/wma">{@code WMA}</a>.</li>
     * <li>First output at {@code max(optInROC1Period, optInROC2Period) + optInWMAPeriod - 1}. Not start-dependent: each output depends only on its finite trailing window.</li>
     * </ul>
@@ -84181,6 +84186,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/coppock">ta-lib.org/functions/coppock</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The price each rate of change looks back to is its divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The single fused pass is bit-identical to running {@code ROC + ROC} into <a href="https://ta-lib.org/functions/wma">{@code WMA}</a>.</li>
     * <li>First output at {@code max(optInROC1Period, optInROC2Period) + optInWMAPeriod - 1}. Not start-dependent: each output depends only on its finite trailing window.</li>
     * </ul>
@@ -103317,6 +103323,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/fosc">ta-lib.org/functions/fosc</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The current value is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>Several vendors publish a "Chande Forecast Oscillator (CFO)" that compares the close to the regression value of the window <i>ending at the same bar</i>, with no lag. FOSC is the lagged form Chande and Achelis describe.</li>
     * <li>The default window is Chande's own suggestion, shorter than the one TA-Lib's TSF and LINEARREG default to.</li>
     * </ul>
@@ -103384,6 +103391,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/fosc">ta-lib.org/functions/fosc</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The current value is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>Several vendors publish a "Chande Forecast Oscillator (CFO)" that compares the close to the regression value of the window <i>ending at the same bar</i>, with no lag. FOSC is the lagged form Chande and Achelis describe.</li>
     * <li>The default window is Chande's own suggestion, shorter than the one TA-Lib's TSF and LINEARREG default to.</li>
     * </ul>
@@ -122652,6 +122660,905 @@ public final class Core {
  *
  *  Initial  Name/description
  *  -------------------------------------------------------------------
+ *  MF       Mario Fortier
+ *  KL       Kevin Lin (@kevinlincg)
+ *  CC       Claude Code (AI assistant)
+ *
+ * Change history:
+ *
+ *  MMDDYY BY     Description
+ *  -------------------------------------------------------------------
+ *  100726 KL,CC  Creation (#490).
+ *  101126 MF,CC  Two scratch buffers; Senkou B is written in place (#490).
+ */
+
+   /**
+    * Number of leading input bars {@link Core#ichimoku} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInTenkanPeriod Period of the conversion line (default 9; range
+    *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInKijunPeriod Period of the base line, and the forward shift of
+    *        the two spans (default 26; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInSenkouBPeriod Period of the second leading span (default 52;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
+   public int ichimokuLookback( int optInTenkanPeriod, int optInKijunPeriod, int optInSenkouBPeriod )
+   {
+      if( optInTenkanPeriod == Integer.MIN_VALUE ) {
+         optInTenkanPeriod = 9;
+      } else if( optInTenkanPeriod < 2 || optInTenkanPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInKijunPeriod == Integer.MIN_VALUE ) {
+         optInKijunPeriod = 26;
+      } else if( optInKijunPeriod < 2 || optInKijunPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInSenkouBPeriod == Integer.MIN_VALUE ) {
+         optInSenkouBPeriod = 52;
+      } else if( optInSenkouBPeriod < 2 || optInSenkouBPeriod > 100000 ) {
+         return -1;
+      }
+      int longest;
+      /* Nothing orders the three periods: any of them can be the longest. */
+      longest = optInTenkanPeriod;
+      if( optInKijunPeriod > longest ) {
+         longest = optInKijunPeriod;
+      }
+      if( optInSenkouBPeriod > longest ) {
+         longest = optInSenkouBPeriod;
+      }
+      return longest - 1 ;
+
+   }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#ichimoku}.
+    * <p>The values are never shifted: this describes the drawing only.
+    *
+    * @param optInTenkanPeriod Period of the conversion line (default 9; range
+    *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInKijunPeriod Period of the base line, and the forward shift of
+    *        the two spans (default 26; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInSenkouBPeriod Period of the second leading span (default 52;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int ichimokuDisplayShift( int optInTenkanPeriod, int optInKijunPeriod, int optInSenkouBPeriod, int outputIdx )
+   {
+      if( ichimokuLookback( optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInTenkanPeriod == Integer.MIN_VALUE ) {
+         optInTenkanPeriod = 9;
+      } else if( optInTenkanPeriod < 2 || optInTenkanPeriod > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInKijunPeriod == Integer.MIN_VALUE ) {
+         optInKijunPeriod = 26;
+      } else if( optInKijunPeriod < 2 || optInKijunPeriod > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInSenkouBPeriod == Integer.MIN_VALUE ) {
+         optInSenkouBPeriod = 52;
+      } else if( optInSenkouBPeriod < 2 || optInSenkouBPeriod > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 4 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx == 0 || outputIdx == 1 ) {
+         return 0;
+      }
+      /* Positive: the two spans are drawn ahead of the bar that computed them. */
+      if( outputIdx == 2 || outputIdx == 3 ) {
+         return optInKijunPeriod ;
+      }
+      return 0 ;
+
+   }
+   RetCode ichimokuImpl( int startIdx,
+                         int endIdx,
+                         double inHigh[],
+                         double inLow[],
+                         int optInTenkanPeriod,
+                         int optInKijunPeriod,
+                         int optInSenkouBPeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outTenkanSen[],
+                         double outKijunSen[],
+                         double outSenkouSpanA[],
+                         double outSenkouSpanB[] )
+   {
+      RetCode retCode;
+      int lookbackTotal = 0;
+      int n = 0;
+      int i = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      double[] tempT;
+      double[] tempK;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInTenkanPeriod == Integer.MIN_VALUE ) {
+         optInTenkanPeriod = 9;
+      } else if( optInTenkanPeriod < 2 || optInTenkanPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInKijunPeriod == Integer.MIN_VALUE ) {
+         optInKijunPeriod = 26;
+      } else if( optInKijunPeriod < 2 || optInKijunPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSenkouBPeriod == Integer.MIN_VALUE ) {
+         optInSenkouBPeriod = 52;
+      } else if( optInSenkouBPeriod < 2 || optInSenkouBPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( outTenkanSen == outKijunSen || outTenkanSen == outSenkouSpanA || outTenkanSen == outSenkouSpanB || outKijunSen == outSenkouSpanA || outKijunSen == outSenkouSpanB || outSenkouSpanA == outSenkouSpanB ) {
+         return RetCode.BAD_PARAM ;
+      }
+      outBegIdx.value = 0;
+      outNBElement.value = 0;
+      lookbackTotal = ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod);
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         return RetCode.SUCCESS ;
+      }
+      n = endIdx - startIdx + 1;
+      tempT = new double[(int)(n * 1)];
+      tempK = new double[(int)(n * 1)];
+      /* An output may alias inHigh or inLow: no output is written before the
+       * last midprice call, which is the last read of either input.
+       */
+      OutRange _xr0 = midprice(startIdx, endIdx, inHigh, inLow, optInTenkanPeriod, tempT);
+      tempBegIdx.value = _xr0.begIdx();
+      tempNbElement.value = _xr0.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr1 = midprice(startIdx, endIdx, inHigh, inLow, optInKijunPeriod, tempK);
+      tempBegIdx.value = _xr1.begIdx();
+      tempNbElement.value = _xr1.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr2 = midprice(startIdx, endIdx, inHigh, inLow, optInSenkouBPeriod, outSenkouSpanB);
+      tempBegIdx.value = _xr2.begIdx();
+      tempNbElement.value = _xr2.count();
+      retCode = RetCode.SUCCESS;
+      /* Span A halves the two rounded midpoints. (hh+ll+hh+ll)/4 is a different
+       * double in the last bit.
+       */
+      OutRange _xr3 = medprice(0, n - 1, tempT, tempK, outSenkouSpanA);
+      tempBegIdx.value = _xr3.begIdx();
+      tempNbElement.value = _xr3.count();
+      retCode = RetCode.SUCCESS;
+      for( i = 0; i < n; i += 1 ) {
+         outTenkanSen[i] = tempT[i];
+         outKijunSen[i] = tempK[i];
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = n;
+      return RetCode.SUCCESS ;
+   }
+   RetCode ichimokuImpl( int startIdx,
+                         int endIdx,
+                         float inHigh[],
+                         float inLow[],
+                         int optInTenkanPeriod,
+                         int optInKijunPeriod,
+                         int optInSenkouBPeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outTenkanSen[],
+                         double outKijunSen[],
+                         double outSenkouSpanA[],
+                         double outSenkouSpanB[] )
+   {
+      RetCode retCode;
+      int lookbackTotal = 0;
+      int n = 0;
+      int i = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      double[] tempT;
+      double[] tempK;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInTenkanPeriod == Integer.MIN_VALUE ) {
+         optInTenkanPeriod = 9;
+      } else if( optInTenkanPeriod < 2 || optInTenkanPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInKijunPeriod == Integer.MIN_VALUE ) {
+         optInKijunPeriod = 26;
+      } else if( optInKijunPeriod < 2 || optInKijunPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSenkouBPeriod == Integer.MIN_VALUE ) {
+         optInSenkouBPeriod = 52;
+      } else if( optInSenkouBPeriod < 2 || optInSenkouBPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( outTenkanSen == outKijunSen || outTenkanSen == outSenkouSpanA || outTenkanSen == outSenkouSpanB || outKijunSen == outSenkouSpanA || outKijunSen == outSenkouSpanB || outSenkouSpanA == outSenkouSpanB ) {
+         return RetCode.BAD_PARAM ;
+      }
+      outBegIdx.value = 0;
+      outNBElement.value = 0;
+      lookbackTotal = ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod);
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         return RetCode.SUCCESS ;
+      }
+      n = endIdx - startIdx + 1;
+      tempT = new double[(int)(n * 1)];
+      tempK = new double[(int)(n * 1)];
+      OutRange _xr0 = midprice(startIdx, endIdx, inHigh, inLow, optInTenkanPeriod, tempT);
+      tempBegIdx.value = _xr0.begIdx();
+      tempNbElement.value = _xr0.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr1 = midprice(startIdx, endIdx, inHigh, inLow, optInKijunPeriod, tempK);
+      tempBegIdx.value = _xr1.begIdx();
+      tempNbElement.value = _xr1.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr2 = midprice(startIdx, endIdx, inHigh, inLow, optInSenkouBPeriod, outSenkouSpanB);
+      tempBegIdx.value = _xr2.begIdx();
+      tempNbElement.value = _xr2.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr3 = medprice(0, n - 1, tempT, tempK, outSenkouSpanA);
+      tempBegIdx.value = _xr3.begIdx();
+      tempNbElement.value = _xr3.count();
+      retCode = RetCode.SUCCESS;
+      for( i = 0; i < n; i += 1 ) {
+         outTenkanSen[i] = tempT[i];
+         outKijunSen[i] = tempK[i];
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = n;
+      return RetCode.SUCCESS ;
+   }
+   /**
+    * Ichimoku Kinko Hyo, "one glance equilibrium chart": four lines built from
+    * highs and lows alone. Goichi Hosoda's reading is that a market's balance
+    * is visible without any smoothing — each line is the midpoint of a window,
+    * the mean of its highest high and its lowest low, so it marks the level at
+    * which that stretch of trading was evenly divided. The conversion line
+    * turns fastest, the base line is the reference, and the two leading spans
+    * are drawn ahead of price, where the band between them is read as support
+    * or resistance before it is reached.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ichimoku">ta-lib.org/functions/ichimoku</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Each line is {@code TA_MIDPRICE} over its own period, and Span A is {@code TA_MEDPRICE} of the Tenkan and Kijun lines: it halves two midpoints that are already rounded. Averaging the four extremes in one step is the same number in real arithmetic and can differ in the last bit.</li>
+    * <li>The two spans are drawn {@code kijunPeriod} bars ahead of the bar that computed them. That is a display shift: {@code TA_ICHIMOKU_DisplayShift} reports it, and it changes nothing about the values, the lookback or the returned range. Every output is written at the bar that computed it, so the last {@code kijunPeriod} span values are the cloud a chart draws past the last bar.</li>
+    * <li>Hosoda's 26 counts the current bar, which is a chart offset of 25. QuantConnect LEAN, pandas-ta and MetaTrader offset by 26, and that is what the display shift reports at the default periods; a caller who wants Hosoda's count draws the spans one bar earlier.</li>
+    * <li>The lookback is the longest of the three periods less one. Nothing orders the three, so any of them can be the longest.</li>
+    * <li>The Chikou span is the close drawn {@code kijunPeriod} bars back. It carries no computation and is not an output. Its usual signal, the close above the close {@code n} bars earlier, is {@code TA_MOM(close, n) &gt; 0}.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#ichimokuLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price series.
+    * @param inLow Low price series.
+    * @param optInTenkanPeriod Period of the conversion line (default 9; range
+    *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInKijunPeriod Period of the base line, and the forward shift of
+    *        the two spans (default 26; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInSenkouBPeriod Period of the second leading span (default 52;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outTenkanSen Conversion line. Must hold at least
+    *        {@code endIdx - max(startIdx, ichimokuLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @param outKijunSen Base line. Must hold at least
+    *        {@code endIdx - max(startIdx, ichimokuLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @param outSenkouSpanA First leading span, drawn ahead by the base period.
+    *        Must hold at least
+    *        {@code endIdx - max(startIdx, ichimokuLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @param outSenkouSpanB Second leading span, drawn ahead by the base period.
+    *        Must hold at least
+    *        {@code endIdx - max(startIdx, ichimokuLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
+    *
+    * @see Core#midprice
+    * @see Core#medprice
+    * @see Core#sar
+    * @see Core#bbands
+    */
+   public OutRange ichimoku( int startIdx,
+                             int endIdx,
+                             double inHigh[],
+                             double inLow[],
+                             int optInTenkanPeriod,
+                             int optInKijunPeriod,
+                             int optInSenkouBPeriod,
+                             double outTenkanSen[],
+                             double outKijunSen[],
+                             double outSenkouSpanA[],
+                             double outSenkouSpanB[] )
+   {
+      requireIndexRange("ICHIMOKU", startIdx, endIdx);
+      int guardStart = clampedStart("ICHIMOKU", startIdx, ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ICHIMOKU", "inHigh", inHigh, guardInLen);
+      requireLength("ICHIMOKU", "inLow", inLow, guardInLen);
+      requireLength("ICHIMOKU", "outTenkanSen", outTenkanSen, guardOutLen);
+      requireLength("ICHIMOKU", "outKijunSen", outKijunSen, guardOutLen);
+      requireLength("ICHIMOKU", "outSenkouSpanA", outSenkouSpanA, guardOutLen);
+      requireLength("ICHIMOKU", "outSenkouSpanB", outSenkouSpanB, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = ichimokuImpl(startIdx, endIdx, inHigh, inLow, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, outBegIdx, outNBElement, outTenkanSen, outKijunSen, outSenkouSpanA, outSenkouSpanB);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("ICHIMOKU", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Ichimoku Kinko Hyo, "one glance equilibrium chart": four lines built from
+    * highs and lows alone. Goichi Hosoda's reading is that a market's balance
+    * is visible without any smoothing — each line is the midpoint of a window,
+    * the mean of its highest high and its lowest low, so it marks the level at
+    * which that stretch of trading was evenly divided. The conversion line
+    * turns fastest, the base line is the reference, and the two leading spans
+    * are drawn ahead of price, where the band between them is read as support
+    * or resistance before it is reached.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ichimoku">ta-lib.org/functions/ichimoku</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Each line is {@code TA_MIDPRICE} over its own period, and Span A is {@code TA_MEDPRICE} of the Tenkan and Kijun lines: it halves two midpoints that are already rounded. Averaging the four extremes in one step is the same number in real arithmetic and can differ in the last bit.</li>
+    * <li>The two spans are drawn {@code kijunPeriod} bars ahead of the bar that computed them. That is a display shift: {@code TA_ICHIMOKU_DisplayShift} reports it, and it changes nothing about the values, the lookback or the returned range. Every output is written at the bar that computed it, so the last {@code kijunPeriod} span values are the cloud a chart draws past the last bar.</li>
+    * <li>Hosoda's 26 counts the current bar, which is a chart offset of 25. QuantConnect LEAN, pandas-ta and MetaTrader offset by 26, and that is what the display shift reports at the default periods; a caller who wants Hosoda's count draws the spans one bar earlier.</li>
+    * <li>The lookback is the longest of the three periods less one. Nothing orders the three, so any of them can be the longest.</li>
+    * <li>The Chikou span is the close drawn {@code kijunPeriod} bars back. It carries no computation and is not an output. Its usual signal, the close above the close {@code n} bars earlier, is {@code TA_MOM(close, n) &gt; 0}.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#ichimokuLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price series.
+    * @param inLow Low price series.
+    * @param optInTenkanPeriod Period of the conversion line (default 9; range
+    *        2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInKijunPeriod Period of the base line, and the forward shift of
+    *        the two spans (default 26; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInSenkouBPeriod Period of the second leading span (default 52;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outTenkanSen Conversion line. Must hold at least
+    *        {@code endIdx - max(startIdx, ichimokuLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @param outKijunSen Base line. Must hold at least
+    *        {@code endIdx - max(startIdx, ichimokuLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @param outSenkouSpanA First leading span, drawn ahead by the base period.
+    *        Must hold at least
+    *        {@code endIdx - max(startIdx, ichimokuLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @param outSenkouSpanB Second leading span, drawn ahead by the base period.
+    *        Must hold at least
+    *        {@code endIdx - max(startIdx, ichimokuLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
+    *
+    * @see Core#midprice
+    * @see Core#medprice
+    * @see Core#sar
+    * @see Core#bbands
+    */
+   public OutRange ichimoku( int startIdx,
+                             int endIdx,
+                             float inHigh[],
+                             float inLow[],
+                             int optInTenkanPeriod,
+                             int optInKijunPeriod,
+                             int optInSenkouBPeriod,
+                             double outTenkanSen[],
+                             double outKijunSen[],
+                             double outSenkouSpanA[],
+                             double outSenkouSpanB[] )
+   {
+      requireIndexRange("ICHIMOKU", startIdx, endIdx);
+      int guardStart = clampedStart("ICHIMOKU", startIdx, ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ICHIMOKU", "inHigh", inHigh, guardInLen);
+      requireLength("ICHIMOKU", "inLow", inLow, guardInLen);
+      requireLength("ICHIMOKU", "outTenkanSen", outTenkanSen, guardOutLen);
+      requireLength("ICHIMOKU", "outKijunSen", outKijunSen, guardOutLen);
+      requireLength("ICHIMOKU", "outSenkouSpanA", outSenkouSpanA, guardOutLen);
+      requireLength("ICHIMOKU", "outSenkouSpanB", outSenkouSpanB, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = ichimokuImpl(startIdx, endIdx, inHigh, inLow, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, outBegIdx, outNBElement, outTenkanSen, outKijunSen, outSenkouSpanA, outSenkouSpanB);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("ICHIMOKU", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+/**** Streaming API *****/
+
+   /**
+    * A live ICHIMOKU stream (unrelated to {@code java.util.stream}): one value per
+    * closed bar, bit-identical to {@link Core#ichimoku} over the same series.
+    * Open with {@link Core#ichimokuOpen}; there is no close — the handle is
+    * ordinary heap state, unreferenced handles are simply garbage-collected.
+    * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
+    * {@code value} and {@code clone} must not race with an {@code update} on
+    * the same handle. With no concurrent {@code update}, {@code peek}/
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
+    * <p>Not serializable by design: to checkpoint, retain the history and
+    * re-open — the result is bit-identical by contract.
+    */
+   public static final class IchimokuStream {
+      private Core core;
+      private int optInTenkanPeriod;
+      private int optInKijunPeriod;
+      private int optInSenkouBPeriod;
+      private double cur_outTenkanSen;
+      private double cur_outKijunSen;
+      private double cur_outSenkouSpanA;
+      private double cur_outSenkouSpanB;
+      private MidpriceStream sub0;
+      private MidpriceStream sub1;
+      private MidpriceStream sub2;
+      private MedpriceStream sub3;
+      private int outRangeBegIdx;
+      private int outRangeCount;
+
+      private IchimokuStream( Core core ) { this.core = core; }
+
+      /**
+       * The bars this stream has an output for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#ichimoku} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
+       */
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(IchimokuOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
+       */
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("ICHIMOKU advance", RetCode.OUT_OF_RANGE_END_INDEX);
+         this.outRangeCount++;
+      }
+
+      private IchimokuStream( IchimokuStream other ) {
+         this.core = other.core;
+         this.optInTenkanPeriod = other.optInTenkanPeriod;
+         this.optInKijunPeriod = other.optInKijunPeriod;
+         this.optInSenkouBPeriod = other.optInSenkouBPeriod;
+         this.cur_outTenkanSen = other.cur_outTenkanSen;
+         this.cur_outKijunSen = other.cur_outKijunSen;
+         this.cur_outSenkouSpanA = other.cur_outSenkouSpanA;
+         this.cur_outSenkouSpanB = other.cur_outSenkouSpanB;
+         this.sub0 = new MidpriceStream(other.sub0);
+         this.sub1 = new MidpriceStream(other.sub1);
+         this.sub2 = new MidpriceStream(other.sub2);
+         this.sub3 = new MedpriceStream(other.sub3);
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
+      }
+
+      /**
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(IchimokuOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
+       * This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
+       */
+      public void update( double inHigh, double inLow, IchimokuOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("ICHIMOKU update", RetCode.OUT_OF_RANGE_END_INDEX);
+         requireArgument("ICHIMOKU update", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw nonFiniteBar("ICHIMOKU update", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
+         core.ichimokuStepImpl(this, inHigh, inLow);
+         this.outRangeCount++;
+         out.tenkanSen = this.cur_outTenkanSen;
+         out.kijunSen = this.cur_outKijunSen;
+         out.senkouSpanA = this.cur_outSenkouSpanA;
+         out.senkouSpanB = this.cur_outSenkouSpanB;
+      }
+
+      /**
+       * Evaluate a forming bar without committing — bit-identical to what the
+       * next {@code update} with the same bar would write — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may run concurrently with each other.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
+       */
+      public void peek( double inHigh, double inLow, IchimokuOut out ) {
+         requireArgument("ICHIMOKU peek", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw nonFiniteBar("ICHIMOKU peek", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
+         IchimokuStream sp = this;
+         double cur_tempT = 0.0;
+         double cur_tempK = 0.0;
+         double cur_outSenkouSpanB = 0.0;
+         double cur_outSenkouSpanA = 0.0;
+         double cur_outTenkanSen = 0.0;
+         double cur_outKijunSen = 0.0;
+         /* Pipeline the new bar through the sub-streams (batch tail order). */
+         cur_tempT = sp.sub0.peek(inHigh, inLow);
+         cur_tempK = sp.sub1.peek(inHigh, inLow);
+         cur_outSenkouSpanB = sp.sub2.peek(inHigh, inLow);
+         cur_outSenkouSpanA = sp.sub3.peek(cur_tempT, cur_tempK);
+         /* Combine map (batch tail, per bar). */
+         cur_outTenkanSen = cur_tempT;
+         cur_outKijunSen = cur_tempK;
+         out.tenkanSen = cur_outTenkanSen;
+         out.kijunSen = cur_outKijunSen;
+         out.senkouSpanA = cur_outSenkouSpanA;
+         out.senkouSpanB = cur_outSenkouSpanB;
+      }
+
+      /**
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
+       */
+      public void value( IchimokuOut out ) {
+         requireArgument("ICHIMOKU value", "out", out);
+         out.tenkanSen = this.cur_outTenkanSen;
+         out.kijunSen = this.cur_outKijunSen;
+         out.senkouSpanA = this.cur_outSenkouSpanA;
+         out.senkouSpanB = this.cur_outSenkouSpanB;
+      }
+
+      /**
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
+       */
+      @Override
+      public IchimokuStream clone() {
+         return new IchimokuStream(this);
+      }
+   }
+
+   /**
+    * The outputs of one ICHIMOKU bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class IchimokuOut {
+      /** Conversion line. */
+      public double tenkanSen;
+      /** Base line. */
+      public double kijunSen;
+      /** First leading span, drawn ahead by the base period. */
+      public double senkouSpanA;
+      /** Second leading span, drawn ahead by the base period. */
+      public double senkouSpanB;
+   }
+   private void ichimokuStepImpl( IchimokuStream sp, double inHigh, double inLow )
+   {
+      double cur_tempT = 0.0;
+      double cur_tempK = 0.0;
+      double cur_outSenkouSpanB = 0.0;
+      double cur_outSenkouSpanA = 0.0;
+      double cur_outTenkanSen = 0.0;
+      double cur_outKijunSen = 0.0;
+      /* Pipeline the new bar through the sub-streams (batch tail order). */
+      cur_tempT = sp.sub0.update(inHigh, inLow);
+      cur_tempK = sp.sub1.update(inHigh, inLow);
+      cur_outSenkouSpanB = sp.sub2.update(inHigh, inLow);
+      cur_outSenkouSpanA = sp.sub3.update(cur_tempT, cur_tempK);
+      /* Combine map (batch tail, per bar). */
+      cur_outTenkanSen = cur_tempT;
+      cur_outKijunSen = cur_tempK;
+      sp.cur_outTenkanSen = cur_outTenkanSen;
+      sp.cur_outKijunSen = cur_outKijunSen;
+      sp.cur_outSenkouSpanA = cur_outSenkouSpanA;
+      sp.cur_outSenkouSpanB = cur_outSenkouSpanB;
+   }
+   private RetCode ichimokuOpenImpl( IchimokuStream sp, double inHigh[], double inLow[], int startIdx, int optInTenkanPeriod, int optInKijunPeriod, int optInSenkouBPeriod, MInteger outBegIdx, MInteger outNBElement, double outTenkanSen[], double outKijunSen[], double outSenkouSpanA[], double outSenkouSpanB[], int outStride )
+   {
+      RetCode retCode;
+      int lookbackTotal = 0;
+      int n = 0;
+      int i = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      double[] tempT;
+      double[] tempK;
+      int historyLen = inHigh.length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX;
+      }
+      if( historyLen > INDEX_MAX + 1 ) {
+         return RetCode.OUT_OF_RANGE_END_INDEX;
+      }
+      if( inLow.length != inHigh.length ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInTenkanPeriod == Integer.MIN_VALUE ) {
+         optInTenkanPeriod = 9;
+      } else if( optInTenkanPeriod < 2 || optInTenkanPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInKijunPeriod == Integer.MIN_VALUE ) {
+         optInKijunPeriod = 26;
+      } else if( optInKijunPeriod < 2 || optInKijunPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSenkouBPeriod == Integer.MIN_VALUE ) {
+         optInSenkouBPeriod = 52;
+      } else if( optInSenkouBPeriod < 2 || optInSenkouBPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( historyLen < ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod) + 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      double[] sc_outTenkanSen = outStride == 1 ? outTenkanSen : new double[historyLen];
+      double[] sc_outKijunSen = outStride == 1 ? outKijunSen : new double[historyLen];
+      double[] sc_outSenkouSpanA = outStride == 1 ? outSenkouSpanA : new double[historyLen];
+      double[] sc_outSenkouSpanB = outStride == 1 ? outSenkouSpanB : new double[historyLen];
+      outBegIdx.value = 0;
+      outNBElement.value = 0;
+      lookbackTotal = ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod);
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         return RetCode.INSUFFICIENT_HISTORY ;
+      }
+      n = endIdx - startIdx + 1;
+      tempT = new double[(int)(n * 1)];
+      tempK = new double[(int)(n * 1)];
+      /* An output may alias inHigh or inLow: no output is written before the
+       * last midprice call, which is the last read of either input.
+       */
+      /* Sub-stream 0: midprice over `inHigh, inLow`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      MidpriceStream sub0 = midpriceOpenAndFillInternal(inHigh, inLow, startIdx, optInTenkanPeriod, tempBegIdx, tempNbElement, tempT);
+      retCode = RetCode.SUCCESS;
+      /* Sub-stream 1: midprice over `inHigh, inLow`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      MidpriceStream sub1 = midpriceOpenAndFillInternal(inHigh, inLow, startIdx, optInKijunPeriod, tempBegIdx, tempNbElement, tempK);
+      retCode = RetCode.SUCCESS;
+      /* Sub-stream 2: midprice over `inHigh, inLow`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      MidpriceStream sub2 = midpriceOpenAndFillInternal(inHigh, inLow, startIdx, optInSenkouBPeriod, tempBegIdx, tempNbElement, sc_outSenkouSpanB);
+      retCode = RetCode.SUCCESS;
+      /* Span A halves the two rounded midpoints. (hh+ll+hh+ll)/4 is a different
+       * double in the last bit.
+       */
+      /* Sub-stream 3: medprice over `tempT, tempK`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      MedpriceStream sub3 = medpriceOpenAndFillInternal(java.util.Arrays.copyOfRange(tempT, 0, (n - 1) + 1), java.util.Arrays.copyOfRange(tempK, 0, (n - 1) + 1), 0, tempBegIdx, tempNbElement, sc_outSenkouSpanA);
+      retCode = RetCode.SUCCESS;
+      for( i = 0; i < n; i += 1 ) {
+         sc_outTenkanSen[i] = tempT[i];
+         sc_outKijunSen[i] = tempK[i];
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = n;
+      /* Capture the live producer state + sub handles. */
+      if( outNBElement.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      sp.optInTenkanPeriod = optInTenkanPeriod;
+      sp.optInKijunPeriod = optInKijunPeriod;
+      sp.optInSenkouBPeriod = optInSenkouBPeriod;
+      sp.sub0 = sub0;
+      sp.sub1 = sub1;
+      sp.sub2 = sub2;
+      sp.sub3 = sub3;
+      sp.cur_outTenkanSen = sc_outTenkanSen[outNBElement.value - 1];
+      sp.cur_outKijunSen = sc_outKijunSen[outNBElement.value - 1];
+      sp.cur_outSenkouSpanA = sc_outSenkouSpanA[outNBElement.value - 1];
+      sp.cur_outSenkouSpanB = sc_outSenkouSpanB[outNBElement.value - 1];
+      return RetCode.SUCCESS;
+   }
+   /* ichimokuOpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   IchimokuStream ichimokuOpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInTenkanPeriod, int optInKijunPeriod, int optInSenkouBPeriod, MInteger outBegIdx, MInteger outNBElement, double outTenkanSen[], double outKijunSen[], double outSenkouSpanA[], double outSenkouSpanB[] )
+   {
+      IchimokuStream sp = new IchimokuStream(this);
+      RetCode retCode = ichimokuOpenImpl(sp, inHigh, inLow, startIdx, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, outBegIdx, outNBElement, outTenkanSen, outKijunSen, outSenkouSpanA, outSenkouSpanB, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("ICHIMOKU openAndFill", inHigh.length, startIdx, ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod));
+      }
+      throw streamFailure("ICHIMOKU openAndFill", retCode);
+   }
+   /* Internal startIdx-anchored open behind ichimokuOpen (composition seam). */
+   IchimokuStream ichimokuOpenInternal( double inHigh[], double inLow[], int startIdx, int optInTenkanPeriod, int optInKijunPeriod, int optInSenkouBPeriod )
+   {
+      IchimokuStream sp = new IchimokuStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outTenkanSen = new double[1];
+      double[] sink_outKijunSen = new double[1];
+      double[] sink_outSenkouSpanA = new double[1];
+      double[] sink_outSenkouSpanB = new double[1];
+      RetCode retCode = ichimokuOpenImpl(sp, inHigh, inLow, startIdx, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, outBegIdx, outNBElement, sink_outTenkanSen, sink_outKijunSen, sink_outSenkouSpanA, sink_outSenkouSpanB, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("ICHIMOKU open", inHigh.length, startIdx, ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod));
+      }
+      throw streamFailure("ICHIMOKU open", retCode);
+   }
+   /**
+    * Open a live ICHIMOKU stream over the warm-up history; the handle's
+    * {@code value()} starts at the last history bar's value — bit-identical
+    * to {@link Core#ichimoku} at that bar.
+    * <p>The history must hold at least {@code ichimokuLookback(...) + 1} bars
+    * (unstable-period aware), or {@link InsufficientHistoryException} is
+    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
+    */
+   public IchimokuStream ichimokuOpen( double inHigh[], double inLow[], int optInTenkanPeriod, int optInKijunPeriod, int optInSenkouBPeriod )
+   {
+      requireArgument("ICHIMOKU open", "inHigh", inHigh);
+      requireHistory("ICHIMOKU open", inHigh.length);
+      requireArgument("ICHIMOKU open", "inLow", inLow);
+      requireHistoryLength("ICHIMOKU open", "inLow", inLow.length, inHigh.length);
+      return ichimokuOpenInternal(inHigh, inLow, 0, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod);
+   }
+   /**
+    * {@link Core#ichimokuOpen} that also fills the output array(s) bit-identically
+    * to {@link Core#ichimoku} over the whole history in the same single pass
+    * (no separate batch call needed for the warm-up plot). Output arrays must
+    * not alias the inputs or each other, and must hold
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
+    * <p>The range written is on the returned handle:
+    * {@link IchimokuStream#outRange()}.
+    */
+   public IchimokuStream ichimokuOpenAndFill( double inHigh[], double inLow[], int optInTenkanPeriod, int optInKijunPeriod, int optInSenkouBPeriod, double outTenkanSen[], double outKijunSen[], double outSenkouSpanA[], double outSenkouSpanB[] )
+   {
+      requireArgument("ICHIMOKU openAndFill", "inHigh", inHigh);
+      requireHistory("ICHIMOKU openAndFill", inHigh.length);
+      requireArgument("ICHIMOKU openAndFill", "inLow", inLow);
+      int guardOutLen = openFillCount("ICHIMOKU openAndFill", inHigh.length, ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod));
+      requireHistoryLength("ICHIMOKU openAndFill", "inLow", inLow.length, inHigh.length);
+      requireLength("ICHIMOKU openAndFill", "outTenkanSen", outTenkanSen, guardOutLen);
+      requireLength("ICHIMOKU openAndFill", "outKijunSen", outKijunSen, guardOutLen);
+      requireLength("ICHIMOKU openAndFill", "outSenkouSpanA", outSenkouSpanA, guardOutLen);
+      requireLength("ICHIMOKU openAndFill", "outSenkouSpanB", outSenkouSpanB, guardOutLen);
+      if( (Object)outTenkanSen == (Object)inHigh || (Object)outTenkanSen == (Object)inLow || (Object)outKijunSen == (Object)inHigh || (Object)outKijunSen == (Object)inLow || (Object)outSenkouSpanA == (Object)inHigh || (Object)outSenkouSpanA == (Object)inLow || (Object)outSenkouSpanB == (Object)inHigh || (Object)outSenkouSpanB == (Object)inLow || (Object)outTenkanSen == (Object)outKijunSen || (Object)outTenkanSen == (Object)outSenkouSpanA || (Object)outTenkanSen == (Object)outSenkouSpanB || (Object)outKijunSen == (Object)outSenkouSpanA || (Object)outKijunSen == (Object)outSenkouSpanB || (Object)outSenkouSpanA == (Object)outSenkouSpanB ) {
+         throw streamFailure("ICHIMOKU openAndFill", RetCode.BAD_PARAM);
+      }
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      return ichimokuOpenAndFillInternal(inHigh, inLow, 0, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, outBegIdx, outNBElement, outTenkanSen, outKijunSen, outSenkouSpanA, outSenkouSpanB);
+   }
+/* List of contributors:
+ *
+ *  Initial  Name/description
+ *  -------------------------------------------------------------------
  *  AB       Anatoliy Belsky
  *  MF       Mario Fortier
  *  WZ       wony (github @wony-zheng)
@@ -127186,6 +128093,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/kst">ta-lib.org/functions/kst</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The price each rate of change looks back to is its divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The weights are 1 to 4 and nothing divides by their total. Pring's daily table prints each leg's SMA period times its weight (a total of 120) only to show how much the longest leg dominates.</li>
     * <li>Both outputs start at the first bar where the signal line exists, so the first few bars where the KST line alone is defined are not emitted. Setting the signal period to 1 returns the line from its own first bar, and the signal output is then a copy of it.</li>
     * <li>Each rate of change follows {@code ROC}: a zero price in the denominator makes that term 0.</li>
@@ -127293,6 +128201,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/kst">ta-lib.org/functions/kst</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The price each rate of change looks back to is its divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The weights are 1 to 4 and nothing divides by their total. Pring's daily table prints each leg's SMA period times its weight (a total of 120) only to show how much the longest leg dominates.</li>
     * <li>Both outputs start at the first bar where the signal line exists, so the first few bars where the KST line alone is defined are not emitted. Setting the signal period to 1 returns the line from its own first bar, and the signal output is then a copy of it.</li>
     * <li>Each rate of change follows {@code ROC}: a zero price in the denominator makes that term 0.</li>
@@ -128323,6 +129232,7 @@ public final class Core {
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  100126 MF,CC  First version (#491).
+ *  101126 MF,CC  Each lookback is asked once per call (#522).
  */
 
    /**
@@ -128509,6 +129419,10 @@ public final class Core {
       int lookbackSignal = 0;
       int lookbackMA = 0;
       int sigStart = 0;
+      int lookbackMA1 = 0;
+      int lookbackMA2 = 0;
+      int lookbackMA3 = 0;
+      int lookbackMA4 = 0;
       int tempInteger = 0;
       MInteger tempBegIdx = new MInteger();
       MInteger rocNb = new MInteger();
@@ -128582,8 +129496,26 @@ public final class Core {
        */
       outBegIdx.value = 0;
       outNBElement.value = 0;
+      /* lookbackTotal must stay kstext_lookback() of the same parameters. */
       lookbackSignal = maLookback(optInSignalPeriod, optInSignalMAType);
-      lookbackTotal = kstextLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType);
+      lookbackMA1 = maLookback(optInMA1Period, optInROCMAType);
+      lookbackMA2 = maLookback(optInMA2Period, optInROCMAType);
+      lookbackMA3 = maLookback(optInMA3Period, optInROCMAType);
+      lookbackMA4 = maLookback(optInMA4Period, optInROCMAType);
+      lookbackTotal = optInROC1Period + lookbackMA1;
+      tempInteger = optInROC2Period + lookbackMA2;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC3Period + lookbackMA3;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC4Period + lookbackMA4;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      lookbackTotal += lookbackSignal;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -128594,23 +129526,20 @@ public final class Core {
       /* Both buffers are sized by the longest leg average: a rate of change
        * starts its average's lookback before sigStart.
        */
-      lookbackMA = maLookback(optInMA1Period, optInROCMAType);
-      tempInteger = maLookback(optInMA2Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      lookbackMA = lookbackMA1;
+      if( lookbackMA2 > lookbackMA ) {
+         lookbackMA = lookbackMA2;
       }
-      tempInteger = maLookback(optInMA3Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA3 > lookbackMA ) {
+         lookbackMA = lookbackMA3;
       }
-      tempInteger = maLookback(optInMA4Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA4 > lookbackMA ) {
+         lookbackMA = lookbackMA4;
       }
       tempInteger = endIdx - sigStart + 1 + lookbackMA;
       kstBuffer = new double[(int)(tempInteger * 1)];
       tempBuffer = new double[(int)(tempInteger * 1)];
-      OutRange _xr0 = roc(sigStart - maLookback(optInMA1Period, optInROCMAType), endIdx, inReal, optInROC1Period, kstBuffer);
+      OutRange _xr0 = roc(sigStart - lookbackMA1, endIdx, inReal, optInROC1Period, kstBuffer);
       tempBegIdx.value = _xr0.begIdx();
       rocNb.value = _xr0.count();
       retCode = RetCode.SUCCESS;
@@ -128618,7 +129547,7 @@ public final class Core {
       tempBegIdx.value = _xr1.begIdx();
       kstNb.value = _xr1.count();
       retCode = RetCode.SUCCESS;
-      OutRange _xr2 = roc(sigStart - maLookback(optInMA2Period, optInROCMAType), endIdx, inReal, optInROC2Period, tempBuffer);
+      OutRange _xr2 = roc(sigStart - lookbackMA2, endIdx, inReal, optInROC2Period, tempBuffer);
       tempBegIdx.value = _xr2.begIdx();
       rocNb.value = _xr2.count();
       retCode = RetCode.SUCCESS;
@@ -128629,7 +129558,7 @@ public final class Core {
       for( i = 0; i < kstNb.value; i += 1 ) {
          kstBuffer[i] = Math.fma(2.0, tempBuffer[i], kstBuffer[i]);
       }
-      OutRange _xr4 = roc(sigStart - maLookback(optInMA3Period, optInROCMAType), endIdx, inReal, optInROC3Period, tempBuffer);
+      OutRange _xr4 = roc(sigStart - lookbackMA3, endIdx, inReal, optInROC3Period, tempBuffer);
       tempBegIdx.value = _xr4.begIdx();
       rocNb.value = _xr4.count();
       retCode = RetCode.SUCCESS;
@@ -128640,7 +129569,7 @@ public final class Core {
       for( i = 0; i < kstNb.value; i += 1 ) {
          kstBuffer[i] = Math.fma(3.0, tempBuffer[i], kstBuffer[i]);
       }
-      OutRange _xr6 = roc(sigStart - maLookback(optInMA4Period, optInROCMAType), endIdx, inReal, optInROC4Period, tempBuffer);
+      OutRange _xr6 = roc(sigStart - lookbackMA4, endIdx, inReal, optInROC4Period, tempBuffer);
       tempBegIdx.value = _xr6.begIdx();
       rocNb.value = _xr6.count();
       retCode = RetCode.SUCCESS;
@@ -128687,6 +129616,10 @@ public final class Core {
       int lookbackSignal = 0;
       int lookbackMA = 0;
       int sigStart = 0;
+      int lookbackMA1 = 0;
+      int lookbackMA2 = 0;
+      int lookbackMA3 = 0;
+      int lookbackMA4 = 0;
       int tempInteger = 0;
       MInteger tempBegIdx = new MInteger();
       MInteger rocNb = new MInteger();
@@ -128757,7 +129690,24 @@ public final class Core {
       outBegIdx.value = 0;
       outNBElement.value = 0;
       lookbackSignal = maLookback(optInSignalPeriod, optInSignalMAType);
-      lookbackTotal = kstextLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType);
+      lookbackMA1 = maLookback(optInMA1Period, optInROCMAType);
+      lookbackMA2 = maLookback(optInMA2Period, optInROCMAType);
+      lookbackMA3 = maLookback(optInMA3Period, optInROCMAType);
+      lookbackMA4 = maLookback(optInMA4Period, optInROCMAType);
+      lookbackTotal = optInROC1Period + lookbackMA1;
+      tempInteger = optInROC2Period + lookbackMA2;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC3Period + lookbackMA3;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC4Period + lookbackMA4;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      lookbackTotal += lookbackSignal;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -128765,23 +129715,20 @@ public final class Core {
          return RetCode.SUCCESS ;
       }
       sigStart = startIdx - lookbackSignal;
-      lookbackMA = maLookback(optInMA1Period, optInROCMAType);
-      tempInteger = maLookback(optInMA2Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      lookbackMA = lookbackMA1;
+      if( lookbackMA2 > lookbackMA ) {
+         lookbackMA = lookbackMA2;
       }
-      tempInteger = maLookback(optInMA3Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA3 > lookbackMA ) {
+         lookbackMA = lookbackMA3;
       }
-      tempInteger = maLookback(optInMA4Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA4 > lookbackMA ) {
+         lookbackMA = lookbackMA4;
       }
       tempInteger = endIdx - sigStart + 1 + lookbackMA;
       kstBuffer = new double[(int)(tempInteger * 1)];
       tempBuffer = new double[(int)(tempInteger * 1)];
-      OutRange _xr0 = roc(sigStart - maLookback(optInMA1Period, optInROCMAType), endIdx, inReal, optInROC1Period, kstBuffer);
+      OutRange _xr0 = roc(sigStart - lookbackMA1, endIdx, inReal, optInROC1Period, kstBuffer);
       tempBegIdx.value = _xr0.begIdx();
       rocNb.value = _xr0.count();
       retCode = RetCode.SUCCESS;
@@ -128789,7 +129736,7 @@ public final class Core {
       tempBegIdx.value = _xr1.begIdx();
       kstNb.value = _xr1.count();
       retCode = RetCode.SUCCESS;
-      OutRange _xr2 = roc(sigStart - maLookback(optInMA2Period, optInROCMAType), endIdx, inReal, optInROC2Period, tempBuffer);
+      OutRange _xr2 = roc(sigStart - lookbackMA2, endIdx, inReal, optInROC2Period, tempBuffer);
       tempBegIdx.value = _xr2.begIdx();
       rocNb.value = _xr2.count();
       retCode = RetCode.SUCCESS;
@@ -128800,7 +129747,7 @@ public final class Core {
       for( i = 0; i < kstNb.value; i += 1 ) {
          kstBuffer[i] = Math.fma(2.0, tempBuffer[i], kstBuffer[i]);
       }
-      OutRange _xr4 = roc(sigStart - maLookback(optInMA3Period, optInROCMAType), endIdx, inReal, optInROC3Period, tempBuffer);
+      OutRange _xr4 = roc(sigStart - lookbackMA3, endIdx, inReal, optInROC3Period, tempBuffer);
       tempBegIdx.value = _xr4.begIdx();
       rocNb.value = _xr4.count();
       retCode = RetCode.SUCCESS;
@@ -128811,7 +129758,7 @@ public final class Core {
       for( i = 0; i < kstNb.value; i += 1 ) {
          kstBuffer[i] = Math.fma(3.0, tempBuffer[i], kstBuffer[i]);
       }
-      OutRange _xr6 = roc(sigStart - maLookback(optInMA4Period, optInROCMAType), endIdx, inReal, optInROC4Period, tempBuffer);
+      OutRange _xr6 = roc(sigStart - lookbackMA4, endIdx, inReal, optInROC4Period, tempBuffer);
       tempBegIdx.value = _xr6.begIdx();
       rocNb.value = _xr6.count();
       retCode = RetCode.SUCCESS;
@@ -128844,6 +129791,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/kstext">ta-lib.org/functions/kstext</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The price each rate of change looks back to is its divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>With both MA types set to {@code TA_MAType_SMA} the outputs are those of {@code KST}.</li>
     * <li>Both outputs start at the first bar where the signal line exists. A signal period of 1 disables signal-line smoothing for every signal MAType: the signal is then a copy of the line.</li>
     * <li>The unstable period of a selected MA type lengthens the lookback, for the legs and for the signal line separately.</li>
@@ -128959,6 +129907,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/kstext">ta-lib.org/functions/kstext</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The price each rate of change looks back to is its divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>With both MA types set to {@code TA_MAType_SMA} the outputs are those of {@code KST}.</li>
     * <li>Both outputs start at the first bar where the signal line exists. A signal period of 1 disables signal-line smoothing for every signal MAType: the signal is then a copy of the line.</li>
     * <li>The unstable period of a selected MA type lengthens the lookback, for the legs and for the signal line separately.</li>
@@ -129322,6 +130271,10 @@ public final class Core {
       int lookbackSignal = 0;
       int lookbackMA = 0;
       int sigStart = 0;
+      int lookbackMA1 = 0;
+      int lookbackMA2 = 0;
+      int lookbackMA3 = 0;
+      int lookbackMA4 = 0;
       int tempInteger = 0;
       MInteger tempBegIdx = new MInteger();
       MInteger rocNb = new MInteger();
@@ -129404,8 +130357,26 @@ public final class Core {
        */
       outBegIdx.value = 0;
       outNBElement.value = 0;
+      /* lookbackTotal must stay kstext_lookback() of the same parameters. */
       lookbackSignal = maLookback(optInSignalPeriod, optInSignalMAType);
-      lookbackTotal = kstextLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType);
+      lookbackMA1 = maLookback(optInMA1Period, optInROCMAType);
+      lookbackMA2 = maLookback(optInMA2Period, optInROCMAType);
+      lookbackMA3 = maLookback(optInMA3Period, optInROCMAType);
+      lookbackMA4 = maLookback(optInMA4Period, optInROCMAType);
+      lookbackTotal = optInROC1Period + lookbackMA1;
+      tempInteger = optInROC2Period + lookbackMA2;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC3Period + lookbackMA3;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC4Period + lookbackMA4;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      lookbackTotal += lookbackSignal;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -129416,25 +130387,22 @@ public final class Core {
       /* Both buffers are sized by the longest leg average: a rate of change
        * starts its average's lookback before sigStart.
        */
-      lookbackMA = maLookback(optInMA1Period, optInROCMAType);
-      tempInteger = maLookback(optInMA2Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      lookbackMA = lookbackMA1;
+      if( lookbackMA2 > lookbackMA ) {
+         lookbackMA = lookbackMA2;
       }
-      tempInteger = maLookback(optInMA3Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA3 > lookbackMA ) {
+         lookbackMA = lookbackMA3;
       }
-      tempInteger = maLookback(optInMA4Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA4 > lookbackMA ) {
+         lookbackMA = lookbackMA4;
       }
       tempInteger = endIdx - sigStart + 1 + lookbackMA;
       kstBuffer = new double[(int)(tempInteger * 1)];
       tempBuffer = new double[(int)(tempInteger * 1)];
       /* Sub-stream 0: roc over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      RocStream sub0 = rocOpenAndFillInternal(inReal, sigStart - maLookback(optInMA1Period, optInROCMAType), optInROC1Period, tempBegIdx, rocNb, kstBuffer);
+      RocStream sub0 = rocOpenAndFillInternal(inReal, sigStart - lookbackMA1, optInROC1Period, tempBegIdx, rocNb, kstBuffer);
       retCode = RetCode.SUCCESS;
       /* Sub-stream 1: ma over `kstBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -129445,7 +130413,7 @@ public final class Core {
       retCode = RetCode.SUCCESS;
       /* Sub-stream 2: roc over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      RocStream sub2 = rocOpenAndFillInternal(inReal, sigStart - maLookback(optInMA2Period, optInROCMAType), optInROC2Period, tempBegIdx, rocNb, tempBuffer);
+      RocStream sub2 = rocOpenAndFillInternal(inReal, sigStart - lookbackMA2, optInROC2Period, tempBegIdx, rocNb, tempBuffer);
       retCode = RetCode.SUCCESS;
       /* Sub-stream 3: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -129459,7 +130427,7 @@ public final class Core {
       }
       /* Sub-stream 4: roc over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      RocStream sub4 = rocOpenAndFillInternal(inReal, sigStart - maLookback(optInMA3Period, optInROCMAType), optInROC3Period, tempBegIdx, rocNb, tempBuffer);
+      RocStream sub4 = rocOpenAndFillInternal(inReal, sigStart - lookbackMA3, optInROC3Period, tempBegIdx, rocNb, tempBuffer);
       retCode = RetCode.SUCCESS;
       /* Sub-stream 5: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -129473,7 +130441,7 @@ public final class Core {
       }
       /* Sub-stream 6: roc over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      RocStream sub6 = rocOpenAndFillInternal(inReal, sigStart - maLookback(optInMA4Period, optInROCMAType), optInROC4Period, tempBegIdx, rocNb, tempBuffer);
+      RocStream sub6 = rocOpenAndFillInternal(inReal, sigStart - lookbackMA4, optInROC4Period, tempBegIdx, rocNb, tempBuffer);
       retCode = RetCode.SUCCESS;
       /* Sub-stream 7: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -130881,6 +131849,1260 @@ public final class Core {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       return kurtosisOpenAndFillInternal(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal);
+   }
+/* List of contributors:
+ *
+ *  Initial  Name/description
+ *  -------------------------------------------------------------------
+ *  MF       Mario Fortier
+ *  KL       Kevin Lin (@kevinlincg)
+ *  CC       Claude Code (AI assistant)
+ *
+ * Change history:
+ *
+ *  MMDDYY BY     Description
+ *  -------------------------------------------------------------------
+ *  100726 KL,CC  Initial version (#484).
+ *  101426 MF,CC  The EMA step is TA_EMA's.
+ */
+
+   /**
+    * Number of leading input bars {@link Core#kvo} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInFastPeriod Period of the faster smoothing of the volume force
+    *        (default 34; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInSlowPeriod Period of the slower smoothing of the volume force
+    *        (default 55; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInSignalPeriod Smoothing period of the trigger line (default 13;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
+   public int kvoLookback( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
+   {
+      if( optInFastPeriod == Integer.MIN_VALUE ) {
+         optInFastPeriod = 34;
+      } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInSlowPeriod == Integer.MIN_VALUE ) {
+         optInSlowPeriod = 55;
+      } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInSignalPeriod == Integer.MIN_VALUE ) {
+         optInSignalPeriod = 13;
+      } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
+         return -1;
+      }
+      int longestPeriod;
+      /* The three EMAs seed on one bar, so one EMA lookback of the longest
+       * covers all three. The 1 is the reference bar before it.
+       */
+      longestPeriod = optInFastPeriod;
+      if( optInSlowPeriod > longestPeriod ) {
+         longestPeriod = optInSlowPeriod;
+      }
+      if( optInSignalPeriod > longestPeriod ) {
+         longestPeriod = optInSignalPeriod;
+      }
+      return 1 + emaLookback(longestPeriod) + ((this.unstableCount(FuncUnstId.EMA.ordinal(), 1, 1) != this.unstableCount(FuncUnstId.EMA.ordinal(), 0, 0)) ? (this.unstableCount(FuncUnstId.EMA.ordinal(), (((Math.max(optInFastPeriod, Math.max(optInSlowPeriod, optInSignalPeriod)) > 1) ? ((4 * 10 + 23) / 3 * Math.max(optInFastPeriod, Math.max(optInSlowPeriod, optInSignalPeriod)) + 1) / 2 : 0) - ((Math.max(optInFastPeriod, Math.max(optInSlowPeriod, optInSignalPeriod)) > 1) ? (10 * Math.max(optInFastPeriod, Math.max(optInSlowPeriod, optInSignalPeriod)) + 1) / 2 : 0)), (((Math.max(optInFastPeriod, Math.max(optInSlowPeriod, optInSignalPeriod)) > 1) ? ((4 * 19 + 23) / 3 * Math.max(optInFastPeriod, Math.max(optInSlowPeriod, optInSignalPeriod)) + 1) / 2 : 0) - ((Math.max(optInFastPeriod, Math.max(optInSlowPeriod, optInSignalPeriod)) > 1) ? (19 * Math.max(optInFastPeriod, Math.max(optInSlowPeriod, optInSignalPeriod)) + 1) / 2 : 0))) - this.unstableCount(FuncUnstId.EMA.ordinal(), 0, 0)) : 0) ;
+
+   }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#kvo}.
+    * <p>Every output of this function is drawn at its own bar, so the answer is
+    * 0.
+    *
+    * @param optInFastPeriod Period of the faster smoothing of the volume force
+    *        (default 34; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInSlowPeriod Period of the slower smoothing of the volume force
+    *        (default 55; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInSignalPeriod Smoothing period of the trigger line (default 13;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int kvoDisplayShift( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int outputIdx )
+   {
+      if( kvoLookback( optInFastPeriod, optInSlowPeriod, optInSignalPeriod ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 2 ) {
+         return Integer.MIN_VALUE;
+      }
+      return 0;
+   }
+   RetCode kvoImpl( int startIdx,
+                    int endIdx,
+                    double inHigh[],
+                    double inLow[],
+                    double inClose[],
+                    double inVolume[],
+                    int optInFastPeriod,
+                    int optInSlowPeriod,
+                    int optInSignalPeriod,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outKVO[],
+                    double outKVOSignal[] )
+   {
+      double kFast = 0;
+      double kSlow = 0;
+      double kSignal = 0;
+      double betaFast = 0;
+      double betaSlow = 0;
+      double betaSignal = 0;
+      double hlc = 0;
+      double prevHlc = 0;
+      double dmToday = 0;
+      double prevDm = 0;
+      double emaFast = 0;
+      double emaSlow = 0;
+      double cm = 0;
+      double vf = 0;
+      double trend = 0;
+      double prevTrend = 0;
+      double kvoValue = 0;
+      double signalValue = 0;
+      int lookbackTotal = 0;
+      int today = 0;
+      int outIdx = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInFastPeriod == Integer.MIN_VALUE ) {
+         optInFastPeriod = 34;
+      } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSlowPeriod == Integer.MIN_VALUE ) {
+         optInSlowPeriod = 55;
+      } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSignalPeriod == Integer.MIN_VALUE ) {
+         optInSignalPeriod = 13;
+      } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( outKVO == outKVOSignal ) {
+         return RetCode.BAD_PARAM ;
+      }
+      /* The C stream struct follows this order, and a bad one can stall every
+       * streamed update without changing a value. prevHlc/prevDm and
+       * emaFast/emaSlow are each stored as one 16-byte pair and must sit 16-byte
+       * aligned in the struct; prevTrend keeps cm and signalValue apart so no
+       * load spans two stores.
+       */
+      /* Stephen J. Klinger, "Identifying Trends With Volume Analysis", Technical
+       * Analysis of Stocks & Commodities V15:12 (December 1997), with the 1997
+       * factor |2*(dm/cm) - 1| (#484, form A).
+       *
+       *    trend = +1 if H+L+C rose, -1 if it fell, unchanged on a tie
+       *    cm    = previous + current range on a trend change, else cm + range
+       *    vf    = volume * |2*(dm/cm) - 1| * 100 * trend
+       *
+       * The committed corpus holds a single tie in H+L+C, and reading it any other
+       * way moves KVO by up to 1e7 from the next bar on: the tie rule is gated by
+       * a built series in test_kvo.c, not by the corpus.
+       *
+       * All three EMAs seed raw on the first volume force, not on an SMA as
+       * TA_EMA does. Each k + beta pair must sum to exactly 1.0, as in ema.c.
+       */
+      lookbackTotal = kvoLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      /* Move up the start index if there is not
+       * enough initial data.
+       */
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      kFast = 1.0 - betaFast;
+      if( betaFast < 0.5 ) {
+         betaFast = 1.0 - kFast;
+      }
+      betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      kSlow = 1.0 - betaSlow;
+      if( betaSlow < 0.5 ) {
+         betaSlow = 1.0 - kSlow;
+      }
+      betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+      kSignal = 1.0 - betaSignal;
+      if( betaSignal < 0.5 ) {
+         betaSignal = 1.0 - kSignal;
+      }
+      /* The anchor: only its H+L+C and range are read, and the trend starts at +1. */
+      today = startIdx - lookbackTotal;
+      prevHlc = inHigh[today] + inLow[today] + inClose[today];
+      prevDm = inHigh[today] - inLow[today];
+      prevTrend = 1.0;
+      today = today + 1;
+      /* The seed bar: cm opens on both ranges whatever the trend, and both
+       * averages start at this volume force, so KVO and the trigger are exactly 0.
+       */
+      hlc = inHigh[today] + inLow[today] + inClose[today];
+      dmToday = inHigh[today] - inLow[today];
+      if( hlc > prevHlc ) {
+         trend = 1.0;
+      } else if( hlc < prevHlc ) {
+         trend = -1.0;
+      } else {
+         trend = prevTrend;
+      }
+      cm = prevDm + dmToday;
+      if( cm == 0.0 ) {
+         vf = 0.0;
+      } else {
+         vf = inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+      }
+      emaFast = vf;
+      emaSlow = vf;
+      kvoValue = emaFast - emaSlow;
+      signalValue = kvoValue;
+      prevHlc = hlc;
+      prevDm = dmToday;
+      prevTrend = trend;
+      today = today + 1;
+      while( today < startIdx ) {
+         hlc = inHigh[today] + inLow[today] + inClose[today];
+         dmToday = inHigh[today] - inLow[today];
+         if( hlc > prevHlc ) {
+            trend = 1.0;
+         } else if( hlc < prevHlc ) {
+            trend = -1.0;
+         } else {
+            trend = prevTrend;
+         }
+         /* A branch, not a select: LLVM turns a select between the two stored
+          * ranges into a select of their address, which serializes each streamed
+          * update behind the previous one on ARM64.
+          */
+         if( trend != prevTrend ) {
+            cm = prevDm + dmToday;
+         } else {
+            cm = cm + dmToday;
+         }
+         if( cm == 0.0 ) {
+            vf = 0.0;
+         } else {
+            vf = inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+         }
+         emaFast = Math.fma(betaFast, emaFast, kFast * vf);
+         emaSlow = Math.fma(betaSlow, emaSlow, kSlow * vf);
+         kvoValue = emaFast - emaSlow;
+         signalValue = Math.fma(betaSignal, signalValue, kSignal * kvoValue);
+         prevHlc = hlc;
+         prevDm = dmToday;
+         prevTrend = trend;
+         today = today + 1;
+      }
+      outIdx = 0;
+      while( today <= endIdx ) {
+         hlc = inHigh[today] + inLow[today] + inClose[today];
+         dmToday = inHigh[today] - inLow[today];
+         if( hlc > prevHlc ) {
+            trend = 1.0;
+         } else if( hlc < prevHlc ) {
+            trend = -1.0;
+         } else {
+            trend = prevTrend;
+         }
+         if( trend != prevTrend ) {
+            cm = prevDm + dmToday;
+         } else {
+            cm = cm + dmToday;
+         }
+         if( cm == 0.0 ) {
+            vf = 0.0;
+         } else {
+            vf = inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+         }
+         emaFast = Math.fma(betaFast, emaFast, kFast * vf);
+         emaSlow = Math.fma(betaSlow, emaSlow, kSlow * vf);
+         kvoValue = emaFast - emaSlow;
+         signalValue = Math.fma(betaSignal, signalValue, kSignal * kvoValue);
+         outKVO[outIdx] = kvoValue;
+         outKVOSignal[outIdx] = signalValue;
+         outIdx = outIdx + 1;
+         prevHlc = hlc;
+         prevDm = dmToday;
+         prevTrend = trend;
+         today = today + 1;
+      }
+      outNBElement.value = outIdx;
+      outBegIdx.value = startIdx;
+      return RetCode.SUCCESS ;
+   }
+   RetCode kvoImpl( int startIdx,
+                    int endIdx,
+                    float inHigh[],
+                    float inLow[],
+                    float inClose[],
+                    float inVolume[],
+                    int optInFastPeriod,
+                    int optInSlowPeriod,
+                    int optInSignalPeriod,
+                    MInteger outBegIdx,
+                    MInteger outNBElement,
+                    double outKVO[],
+                    double outKVOSignal[] )
+   {
+      double kFast = 0;
+      double kSlow = 0;
+      double kSignal = 0;
+      double betaFast = 0;
+      double betaSlow = 0;
+      double betaSignal = 0;
+      double hlc = 0;
+      double prevHlc = 0;
+      double dmToday = 0;
+      double prevDm = 0;
+      double emaFast = 0;
+      double emaSlow = 0;
+      double cm = 0;
+      double vf = 0;
+      double trend = 0;
+      double prevTrend = 0;
+      double kvoValue = 0;
+      double signalValue = 0;
+      int lookbackTotal = 0;
+      int today = 0;
+      int outIdx = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInFastPeriod == Integer.MIN_VALUE ) {
+         optInFastPeriod = 34;
+      } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSlowPeriod == Integer.MIN_VALUE ) {
+         optInSlowPeriod = 55;
+      } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSignalPeriod == Integer.MIN_VALUE ) {
+         optInSignalPeriod = 13;
+      } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( outKVO == outKVOSignal ) {
+         return RetCode.BAD_PARAM ;
+      }
+      lookbackTotal = kvoLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      kFast = 1.0 - betaFast;
+      if( betaFast < 0.5 ) {
+         betaFast = 1.0 - kFast;
+      }
+      betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      kSlow = 1.0 - betaSlow;
+      if( betaSlow < 0.5 ) {
+         betaSlow = 1.0 - kSlow;
+      }
+      betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+      kSignal = 1.0 - betaSignal;
+      if( betaSignal < 0.5 ) {
+         betaSignal = 1.0 - kSignal;
+      }
+      today = startIdx - lookbackTotal;
+      prevHlc = (double)inHigh[today] + (double)inLow[today] + (double)inClose[today];
+      prevDm = (double)inHigh[today] - (double)inLow[today];
+      prevTrend = 1.0;
+      today = today + 1;
+      hlc = (double)inHigh[today] + (double)inLow[today] + (double)inClose[today];
+      dmToday = (double)inHigh[today] - (double)inLow[today];
+      if( hlc > prevHlc ) {
+         trend = 1.0;
+      } else if( hlc < prevHlc ) {
+         trend = -1.0;
+      } else {
+         trend = prevTrend;
+      }
+      cm = prevDm + dmToday;
+      if( cm == 0.0 ) {
+         vf = 0.0;
+      } else {
+         vf = (double)inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+      }
+      emaFast = vf;
+      emaSlow = vf;
+      kvoValue = emaFast - emaSlow;
+      signalValue = kvoValue;
+      prevHlc = hlc;
+      prevDm = dmToday;
+      prevTrend = trend;
+      today = today + 1;
+      while( today < startIdx ) {
+         hlc = (double)inHigh[today] + (double)inLow[today] + (double)inClose[today];
+         dmToday = (double)inHigh[today] - (double)inLow[today];
+         if( hlc > prevHlc ) {
+            trend = 1.0;
+         } else if( hlc < prevHlc ) {
+            trend = -1.0;
+         } else {
+            trend = prevTrend;
+         }
+         if( trend != prevTrend ) {
+            cm = prevDm + dmToday;
+         } else {
+            cm = cm + dmToday;
+         }
+         if( cm == 0.0 ) {
+            vf = 0.0;
+         } else {
+            vf = (double)inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+         }
+         emaFast = Math.fma(betaFast, emaFast, kFast * vf);
+         emaSlow = Math.fma(betaSlow, emaSlow, kSlow * vf);
+         kvoValue = emaFast - emaSlow;
+         signalValue = Math.fma(betaSignal, signalValue, kSignal * kvoValue);
+         prevHlc = hlc;
+         prevDm = dmToday;
+         prevTrend = trend;
+         today = today + 1;
+      }
+      outIdx = 0;
+      while( today <= endIdx ) {
+         hlc = (double)inHigh[today] + (double)inLow[today] + (double)inClose[today];
+         dmToday = (double)inHigh[today] - (double)inLow[today];
+         if( hlc > prevHlc ) {
+            trend = 1.0;
+         } else if( hlc < prevHlc ) {
+            trend = -1.0;
+         } else {
+            trend = prevTrend;
+         }
+         if( trend != prevTrend ) {
+            cm = prevDm + dmToday;
+         } else {
+            cm = cm + dmToday;
+         }
+         if( cm == 0.0 ) {
+            vf = 0.0;
+         } else {
+            vf = (double)inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+         }
+         emaFast = Math.fma(betaFast, emaFast, kFast * vf);
+         emaSlow = Math.fma(betaSlow, emaSlow, kSlow * vf);
+         kvoValue = emaFast - emaSlow;
+         signalValue = Math.fma(betaSignal, signalValue, kSignal * kvoValue);
+         outKVO[outIdx] = kvoValue;
+         outKVOSignal[outIdx] = signalValue;
+         outIdx = outIdx + 1;
+         prevHlc = hlc;
+         prevDm = dmToday;
+         prevTrend = trend;
+         today = today + 1;
+      }
+      outNBElement.value = outIdx;
+      outBegIdx.value = startIdx;
+      return RetCode.SUCCESS ;
+   }
+   /**
+    * Klinger Volume Oscillator: each bar's volume is signed by the direction of
+    * its high-low-close sum and weighted by where the bar's own range sits
+    * inside the cumulative range of the current trend run, then the resulting
+    * volume force is smoothed twice and differenced. Klinger's reading is that
+    * volume alone says how much trading happened but not what it accomplished,
+    * so he scales it by the share of the trend's accumulated range that this
+    * bar actually covered. The oscillator crosses zero as the balance of that
+    * force changes hands, and crosses its own trigger line earlier.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/kvo">ta-lib.org/functions/kvo</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>The trend is <b>held</b> when the high-low-close sum repeats, which is the article's own tenet: the existing trend is maintained on equality. A reading that breaks the tie in either direction changes every later bar, because the cumulative range is reset by a trend change.</li>
+    * <li>The cumulative range is reset by every trend change, so two calls starting at different bars carry different range state only until the first trend change after both; what remains between them is the seed error of the three averages, which fades at the rate of the longest period. KVO converges, but as a small difference of two large averages it needs more bars than one of them would.</li>
+    * <li>All three exponential averages are seeded from the volume force of the same anchor bar rather than from a simple average of their own first inputs, so one warm-up covers all three. KVO is exactly zero on that seed bar, which falls inside the warm-up and is never output. {@code TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)} discards more of that warm-up.</li>
+    * <li>The weight is the 1997 form, {@code |2*(dm/cm) - 1|}, which is what the December 1997 Traders' Tips print. Some later implementations use {@code |2*(dm/cm - 1)|}, which is a different series.</li>
+    * <li>A cumulative range of exactly zero leaves the volume force at zero rather than dividing.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#kvoLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price series.
+    * @param inLow Low price series.
+    * @param inClose Close price series.
+    * @param inVolume Volume series.
+    * @param optInFastPeriod Period of the faster smoothing of the volume force
+    *        (default 34; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInSlowPeriod Period of the slower smoothing of the volume force
+    *        (default 55; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInSignalPeriod Smoothing period of the trigger line (default 13;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outKVO Klinger Volume Oscillator. Must hold at least
+    *        {@code endIdx - max(startIdx, kvoLookback(...)) + 1} values, and never be
+    *        empty: an empty array is an absent output.
+    * @param outKVOSignal Trigger line, an exponential average of the
+    *        oscillator. Must hold at least
+    *        {@code endIdx - max(startIdx, kvoLookback(...)) + 1} values, and never be
+    *        empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
+    *
+    * @see Core#adosc
+    * @see Core#obv
+    * @see Core#mfi
+    * @see Core#ad
+    */
+   public OutRange kvo( int startIdx,
+                        int endIdx,
+                        double inHigh[],
+                        double inLow[],
+                        double inClose[],
+                        double inVolume[],
+                        int optInFastPeriod,
+                        int optInSlowPeriod,
+                        int optInSignalPeriod,
+                        double outKVO[],
+                        double outKVOSignal[] )
+   {
+      requireIndexRange("KVO", startIdx, endIdx);
+      int guardStart = clampedStart("KVO", startIdx, kvoLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("KVO", "inHigh", inHigh, guardInLen);
+      requireLength("KVO", "inLow", inLow, guardInLen);
+      requireLength("KVO", "inClose", inClose, guardInLen);
+      requireLength("KVO", "inVolume", inVolume, guardInLen);
+      requireLength("KVO", "outKVO", outKVO, guardOutLen);
+      requireLength("KVO", "outKVOSignal", outKVOSignal, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = kvoImpl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outKVO, outKVOSignal);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("KVO", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Klinger Volume Oscillator: each bar's volume is signed by the direction of
+    * its high-low-close sum and weighted by where the bar's own range sits
+    * inside the cumulative range of the current trend run, then the resulting
+    * volume force is smoothed twice and differenced. Klinger's reading is that
+    * volume alone says how much trading happened but not what it accomplished,
+    * so he scales it by the share of the trend's accumulated range that this
+    * bar actually covered. The oscillator crosses zero as the balance of that
+    * force changes hands, and crosses its own trigger line earlier.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/kvo">ta-lib.org/functions/kvo</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>The trend is <b>held</b> when the high-low-close sum repeats, which is the article's own tenet: the existing trend is maintained on equality. A reading that breaks the tie in either direction changes every later bar, because the cumulative range is reset by a trend change.</li>
+    * <li>The cumulative range is reset by every trend change, so two calls starting at different bars carry different range state only until the first trend change after both; what remains between them is the seed error of the three averages, which fades at the rate of the longest period. KVO converges, but as a small difference of two large averages it needs more bars than one of them would.</li>
+    * <li>All three exponential averages are seeded from the volume force of the same anchor bar rather than from a simple average of their own first inputs, so one warm-up covers all three. KVO is exactly zero on that seed bar, which falls inside the warm-up and is never output. {@code TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)} discards more of that warm-up.</li>
+    * <li>The weight is the 1997 form, {@code |2*(dm/cm) - 1|}, which is what the December 1997 Traders' Tips print. Some later implementations use {@code |2*(dm/cm - 1)|}, which is a different series.</li>
+    * <li>A cumulative range of exactly zero leaves the volume force at zero rather than dividing.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#kvoLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price series.
+    * @param inLow Low price series.
+    * @param inClose Close price series.
+    * @param inVolume Volume series.
+    * @param optInFastPeriod Period of the faster smoothing of the volume force
+    *        (default 34; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInSlowPeriod Period of the slower smoothing of the volume force
+    *        (default 55; range 2..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInSignalPeriod Smoothing period of the trigger line (default 13;
+    *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param outKVO Klinger Volume Oscillator. Must hold at least
+    *        {@code endIdx - max(startIdx, kvoLookback(...)) + 1} values, and never be
+    *        empty: an empty array is an absent output.
+    * @param outKVOSignal Trigger line, an exponential average of the
+    *        oscillator. Must hold at least
+    *        {@code endIdx - max(startIdx, kvoLookback(...)) + 1} values, and never be
+    *        empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
+    *
+    * @see Core#adosc
+    * @see Core#obv
+    * @see Core#mfi
+    * @see Core#ad
+    */
+   public OutRange kvo( int startIdx,
+                        int endIdx,
+                        float inHigh[],
+                        float inLow[],
+                        float inClose[],
+                        float inVolume[],
+                        int optInFastPeriod,
+                        int optInSlowPeriod,
+                        int optInSignalPeriod,
+                        double outKVO[],
+                        double outKVOSignal[] )
+   {
+      requireIndexRange("KVO", startIdx, endIdx);
+      int guardStart = clampedStart("KVO", startIdx, kvoLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("KVO", "inHigh", inHigh, guardInLen);
+      requireLength("KVO", "inLow", inLow, guardInLen);
+      requireLength("KVO", "inClose", inClose, guardInLen);
+      requireLength("KVO", "inVolume", inVolume, guardInLen);
+      requireLength("KVO", "outKVO", outKVO, guardOutLen);
+      requireLength("KVO", "outKVOSignal", outKVOSignal, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = kvoImpl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outKVO, outKVOSignal);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("KVO", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+/**** Streaming API *****/
+
+   /**
+    * A live KVO stream (unrelated to {@code java.util.stream}): one value per
+    * closed bar, bit-identical to {@link Core#kvo} over the same series.
+    * Open with {@link Core#kvoOpen}; there is no close — the handle is
+    * ordinary heap state, unreferenced handles are simply garbage-collected.
+    * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
+    * {@code value} and {@code clone} must not race with an {@code update} on
+    * the same handle. With no concurrent {@code update}, {@code peek}/
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
+    * <p>Not serializable by design: to checkpoint, retain the history and
+    * re-open — the result is bit-identical by contract.
+    */
+   public static final class KvoStream {
+      private Core core;
+      private int optInFastPeriod;
+      private int optInSlowPeriod;
+      private int optInSignalPeriod;
+      private double kFast;
+      private double kSlow;
+      private double kSignal;
+      private double betaFast;
+      private double betaSlow;
+      private double betaSignal;
+      private double prevHlc;
+      private double prevDm;
+      private double emaFast;
+      private double emaSlow;
+      private double cm;
+      private double prevTrend;
+      private double signalValue;
+      private double cur_outKVO;
+      private double cur_outKVOSignal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
+
+      private KvoStream( Core core ) { this.core = core; }
+
+      /**
+       * The bars this stream has an output for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#kvo} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
+       */
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(KvoOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
+       */
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("KVO advance", RetCode.OUT_OF_RANGE_END_INDEX);
+         this.outRangeCount++;
+      }
+
+      private KvoStream( KvoStream other ) {
+         this.core = other.core;
+         this.optInFastPeriod = other.optInFastPeriod;
+         this.optInSlowPeriod = other.optInSlowPeriod;
+         this.optInSignalPeriod = other.optInSignalPeriod;
+         this.kFast = other.kFast;
+         this.kSlow = other.kSlow;
+         this.kSignal = other.kSignal;
+         this.betaFast = other.betaFast;
+         this.betaSlow = other.betaSlow;
+         this.betaSignal = other.betaSignal;
+         this.prevHlc = other.prevHlc;
+         this.prevDm = other.prevDm;
+         this.emaFast = other.emaFast;
+         this.emaSlow = other.emaSlow;
+         this.cm = other.cm;
+         this.prevTrend = other.prevTrend;
+         this.signalValue = other.signalValue;
+         this.cur_outKVO = other.cur_outKVO;
+         this.cur_outKVOSignal = other.cur_outKVOSignal;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
+      }
+
+      /**
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(KvoOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
+       * This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
+       */
+      public void update( double inHigh, double inLow, double inClose, double inVolume, KvoOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("KVO update", RetCode.OUT_OF_RANGE_END_INDEX);
+         requireArgument("KVO update", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
+            throw nonFiniteBar("KVO update", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : !Double.isFinite(inClose) ? "inClose" : "inVolume");
+         core.kvoStepImpl(this, inHigh, inLow, inClose, inVolume);
+         this.outRangeCount++;
+         out.kvo = this.cur_outKVO;
+         out.kvoSignal = this.cur_outKVOSignal;
+      }
+
+      /**
+       * Evaluate a forming bar without committing — bit-identical to what the
+       * next {@code update} with the same bar would write — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may run concurrently with each other.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
+       */
+      public void peek( double inHigh, double inLow, double inClose, double inVolume, KvoOut out ) {
+         requireArgument("KVO peek", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
+            throw nonFiniteBar("KVO peek", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : !Double.isFinite(inClose) ? "inClose" : "inVolume");
+         KvoStream sp = this;
+         double hlc = 0.0;
+         double dmToday = 0.0;
+         double vf = 0.0;
+         double trend = 0.0;
+         double kvoValue = 0.0;
+         double cm = sp.cm;
+         double cur_outKVO = 0.0;
+         double cur_outKVOSignal = 0.0;
+         double emaFast = sp.emaFast;
+         double emaSlow = sp.emaSlow;
+         double signalValue = sp.signalValue;
+         hlc = inHigh + inLow + inClose;
+         dmToday = inHigh - inLow;
+         if( hlc > sp.prevHlc ) {
+            trend = 1.0;
+         } else if( hlc < sp.prevHlc ) {
+            trend = -1.0;
+         } else {
+            trend = sp.prevTrend;
+         }
+         if( trend != sp.prevTrend ) {
+            cm = sp.prevDm + dmToday;
+         } else {
+            cm = cm + dmToday;
+         }
+         if( cm == 0.0 ) {
+            vf = 0.0;
+         } else {
+            vf = inVolume * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+         }
+         emaFast = Math.fma(sp.betaFast, emaFast, sp.kFast * vf);
+         emaSlow = Math.fma(sp.betaSlow, emaSlow, sp.kSlow * vf);
+         kvoValue = emaFast - emaSlow;
+         signalValue = Math.fma(sp.betaSignal, signalValue, sp.kSignal * kvoValue);
+         cur_outKVO = kvoValue;
+         cur_outKVOSignal = signalValue;
+         out.kvo = cur_outKVO;
+         out.kvoSignal = cur_outKVOSignal;
+      }
+
+      /**
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
+       */
+      public void value( KvoOut out ) {
+         requireArgument("KVO value", "out", out);
+         out.kvo = this.cur_outKVO;
+         out.kvoSignal = this.cur_outKVOSignal;
+      }
+
+      /**
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
+       */
+      @Override
+      public KvoStream clone() {
+         return new KvoStream(this);
+      }
+   }
+
+   /**
+    * The outputs of one KVO bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class KvoOut {
+      /** Klinger Volume Oscillator. */
+      public double kvo;
+      /** Trigger line, an exponential average of the oscillator. */
+      public double kvoSignal;
+   }
+   private void kvoStepImpl( KvoStream sp, double inHigh, double inLow, double inClose, double inVolume )
+   {
+      double hlc = 0.0;
+      double dmToday = 0.0;
+      double vf = 0.0;
+      double trend = 0.0;
+      double kvoValue = 0.0;
+      hlc = inHigh + inLow + inClose;
+      dmToday = inHigh - inLow;
+      if( hlc > sp.prevHlc ) {
+         trend = 1.0;
+      } else if( hlc < sp.prevHlc ) {
+         trend = -1.0;
+      } else {
+         trend = sp.prevTrend;
+      }
+      if( trend != sp.prevTrend ) {
+         sp.cm = sp.prevDm + dmToday;
+      } else {
+         sp.cm = sp.cm + dmToday;
+      }
+      if( sp.cm == 0.0 ) {
+         vf = 0.0;
+      } else {
+         vf = inVolume * Math.abs(2.0 * (dmToday / sp.cm) - 1.0) * 100.0 * trend;
+      }
+      sp.emaFast = Math.fma(sp.betaFast, sp.emaFast, sp.kFast * vf);
+      sp.emaSlow = Math.fma(sp.betaSlow, sp.emaSlow, sp.kSlow * vf);
+      kvoValue = sp.emaFast - sp.emaSlow;
+      sp.signalValue = Math.fma(sp.betaSignal, sp.signalValue, sp.kSignal * kvoValue);
+      sp.cur_outKVO = kvoValue;
+      sp.cur_outKVOSignal = sp.signalValue;
+      sp.prevHlc = hlc;
+      sp.prevDm = dmToday;
+      sp.prevTrend = trend;
+   }
+   private RetCode kvoOpenImpl( KvoStream sp, double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outKVO[], double outKVOSignal[], int outStride )
+   {
+      double kFast = 0;
+      double kSlow = 0;
+      double kSignal = 0;
+      double betaFast = 0;
+      double betaSlow = 0;
+      double betaSignal = 0;
+      double hlc = 0;
+      double prevHlc = 0;
+      double dmToday = 0;
+      double prevDm = 0;
+      double emaFast = 0;
+      double emaSlow = 0;
+      double cm = 0;
+      double vf = 0;
+      double trend = 0;
+      double prevTrend = 0;
+      double kvoValue = 0;
+      double signalValue = 0;
+      int lookbackTotal = 0;
+      int today = 0;
+      int outIdx = 0;
+      int historyLen = inHigh.length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX;
+      }
+      if( historyLen > INDEX_MAX + 1 ) {
+         return RetCode.OUT_OF_RANGE_END_INDEX;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFastPeriod == Integer.MIN_VALUE ) {
+         optInFastPeriod = 34;
+      } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSlowPeriod == Integer.MIN_VALUE ) {
+         optInSlowPeriod = 55;
+      } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSignalPeriod == Integer.MIN_VALUE ) {
+         optInSignalPeriod = 13;
+      } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      /* The C stream struct follows this order, and a bad one can stall every
+       * streamed update without changing a value. prevHlc/prevDm and
+       * emaFast/emaSlow are each stored as one 16-byte pair and must sit 16-byte
+       * aligned in the struct; prevTrend keeps cm and signalValue apart so no
+       * load spans two stores.
+       */
+      /* Stephen J. Klinger, "Identifying Trends With Volume Analysis", Technical
+       * Analysis of Stocks & Commodities V15:12 (December 1997), with the 1997
+       * factor |2*(dm/cm) - 1| (#484, form A).
+       *
+       *    trend = +1 if H+L+C rose, -1 if it fell, unchanged on a tie
+       *    cm    = previous + current range on a trend change, else cm + range
+       *    vf    = volume * |2*(dm/cm) - 1| * 100 * trend
+       *
+       * The committed corpus holds a single tie in H+L+C, and reading it any other
+       * way moves KVO by up to 1e7 from the next bar on: the tie rule is gated by
+       * a built series in test_kvo.c, not by the corpus.
+       *
+       * All three EMAs seed raw on the first volume force, not on an SMA as
+       * TA_EMA does. Each k + beta pair must sum to exactly 1.0, as in ema.c.
+       */
+      lookbackTotal = kvoLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      /* Move up the start index if there is not
+       * enough initial data.
+       */
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY ;
+      }
+      betaFast = (double)(optInFastPeriod - 1) / (double)(optInFastPeriod + 1);
+      kFast = 1.0 - betaFast;
+      if( betaFast < 0.5 ) {
+         betaFast = 1.0 - kFast;
+      }
+      betaSlow = (double)(optInSlowPeriod - 1) / (double)(optInSlowPeriod + 1);
+      kSlow = 1.0 - betaSlow;
+      if( betaSlow < 0.5 ) {
+         betaSlow = 1.0 - kSlow;
+      }
+      betaSignal = (double)(optInSignalPeriod - 1) / (double)(optInSignalPeriod + 1);
+      kSignal = 1.0 - betaSignal;
+      if( betaSignal < 0.5 ) {
+         betaSignal = 1.0 - kSignal;
+      }
+      /* The anchor: only its H+L+C and range are read, and the trend starts at +1. */
+      today = startIdx - lookbackTotal;
+      prevHlc = inHigh[today] + inLow[today] + inClose[today];
+      prevDm = inHigh[today] - inLow[today];
+      prevTrend = 1.0;
+      today = today + 1;
+      /* The seed bar: cm opens on both ranges whatever the trend, and both
+       * averages start at this volume force, so KVO and the trigger are exactly 0.
+       */
+      hlc = inHigh[today] + inLow[today] + inClose[today];
+      dmToday = inHigh[today] - inLow[today];
+      if( hlc > prevHlc ) {
+         trend = 1.0;
+      } else if( hlc < prevHlc ) {
+         trend = -1.0;
+      } else {
+         trend = prevTrend;
+      }
+      cm = prevDm + dmToday;
+      if( cm == 0.0 ) {
+         vf = 0.0;
+      } else {
+         vf = inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+      }
+      emaFast = vf;
+      emaSlow = vf;
+      kvoValue = emaFast - emaSlow;
+      signalValue = kvoValue;
+      prevHlc = hlc;
+      prevDm = dmToday;
+      prevTrend = trend;
+      today = today + 1;
+      while( today < startIdx ) {
+         hlc = inHigh[today] + inLow[today] + inClose[today];
+         dmToday = inHigh[today] - inLow[today];
+         if( hlc > prevHlc ) {
+            trend = 1.0;
+         } else if( hlc < prevHlc ) {
+            trend = -1.0;
+         } else {
+            trend = prevTrend;
+         }
+         /* A branch, not a select: LLVM turns a select between the two stored
+          * ranges into a select of their address, which serializes each streamed
+          * update behind the previous one on ARM64.
+          */
+         if( trend != prevTrend ) {
+            cm = prevDm + dmToday;
+         } else {
+            cm = cm + dmToday;
+         }
+         if( cm == 0.0 ) {
+            vf = 0.0;
+         } else {
+            vf = inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+         }
+         emaFast = Math.fma(betaFast, emaFast, kFast * vf);
+         emaSlow = Math.fma(betaSlow, emaSlow, kSlow * vf);
+         kvoValue = emaFast - emaSlow;
+         signalValue = Math.fma(betaSignal, signalValue, kSignal * kvoValue);
+         prevHlc = hlc;
+         prevDm = dmToday;
+         prevTrend = trend;
+         today = today + 1;
+      }
+      outIdx = 0;
+      while( today <= endIdx ) {
+         hlc = inHigh[today] + inLow[today] + inClose[today];
+         dmToday = inHigh[today] - inLow[today];
+         if( hlc > prevHlc ) {
+            trend = 1.0;
+         } else if( hlc < prevHlc ) {
+            trend = -1.0;
+         } else {
+            trend = prevTrend;
+         }
+         if( trend != prevTrend ) {
+            cm = prevDm + dmToday;
+         } else {
+            cm = cm + dmToday;
+         }
+         if( cm == 0.0 ) {
+            vf = 0.0;
+         } else {
+            vf = inVolume[today] * Math.abs(2.0 * (dmToday / cm) - 1.0) * 100.0 * trend;
+         }
+         emaFast = Math.fma(betaFast, emaFast, kFast * vf);
+         emaSlow = Math.fma(betaSlow, emaSlow, kSlow * vf);
+         kvoValue = emaFast - emaSlow;
+         signalValue = Math.fma(betaSignal, signalValue, kSignal * kvoValue);
+         outKVO[outIdx * outStride] = kvoValue;
+         outKVOSignal[outIdx * outStride] = signalValue;
+         outIdx = outIdx + 1;
+         prevHlc = hlc;
+         prevDm = dmToday;
+         prevTrend = trend;
+         today = today + 1;
+      }
+      outNBElement.value = outIdx;
+      outBegIdx.value = startIdx;
+      /* Capture the live batch state into the handle. */
+      sp.optInFastPeriod = optInFastPeriod;
+      sp.optInSlowPeriod = optInSlowPeriod;
+      sp.optInSignalPeriod = optInSignalPeriod;
+      sp.kFast = kFast;
+      sp.kSlow = kSlow;
+      sp.kSignal = kSignal;
+      sp.betaFast = betaFast;
+      sp.betaSlow = betaSlow;
+      sp.betaSignal = betaSignal;
+      sp.prevHlc = prevHlc;
+      sp.prevDm = prevDm;
+      sp.emaFast = emaFast;
+      sp.emaSlow = emaSlow;
+      sp.cm = cm;
+      sp.prevTrend = prevTrend;
+      sp.signalValue = signalValue;
+      sp.cur_outKVO = outKVO[(outNBElement.value - 1) * outStride];
+      sp.cur_outKVOSignal = outKVOSignal[(outNBElement.value - 1) * outStride];
+      return RetCode.SUCCESS;
+   }
+   /* kvoOpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   KvoStream kvoOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outKVO[], double outKVOSignal[] )
+   {
+      KvoStream sp = new KvoStream(this);
+      RetCode retCode = kvoOpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outKVO, outKVOSignal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("KVO openAndFill", inHigh.length, startIdx, kvoLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      }
+      throw streamFailure("KVO openAndFill", retCode);
+   }
+   /* Internal startIdx-anchored open behind kvoOpen (composition seam). */
+   KvoStream kvoOpenInternal( double inHigh[], double inLow[], double inClose[], double inVolume[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
+   {
+      KvoStream sp = new KvoStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outKVO = new double[1];
+      double[] sink_outKVOSignal = new double[1];
+      RetCode retCode = kvoOpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, sink_outKVO, sink_outKVOSignal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("KVO open", inHigh.length, startIdx, kvoLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      }
+      throw streamFailure("KVO open", retCode);
+   }
+   /**
+    * Open a live KVO stream over the warm-up history; the handle's
+    * {@code value()} starts at the last history bar's value — bit-identical
+    * to {@link Core#kvo} at that bar.
+    * <p>The history must hold at least {@code kvoLookback(...) + 1} bars
+    * (unstable-period aware), or {@link InsufficientHistoryException} is
+    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
+    */
+   public KvoStream kvoOpen( double inHigh[], double inLow[], double inClose[], double inVolume[], int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
+   {
+      requireArgument("KVO open", "inHigh", inHigh);
+      requireHistory("KVO open", inHigh.length);
+      requireArgument("KVO open", "inLow", inLow);
+      requireArgument("KVO open", "inClose", inClose);
+      requireArgument("KVO open", "inVolume", inVolume);
+      requireHistoryLength("KVO open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("KVO open", "inClose", inClose.length, inHigh.length);
+      requireHistoryLength("KVO open", "inVolume", inVolume.length, inHigh.length);
+      return kvoOpenInternal(inHigh, inLow, inClose, inVolume, 0, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+   }
+   /**
+    * {@link Core#kvoOpen} that also fills the output array(s) bit-identically
+    * to {@link Core#kvo} over the whole history in the same single pass
+    * (no separate batch call needed for the warm-up plot). Output arrays must
+    * not alias the inputs or each other, and must hold
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
+    * <p>The range written is on the returned handle:
+    * {@link KvoStream#outRange()}.
+    */
+   public KvoStream kvoOpenAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double outKVO[], double outKVOSignal[] )
+   {
+      requireArgument("KVO openAndFill", "inHigh", inHigh);
+      requireHistory("KVO openAndFill", inHigh.length);
+      requireArgument("KVO openAndFill", "inLow", inLow);
+      requireArgument("KVO openAndFill", "inClose", inClose);
+      requireArgument("KVO openAndFill", "inVolume", inVolume);
+      int guardOutLen = openFillCount("KVO openAndFill", inHigh.length, kvoLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      requireHistoryLength("KVO openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("KVO openAndFill", "inClose", inClose.length, inHigh.length);
+      requireHistoryLength("KVO openAndFill", "inVolume", inVolume.length, inHigh.length);
+      requireLength("KVO openAndFill", "outKVO", outKVO, guardOutLen);
+      requireLength("KVO openAndFill", "outKVOSignal", outKVOSignal, guardOutLen);
+      if( (Object)outKVO == (Object)inHigh || (Object)outKVO == (Object)inLow || (Object)outKVO == (Object)inClose || (Object)outKVO == (Object)inVolume || (Object)outKVOSignal == (Object)inHigh || (Object)outKVOSignal == (Object)inLow || (Object)outKVOSignal == (Object)inClose || (Object)outKVOSignal == (Object)inVolume || (Object)outKVO == (Object)outKVOSignal ) {
+         throw streamFailure("KVO openAndFill", RetCode.BAD_PARAM);
+      }
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      return kvoOpenAndFillInternal(inHigh, inLow, inClose, inVolume, 0, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outKVO, outKVOSignal);
    }
 /* List of contributors:
  *
@@ -162275,6 +164497,10 @@ public final class Core {
     * volatility; unit is percent of price.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/natr">ta-lib.org/functions/natr</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The close is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
     * library never pads with NaN. A valid range that ends before
@@ -162341,6 +164567,10 @@ public final class Core {
     * volatility; unit is percent of price.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/natr">ta-lib.org/functions/natr</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The close is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -163082,6 +165312,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/nvi">ta-lib.org/functions/nvi</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The previous close is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The index compounds, so it has no upper bound. If a run of large rises ever pushes it past the largest representable number, the last representable value is carried forward instead of returning infinity. Real price series stay far away from that.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
@@ -163142,6 +165373,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/nvi">ta-lib.org/functions/nvi</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The previous close is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The index compounds, so it has no upper bound. If a run of large rises ever pushes it past the largest representable number, the last representable value is carried forward instead of returning infinity. Real price series stay far away from that.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -170481,6 +172713,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/ppo">ta-lib.org/functions/ppo</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The slow moving average is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</li>
     * <li>If the slow period is set smaller than the fast period, the two are swapped, as in {@code MACD}.</li>
     * </ul>
@@ -170555,6 +172788,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/ppo">ta-lib.org/functions/ppo</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The slow moving average is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</li>
     * <li>If the slow period is set smaller than the fast period, the two are swapped, as in {@code MACD}.</li>
     * </ul>
@@ -172938,6 +175172,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/pvi">ta-lib.org/functions/pvi</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The previous close is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The index compounds, so it has no upper bound. If a run of large rises ever pushes it past the largest representable number, the last representable value is carried forward instead of returning infinity. Real price series stay far away from that.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
@@ -172998,6 +175233,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/pvi">ta-lib.org/functions/pvi</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The previous close is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The index compounds, so it has no upper bound. If a run of large rises ever pushes it past the largest representable number, the last representable value is carried forward instead of returning infinity. Real price series stay far away from that.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -174763,6 +176999,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/pvt">ta-lib.org/functions/pvt</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The previous close is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The absolute level is arbitrary and depends on where the accumulation started, so two ranges over the same data give curves of the same shape at different offsets.</li>
     * <li>Some libraries scale the per-bar term by 100. This implementation follows the fractional definition, which every primary reference below states.</li>
     * <li>A bar whose previous close is exactly zero contributes nothing and the running total is carried forward unchanged, rather than dividing by zero. A flat stretch of the output can therefore mean either genuine zero net accumulation or a run of zero previous closes.</li>
@@ -174835,6 +177072,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/pvt">ta-lib.org/functions/pvt</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The previous close is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The absolute level is arbitrary and depends on where the accumulation started, so two ranges over the same data give curves of the same shape at different offsets.</li>
     * <li>Some libraries scale the per-bar term by 100. This implementation follows the fractional definition, which every primary reference below states.</li>
     * <li>A bar whose previous close is exactly zero contributes nothing and the running total is carried forward unchanged, rather than dividing by zero. A flat stretch of the output can therefore mean either genuine zero net accumulation or a run of zero previous closes.</li>
@@ -176809,6 +179047,10 @@ public final class Core {
     * it fell; magnitude scales the move.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/roc">ta-lib.org/functions/roc</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The price {@code optInTimePeriod} bars back is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
     * library never pads with NaN. A valid range that ends before
@@ -176869,6 +179111,10 @@ public final class Core {
     * it fell; magnitude scales the move.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/roc">ta-lib.org/functions/roc</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The price {@code optInTimePeriod} bars back is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -177461,6 +179707,10 @@ public final class Core {
     * vs N bars ago, &lt;0 falling; equals ROC/100.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/rocp">ta-lib.org/functions/rocp</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The price {@code optInTimePeriod} bars back is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
     * library never pads with NaN. A valid range that ends before
@@ -177521,6 +179771,10 @@ public final class Core {
     * vs N bars ago, &lt;0 falling; equals ROC/100.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/rocp">ta-lib.org/functions/rocp</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The price {@code optInTimePeriod} bars back is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -178116,6 +180370,10 @@ public final class Core {
     * positive, centered at 1: &gt;1 rising, &lt;1 falling.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/rocr">ta-lib.org/functions/rocr</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The price {@code optInTimePeriod} bars back is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
     * library never pads with NaN. A valid range that ends before
@@ -178176,6 +180434,10 @@ public final class Core {
     * positive, centered at 1: &gt;1 rising, &lt;1 falling.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/rocr">ta-lib.org/functions/rocr</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The price {@code optInTimePeriod} bars back is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -178772,6 +181034,10 @@ public final class Core {
     * fell.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/rocr100">ta-lib.org/functions/rocr100</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The price {@code optInTimePeriod} bars back is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
     * library never pads with NaN. A valid range that ends before
@@ -178833,6 +181099,10 @@ public final class Core {
     * fell.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/rocr100">ta-lib.org/functions/rocr100</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>The input is assumed positive.</b> The price {@code optInTimePeriod} bars back is the divisor. Where it is exactly 0 the output is 0. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -191517,7 +193787,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/sqrt">ta-lib.org/functions/sqrt</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>A negative input has no real square root, so those elements come out NaN.</li>
+    * <li>A negative input has no real square root, so those elements come out NaN. A zero input gives 0.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -191570,7 +193840,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/sqrt">ta-lib.org/functions/sqrt</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>A negative input has no real square root, so those elements come out NaN.</li>
+    * <li>A negative input has no real square root, so those elements come out NaN. A zero input gives 0.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -191859,6 +194129,1321 @@ public final class Core {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       return sqrtOpenAndFillInternal(inReal, 0, outBegIdx, outNBElement, outReal);
+   }
+/* List of contributors:
+ *
+ *  Initial  Name/description
+ *  -------------------------------------------------------------------
+ *  MF       Mario Fortier
+ *  KL       Kevin Lin (@kevinlincg)
+ *  CC       Claude Code (AI assistant)
+ *
+ * Change history:
+ *
+ *  MMDDYY BY     Description
+ *  -------------------------------------------------------------------
+ *  100826 KL,CC  Creation (#488).
+ *  101126 MF,CC  Reject factors out of order (#488).
+ *  101126 MF,CC  DEV in one loop instead of three calls (#488).
+ *  101126 MF,CC  Both bands from one rounded deviation, as bbands (#488).
+ *  101126 MF,CC  One Keltner centre for both loops (#543).
+ */
+
+   /**
+    * Number of leading input bars {@link Core#sqzmom} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInBBPeriod Number of bars in the Bollinger Band window (default
+    *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInNbDev Number of standard deviations the Bollinger Bands are
+    *        placed at (default 2; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInKCPeriod Number of bars in the Keltner Channel, the true-range
+    *        mean and the regression (default 20; range 2..100000;
+    *        {@code Integer.MIN_VALUE} selects the default).
+    * @param optInFactorWide Keltner width, in true-range means, of the widest
+    *        channel (default 2; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInFactorNormal Keltner width of the classic channel (default
+    *        1.5; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInFactorNarrow Keltner width of the tightest channel (default 1;
+    *        minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
+   public int sqzmomLookback( int optInBBPeriod, double optInNbDev, int optInKCPeriod, double optInFactorWide, double optInFactorNormal, double optInFactorNarrow )
+   {
+      if( optInBBPeriod == Integer.MIN_VALUE ) {
+         optInBBPeriod = 20;
+      } else if( optInBBPeriod < 2 || optInBBPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInNbDev == REAL_DEFAULT ) {
+         optInNbDev = 2e0;
+      } else if( !(optInNbDev >= 0e0 && optInNbDev <= REAL_MAX) ) {
+         return -1;
+      }
+      if( optInKCPeriod == Integer.MIN_VALUE ) {
+         optInKCPeriod = 20;
+      } else if( optInKCPeriod < 2 || optInKCPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInFactorWide == REAL_DEFAULT ) {
+         optInFactorWide = 2e0;
+      } else if( !(optInFactorWide >= 0e0 && optInFactorWide <= REAL_MAX) ) {
+         return -1;
+      }
+      if( optInFactorNormal == REAL_DEFAULT ) {
+         optInFactorNormal = 1.5e0;
+      } else if( !(optInFactorNormal >= 0e0 && optInFactorNormal <= REAL_MAX) ) {
+         return -1;
+      }
+      if( optInFactorNarrow == REAL_DEFAULT ) {
+         optInFactorNarrow = 1e0;
+      } else if( !(optInFactorNarrow >= 0e0 && optInFactorNarrow <= REAL_MAX) ) {
+         return -1;
+      }
+      int lookbackTotal;
+      int leg;
+      /* The range check cannot order the three factors; without this the lookback
+       * answers a usable number for a call that cannot run.
+       */
+      if( optInFactorNormal > optInFactorWide || optInFactorNarrow > optInFactorNormal ) {
+         return -1 ;
+      }
+      /* Three chains reach the first bar at which both outputs exist, and the
+       * first output is the longest of them:
+       *
+       *   bands        sma(b) / stddev(b)           = b-1
+       *   compression  trange -> sma(k)             = 1 + (k-1) = k
+       *   momentum     midprice(k) -> linearreg(k)  = (k-1) + (k-1) = 2(k-1)
+       *
+       * The Keltner centre, sma(k) on the close, is k-1 and never dominates the
+       * momentum chain it also feeds. At b = k = 20 the three read 19, 20 and 38,
+       * which is where pandas, ta4j and trading-signals put their first value.
+       * The factors scale a band that already exists, so they do not enter.
+       */
+      lookbackTotal = smaLookback(optInBBPeriod);
+      leg = stddevLookback(optInBBPeriod, 1.0);
+      if( leg > lookbackTotal ) {
+         lookbackTotal = leg;
+      }
+      leg = trangeLookback() + smaLookback(optInKCPeriod);
+      if( leg > lookbackTotal ) {
+         lookbackTotal = leg;
+      }
+      leg = midpriceLookback(optInKCPeriod) + linearregLookback(optInKCPeriod);
+      if( leg > lookbackTotal ) {
+         lookbackTotal = leg;
+      }
+      return lookbackTotal ;
+
+   }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#sqzmom}.
+    * <p>Every output of this function is drawn at its own bar, so the answer is
+    * 0.
+    *
+    * @param optInBBPeriod Number of bars in the Bollinger Band window (default
+    *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInNbDev Number of standard deviations the Bollinger Bands are
+    *        placed at (default 2; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInKCPeriod Number of bars in the Keltner Channel, the true-range
+    *        mean and the regression (default 20; range 2..100000;
+    *        {@code Integer.MIN_VALUE} selects the default).
+    * @param optInFactorWide Keltner width, in true-range means, of the widest
+    *        channel (default 2; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInFactorNormal Keltner width of the classic channel (default
+    *        1.5; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInFactorNarrow Keltner width of the tightest channel (default 1;
+    *        minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int sqzmomDisplayShift( int optInBBPeriod, double optInNbDev, int optInKCPeriod, double optInFactorWide, double optInFactorNormal, double optInFactorNarrow, int outputIdx )
+   {
+      if( sqzmomLookback( optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 2 ) {
+         return Integer.MIN_VALUE;
+      }
+      return 0;
+   }
+   RetCode sqzmomImpl( int startIdx,
+                       int endIdx,
+                       double inHigh[],
+                       double inLow[],
+                       double inClose[],
+                       int optInBBPeriod,
+                       double optInNbDev,
+                       int optInKCPeriod,
+                       double optInFactorWide,
+                       double optInFactorNormal,
+                       double optInFactorNarrow,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outMomentum[],
+                       int outSqueeze[] )
+   {
+      RetCode retCode;
+      int lookbackTotal = 0;
+      int stageLookback = 0;
+      int stageIdx = 0;
+      int stageLen = 0;
+      int i = 0;
+      int n = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      MInteger kcmNb = new MInteger();
+      MInteger sdNb = new MInteger();
+      int kcmShift = 0;
+      double[] tempDev;
+      double[] tempWork;
+      double[] tempKCM;
+      double[] tempMid;
+      double[] tempSD;
+      double dev = 0;
+      double up = 0;
+      double lo = 0;
+      double centre = 0;
+      double band = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInBBPeriod == Integer.MIN_VALUE ) {
+         optInBBPeriod = 20;
+      } else if( optInBBPeriod < 2 || optInBBPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInNbDev == REAL_DEFAULT ) {
+         optInNbDev = 2e0;
+      } else if( !(optInNbDev >= 0e0 && optInNbDev <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInKCPeriod == Integer.MIN_VALUE ) {
+         optInKCPeriod = 20;
+      } else if( optInKCPeriod < 2 || optInKCPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorWide == REAL_DEFAULT ) {
+         optInFactorWide = 2e0;
+      } else if( !(optInFactorWide >= 0e0 && optInFactorWide <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorNormal == REAL_DEFAULT ) {
+         optInFactorNormal = 1.5e0;
+      } else if( !(optInFactorNormal >= 0e0 && optInFactorNormal <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorNarrow == REAL_DEFAULT ) {
+         optInFactorNarrow = 1e0;
+      } else if( !(optInFactorNarrow >= 0e0 && optInFactorNarrow <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      /* Each rolling statistic is a call to the shipped function, so it carries
+       * that function's own arithmetic bit for bit:
+       *
+       *   BBU, BBL = sma(close, b) +/- nbdev * stddev(close, b, 1.0)
+       *   KCM      = sma(close, k)
+       *   BAND     = sma(trange(high,low,close), k)      the simple mean of TR
+       *   DMID     = midprice(high, low, k)
+       *   DEV      = close - (DMID + KCM)/2
+       *   momentum = linearreg(DEV, k)
+       *
+       * A composed sub-call cannot be handed an MA-type constant, so the bands
+       * are the sma + stddev pair and not a bbands call.
+       *
+       * Two chains need their input one window earlier than the first output bar:
+       * sma(k) over TR, and linearreg(k) over DEV. Both windows are k-1 long, so
+       * one staged range serves both.
+       */
+      /* A channel wider than the one it should nest in breaks the ladder: a bar
+       * could then be inside "narrow" and outside "normal". Ties are allowed, and
+       * wide == normal is the classic on/off/none squeeze.
+       */
+      if( optInFactorNormal > optInFactorWide || optInFactorNarrow > optInFactorNormal ) {
+         return RetCode.BAD_PARAM ;
+      }
+      lookbackTotal = sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow);
+      if( lookbackTotal > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      n = endIdx - startIdx + 1;
+      stageLookback = linearregLookback(optInKCPeriod);
+      stageIdx = startIdx - stageLookback;
+      stageLen = n + stageLookback;
+      tempDev = new double[(int)(stageLen * 1)];
+      tempWork = new double[(int)(stageLen * 1)];
+      tempKCM = new double[(int)(stageLen * 1)];
+      tempMid = new double[(int)(n * 1)];
+      tempSD = new double[(int)(n * 1)];
+      /* The momentum anchor: the Donchian midpoint and the Keltner centre, averaged.
+       * midprice is bit-identical to donchian's middle band.
+       */
+      OutRange _xr0 = midprice(stageIdx, endIdx, inHigh, inLow, optInKCPeriod, tempDev);
+      outBegIdx.value = _xr0.begIdx();
+      outNBElement.value = _xr0.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr1 = sma(stageIdx, endIdx, inClose, optInKCPeriod, tempKCM);
+      tempBegIdx.value = _xr1.begIdx();
+      kcmNb.value = _xr1.count();
+      retCode = RetCode.SUCCESS;
+      /* DEV, over the staged range. The close is read at the index midprice
+       * reported for the range, which is what lets this loop stream: keep
+       * outBegIdx as midprice's receiver, and reuse it for no call above here.
+       */
+      for( i = 0; i < stageLen; i += 1 ) {
+         tempDev[i] = inClose[outBegIdx.value + i] - (tempDev[i] + tempKCM[i]) / 2.0;
+      }
+      /* The compression band: the simple mean of the true range, not an ATR.
+       * trange's own lookback is 1, and stageIdx is at least 1 because the
+       * compression chain alone puts lookbackTotal at k or more.
+       */
+      OutRange _xr2 = trange(stageIdx, endIdx, inHigh, inLow, inClose, tempWork);
+      tempBegIdx.value = _xr2.begIdx();
+      tempNbElement.value = _xr2.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr3 = sma(0, stageLen - 1, tempWork, optInKCPeriod, tempWork);
+      tempBegIdx.value = _xr3.begIdx();
+      tempNbElement.value = _xr3.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr4 = sma(startIdx, endIdx, inClose, optInBBPeriod, tempMid);
+      tempBegIdx.value = _xr4.begIdx();
+      tempNbElement.value = _xr4.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr5 = stddev(startIdx, endIdx, inClose, optInBBPeriod, 1.0, tempSD);
+      tempBegIdx.value = _xr5.begIdx();
+      sdNb.value = _xr5.count();
+      retCode = RetCode.SUCCESS;
+      /* The centre is staged one regression window early; the shift puts it on
+       * the bar the bands are on.
+       */
+      kcmShift = kcmNb.value - sdNb.value;
+      /* LAST of the calls, because it is the first to write a caller buffer. Every
+       * read of high, low and close is above it, so an output aliased onto one of
+       * them -- which the abstract layer tests on purpose -- is still intact when it
+       * is read.
+       *
+       * The regression window closes on the first output bar, so entering it at 0 of
+       * the staged range puts its first fitted value on startIdx.
+       */
+      OutRange _xr6 = linearreg(0, stageLen - 1, tempDev, optInKCPeriod, outMomentum);
+      tempBegIdx.value = _xr6.begIdx();
+      tempNbElement.value = _xr6.count();
+      retCode = RetCode.SUCCESS;
+      /* The ordinal. Every comparison is strict: a band exactly on a channel
+       * edge is not inside that channel and not outside it either.
+       *
+       * Keep the deviation a rounded product added to and subtracted from the
+       * middle band, as bbands does. Written as one expression per band, the
+       * upper one contracts into a fused multiply-add and the lower one cannot,
+       * and a band within one ulp of an edge then changes level.
+       */
+      for( i = 0; i < n; i += 1 ) {
+         dev = tempSD[i] * optInNbDev;
+         up = tempMid[i] + dev;
+         lo = tempMid[i] - dev;
+         centre = tempKCM[i + kcmShift];
+         band = tempWork[i];
+         if( lo > centre - optInFactorNarrow * band && up < centre + optInFactorNarrow * band ) {
+            outSqueeze[i] = 3;
+         } else if( lo > centre - optInFactorNormal * band && up < centre + optInFactorNormal * band ) {
+            outSqueeze[i] = 2;
+         } else if( lo > centre - optInFactorWide * band && up < centre + optInFactorWide * band ) {
+            outSqueeze[i] = 1;
+         } else if( lo < centre - optInFactorWide * band && up > centre + optInFactorWide * band ) {
+            outSqueeze[i] = -1;
+         } else {
+            outSqueeze[i] = 0;
+         }
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = n;
+      return RetCode.SUCCESS ;
+   }
+   RetCode sqzmomImpl( int startIdx,
+                       int endIdx,
+                       float inHigh[],
+                       float inLow[],
+                       float inClose[],
+                       int optInBBPeriod,
+                       double optInNbDev,
+                       int optInKCPeriod,
+                       double optInFactorWide,
+                       double optInFactorNormal,
+                       double optInFactorNarrow,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outMomentum[],
+                       int outSqueeze[] )
+   {
+      RetCode retCode;
+      int lookbackTotal = 0;
+      int stageLookback = 0;
+      int stageIdx = 0;
+      int stageLen = 0;
+      int i = 0;
+      int n = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      MInteger kcmNb = new MInteger();
+      MInteger sdNb = new MInteger();
+      int kcmShift = 0;
+      double[] tempDev;
+      double[] tempWork;
+      double[] tempKCM;
+      double[] tempMid;
+      double[] tempSD;
+      double dev = 0;
+      double up = 0;
+      double lo = 0;
+      double centre = 0;
+      double band = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInBBPeriod == Integer.MIN_VALUE ) {
+         optInBBPeriod = 20;
+      } else if( optInBBPeriod < 2 || optInBBPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInNbDev == REAL_DEFAULT ) {
+         optInNbDev = 2e0;
+      } else if( !(optInNbDev >= 0e0 && optInNbDev <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInKCPeriod == Integer.MIN_VALUE ) {
+         optInKCPeriod = 20;
+      } else if( optInKCPeriod < 2 || optInKCPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorWide == REAL_DEFAULT ) {
+         optInFactorWide = 2e0;
+      } else if( !(optInFactorWide >= 0e0 && optInFactorWide <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorNormal == REAL_DEFAULT ) {
+         optInFactorNormal = 1.5e0;
+      } else if( !(optInFactorNormal >= 0e0 && optInFactorNormal <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorNarrow == REAL_DEFAULT ) {
+         optInFactorNarrow = 1e0;
+      } else if( !(optInFactorNarrow >= 0e0 && optInFactorNarrow <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorNormal > optInFactorWide || optInFactorNarrow > optInFactorNormal ) {
+         return RetCode.BAD_PARAM ;
+      }
+      lookbackTotal = sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow);
+      if( lookbackTotal > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      n = endIdx - startIdx + 1;
+      stageLookback = linearregLookback(optInKCPeriod);
+      stageIdx = startIdx - stageLookback;
+      stageLen = n + stageLookback;
+      tempDev = new double[(int)(stageLen * 1)];
+      tempWork = new double[(int)(stageLen * 1)];
+      tempKCM = new double[(int)(stageLen * 1)];
+      tempMid = new double[(int)(n * 1)];
+      tempSD = new double[(int)(n * 1)];
+      OutRange _xr0 = midprice(stageIdx, endIdx, inHigh, inLow, optInKCPeriod, tempDev);
+      outBegIdx.value = _xr0.begIdx();
+      outNBElement.value = _xr0.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr1 = sma(stageIdx, endIdx, inClose, optInKCPeriod, tempKCM);
+      tempBegIdx.value = _xr1.begIdx();
+      kcmNb.value = _xr1.count();
+      retCode = RetCode.SUCCESS;
+      for( i = 0; i < stageLen; i += 1 ) {
+         tempDev[i] = (double)inClose[outBegIdx.value + i] - (tempDev[i] + tempKCM[i]) / 2.0;
+      }
+      OutRange _xr2 = trange(stageIdx, endIdx, inHigh, inLow, inClose, tempWork);
+      tempBegIdx.value = _xr2.begIdx();
+      tempNbElement.value = _xr2.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr3 = sma(0, stageLen - 1, tempWork, optInKCPeriod, tempWork);
+      tempBegIdx.value = _xr3.begIdx();
+      tempNbElement.value = _xr3.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr4 = sma(startIdx, endIdx, inClose, optInBBPeriod, tempMid);
+      tempBegIdx.value = _xr4.begIdx();
+      tempNbElement.value = _xr4.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr5 = stddev(startIdx, endIdx, inClose, optInBBPeriod, 1.0, tempSD);
+      tempBegIdx.value = _xr5.begIdx();
+      sdNb.value = _xr5.count();
+      retCode = RetCode.SUCCESS;
+      kcmShift = kcmNb.value - sdNb.value;
+      OutRange _xr6 = linearreg(0, stageLen - 1, tempDev, optInKCPeriod, outMomentum);
+      tempBegIdx.value = _xr6.begIdx();
+      tempNbElement.value = _xr6.count();
+      retCode = RetCode.SUCCESS;
+      for( i = 0; i < n; i += 1 ) {
+         dev = tempSD[i] * optInNbDev;
+         up = tempMid[i] + dev;
+         lo = tempMid[i] - dev;
+         centre = tempKCM[i + kcmShift];
+         band = tempWork[i];
+         if( lo > centre - optInFactorNarrow * band && up < centre + optInFactorNarrow * band ) {
+            outSqueeze[i] = 3;
+         } else if( lo > centre - optInFactorNormal * band && up < centre + optInFactorNormal * band ) {
+            outSqueeze[i] = 2;
+         } else if( lo > centre - optInFactorWide * band && up < centre + optInFactorWide * band ) {
+            outSqueeze[i] = 1;
+         } else if( lo < centre - optInFactorWide * band && up > centre + optInFactorWide * band ) {
+            outSqueeze[i] = -1;
+         } else {
+            outSqueeze[i] = 0;
+         }
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = n;
+      return RetCode.SUCCESS ;
+   }
+   /**
+    * John Carter's TTM Squeeze, in the form LazyBear published on TradingView
+    * in 2014. Volatility compression is read by comparing the Bollinger Bands
+    * against a Keltner Channel: when the bands sit inside the channel the
+    * market is coiled, and when they push outside it the coil has released.
+    * LazyBear replaced Carter's simple momentum with a linear regression of the
+    * close against a Donchian/SMA anchor, which is the histogram that
+    * StockCharts, ta4j and trading-signals compute, and pandas-ta with
+    * {@code lazybear=True}. "Squeeze Pro" tests the bands against three Keltner
+    * widths instead of one, so compression becomes a level rather than a
+    * boolean. {@code outSqueeze} carries that level: 3, 2 and 1 for the narrow,
+    * normal and wide channels, -1 once the bands are outside the wide channel,
+    * and 0 in between. The classic squeeze-on flag is
+    * {@code outSqueeze &gt;= 2}, and with {@code wide == normal} the three
+    * states are exactly LazyBear's on / off / none.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/sqzmom">ta-lib.org/functions/sqzmom</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>{@code BAND} is the simple mean of the true range over {@code k} bars, not an ATR: no Wilder smoothing, and so no unstable period anywhere in this function.</li>
+    * <li>The anchor is written three ways across the sources — {@code avg(avg(HH,LL), SMA)}, {@code ((HH+LL)/2 + SMA)/2} and {@code 0.25*(HH+LL) + 0.5*SMA}. All three give the same double, because scaling by a power of two is exact.</li>
+    * <li>The three channels share a centre and {@code BAND &gt;= 0}, so they nest: inside the narrow one implies inside the normal one implies inside the wide one. The ordinal is therefore monotone, and the factors are required only to be ordered {@code wide &gt;= normal &gt;= narrow &gt;= 0}, not strictly. Factors out of that order are rejected with {@code TA_BAD_PARAM}.</li>
+    * <li>The momentum window is the Keltner period, as in LazyBear's script, pandas and trading-signals.</li>
+    * <li>The three chains that feed the outputs do not reach their first value together. The first output bar is the latest of them, so where {@code b} is much larger than {@code k} the momentum exists before the state does and is still withheld until both do. pandas emits the earlier momentum; a capture compared against it must start at the later bar.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#sqzmomLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Closing price of each bar.
+    * @param optInBBPeriod Number of bars in the Bollinger Band window (default
+    *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInNbDev Number of standard deviations the Bollinger Bands are
+    *        placed at (default 2; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInKCPeriod Number of bars in the Keltner Channel, the true-range
+    *        mean and the regression (default 20; range 2..100000;
+    *        {@code Integer.MIN_VALUE} selects the default).
+    * @param optInFactorWide Keltner width, in true-range means, of the widest
+    *        channel (default 2; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInFactorNormal Keltner width of the classic channel (default
+    *        1.5; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInFactorNarrow Keltner width of the tightest channel (default 1;
+    *        minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param outMomentum Linear regression of the close against the Donchian/SMA
+    *        anchor. Must hold at least
+    *        {@code endIdx - max(startIdx, sqzmomLookback(...)) + 1} values, and never
+    *        be empty: an empty array is an absent output.
+    * @param outSqueeze Compression level: 3 narrow, 2 normal, 1 wide, -1
+    *        released, 0 otherwise. Must hold at least
+    *        {@code endIdx - max(startIdx, sqzmomLookback(...)) + 1} values, and never
+    *        be empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
+    *
+    * @see Core#bbands
+    * @see Core#kc
+    * @see Core#trange
+    * @see Core#midprice
+    * @see Core#linearreg
+    */
+   public OutRange sqzmom( int startIdx,
+                           int endIdx,
+                           double inHigh[],
+                           double inLow[],
+                           double inClose[],
+                           int optInBBPeriod,
+                           double optInNbDev,
+                           int optInKCPeriod,
+                           double optInFactorWide,
+                           double optInFactorNormal,
+                           double optInFactorNarrow,
+                           double outMomentum[],
+                           int outSqueeze[] )
+   {
+      requireIndexRange("SQZMOM", startIdx, endIdx);
+      int guardStart = clampedStart("SQZMOM", startIdx, sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("SQZMOM", "inHigh", inHigh, guardInLen);
+      requireLength("SQZMOM", "inLow", inLow, guardInLen);
+      requireLength("SQZMOM", "inClose", inClose, guardInLen);
+      requireLength("SQZMOM", "outMomentum", outMomentum, guardOutLen);
+      requireLength("SQZMOM", "outSqueeze", outSqueeze, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = sqzmomImpl(startIdx, endIdx, inHigh, inLow, inClose, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, outBegIdx, outNBElement, outMomentum, outSqueeze);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("SQZMOM", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * John Carter's TTM Squeeze, in the form LazyBear published on TradingView
+    * in 2014. Volatility compression is read by comparing the Bollinger Bands
+    * against a Keltner Channel: when the bands sit inside the channel the
+    * market is coiled, and when they push outside it the coil has released.
+    * LazyBear replaced Carter's simple momentum with a linear regression of the
+    * close against a Donchian/SMA anchor, which is the histogram that
+    * StockCharts, ta4j and trading-signals compute, and pandas-ta with
+    * {@code lazybear=True}. "Squeeze Pro" tests the bands against three Keltner
+    * widths instead of one, so compression becomes a level rather than a
+    * boolean. {@code outSqueeze} carries that level: 3, 2 and 1 for the narrow,
+    * normal and wide channels, -1 once the bands are outside the wide channel,
+    * and 0 in between. The classic squeeze-on flag is
+    * {@code outSqueeze &gt;= 2}, and with {@code wide == normal} the three
+    * states are exactly LazyBear's on / off / none.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/sqzmom">ta-lib.org/functions/sqzmom</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>{@code BAND} is the simple mean of the true range over {@code k} bars, not an ATR: no Wilder smoothing, and so no unstable period anywhere in this function.</li>
+    * <li>The anchor is written three ways across the sources — {@code avg(avg(HH,LL), SMA)}, {@code ((HH+LL)/2 + SMA)/2} and {@code 0.25*(HH+LL) + 0.5*SMA}. All three give the same double, because scaling by a power of two is exact.</li>
+    * <li>The three channels share a centre and {@code BAND &gt;= 0}, so they nest: inside the narrow one implies inside the normal one implies inside the wide one. The ordinal is therefore monotone, and the factors are required only to be ordered {@code wide &gt;= normal &gt;= narrow &gt;= 0}, not strictly. Factors out of that order are rejected with {@code TA_BAD_PARAM}.</li>
+    * <li>The momentum window is the Keltner period, as in LazyBear's script, pandas and trading-signals.</li>
+    * <li>The three chains that feed the outputs do not reach their first value together. The first output bar is the latest of them, so where {@code b} is much larger than {@code k} the momentum exists before the state does and is still withheld until both do. pandas emits the earlier momentum; a capture compared against it must start at the later bar.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#sqzmomLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param inClose Closing price of each bar.
+    * @param optInBBPeriod Number of bars in the Bollinger Band window (default
+    *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    * @param optInNbDev Number of standard deviations the Bollinger Bands are
+    *        placed at (default 2; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInKCPeriod Number of bars in the Keltner Channel, the true-range
+    *        mean and the regression (default 20; range 2..100000;
+    *        {@code Integer.MIN_VALUE} selects the default).
+    * @param optInFactorWide Keltner width, in true-range means, of the widest
+    *        channel (default 2; minimum 0; {@link Core#REAL_DEFAULT} selects the
+    *        default).
+    * @param optInFactorNormal Keltner width of the classic channel (default
+    *        1.5; minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInFactorNarrow Keltner width of the tightest channel (default 1;
+    *        minimum 0; {@link Core#REAL_DEFAULT} selects the default).
+    * @param outMomentum Linear regression of the close against the Donchian/SMA
+    *        anchor. Must hold at least
+    *        {@code endIdx - max(startIdx, sqzmomLookback(...)) + 1} values, and never
+    *        be empty: an empty array is an absent output.
+    * @param outSqueeze Compression level: 3 narrow, 2 normal, 1 wide, -1
+    *        released, 0 otherwise. Must hold at least
+    *        {@code endIdx - max(startIdx, sqzmomLookback(...)) + 1} values, and never
+    *        be empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
+    *
+    * @see Core#bbands
+    * @see Core#kc
+    * @see Core#trange
+    * @see Core#midprice
+    * @see Core#linearreg
+    */
+   public OutRange sqzmom( int startIdx,
+                           int endIdx,
+                           float inHigh[],
+                           float inLow[],
+                           float inClose[],
+                           int optInBBPeriod,
+                           double optInNbDev,
+                           int optInKCPeriod,
+                           double optInFactorWide,
+                           double optInFactorNormal,
+                           double optInFactorNarrow,
+                           double outMomentum[],
+                           int outSqueeze[] )
+   {
+      requireIndexRange("SQZMOM", startIdx, endIdx);
+      int guardStart = clampedStart("SQZMOM", startIdx, sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("SQZMOM", "inHigh", inHigh, guardInLen);
+      requireLength("SQZMOM", "inLow", inLow, guardInLen);
+      requireLength("SQZMOM", "inClose", inClose, guardInLen);
+      requireLength("SQZMOM", "outMomentum", outMomentum, guardOutLen);
+      requireLength("SQZMOM", "outSqueeze", outSqueeze, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = sqzmomImpl(startIdx, endIdx, inHigh, inLow, inClose, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, outBegIdx, outNBElement, outMomentum, outSqueeze);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("SQZMOM", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+/**** Streaming API *****/
+
+   /**
+    * A live SQZMOM stream (unrelated to {@code java.util.stream}): one value per
+    * closed bar, bit-identical to {@link Core#sqzmom} over the same series.
+    * Open with {@link Core#sqzmomOpen}; there is no close — the handle is
+    * ordinary heap state, unreferenced handles are simply garbage-collected.
+    * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
+    * {@code value} and {@code clone} must not race with an {@code update} on
+    * the same handle. With no concurrent {@code update}, {@code peek}/
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
+    * <p>Not serializable by design: to checkpoint, retain the history and
+    * re-open — the result is bit-identical by contract.
+    */
+   public static final class SqzmomStream {
+      private Core core;
+      private int optInBBPeriod;
+      private double optInNbDev;
+      private int optInKCPeriod;
+      private double optInFactorWide;
+      private double optInFactorNormal;
+      private double optInFactorNarrow;
+      private double cur_outMomentum;
+      private int cur_outSqueeze;
+      private MidpriceStream sub0;
+      private SmaStream sub1;
+      private TrangeStream sub2;
+      private SmaStream sub3;
+      private SmaStream sub4;
+      private StddevStream sub5;
+      private LinearregStream sub6;
+      private int outRangeBegIdx;
+      private int outRangeCount;
+
+      private SqzmomStream( Core core ) { this.core = core; }
+
+      /**
+       * The bars this stream has an output for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#sqzmom} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
+       */
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(SqzmomOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
+       */
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("SQZMOM advance", RetCode.OUT_OF_RANGE_END_INDEX);
+         this.outRangeCount++;
+      }
+
+      private SqzmomStream( SqzmomStream other ) {
+         this.core = other.core;
+         this.optInBBPeriod = other.optInBBPeriod;
+         this.optInNbDev = other.optInNbDev;
+         this.optInKCPeriod = other.optInKCPeriod;
+         this.optInFactorWide = other.optInFactorWide;
+         this.optInFactorNormal = other.optInFactorNormal;
+         this.optInFactorNarrow = other.optInFactorNarrow;
+         this.cur_outMomentum = other.cur_outMomentum;
+         this.cur_outSqueeze = other.cur_outSqueeze;
+         this.sub0 = new MidpriceStream(other.sub0);
+         this.sub1 = new SmaStream(other.sub1);
+         this.sub2 = new TrangeStream(other.sub2);
+         this.sub3 = new SmaStream(other.sub3);
+         this.sub4 = new SmaStream(other.sub4);
+         this.sub5 = new StddevStream(other.sub5);
+         this.sub6 = new LinearregStream(other.sub6);
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
+      }
+
+      /**
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(SqzmomOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
+       * This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
+       */
+      public void update( double inHigh, double inLow, double inClose, SqzmomOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("SQZMOM update", RetCode.OUT_OF_RANGE_END_INDEX);
+         requireArgument("SQZMOM update", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw nonFiniteBar("SQZMOM update", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
+         core.sqzmomStepImpl(this, inHigh, inLow, inClose);
+         this.outRangeCount++;
+         out.momentum = this.cur_outMomentum;
+         out.squeeze = this.cur_outSqueeze;
+      }
+
+      /**
+       * Evaluate a forming bar without committing — bit-identical to what the
+       * next {@code update} with the same bar would write — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may run concurrently with each other.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
+       */
+      public void peek( double inHigh, double inLow, double inClose, SqzmomOut out ) {
+         requireArgument("SQZMOM peek", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw nonFiniteBar("SQZMOM peek", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
+         SqzmomStream sp = this;
+         double band = 0.0;
+         double centre = 0.0;
+         double dev = 0.0;
+         double lo = 0.0;
+         double up = 0.0;
+         double cur_tempDev = 0.0;
+         double cur_tempKCM = 0.0;
+         double cur_tempWork = 0.0;
+         double cur_tempMid = 0.0;
+         double cur_tempSD = 0.0;
+         double cur_outMomentum = 0.0;
+         int cur_outSqueeze = 0;
+         /* Pipeline the new bar through the sub-streams (batch tail order). */
+         cur_tempDev = sp.sub0.peek(inHigh, inLow);
+         cur_tempKCM = sp.sub1.peek(inClose);
+         /* Combine map (batch tail, per bar). */
+         cur_tempDev = inClose - (cur_tempDev + cur_tempKCM) / 2.0;
+         cur_tempWork = sp.sub2.peek(inHigh, inLow, inClose);
+         cur_tempWork = sp.sub3.peek(cur_tempWork);
+         cur_tempMid = sp.sub4.peek(inClose);
+         cur_tempSD = sp.sub5.peek(inClose);
+         cur_outMomentum = sp.sub6.peek(cur_tempDev);
+         /* Combine map (batch tail, per bar). */
+         dev = cur_tempSD * sp.optInNbDev;
+         up = cur_tempMid + dev;
+         lo = cur_tempMid - dev;
+         centre = cur_tempKCM;
+         band = cur_tempWork;
+         if( lo > centre - sp.optInFactorNarrow * band && up < centre + sp.optInFactorNarrow * band ) {
+            cur_outSqueeze = 3;
+         } else if( lo > centre - sp.optInFactorNormal * band && up < centre + sp.optInFactorNormal * band ) {
+            cur_outSqueeze = 2;
+         } else if( lo > centre - sp.optInFactorWide * band && up < centre + sp.optInFactorWide * band ) {
+            cur_outSqueeze = 1;
+         } else if( lo < centre - sp.optInFactorWide * band && up > centre + sp.optInFactorWide * band ) {
+            cur_outSqueeze = -1;
+         } else {
+            cur_outSqueeze = 0;
+         }
+         out.momentum = cur_outMomentum;
+         out.squeeze = cur_outSqueeze;
+      }
+
+      /**
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
+       */
+      public void value( SqzmomOut out ) {
+         requireArgument("SQZMOM value", "out", out);
+         out.momentum = this.cur_outMomentum;
+         out.squeeze = this.cur_outSqueeze;
+      }
+
+      /**
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
+       */
+      @Override
+      public SqzmomStream clone() {
+         return new SqzmomStream(this);
+      }
+   }
+
+   /**
+    * The outputs of one SQZMOM bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class SqzmomOut {
+      /** Linear regression of the close against the Donchian/SMA anchor. */
+      public double momentum;
+      /** Compression level: 3 narrow, 2 normal, 1 wide, -1 released, 0 otherwise. */
+      public int squeeze;
+   }
+   private void sqzmomStepImpl( SqzmomStream sp, double inHigh, double inLow, double inClose )
+   {
+      double band = 0.0;
+      double centre = 0.0;
+      double dev = 0.0;
+      double lo = 0.0;
+      double up = 0.0;
+      double cur_tempDev = 0.0;
+      double cur_tempKCM = 0.0;
+      double cur_tempWork = 0.0;
+      double cur_tempMid = 0.0;
+      double cur_tempSD = 0.0;
+      double cur_outMomentum = 0.0;
+      int cur_outSqueeze = 0;
+      /* Pipeline the new bar through the sub-streams (batch tail order). */
+      cur_tempDev = sp.sub0.update(inHigh, inLow);
+      cur_tempKCM = sp.sub1.update(inClose);
+      /* Combine map (batch tail, per bar). */
+      cur_tempDev = inClose - (cur_tempDev + cur_tempKCM) / 2.0;
+      cur_tempWork = sp.sub2.update(inHigh, inLow, inClose);
+      cur_tempWork = sp.sub3.update(cur_tempWork);
+      cur_tempMid = sp.sub4.update(inClose);
+      cur_tempSD = sp.sub5.update(inClose);
+      cur_outMomentum = sp.sub6.update(cur_tempDev);
+      /* Combine map (batch tail, per bar). */
+      dev = cur_tempSD * sp.optInNbDev;
+      up = cur_tempMid + dev;
+      lo = cur_tempMid - dev;
+      centre = cur_tempKCM;
+      band = cur_tempWork;
+      if( lo > centre - sp.optInFactorNarrow * band && up < centre + sp.optInFactorNarrow * band ) {
+         cur_outSqueeze = 3;
+      } else if( lo > centre - sp.optInFactorNormal * band && up < centre + sp.optInFactorNormal * band ) {
+         cur_outSqueeze = 2;
+      } else if( lo > centre - sp.optInFactorWide * band && up < centre + sp.optInFactorWide * band ) {
+         cur_outSqueeze = 1;
+      } else if( lo < centre - sp.optInFactorWide * band && up > centre + sp.optInFactorWide * band ) {
+         cur_outSqueeze = -1;
+      } else {
+         cur_outSqueeze = 0;
+      }
+      sp.cur_outMomentum = cur_outMomentum;
+      sp.cur_outSqueeze = cur_outSqueeze;
+   }
+   private RetCode sqzmomOpenImpl( SqzmomStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInBBPeriod, double optInNbDev, int optInKCPeriod, double optInFactorWide, double optInFactorNormal, double optInFactorNarrow, MInteger outBegIdx, MInteger outNBElement, double outMomentum[], int outSqueeze[], int outStride )
+   {
+      RetCode retCode;
+      int lookbackTotal = 0;
+      int stageLookback = 0;
+      int stageIdx = 0;
+      int stageLen = 0;
+      int i = 0;
+      int n = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      MInteger kcmNb = new MInteger();
+      MInteger sdNb = new MInteger();
+      int kcmShift = 0;
+      double[] tempDev;
+      double[] tempWork;
+      double[] tempKCM;
+      double[] tempMid;
+      double[] tempSD;
+      double dev = 0;
+      double up = 0;
+      double lo = 0;
+      double centre = 0;
+      double band = 0;
+      int historyLen = inHigh.length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX;
+      }
+      if( historyLen > INDEX_MAX + 1 ) {
+         return RetCode.OUT_OF_RANGE_END_INDEX;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInBBPeriod == Integer.MIN_VALUE ) {
+         optInBBPeriod = 20;
+      } else if( optInBBPeriod < 2 || optInBBPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInNbDev == REAL_DEFAULT ) {
+         optInNbDev = 2e0;
+      } else if( !(optInNbDev >= 0e0 && optInNbDev <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInKCPeriod == Integer.MIN_VALUE ) {
+         optInKCPeriod = 20;
+      } else if( optInKCPeriod < 2 || optInKCPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorWide == REAL_DEFAULT ) {
+         optInFactorWide = 2e0;
+      } else if( !(optInFactorWide >= 0e0 && optInFactorWide <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorNormal == REAL_DEFAULT ) {
+         optInFactorNormal = 1.5e0;
+      } else if( !(optInFactorNormal >= 0e0 && optInFactorNormal <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInFactorNarrow == REAL_DEFAULT ) {
+         optInFactorNarrow = 1e0;
+      } else if( !(optInFactorNarrow >= 0e0 && optInFactorNarrow <= REAL_MAX) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( historyLen < sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow) + 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      double[] sc_outMomentum = outStride == 1 ? outMomentum : new double[historyLen];
+      int[] sc_outSqueeze = outStride == 1 ? outSqueeze : new int[historyLen];
+      /* Each rolling statistic is a call to the shipped function, so it carries
+       * that function's own arithmetic bit for bit:
+       *
+       *   BBU, BBL = sma(close, b) +/- nbdev * stddev(close, b, 1.0)
+       *   KCM      = sma(close, k)
+       *   BAND     = sma(trange(high,low,close), k)      the simple mean of TR
+       *   DMID     = midprice(high, low, k)
+       *   DEV      = close - (DMID + KCM)/2
+       *   momentum = linearreg(DEV, k)
+       *
+       * A composed sub-call cannot be handed an MA-type constant, so the bands
+       * are the sma + stddev pair and not a bbands call.
+       *
+       * Two chains need their input one window earlier than the first output bar:
+       * sma(k) over TR, and linearreg(k) over DEV. Both windows are k-1 long, so
+       * one staged range serves both.
+       */
+      /* A channel wider than the one it should nest in breaks the ladder: a bar
+       * could then be inside "narrow" and outside "normal". Ties are allowed, and
+       * wide == normal is the classic on/off/none squeeze.
+       */
+      if( optInFactorNormal > optInFactorWide || optInFactorNarrow > optInFactorNormal ) {
+         return RetCode.BAD_PARAM ;
+      }
+      lookbackTotal = sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow);
+      if( lookbackTotal > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY ;
+      }
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY ;
+      }
+      n = endIdx - startIdx + 1;
+      stageLookback = linearregLookback(optInKCPeriod);
+      stageIdx = startIdx - stageLookback;
+      stageLen = n + stageLookback;
+      tempDev = new double[(int)(stageLen * 1)];
+      tempWork = new double[(int)(stageLen * 1)];
+      tempKCM = new double[(int)(stageLen * 1)];
+      tempMid = new double[(int)(n * 1)];
+      tempSD = new double[(int)(n * 1)];
+      /* The momentum anchor: the Donchian midpoint and the Keltner centre, averaged.
+       * midprice is bit-identical to donchian's middle band.
+       */
+      /* Sub-stream 0: midprice over `inHigh, inLow`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      MidpriceStream sub0 = midpriceOpenAndFillInternal(inHigh, inLow, stageIdx, optInKCPeriod, outBegIdx, outNBElement, tempDev);
+      retCode = RetCode.SUCCESS;
+      /* Sub-stream 1: sma over `inClose`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      SmaStream sub1 = smaOpenAndFillInternal(inClose, stageIdx, optInKCPeriod, tempBegIdx, kcmNb, tempKCM);
+      retCode = RetCode.SUCCESS;
+      /* DEV, over the staged range. The close is read at the index midprice
+       * reported for the range, which is what lets this loop stream: keep
+       * outBegIdx as midprice's receiver, and reuse it for no call above here.
+       */
+      for( i = 0; i < stageLen; i += 1 ) {
+         tempDev[i] = inClose[outBegIdx.value + i] - (tempDev[i] + tempKCM[i]) / 2.0;
+      }
+      /* The compression band: the simple mean of the true range, not an ATR.
+       * trange's own lookback is 1, and stageIdx is at least 1 because the
+       * compression chain alone puts lookbackTotal at k or more.
+       */
+      /* Sub-stream 2: trange over `inHigh, inLow, inClose`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      TrangeStream sub2 = trangeOpenAndFillInternal(inHigh, inLow, inClose, stageIdx, tempBegIdx, tempNbElement, tempWork);
+      retCode = RetCode.SUCCESS;
+      /* Sub-stream 3: sma over `tempWork`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      SmaStream sub3 = smaOpenInternal(java.util.Arrays.copyOfRange(tempWork, 0, (stageLen - 1) + 1), 0, optInKCPeriod);
+      OutRange _xr0 = sma(0, stageLen - 1, tempWork, optInKCPeriod, tempWork);
+      tempBegIdx.value = _xr0.begIdx();
+      tempNbElement.value = _xr0.count();
+      retCode = RetCode.SUCCESS;
+      /* Sub-stream 4: sma over `inClose`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      SmaStream sub4 = smaOpenAndFillInternal(inClose, startIdx, optInBBPeriod, tempBegIdx, tempNbElement, tempMid);
+      retCode = RetCode.SUCCESS;
+      /* Sub-stream 5: stddev over `inClose`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      StddevStream sub5 = stddevOpenAndFillInternal(inClose, startIdx, optInBBPeriod, 1.0, tempBegIdx, sdNb, tempSD);
+      retCode = RetCode.SUCCESS;
+      /* The centre is staged one regression window early; the shift puts it on
+       * the bar the bands are on.
+       */
+      kcmShift = kcmNb.value - sdNb.value;
+      /* LAST of the calls, because it is the first to write a caller buffer. Every
+       * read of high, low and close is above it, so an output aliased onto one of
+       * them -- which the abstract layer tests on purpose -- is still intact when it
+       * is read.
+       *
+       * The regression window closes on the first output bar, so entering it at 0 of
+       * the staged range puts its first fitted value on startIdx.
+       */
+      /* Sub-stream 6: linearreg over `tempDev`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      LinearregStream sub6 = linearregOpenAndFillInternal(java.util.Arrays.copyOfRange(tempDev, 0, (stageLen - 1) + 1), 0, optInKCPeriod, tempBegIdx, tempNbElement, sc_outMomentum);
+      retCode = RetCode.SUCCESS;
+      /* The ordinal. Every comparison is strict: a band exactly on a channel
+       * edge is not inside that channel and not outside it either.
+       *
+       * Keep the deviation a rounded product added to and subtracted from the
+       * middle band, as bbands does. Written as one expression per band, the
+       * upper one contracts into a fused multiply-add and the lower one cannot,
+       * and a band within one ulp of an edge then changes level.
+       */
+      for( i = 0; i < n; i += 1 ) {
+         dev = tempSD[i] * optInNbDev;
+         up = tempMid[i] + dev;
+         lo = tempMid[i] - dev;
+         centre = tempKCM[i + kcmShift];
+         band = tempWork[i];
+         if( lo > centre - optInFactorNarrow * band && up < centre + optInFactorNarrow * band ) {
+            sc_outSqueeze[i] = 3;
+         } else if( lo > centre - optInFactorNormal * band && up < centre + optInFactorNormal * band ) {
+            sc_outSqueeze[i] = 2;
+         } else if( lo > centre - optInFactorWide * band && up < centre + optInFactorWide * band ) {
+            sc_outSqueeze[i] = 1;
+         } else if( lo < centre - optInFactorWide * band && up > centre + optInFactorWide * band ) {
+            sc_outSqueeze[i] = -1;
+         } else {
+            sc_outSqueeze[i] = 0;
+         }
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = n;
+      /* Capture the live producer state + sub handles. */
+      if( outNBElement.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      sp.optInBBPeriod = optInBBPeriod;
+      sp.optInNbDev = optInNbDev;
+      sp.optInKCPeriod = optInKCPeriod;
+      sp.optInFactorWide = optInFactorWide;
+      sp.optInFactorNormal = optInFactorNormal;
+      sp.optInFactorNarrow = optInFactorNarrow;
+      sp.sub0 = sub0;
+      sp.sub1 = sub1;
+      sp.sub2 = sub2;
+      sp.sub3 = sub3;
+      sp.sub4 = sub4;
+      sp.sub5 = sub5;
+      sp.sub6 = sub6;
+      sp.cur_outMomentum = sc_outMomentum[outNBElement.value - 1];
+      sp.cur_outSqueeze = sc_outSqueeze[outNBElement.value - 1];
+      return RetCode.SUCCESS;
+   }
+   /* sqzmomOpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   SqzmomStream sqzmomOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInBBPeriod, double optInNbDev, int optInKCPeriod, double optInFactorWide, double optInFactorNormal, double optInFactorNarrow, MInteger outBegIdx, MInteger outNBElement, double outMomentum[], int outSqueeze[] )
+   {
+      SqzmomStream sp = new SqzmomStream(this);
+      RetCode retCode = sqzmomOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, outBegIdx, outNBElement, outMomentum, outSqueeze, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("SQZMOM openAndFill", inHigh.length, startIdx, sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow));
+      }
+      throw streamFailure("SQZMOM openAndFill", retCode);
+   }
+   /* Internal startIdx-anchored open behind sqzmomOpen (composition seam). */
+   SqzmomStream sqzmomOpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInBBPeriod, double optInNbDev, int optInKCPeriod, double optInFactorWide, double optInFactorNormal, double optInFactorNarrow )
+   {
+      SqzmomStream sp = new SqzmomStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outMomentum = new double[1];
+      int[] sink_outSqueeze = new int[1];
+      RetCode retCode = sqzmomOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, outBegIdx, outNBElement, sink_outMomentum, sink_outSqueeze, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("SQZMOM open", inHigh.length, startIdx, sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow));
+      }
+      throw streamFailure("SQZMOM open", retCode);
+   }
+   /**
+    * Open a live SQZMOM stream over the warm-up history; the handle's
+    * {@code value()} starts at the last history bar's value — bit-identical
+    * to {@link Core#sqzmom} at that bar.
+    * <p>The history must hold at least {@code sqzmomLookback(...) + 1} bars
+    * (unstable-period aware), or {@link InsufficientHistoryException} is
+    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
+    * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
+    */
+   public SqzmomStream sqzmomOpen( double inHigh[], double inLow[], double inClose[], int optInBBPeriod, double optInNbDev, int optInKCPeriod, double optInFactorWide, double optInFactorNormal, double optInFactorNarrow )
+   {
+      requireArgument("SQZMOM open", "inHigh", inHigh);
+      requireHistory("SQZMOM open", inHigh.length);
+      requireArgument("SQZMOM open", "inLow", inLow);
+      requireArgument("SQZMOM open", "inClose", inClose);
+      requireHistoryLength("SQZMOM open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("SQZMOM open", "inClose", inClose.length, inHigh.length);
+      return sqzmomOpenInternal(inHigh, inLow, inClose, 0, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow);
+   }
+   /**
+    * {@link Core#sqzmomOpen} that also fills the output array(s) bit-identically
+    * to {@link Core#sqzmom} over the whole history in the same single pass
+    * (no separate batch call needed for the warm-up plot). Output arrays must
+    * not alias the inputs or each other, and must hold
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
+    * <p>The range written is on the returned handle:
+    * {@link SqzmomStream#outRange()}.
+    */
+   public SqzmomStream sqzmomOpenAndFill( double inHigh[], double inLow[], double inClose[], int optInBBPeriod, double optInNbDev, int optInKCPeriod, double optInFactorWide, double optInFactorNormal, double optInFactorNarrow, double outMomentum[], int outSqueeze[] )
+   {
+      requireArgument("SQZMOM openAndFill", "inHigh", inHigh);
+      requireHistory("SQZMOM openAndFill", inHigh.length);
+      requireArgument("SQZMOM openAndFill", "inLow", inLow);
+      requireArgument("SQZMOM openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("SQZMOM openAndFill", inHigh.length, sqzmomLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow));
+      requireHistoryLength("SQZMOM openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("SQZMOM openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("SQZMOM openAndFill", "outMomentum", outMomentum, guardOutLen);
+      requireLength("SQZMOM openAndFill", "outSqueeze", outSqueeze, guardOutLen);
+      if( (Object)outMomentum == (Object)inHigh || (Object)outMomentum == (Object)inLow || (Object)outMomentum == (Object)inClose || (Object)outSqueeze == (Object)inHigh || (Object)outSqueeze == (Object)inLow || (Object)outSqueeze == (Object)inClose || (Object)outMomentum == (Object)outSqueeze ) {
+         throw streamFailure("SQZMOM openAndFill", RetCode.BAD_PARAM);
+      }
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      return sqzmomOpenAndFillInternal(inHigh, inLow, inClose, 0, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, outBegIdx, outNBElement, outMomentum, outSqueeze);
    }
 /* Schaff Trend Cycle, created by Doug Schaff (FX-Strategy.com), who released
  * its code in "Releasing the Code to the Schaff Trend Cycle", FXStreet.com,
@@ -209633,6 +213218,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/trix">ta-lib.org/functions/trix</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The previous triple-smoothed value is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The final rate-of-change step yields 0 when the previous smoothed value is exactly zero, rather than being undefined.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
@@ -209698,6 +213284,7 @@ public final class Core {
     * href="https://ta-lib.org/functions/trix">ta-lib.org/functions/trix</a>.
     * <p><b>Notes</b>
     * <ul>
+    * <li><b>The input is assumed positive.</b> The previous triple-smoothed value is the divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</li>
     * <li>The final rate-of-change step yields 0 when the previous smoothed value is exactly zero, rather than being undefined.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -225859,6 +229446,1004 @@ public final class Core {
          reach = sp.winCap_j - 1;
       }
       return reach;
+   }
+/* List of contributors:
+ *
+ *  Initial  Name/description
+ *  -------------------------------------------------------------------
+ *  MF       Mario Fortier
+ *  KL       Kevin Lin (@kevinlincg)
+ *  CC       Claude Code (AI assistant)
+ *
+ * Change history:
+ *
+ *  MMDDYY BY     Description
+ *  -------------------------------------------------------------------
+ *  100826 KL,CC  Creation (#487).
+ *  101126 MF,CC  The extension step is a select; the pivot index is derived (#546).
+ */
+
+   /**
+    * Number of leading input bars {@link Core#zigzag} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInSensitivity Minimum move away from the current extreme that
+    *        reverses the leg, in percent (default 5; range 0..100;
+    *        {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInMinTrendLength Minimum number of bars between two pivots
+    *        (default 1; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
+   public int zigzagLookback( double optInSensitivity, int optInMinTrendLength )
+   {
+      if( optInSensitivity == REAL_DEFAULT ) {
+         optInSensitivity = 5e0;
+      } else if( !(optInSensitivity >= 0e0 && optInSensitivity <= 1e2) ) {
+         return -1;
+      }
+      if( optInMinTrendLength == Integer.MIN_VALUE ) {
+         optInMinTrendLength = 1;
+      } else if( optInMinTrendLength < 1 || optInMinTrendLength > 100000 ) {
+         return -1;
+      }
+      /* The first bar at which a reversal off the seed can fire. The gate counts
+       * from the pivot's OWN bar and the seed is a pivot like any other, so the
+       * earliest reversal is optInMinTrendLength bars after the seed, which sits
+       * that many bars before the first output.
+       *
+       * Independent of the sensitivity: the threshold decides WHETHER a reversal
+       * fires, never how early it may.
+       */
+      return optInMinTrendLength ;
+
+   }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#zigzag}.
+    * <p>Every output of this function is drawn at its own bar, so the answer is
+    * 0.
+    *
+    * @param optInSensitivity Minimum move away from the current extreme that
+    *        reverses the leg, in percent (default 5; range 0..100;
+    *        {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInMinTrendLength Minimum number of bars between two pivots
+    *        (default 1; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int zigzagDisplayShift( double optInSensitivity, int optInMinTrendLength, int outputIdx )
+   {
+      if( zigzagLookback( optInSensitivity, optInMinTrendLength ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 3 ) {
+         return Integer.MIN_VALUE;
+      }
+      return 0;
+   }
+   RetCode zigzagImpl( int startIdx,
+                       int endIdx,
+                       double inHigh[],
+                       double inLow[],
+                       double optInSensitivity,
+                       int optInMinTrendLength,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outZigZag[],
+                       int outTrend[],
+                       int outPivotIdx[] )
+   {
+      int lookbackTotal = 0;
+      int today = 0;
+      int outIdx = 0;
+      int trend = 0;
+      int barsSincePivot = 0;
+      int barIdx = 0;
+      int isExt = 0;
+      double s = 0;
+      double up = 0;
+      double dn = 0;
+      double pivot = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInSensitivity == REAL_DEFAULT ) {
+         optInSensitivity = 5e0;
+      } else if( !(optInSensitivity >= 0e0 && optInSensitivity <= 1e2) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInMinTrendLength == Integer.MIN_VALUE ) {
+         optInMinTrendLength = 1;
+      } else if( optInMinTrendLength < 1 || optInMinTrendLength > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( outTrend == outPivotIdx ) {
+         return RetCode.BAD_PARAM ;
+      }
+      lookbackTotal = zigzagLookback(optInSensitivity, optInMinTrendLength);
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      /* Percent in, fraction inside. Each factor is rounded once, here, rather
+       * than rebuilt per bar: the threshold is `pivot * up` in binary64, which is
+       * the expression order the oracle uses.
+       */
+      s = optInSensitivity / 100.0;
+      up = 1.0 + s;
+      dn = 1.0 - s;
+      /* The seed: a down leg whose extreme is the low of the bar
+       * optInMinTrendLength before the first output. Because the gate counts the
+       * seed bar like every other pivot, the first reversal can fire exactly at
+       * the first output bar, not one later.
+       */
+      today = startIdx - lookbackTotal;
+      trend = -1;
+      pivot = inLow[today];
+      barIdx = today;
+      barsSincePivot = 0;
+      today = today + 1;
+      outIdx = 0;
+      while( today <= endIdx ) {
+         /* The pivot's bar is barIdx - barsSincePivot. Both are carried: a stream
+          * has no cursor to read a bar number from.
+          */
+         barsSincePivot = barsSincePivot + 1;
+         barIdx = barIdx + 1;
+         /* Reversal is tested BEFORE extension. On an outside bar that both makes
+          * a new extreme and clears the threshold, the leg reverses and the old
+          * pivot stays where it was; testing extension first would move the pivot
+          * and lose the reversal, which is a whole leg of difference rather than a
+          * rounding.
+          */
+         if( trend == -1 ) {
+            if( inHigh[today] >= pivot * up && barsSincePivot >= optInMinTrendLength ) {
+               trend = 1;
+               pivot = inHigh[today];
+               barsSincePivot = 0;
+            } else {
+               /* Ties extend: at an equal price the pivot moves to the later bar,
+                * which only outPivotIdx shows.
+                *
+                * A select, not a branch: on moving prices the extension is taken
+                * on a share of the bars no predictor follows.
+                */
+               isExt = (inLow[today] <= pivot) ? 1 : 0;
+               pivot = (pivot < inLow[today]) ? pivot : inLow[today];
+               barsSincePivot = barsSincePivot - isExt * barsSincePivot;
+            }
+         } else if( inLow[today] <= pivot * dn && barsSincePivot >= optInMinTrendLength ) {
+            trend = -1;
+            pivot = inLow[today];
+            barsSincePivot = 0;
+         } else {
+            isExt = (inHigh[today] >= pivot) ? 1 : 0;
+            pivot = (pivot > inHigh[today]) ? pivot : inHigh[today];
+            barsSincePivot = barsSincePivot - isExt * barsSincePivot;
+         }
+         if( today >= startIdx ) {
+            outZigZag[outIdx] = pivot;
+            outTrend[outIdx] = trend;
+            outPivotIdx[outIdx] = barIdx - barsSincePivot;
+            outIdx = outIdx + 1;
+         }
+         today = today + 1;
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = outIdx;
+      return RetCode.SUCCESS ;
+   }
+   RetCode zigzagImpl( int startIdx,
+                       int endIdx,
+                       float inHigh[],
+                       float inLow[],
+                       double optInSensitivity,
+                       int optInMinTrendLength,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outZigZag[],
+                       int outTrend[],
+                       int outPivotIdx[] )
+   {
+      int lookbackTotal = 0;
+      int today = 0;
+      int outIdx = 0;
+      int trend = 0;
+      int barsSincePivot = 0;
+      int barIdx = 0;
+      int isExt = 0;
+      double s = 0;
+      double up = 0;
+      double dn = 0;
+      double pivot = 0;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInSensitivity == REAL_DEFAULT ) {
+         optInSensitivity = 5e0;
+      } else if( !(optInSensitivity >= 0e0 && optInSensitivity <= 1e2) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInMinTrendLength == Integer.MIN_VALUE ) {
+         optInMinTrendLength = 1;
+      } else if( optInMinTrendLength < 1 || optInMinTrendLength > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( outTrend == outPivotIdx ) {
+         return RetCode.BAD_PARAM ;
+      }
+      lookbackTotal = zigzagLookback(optInSensitivity, optInMinTrendLength);
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      s = optInSensitivity / 100.0;
+      up = 1.0 + s;
+      dn = 1.0 - s;
+      today = startIdx - lookbackTotal;
+      trend = -1;
+      pivot = (double)inLow[today];
+      barIdx = today;
+      barsSincePivot = 0;
+      today = today + 1;
+      outIdx = 0;
+      while( today <= endIdx ) {
+         barsSincePivot = barsSincePivot + 1;
+         barIdx = barIdx + 1;
+         if( trend == -1 ) {
+            if( (double)inHigh[today] >= pivot * up && barsSincePivot >= optInMinTrendLength ) {
+               trend = 1;
+               pivot = (double)inHigh[today];
+               barsSincePivot = 0;
+            } else {
+               isExt = ((double)inLow[today] <= pivot) ? 1 : 0;
+               pivot = (pivot < (double)inLow[today]) ? pivot : (double)inLow[today];
+               barsSincePivot = barsSincePivot - isExt * barsSincePivot;
+            }
+         } else if( (double)inLow[today] <= pivot * dn && barsSincePivot >= optInMinTrendLength ) {
+            trend = -1;
+            pivot = (double)inLow[today];
+            barsSincePivot = 0;
+         } else {
+            isExt = ((double)inHigh[today] >= pivot) ? 1 : 0;
+            pivot = (pivot > (double)inHigh[today]) ? pivot : (double)inHigh[today];
+            barsSincePivot = barsSincePivot - isExt * barsSincePivot;
+         }
+         if( today >= startIdx ) {
+            outZigZag[outIdx] = pivot;
+            outTrend[outIdx] = trend;
+            outPivotIdx[outIdx] = barIdx - barsSincePivot;
+            outIdx = outIdx + 1;
+         }
+         today = today + 1;
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = outIdx;
+      return RetCode.SUCCESS ;
+   }
+   /**
+    * The percent-filter swing line. A leg runs from the last confirmed pivot to
+    * the most extreme price since it, and it reverses only when price moves at
+    * least {@code optInSensitivity} percent away from that extreme and at least
+    * {@code optInMinTrendLength} bars have passed since the pivot's own bar.
+    * Achelis describes the chart form and warns that <i>"the last 'leg'
+    * displayed in a Zig Zag chart can change"</i>. This function does not emit
+    * the chart line, which is drawn with hindsight. It emits the causal state
+    * the line is drawn from, one row per bar and final once emitted: the price
+    * of the swing extreme currently being tracked, the absolute bar index of
+    * that extreme, and whether the current leg is up or down. The chart is
+    * rebuilt exactly from the outputs and the seed. A pivot is confirmed at bar
+    * {@code i &gt; outBegIdx} whenever {@code outTrend[i]} differs from
+    * {@code outTrend[i-1]}, and that pivot is
+    * {@code (outPivotIdx[i-1], outZigZag[i-1])}. When
+    * {@code outTrend[outBegIdx]} is +1 a reversal fired on the first output
+    * bar, and the pivot it confirmed is the seed,
+    * {@code (outBegIdx - optInMinTrendLength, inLow[outBegIdx - optInMinTrendLength])},
+    * which no output row carries. The last, still-open pivot is
+    * {@code (outPivotIdx[last], outZigZag[last])} — the leg Achelis warns
+    * about.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/zigzag">ta-lib.org/functions/zigzag</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>Reversal is tested before extension.</b> On an outside bar that both makes a new extreme and clears the threshold, the leg reverses and the old pivot stays where it was. The other order moves the pivot to the new extreme and defers the reversal to the next bar, against a threshold that has just moved further away: on the 252-bar regtest corpus at 5 percent that costs one bar (R TTR, which takes that order, places the swing low at 148 where this places it at 147), but a range narrower than the sensitivity after the outside bar keeps it from ever firing, and the leg is then lost rather than delayed.</li>
+    * <li><b>Ties extend.</b> The comparisons are {@code &lt;=} and {@code &gt;=}, so at an equal price the pivot moves to the later bar: {@code outZigZag} does not change and {@code outPivotIdx} does. That movement is the only thing the index output carries and the price output cannot.</li>
+    * <li><b>The gate counts from the pivot's own bar, the seed included.</b> No reversal can fire before the first output bar; the first one can fire exactly there.</li>
+    * <li><b>The seed is a low.</b> The first reversal is therefore always upward. A down reversal compares a bar's low with the tracked high, so a rising series stays on its up leg only while no low falls {@code optInSensitivity} percent under that high on a bar the gate allows.</li>
+    * <li><b>The input must be positive.</b> The threshold is a percent of the pivot: at a pivot of 0 it sits on the pivot and below 0 on the wrong side of it, so the leg reverses on nearly every bar the gate allows. The output is undefined for such input and no error is returned. A series that crosses zero, such as an oscillator or a spread, needs an absolute reversal amount, which this function does not have.</li>
+    * <li>The lookback is {@code optInMinTrendLength} and does not depend on the sensitivity: the threshold decides whether a reversal fires, never how early it may.</li>
+    * <li>{@code optInSensitivity} is a percent, as Achelis, StockCharts, TTR, Skender and TradingView take it. 0 and 100 are degenerate but defined: at 0 a reversal fires on almost every bar the gate allows, and at 100 no downward reversal fires on positive prices.</li>
+    * <li>The value at a bar depends on where the caller started, through the seed; the function is {@code path_dependent} for that reason, as SAR and SUPERTREND are.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#zigzagLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param optInSensitivity Minimum move away from the current extreme that
+    *        reverses the leg, in percent (default 5; range 0..100;
+    *        {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInMinTrendLength Minimum number of bars between two pivots
+    *        (default 1; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param outZigZag Price of the swing extreme currently being tracked. Must
+    *        hold at least {@code endIdx - max(startIdx, zigzagLookback(...)) + 1}
+    *        values, and never be empty: an empty array is an absent output.
+    * @param outTrend +1 while the leg is up, -1 while it is down. Must hold at
+    *        least {@code endIdx - max(startIdx, zigzagLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @param outPivotIdx Absolute index, into the input, of the bar that extreme
+    *        sits on. Must hold at least
+    *        {@code endIdx - max(startIdx, zigzagLookback(...)) + 1} values, and never
+    *        be empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
+    *
+    * @see Core#sar
+    * @see Core#supertrend
+    * @see Core#minmaxindex
+    * @see Core#midprice
+    */
+   public OutRange zigzag( int startIdx,
+                           int endIdx,
+                           double inHigh[],
+                           double inLow[],
+                           double optInSensitivity,
+                           int optInMinTrendLength,
+                           double outZigZag[],
+                           int outTrend[],
+                           int outPivotIdx[] )
+   {
+      requireIndexRange("ZIGZAG", startIdx, endIdx);
+      int guardStart = clampedStart("ZIGZAG", startIdx, zigzagLookback(optInSensitivity, optInMinTrendLength));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ZIGZAG", "inHigh", inHigh, guardInLen);
+      requireLength("ZIGZAG", "inLow", inLow, guardInLen);
+      requireLength("ZIGZAG", "outZigZag", outZigZag, guardOutLen);
+      requireLength("ZIGZAG", "outTrend", outTrend, guardOutLen);
+      requireLength("ZIGZAG", "outPivotIdx", outPivotIdx, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = zigzagImpl(startIdx, endIdx, inHigh, inLow, optInSensitivity, optInMinTrendLength, outBegIdx, outNBElement, outZigZag, outTrend, outPivotIdx);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("ZIGZAG", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * The percent-filter swing line. A leg runs from the last confirmed pivot to
+    * the most extreme price since it, and it reverses only when price moves at
+    * least {@code optInSensitivity} percent away from that extreme and at least
+    * {@code optInMinTrendLength} bars have passed since the pivot's own bar.
+    * Achelis describes the chart form and warns that <i>"the last 'leg'
+    * displayed in a Zig Zag chart can change"</i>. This function does not emit
+    * the chart line, which is drawn with hindsight. It emits the causal state
+    * the line is drawn from, one row per bar and final once emitted: the price
+    * of the swing extreme currently being tracked, the absolute bar index of
+    * that extreme, and whether the current leg is up or down. The chart is
+    * rebuilt exactly from the outputs and the seed. A pivot is confirmed at bar
+    * {@code i &gt; outBegIdx} whenever {@code outTrend[i]} differs from
+    * {@code outTrend[i-1]}, and that pivot is
+    * {@code (outPivotIdx[i-1], outZigZag[i-1])}. When
+    * {@code outTrend[outBegIdx]} is +1 a reversal fired on the first output
+    * bar, and the pivot it confirmed is the seed,
+    * {@code (outBegIdx - optInMinTrendLength, inLow[outBegIdx - optInMinTrendLength])},
+    * which no output row carries. The last, still-open pivot is
+    * {@code (outPivotIdx[last], outZigZag[last])} — the leg Achelis warns
+    * about.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/zigzag">ta-lib.org/functions/zigzag</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li><b>Reversal is tested before extension.</b> On an outside bar that both makes a new extreme and clears the threshold, the leg reverses and the old pivot stays where it was. The other order moves the pivot to the new extreme and defers the reversal to the next bar, against a threshold that has just moved further away: on the 252-bar regtest corpus at 5 percent that costs one bar (R TTR, which takes that order, places the swing low at 148 where this places it at 147), but a range narrower than the sensitivity after the outside bar keeps it from ever firing, and the leg is then lost rather than delayed.</li>
+    * <li><b>Ties extend.</b> The comparisons are {@code &lt;=} and {@code &gt;=}, so at an equal price the pivot moves to the later bar: {@code outZigZag} does not change and {@code outPivotIdx} does. That movement is the only thing the index output carries and the price output cannot.</li>
+    * <li><b>The gate counts from the pivot's own bar, the seed included.</b> No reversal can fire before the first output bar; the first one can fire exactly there.</li>
+    * <li><b>The seed is a low.</b> The first reversal is therefore always upward. A down reversal compares a bar's low with the tracked high, so a rising series stays on its up leg only while no low falls {@code optInSensitivity} percent under that high on a bar the gate allows.</li>
+    * <li><b>The input must be positive.</b> The threshold is a percent of the pivot: at a pivot of 0 it sits on the pivot and below 0 on the wrong side of it, so the leg reverses on nearly every bar the gate allows. The output is undefined for such input and no error is returned. A series that crosses zero, such as an oscillator or a spread, needs an absolute reversal amount, which this function does not have.</li>
+    * <li>The lookback is {@code optInMinTrendLength} and does not depend on the sensitivity: the threshold decides whether a reversal fires, never how early it may.</li>
+    * <li>{@code optInSensitivity} is a percent, as Achelis, StockCharts, TTR, Skender and TradingView take it. 0 and 100 are degenerate but defined: at 0 a reversal fires on almost every bar the gate allows, and at 100 no downward reversal fires on positive prices.</li>
+    * <li>The value at a bar depends on where the caller started, through the seed; the function is {@code path_dependent} for that reason, as SAR and SUPERTREND are.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#zigzagLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param optInSensitivity Minimum move away from the current extreme that
+    *        reverses the leg, in percent (default 5; range 0..100;
+    *        {@link Core#REAL_DEFAULT} selects the default).
+    * @param optInMinTrendLength Minimum number of bars between two pivots
+    *        (default 1; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param outZigZag Price of the swing extreme currently being tracked. Must
+    *        hold at least {@code endIdx - max(startIdx, zigzagLookback(...)) + 1}
+    *        values, and never be empty: an empty array is an absent output.
+    * @param outTrend +1 while the leg is up, -1 while it is down. Must hold at
+    *        least {@code endIdx - max(startIdx, zigzagLookback(...)) + 1} values, and
+    *        never be empty: an empty array is an absent output.
+    * @param outPivotIdx Absolute index, into the input, of the bar that extreme
+    *        sits on. Must hold at least
+    *        {@code endIdx - max(startIdx, zigzagLookback(...)) + 1} values, and never
+    *        be empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
+    *
+    * @see Core#sar
+    * @see Core#supertrend
+    * @see Core#minmaxindex
+    * @see Core#midprice
+    */
+   public OutRange zigzag( int startIdx,
+                           int endIdx,
+                           float inHigh[],
+                           float inLow[],
+                           double optInSensitivity,
+                           int optInMinTrendLength,
+                           double outZigZag[],
+                           int outTrend[],
+                           int outPivotIdx[] )
+   {
+      requireIndexRange("ZIGZAG", startIdx, endIdx);
+      int guardStart = clampedStart("ZIGZAG", startIdx, zigzagLookback(optInSensitivity, optInMinTrendLength));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ZIGZAG", "inHigh", inHigh, guardInLen);
+      requireLength("ZIGZAG", "inLow", inLow, guardInLen);
+      requireLength("ZIGZAG", "outZigZag", outZigZag, guardOutLen);
+      requireLength("ZIGZAG", "outTrend", outTrend, guardOutLen);
+      requireLength("ZIGZAG", "outPivotIdx", outPivotIdx, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = zigzagImpl(startIdx, endIdx, inHigh, inLow, optInSensitivity, optInMinTrendLength, outBegIdx, outNBElement, outZigZag, outTrend, outPivotIdx);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("ZIGZAG", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+/**** Streaming API *****/
+
+   /**
+    * A live ZIGZAG stream (unrelated to {@code java.util.stream}): one value per
+    * closed bar, bit-identical to {@link Core#zigzag} over the same series.
+    * Open with {@link Core#zigzagOpen}; there is no close — the handle is
+    * ordinary heap state, unreferenced handles are simply garbage-collected.
+    * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
+    * {@code value} and {@code clone} must not race with an {@code update} on
+    * the same handle. With no concurrent {@code update}, {@code peek}/
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
+    * <p>Not serializable by design: to checkpoint, retain the history and
+    * re-open — the result is bit-identical by contract.
+    */
+   public static final class ZigzagStream {
+      private Core core;
+      private double optInSensitivity;
+      private int optInMinTrendLength;
+      private int trend;
+      private int barsSincePivot;
+      private int barIdx;
+      private double up;
+      private double dn;
+      private double pivot;
+      private double cur_outZigZag;
+      private int cur_outTrend;
+      private int cur_outPivotIdx;
+      private int outRangeBegIdx;
+      private int outRangeCount;
+
+      private ZigzagStream( Core core ) { this.core = core; }
+
+      /**
+       * The bars this stream has an output for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#zigzag} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
+       */
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(ZigzagOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
+       */
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("ZIGZAG advance", RetCode.OUT_OF_RANGE_END_INDEX);
+         this.outRangeCount++;
+      }
+
+      private ZigzagStream( ZigzagStream other ) {
+         this.core = other.core;
+         this.optInSensitivity = other.optInSensitivity;
+         this.optInMinTrendLength = other.optInMinTrendLength;
+         this.trend = other.trend;
+         this.barsSincePivot = other.barsSincePivot;
+         this.barIdx = other.barIdx;
+         this.up = other.up;
+         this.dn = other.dn;
+         this.pivot = other.pivot;
+         this.cur_outZigZag = other.cur_outZigZag;
+         this.cur_outTrend = other.cur_outTrend;
+         this.cur_outPivotIdx = other.cur_outPivotIdx;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
+      }
+
+      /**
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(ZigzagOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
+       * This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
+       */
+      public void update( double inHigh, double inLow, ZigzagOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("ZIGZAG update", RetCode.OUT_OF_RANGE_END_INDEX);
+         requireArgument("ZIGZAG update", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw nonFiniteBar("ZIGZAG update", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
+         core.zigzagStepImpl(this, inHigh, inLow);
+         this.outRangeCount++;
+         out.zigZag = this.cur_outZigZag;
+         out.trend = this.cur_outTrend;
+         out.pivotIdx = this.cur_outPivotIdx;
+      }
+
+      /**
+       * Evaluate a forming bar without committing — bit-identical to what the
+       * next {@code update} with the same bar would write — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may run concurrently with each other.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
+       */
+      public void peek( double inHigh, double inLow, ZigzagOut out ) {
+         requireArgument("ZIGZAG peek", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw nonFiniteBar("ZIGZAG peek", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
+         ZigzagStream sp = this;
+         int isExt = 0;
+         int barIdx = sp.barIdx;
+         int barsSincePivot = sp.barsSincePivot;
+         int cur_outPivotIdx = 0;
+         int cur_outTrend = 0;
+         double cur_outZigZag = 0.0;
+         double pivot = sp.pivot;
+         int trend = sp.trend;
+         /* The pivot's bar is barIdx - barsSincePivot. Both are carried: a stream
+          * has no cursor to read a bar number from.
+          */
+         barsSincePivot = barsSincePivot + 1;
+         barIdx = barIdx + 1;
+         /* Reversal is tested BEFORE extension. On an outside bar that both makes
+          * a new extreme and clears the threshold, the leg reverses and the old
+          * pivot stays where it was; testing extension first would move the pivot
+          * and lose the reversal, which is a whole leg of difference rather than a
+          * rounding.
+          */
+         if( trend == -1 ) {
+            if( inHigh >= pivot * sp.up && barsSincePivot >= sp.optInMinTrendLength ) {
+               trend = 1;
+               pivot = inHigh;
+               barsSincePivot = 0;
+            } else {
+               /* Ties extend: at an equal price the pivot moves to the later bar,
+                * which only outPivotIdx shows.
+                *
+                * A select, not a branch: on moving prices the extension is taken
+                * on a share of the bars no predictor follows.
+                */
+               isExt = (inLow <= pivot) ? 1 : 0;
+               pivot = (pivot < inLow) ? pivot : inLow;
+               barsSincePivot = barsSincePivot - isExt * barsSincePivot;
+            }
+         } else if( inLow <= pivot * sp.dn && barsSincePivot >= sp.optInMinTrendLength ) {
+            trend = -1;
+            pivot = inLow;
+            barsSincePivot = 0;
+         } else {
+            isExt = (inHigh >= pivot) ? 1 : 0;
+            pivot = (pivot > inHigh) ? pivot : inHigh;
+            barsSincePivot = barsSincePivot - isExt * barsSincePivot;
+         }
+         cur_outZigZag = pivot;
+         cur_outTrend = trend;
+         cur_outPivotIdx = barIdx - barsSincePivot;
+         out.zigZag = cur_outZigZag;
+         out.trend = cur_outTrend;
+         out.pivotIdx = cur_outPivotIdx;
+      }
+
+      /**
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
+       */
+      public void value( ZigzagOut out ) {
+         requireArgument("ZIGZAG value", "out", out);
+         out.zigZag = this.cur_outZigZag;
+         out.trend = this.cur_outTrend;
+         out.pivotIdx = this.cur_outPivotIdx;
+      }
+
+      /**
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
+       */
+      @Override
+      public ZigzagStream clone() {
+         return new ZigzagStream(this);
+      }
+   }
+
+   /**
+    * The outputs of one ZIGZAG bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class ZigzagOut {
+      /** Price of the swing extreme currently being tracked. */
+      public double zigZag;
+      /** +1 while the leg is up, -1 while it is down. */
+      public int trend;
+      /** Absolute index, into the input, of the bar that extreme sits on. */
+      public int pivotIdx;
+   }
+   private void zigzagStepImpl( ZigzagStream sp, double inHigh, double inLow )
+   {
+      int isExt = 0;
+      /* The pivot's bar is barIdx - barsSincePivot. Both are carried: a stream
+       * has no cursor to read a bar number from.
+       */
+      sp.barsSincePivot = sp.barsSincePivot + 1;
+      sp.barIdx = sp.barIdx + 1;
+      /* Reversal is tested BEFORE extension. On an outside bar that both makes
+       * a new extreme and clears the threshold, the leg reverses and the old
+       * pivot stays where it was; testing extension first would move the pivot
+       * and lose the reversal, which is a whole leg of difference rather than a
+       * rounding.
+       */
+      if( sp.trend == -1 ) {
+         if( inHigh >= sp.pivot * sp.up && sp.barsSincePivot >= sp.optInMinTrendLength ) {
+            sp.trend = 1;
+            sp.pivot = inHigh;
+            sp.barsSincePivot = 0;
+         } else {
+            /* Ties extend: at an equal price the pivot moves to the later bar,
+             * which only outPivotIdx shows.
+             *
+             * A select, not a branch: on moving prices the extension is taken
+             * on a share of the bars no predictor follows.
+             */
+            isExt = (inLow <= sp.pivot) ? 1 : 0;
+            sp.pivot = (sp.pivot < inLow) ? sp.pivot : inLow;
+            sp.barsSincePivot = sp.barsSincePivot - isExt * sp.barsSincePivot;
+         }
+      } else if( inLow <= sp.pivot * sp.dn && sp.barsSincePivot >= sp.optInMinTrendLength ) {
+         sp.trend = -1;
+         sp.pivot = inLow;
+         sp.barsSincePivot = 0;
+      } else {
+         isExt = (inHigh >= sp.pivot) ? 1 : 0;
+         sp.pivot = (sp.pivot > inHigh) ? sp.pivot : inHigh;
+         sp.barsSincePivot = sp.barsSincePivot - isExt * sp.barsSincePivot;
+      }
+      sp.cur_outZigZag = sp.pivot;
+      sp.cur_outTrend = sp.trend;
+      sp.cur_outPivotIdx = sp.barIdx - sp.barsSincePivot;
+   }
+   private RetCode zigzagOpenImpl( ZigzagStream sp, double inHigh[], double inLow[], int startIdx, double optInSensitivity, int optInMinTrendLength, MInteger outBegIdx, MInteger outNBElement, double outZigZag[], int outTrend[], int outPivotIdx[], int outStride )
+   {
+      int lookbackTotal = 0;
+      int today = 0;
+      int outIdx = 0;
+      int trend = 0;
+      int barsSincePivot = 0;
+      int barIdx = 0;
+      int isExt = 0;
+      double s = 0;
+      double up = 0;
+      double dn = 0;
+      double pivot = 0;
+      int historyLen = inHigh.length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX;
+      }
+      if( historyLen > INDEX_MAX + 1 ) {
+         return RetCode.OUT_OF_RANGE_END_INDEX;
+      }
+      if( inLow.length != inHigh.length ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInSensitivity == REAL_DEFAULT ) {
+         optInSensitivity = 5e0;
+      } else if( !(optInSensitivity >= 0e0 && optInSensitivity <= 1e2) ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInMinTrendLength == Integer.MIN_VALUE ) {
+         optInMinTrendLength = 1;
+      } else if( optInMinTrendLength < 1 || optInMinTrendLength > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      lookbackTotal = zigzagLookback(optInSensitivity, optInMinTrendLength);
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY ;
+      }
+      /* Percent in, fraction inside. Each factor is rounded once, here, rather
+       * than rebuilt per bar: the threshold is `pivot * up` in binary64, which is
+       * the expression order the oracle uses.
+       */
+      s = optInSensitivity / 100.0;
+      up = 1.0 + s;
+      dn = 1.0 - s;
+      /* The seed: a down leg whose extreme is the low of the bar
+       * optInMinTrendLength before the first output. Because the gate counts the
+       * seed bar like every other pivot, the first reversal can fire exactly at
+       * the first output bar, not one later.
+       */
+      today = startIdx - lookbackTotal;
+      trend = -1;
+      pivot = inLow[today];
+      barIdx = today;
+      barsSincePivot = 0;
+      today = today + 1;
+      outIdx = 0;
+      while( today <= endIdx ) {
+         /* The pivot's bar is barIdx - barsSincePivot. Both are carried: a stream
+          * has no cursor to read a bar number from.
+          */
+         barsSincePivot = barsSincePivot + 1;
+         barIdx = barIdx + 1;
+         /* Reversal is tested BEFORE extension. On an outside bar that both makes
+          * a new extreme and clears the threshold, the leg reverses and the old
+          * pivot stays where it was; testing extension first would move the pivot
+          * and lose the reversal, which is a whole leg of difference rather than a
+          * rounding.
+          */
+         if( trend == -1 ) {
+            if( inHigh[today] >= pivot * up && barsSincePivot >= optInMinTrendLength ) {
+               trend = 1;
+               pivot = inHigh[today];
+               barsSincePivot = 0;
+            } else {
+               /* Ties extend: at an equal price the pivot moves to the later bar,
+                * which only outPivotIdx shows.
+                *
+                * A select, not a branch: on moving prices the extension is taken
+                * on a share of the bars no predictor follows.
+                */
+               isExt = (inLow[today] <= pivot) ? 1 : 0;
+               pivot = (pivot < inLow[today]) ? pivot : inLow[today];
+               barsSincePivot = barsSincePivot - isExt * barsSincePivot;
+            }
+         } else if( inLow[today] <= pivot * dn && barsSincePivot >= optInMinTrendLength ) {
+            trend = -1;
+            pivot = inLow[today];
+            barsSincePivot = 0;
+         } else {
+            isExt = (inHigh[today] >= pivot) ? 1 : 0;
+            pivot = (pivot > inHigh[today]) ? pivot : inHigh[today];
+            barsSincePivot = barsSincePivot - isExt * barsSincePivot;
+         }
+         if( today >= startIdx ) {
+            outZigZag[outIdx * outStride] = pivot;
+            outTrend[outIdx * outStride] = trend;
+            outPivotIdx[outIdx * outStride] = barIdx - barsSincePivot;
+            outIdx = outIdx + 1;
+         }
+         today = today + 1;
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = outIdx;
+      /* Capture the live batch state into the handle. */
+      sp.optInSensitivity = optInSensitivity;
+      sp.optInMinTrendLength = optInMinTrendLength;
+      sp.trend = trend;
+      sp.barsSincePivot = barsSincePivot;
+      sp.barIdx = barIdx;
+      sp.up = up;
+      sp.dn = dn;
+      sp.pivot = pivot;
+      sp.cur_outZigZag = outZigZag[(outNBElement.value - 1) * outStride];
+      sp.cur_outTrend = outTrend[(outNBElement.value - 1) * outStride];
+      sp.cur_outPivotIdx = outPivotIdx[(outNBElement.value - 1) * outStride];
+      return RetCode.SUCCESS;
+   }
+   /* zigzagOpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   ZigzagStream zigzagOpenAndFillInternal( double inHigh[], double inLow[], int startIdx, double optInSensitivity, int optInMinTrendLength, MInteger outBegIdx, MInteger outNBElement, double outZigZag[], int outTrend[], int outPivotIdx[] )
+   {
+      ZigzagStream sp = new ZigzagStream(this);
+      RetCode retCode = zigzagOpenImpl(sp, inHigh, inLow, startIdx, optInSensitivity, optInMinTrendLength, outBegIdx, outNBElement, outZigZag, outTrend, outPivotIdx, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("ZIGZAG openAndFill", inHigh.length, startIdx, zigzagLookback(optInSensitivity, optInMinTrendLength));
+      }
+      throw streamFailure("ZIGZAG openAndFill", retCode);
+   }
+   /* Internal startIdx-anchored open behind zigzagOpen (composition seam). */
+   ZigzagStream zigzagOpenInternal( double inHigh[], double inLow[], int startIdx, double optInSensitivity, int optInMinTrendLength )
+   {
+      ZigzagStream sp = new ZigzagStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outZigZag = new double[1];
+      int[] sink_outTrend = new int[1];
+      int[] sink_outPivotIdx = new int[1];
+      RetCode retCode = zigzagOpenImpl(sp, inHigh, inLow, startIdx, optInSensitivity, optInMinTrendLength, outBegIdx, outNBElement, sink_outZigZag, sink_outTrend, sink_outPivotIdx, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("ZIGZAG open", inHigh.length, startIdx, zigzagLookback(optInSensitivity, optInMinTrendLength));
+      }
+      throw streamFailure("ZIGZAG open", retCode);
+   }
+   /**
+    * Open a live ZIGZAG stream over the warm-up history; the handle's
+    * {@code value()} starts at the last history bar's value — bit-identical
+    * to {@link Core#zigzag} at that bar.
+    * <p>The history must hold at least {@code zigzagLookback(...) + 1} bars
+    * (unstable-period aware), or {@link InsufficientHistoryException} is
+    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
+    * ({@link Core#REAL_DEFAULT} and {@link Integer#MIN_VALUE} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
+    */
+   public ZigzagStream zigzagOpen( double inHigh[], double inLow[], double optInSensitivity, int optInMinTrendLength )
+   {
+      requireArgument("ZIGZAG open", "inHigh", inHigh);
+      requireHistory("ZIGZAG open", inHigh.length);
+      requireArgument("ZIGZAG open", "inLow", inLow);
+      requireHistoryLength("ZIGZAG open", "inLow", inLow.length, inHigh.length);
+      return zigzagOpenInternal(inHigh, inLow, 0, optInSensitivity, optInMinTrendLength);
+   }
+   /**
+    * {@link Core#zigzagOpen} that also fills the output array(s) bit-identically
+    * to {@link Core#zigzag} over the whole history in the same single pass
+    * (no separate batch call needed for the warm-up plot). Output arrays must
+    * not alias the inputs or each other, and must hold
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
+    * <p>The range written is on the returned handle:
+    * {@link ZigzagStream#outRange()}.
+    */
+   public ZigzagStream zigzagOpenAndFill( double inHigh[], double inLow[], double optInSensitivity, int optInMinTrendLength, double outZigZag[], int outTrend[], int outPivotIdx[] )
+   {
+      requireArgument("ZIGZAG openAndFill", "inHigh", inHigh);
+      requireHistory("ZIGZAG openAndFill", inHigh.length);
+      requireArgument("ZIGZAG openAndFill", "inLow", inLow);
+      int guardOutLen = openFillCount("ZIGZAG openAndFill", inHigh.length, zigzagLookback(optInSensitivity, optInMinTrendLength));
+      requireHistoryLength("ZIGZAG openAndFill", "inLow", inLow.length, inHigh.length);
+      requireLength("ZIGZAG openAndFill", "outZigZag", outZigZag, guardOutLen);
+      requireLength("ZIGZAG openAndFill", "outTrend", outTrend, guardOutLen);
+      requireLength("ZIGZAG openAndFill", "outPivotIdx", outPivotIdx, guardOutLen);
+      if( (Object)outZigZag == (Object)inHigh || (Object)outZigZag == (Object)inLow || (Object)outTrend == (Object)inHigh || (Object)outTrend == (Object)inLow || (Object)outPivotIdx == (Object)inHigh || (Object)outPivotIdx == (Object)inLow || (Object)outZigZag == (Object)outTrend || (Object)outZigZag == (Object)outPivotIdx || (Object)outTrend == (Object)outPivotIdx ) {
+         throw streamFailure("ZIGZAG openAndFill", RetCode.BAD_PARAM);
+      }
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      return zigzagOpenAndFillInternal(inHigh, inLow, 0, optInSensitivity, optInMinTrendLength, outBegIdx, outNBElement, outZigZag, outTrend, outPivotIdx);
    }
 /* List of contributors:
  *

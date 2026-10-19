@@ -37,7 +37,7 @@ pub const FUSING_INVENTORY: &[&str] = &[
     "cdlmorningdojistar", "cdlmorningstar", "cdlpiercing", "cdlthrusting", "cksp",
     "cvi",
     "dema", "dosc", "efi", "ema", "eri", "fisher", "fosc", "frama", "ht_dcperiod", "ht_dcphase", "ht_phasor", "ht_sine",
-    "ht_trendline", "ht_trendmode", "kama", "kst", "kstext", "kurtosis", "linearreg", "macd",
+    "ht_trendline", "ht_trendmode", "kama", "kst", "kstext", "kurtosis", "kvo", "linearreg", "macd",
     "macdfix", "mama", "massi", "natr", "percentb", "ppo", "pso", "pvo", "rma", "rvi",
     "sar", "sarext", "smi", "stc", "supertrend",
     "swak_2php", "swak_bp", "swak_butter", "swak_gauss", "swak_hp",
@@ -87,6 +87,8 @@ pub struct FmaVarSets {
     pub sentinel_vars: HashSet<String>,
     /// [`super::select_chain::recurrent_select_targets`] of the same body.
     pub recurrent_select_targets: HashSet<String>,
+    /// Running extremes the body carries from one loop pass to the next.
+    pub running_extreme_targets: HashSet<String>,
 }
 
 impl FmaVarSets {
@@ -145,6 +147,7 @@ pub fn build_fma_var_sets(
         int_output_names,
         sentinel_vars,
         recurrent_select_targets: super::select_chain::recurrent_select_targets(body),
+        running_extreme_targets: super::select_chain::running_extreme_targets(body),
     }
 }
 

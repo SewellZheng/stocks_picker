@@ -243,6 +243,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeHtTrendline(),
             MakeHtTrendmode(),
             MakeIbs(),
+            MakeIchimoku(),
             MakeImi(),
             MakeKama(),
             MakeKc(),
@@ -250,6 +251,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeKst(),
             MakeKstext(),
             MakeKurtosis(),
+            MakeKvo(),
             MakeLinearreg(),
             MakeLinearregAngle(),
             MakeLinearregIntercept(),
@@ -312,6 +314,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeSma(),
             MakeSmi(),
             MakeSqrt(),
+            MakeSqzmom(),
             MakeStc(),
             MakeStddev(),
             MakeStoch(),
@@ -347,6 +350,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeWclprice(),
             MakeWillr(),
             MakeWma(),
+            MakeZigzag(),
             MakeZlema(),
         ];
         _byName = _all.ToFrozenDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
@@ -897,7 +901,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "BBW",
         group: FunctionGroup.VolatilityIndicators,
         hint: "Bollinger BandWidth",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -2317,7 +2321,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "CG",
         group: FunctionGroup.MomentumIndicators,
         hint: "Center of Gravity Oscillator",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -2488,7 +2492,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "COPPOCK",
         group: FunctionGroup.MomentumIndicators,
         hint: "Coppock Curve",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -3013,7 +3017,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "FOSC",
         group: FunctionGroup.MomentumIndicators,
         hint: "Forecast Oscillator",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -3280,6 +3284,35 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Ibs(
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.RealOut(0)));
 
+    private static FuncInfo MakeIchimoku() => new(
+        name: "ICHIMOKU",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Ichimoku Kinko Hyo",
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.DisplayShift,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHL", PriceComponents.High | PriceComponents.Low, [PriceComponents.High, PriceComponents.Low]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTenkanPeriod", "Tenkan Period", "Period of the conversion line", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 9, 4, 200, 1)),
+            new OptInputInfo("optInKijunPeriod", "Kijun Period", "Period of the base line, and the forward shift of the two spans", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 26, 4, 200, 1)),
+            new OptInputInfo("optInSenkouBPeriod", "Senkou B Period", "Period of the second leading span", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 52, 4, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outTenkanSen", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outKijunSen", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outSenkouSpanA", OutputFlags.Line | OutputFlags.DisplayShift),
+            new OutputInfo(OutputKind.Real, "outSenkouSpanB", OutputFlags.Line | OutputFlags.DisplayShift),
+        ],
+        lookback: static (core, c) => core.IchimokuLookback(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),
+        displayShift: static (core, c, outputIdx) => core.IchimokuDisplayShift(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Ichimoku(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.RealOut(0), c.RealOut(1), c.RealOut(2), c.RealOut(3)));
+
     private static FuncInfo MakeImi() => new(
         name: "IMI",
         group: FunctionGroup.MomentumIndicators,
@@ -3390,7 +3423,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "KST",
         group: FunctionGroup.MomentumIndicators,
         hint: "Know Sure Thing (Pring)",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -3423,7 +3456,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "KSTEXT",
         group: FunctionGroup.MomentumIndicators,
         hint: "Know Sure Thing with controllable MA type",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -3477,6 +3510,33 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Kurtosis(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeKvo() => new(
+        name: "KVO",
+        group: FunctionGroup.VolumeIndicators,
+        hint: "Klinger Volume Oscillator",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLCV", PriceComponents.High | PriceComponents.Low | PriceComponents.Close | PriceComponents.Volume, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close, PriceComponents.Volume]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInFastPeriod", "Fast Period", "Period of the faster smoothing of the volume force", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 34, 4, 200, 1)),
+            new OptInputInfo("optInSlowPeriod", "Slow Period", "Period of the slower smoothing of the volume force", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 55, 4, 200, 1)),
+            new OptInputInfo("optInSignalPeriod", "Signal Period", "Smoothing for the trigger line", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 13, 2, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outKVO", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outKVOSignal", OutputFlags.DashLine),
+        ],
+        lookback: static (core, c) => core.KvoLookback(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),
+        displayShift: static (core, c, outputIdx) => core.KvoDisplayShift(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Kvo(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.Price(0, PriceComponents.Volume), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.RealOut(0), c.RealOut(1)));
 
     private static FuncInfo MakeLinearreg() => new(
         name: "LINEARREG",
@@ -3578,7 +3638,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "LN",
         group: FunctionGroup.MathTransform,
         hint: "Vector Log Natural",
-        flags: FuncFlags.Stream | FuncFlags.NanInfOutput | FuncFlags.UsesTranscendental,
+        flags: FuncFlags.Stream | FuncFlags.NanInfOutput | FuncFlags.UsesTranscendental | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -3599,7 +3659,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "LOG10",
         group: FunctionGroup.MathTransform,
         hint: "Vector Log10",
-        flags: FuncFlags.Stream | FuncFlags.NanInfOutput | FuncFlags.UsesTranscendental,
+        flags: FuncFlags.Stream | FuncFlags.NanInfOutput | FuncFlags.UsesTranscendental | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -3877,7 +3937,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "MCGD",
         group: FunctionGroup.OverlapStudies,
         hint: "McGinley Dynamic",
-        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.UnstablePeriod | FuncFlags.PositiveInput,
         unstableId: FuncUnstId.MCGD,
         inputs:
         [
@@ -4210,7 +4270,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "NATR",
         group: FunctionGroup.VolatilityIndicators,
         hint: "Normalized Average True Range",
-        flags: FuncFlags.Stream | FuncFlags.UnstablePeriod,
+        flags: FuncFlags.Stream | FuncFlags.UnstablePeriod | FuncFlags.PositiveInput,
         unstableId: FuncUnstId.NATR,
         inputs:
         [
@@ -4234,7 +4294,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "NVI",
         group: FunctionGroup.VolumeIndicators,
         hint: "Negative Volume Index",
-        flags: FuncFlags.Stream | FuncFlags.PathDependent,
+        flags: FuncFlags.Stream | FuncFlags.PathDependent | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4401,7 +4461,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "PPO",
         group: FunctionGroup.MomentumIndicators,
         hint: "Percentage Price Oscillator",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4452,7 +4512,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "PVI",
         group: FunctionGroup.VolumeIndicators,
         hint: "Positive Volume Index",
-        flags: FuncFlags.Stream | FuncFlags.PathDependent,
+        flags: FuncFlags.Stream | FuncFlags.PathDependent | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4499,7 +4559,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "PVT",
         group: FunctionGroup.VolumeIndicators,
         hint: "Price Volume Trend",
-        flags: FuncFlags.Stream | FuncFlags.PathDependent,
+        flags: FuncFlags.Stream | FuncFlags.PathDependent | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4568,7 +4628,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "ROC",
         group: FunctionGroup.MomentumIndicators,
         hint: "Rate of change : ((price/prevPrice)-1)*100",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4592,7 +4652,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "ROCP",
         group: FunctionGroup.MomentumIndicators,
         hint: "Rate of change Percentage: (price-prevPrice)/prevPrice",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4616,7 +4676,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "ROCR",
         group: FunctionGroup.MomentumIndicators,
         hint: "Rate of change ratio: (price/prevPrice)",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4640,7 +4700,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "ROCR100",
         group: FunctionGroup.MomentumIndicators,
         hint: "Rate of change ratio 100 scale: (price/prevPrice)*100",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4664,7 +4724,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "ROGERSSATCHELL",
         group: FunctionGroup.VolatilityIndicators,
         hint: "Rogers-Satchell Volatility",
-        flags: FuncFlags.Stream | FuncFlags.UsesTranscendental,
+        flags: FuncFlags.Stream | FuncFlags.UsesTranscendental | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4961,7 +5021,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "SQRT",
         group: FunctionGroup.MathTransform,
         hint: "Vector Square Root",
-        flags: FuncFlags.Stream | FuncFlags.NanInfOutput,
+        flags: FuncFlags.Stream | FuncFlags.NanInfOutput | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -4977,6 +5037,36 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Sqrt(
                 startIdx, endIdx, c.Series(0), c.RealOut(0)));
+
+    private static FuncInfo MakeSqzmom() => new(
+        name: "SQZMOM",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "Squeeze Momentum and Level",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInBBPeriod", "BB Period", "Period of the Bollinger Bands", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 20, 4, 200, 1)),
+            new OptInputInfo("optInNbDev", "Deviations", "Deviation multiplier for both Bollinger Bands", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 3e37, 2, 2.0, 1.0, 3.0, 0.5)),
+            new OptInputInfo("optInKCPeriod", "KC Period", "Period of the Keltner Channel, and of the momentum regression", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 20, 4, 200, 1)),
+            new OptInputInfo("optInFactorWide", "Wide Factor", "Keltner width for the widest compression test", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 3e37, 1, 2.0, 1.0, 3.0, 0.5)),
+            new OptInputInfo("optInFactorNormal", "Normal Factor", "Keltner width for the classic squeeze test", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 3e37, 1, 1.5, 1.0, 3.0, 0.5)),
+            new OptInputInfo("optInFactorNarrow", "Narrow Factor", "Keltner width for the tightest compression test", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 3e37, 1, 1.0, 0.5, 2.0, 0.5)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outMomentum", OutputFlags.Histogram),
+            new OutputInfo(OutputKind.Integer, "outSqueeze", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.SqzmomLookback(c.IntOpt(0), c.RealOpt(1), c.IntOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5)),
+        displayShift: static (core, c, outputIdx) => core.SqzmomDisplayShift(c.IntOpt(0), c.RealOpt(1), c.IntOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Sqzmom(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.IntOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5), c.RealOut(0), c.IntOut(1)));
 
     private static FuncInfo MakeStc() => new(
         name: "STC",
@@ -5446,7 +5536,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         name: "TRIX",
         group: FunctionGroup.MomentumIndicators,
         hint: "1-day Rate-Of-Change (ROC) of a Triple Smooth EMA",
-        flags: FuncFlags.Stream,
+        flags: FuncFlags.Stream | FuncFlags.PositiveInput,
         unstableId: null,
         inputs:
         [
@@ -5823,6 +5913,33 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Wma(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FuncInfo MakeZigzag() => new(
+        name: "ZIGZAG",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Zig Zag",
+        flags: FuncFlags.Overlap | FuncFlags.Stream | FuncFlags.PathDependent | FuncFlags.PositiveInput,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHL", PriceComponents.High | PriceComponents.Low, [PriceComponents.High, PriceComponents.Low]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInSensitivity", "Sensitivity", "Minimum move away from the current extreme that reverses the leg, in percent", OptInputFlags.IsPercent, new OptInputDomain.RealRange(0.0, 100.0, 2, 5.0, 1.0, 20.0, 1.0)),
+            new OptInputInfo("optInMinTrendLength", "Minimum Trend Length", "Minimum number of bars between two pivots", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 1, 1, 20, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outZigZag", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outTrend", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outPivotIdx", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.ZigzagLookback(c.RealOpt(0), c.IntOpt(1)),
+        displayShift: static (core, c, outputIdx) => core.ZigzagDisplayShift(c.RealOpt(0), c.IntOpt(1), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Zigzag(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.RealOpt(0), c.IntOpt(1), c.RealOut(0), c.IntOut(1), c.IntOut(2)));
 
     private static FuncInfo MakeZlema() => new(
         name: "ZLEMA",

@@ -1912,6 +1912,79 @@ fn end_aligned_rejects_a_pointer_copied_series() {
     assert_not_same_bar(&f, "a write through either name moves a pointer-copied series");
 }
 
+/* ---- #543: an offset read anchored on a sibling series ---- */
+
+/// The shipped SQZMOM with each `(from, to)` edit applied once. Its level map
+/// writes only `outSqueeze`, which no sub-call produced, so the staged centre's
+/// offset read can be proved only against a series the map reads at the cursor.
+fn sqzmom_with(edits: &[(&str, &str)]) -> FuncDef {
+    let mut src = std::fs::read_to_string(input_dir().join("sqzmom/sqzmom.c")).expect("sqzmom.c");
+    for (from, to) in edits {
+        assert!(src.contains(from), "fixture edit `{from}` does not apply");
+        src = src.replacen(from, to, 1);
+    }
+    load_with_source("sqzmom", &src)
+}
+
+#[test]
+fn map_written_output_anchors_an_offset_read_on_a_plain_cursor_series() {
+    let f = sqzmom_with(&[]);
+    let plan = streaming::validate_streamable(&f, lookup()).expect("SQZMOM streams");
+    let streaming::StreamPlan::Composed(cp) = plan else {
+        panic!("SQZMOM must derive a composed plan");
+    };
+    let callees: Vec<&str> = cp.subs.iter().map(|s| s.callee.as_str()).collect();
+    assert_eq!(callees, ["midprice", "sma", "trange", "sma", "sma", "stddev", "linearreg"]);
+}
+
+#[test]
+fn sibling_anchor_rejects_what_is_not_a_same_bar_shift() {
+    let rows: [(&str, &[(&str, &str)]); 6] = [
+        (
+            "a lag ring's plain read is an earlier bar and anchors nothing",
+            &[(
+                "dev = tempSD[i]*optInNbDev;",
+                "dev = (tempSD[i]+tempSD[i+(optInBBPeriod-1)])*optInNbDev;",
+            )],
+        ),
+        (
+            "a count difference plus one is a lag",
+            &[("kcmShift = kcmNb - sdNb;", "kcmShift = kcmNb - sdNb + 1;")],
+        ),
+        (
+            "the anchor ends a bar before the centre",
+            &[(
+                "stddev( startIdx, endIdx, inClose,",
+                "stddev( startIdx, endIdx-1, inClose,",
+            )],
+        ),
+        (
+            "the anchor's count is against a series the map does not read at the cursor",
+            &[("dev = tempSD[i]*optInNbDev;", "dev = optInNbDev;")],
+        ),
+        (
+            "linearreg rewrites the anchor's receiver before the map reads the shift",
+            &[
+                ("&tempBegIdx, &sdNb, tempSD", "&tempBegIdx, &tempNbElement, tempSD"),
+                ("kcmShift = kcmNb - sdNb;", "kcmShift = kcmNb - tempNbElement;"),
+            ],
+        ),
+        (
+            "a primary a sub-call produced is the only anchor, even with its count gone",
+            &[
+                ("outSqueeze[i] = 3;", "tempMid[i] = 3;"),
+                ("outSqueeze[i] = 2;", "tempMid[i] = 2;"),
+                ("outSqueeze[i] = 1;", "tempMid[i] = 1;"),
+                ("outSqueeze[i] = -1;", "tempMid[i] = -1;"),
+                ("outSqueeze[i] = 0;", "tempMid[i] = 0;"),
+            ],
+        ),
+    ];
+    for (why, edits) in rows {
+        assert_not_same_bar(&sqzmom_with(edits), why);
+    }
+}
+
 /* ---- #205: the fill-mode scratch-aliasing precondition ---- */
 
 /// Inventory of composed functions that hand one of their OWN outputs to a
@@ -1967,7 +2040,7 @@ fn composed_sub_call_destination_funcs() {
     // Membership alone would not tell the next author WHICH invariant to keep:
     // no two of these are safe for the same reason. The reason is recorded with
     // each entry and printed on failure. (Reasons proved by kevinlincg, #205.)
-    let expected: [(&str, &str); 15] = [
+    let expected: [(&str, &str); 17] = [
         ("APO", "sub-call uses optInSlowPeriod and the body swaps so slow == max(slow,fast); \
                  the swap is load-bearing -- see apo_family_period_swap_is_a_write_bound_precondition"),
         ("BBW", "as KDJ -- var is handed outBegIdx/outNBElement themselves and BBW returns them \
@@ -1978,6 +2051,11 @@ fn composed_sub_call_destination_funcs() {
                  returns the count unmodified, so the final count IS that callee's count. The \
                  rocp buffer it ranks is entered optInRankPeriod bars before startIdx, so that \
                  count is endIdx-startIdx+1"),
+        ("ICHIMOKU", "the last midprice writes outSenkouSpanB and medprice writes \
+                 outSenkouSpanA. midprice is entered at a startIdx already clamped to the \
+                 longest of the three lookbacks, so it clamps nothing and its count is \
+                 n = endIdx-startIdx+1. medprice has a lookback of 0 and is entered at 0 over \
+                 those n elements, so its count is n too: the expression ICHIMOKU returns"),
         ("KC", "the moving average is entered at exactly ema_lookback over a typical-price buffer \
                  that begins ema_lookback bars before startIdx, so it clamps nothing: its first \
                  output lands on startIdx and its count is endIdx-startIdx+1, the same expression \
@@ -2005,6 +2083,11 @@ fn composed_sub_call_destination_funcs() {
                  rvir_lookback delegates to rvi_lookback, so the high leg entered at the same \
                  startIdx agrees by construction and the averaging loop runs over one count, \
                  not two"),
+        ("SQZMOM", "as KC -- linearreg is entered at 0 over tempDev, a buffer whose length is \
+                 exactly (endIdx-startIdx+1) + linearreg_lookback(optInKCPeriod), so it clamps to \
+                 its own lookback and its count comes out at endIdx-startIdx+1, the expression \
+                 SQZMOM returns. Equal through the buffer's LENGTH, not through a lookback \
+                 identity between two callees"),
         ("STDDEV", "stddev_lookback DELEGATES to var_lookback in the source, so the counts are \
                  equal by construction rather than by arithmetic coincidence"),
         ("STOCH", "the callee is handed tempBuffer[..*outNBElement], so its output cannot exceed \

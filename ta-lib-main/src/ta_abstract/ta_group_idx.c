@@ -168,6 +168,7 @@ extern const TA_FuncDef TA_DEF_HT_SINE;
 extern const TA_FuncDef TA_DEF_HT_TRENDLINE;
 extern const TA_FuncDef TA_DEF_HT_TRENDMODE;
 extern const TA_FuncDef TA_DEF_IBS;
+extern const TA_FuncDef TA_DEF_ICHIMOKU;
 extern const TA_FuncDef TA_DEF_IMI;
 extern const TA_FuncDef TA_DEF_KAMA;
 extern const TA_FuncDef TA_DEF_KC;
@@ -175,6 +176,7 @@ extern const TA_FuncDef TA_DEF_KDJ;
 extern const TA_FuncDef TA_DEF_KST;
 extern const TA_FuncDef TA_DEF_KSTEXT;
 extern const TA_FuncDef TA_DEF_KURTOSIS;
+extern const TA_FuncDef TA_DEF_KVO;
 extern const TA_FuncDef TA_DEF_LINEARREG;
 extern const TA_FuncDef TA_DEF_LINEARREG_ANGLE;
 extern const TA_FuncDef TA_DEF_LINEARREG_INTERCEPT;
@@ -237,6 +239,7 @@ extern const TA_FuncDef TA_DEF_SINH;
 extern const TA_FuncDef TA_DEF_SMA;
 extern const TA_FuncDef TA_DEF_SMI;
 extern const TA_FuncDef TA_DEF_SQRT;
+extern const TA_FuncDef TA_DEF_SQZMOM;
 extern const TA_FuncDef TA_DEF_STC;
 extern const TA_FuncDef TA_DEF_STDDEV;
 extern const TA_FuncDef TA_DEF_STOCH;
@@ -272,6 +275,7 @@ extern const TA_FuncDef TA_DEF_WAVETREND;
 extern const TA_FuncDef TA_DEF_WCLPRICE;
 extern const TA_FuncDef TA_DEF_WILLR;
 extern const TA_FuncDef TA_DEF_WMA;
+extern const TA_FuncDef TA_DEF_ZIGZAG;
 extern const TA_FuncDef TA_DEF_ZLEMA;
 
 const TA_FuncDef *TA_PerGroupFunc_0[] = {
@@ -320,6 +324,7 @@ const TA_FuncDef *TA_PerGroupFunc_2[] = {
 &TA_DEF_FRAMA,
 &TA_DEF_HMA,
 &TA_DEF_HT_TRENDLINE,
+&TA_DEF_ICHIMOKU,
 &TA_DEF_KAMA,
 &TA_DEF_KC,
 &TA_DEF_MA,
@@ -341,6 +346,7 @@ const TA_FuncDef *TA_PerGroupFunc_2[] = {
 &TA_DEF_VIDYA,
 &TA_DEF_VWMA,
 &TA_DEF_WMA,
+&TA_DEF_ZIGZAG,
 &TA_DEF_ZLEMA,
 NULL };
 #define SIZE_GROUP_2 ((sizeof(TA_PerGroupFunc_2)/sizeof(const TA_FuncDef *))-1)
@@ -411,6 +417,7 @@ const TA_FuncDef *TA_PerGroupFunc_4[] = {
 &TA_DEF_RSI,
 &TA_DEF_SI,
 &TA_DEF_SMI,
+&TA_DEF_SQZMOM,
 &TA_DEF_STC,
 &TA_DEF_STOCH,
 &TA_DEF_STOCHF,
@@ -444,6 +451,7 @@ const TA_FuncDef *TA_PerGroupFunc_6[] = {
 &TA_DEF_CMF,
 &TA_DEF_EFI,
 &TA_DEF_EMV,
+&TA_DEF_KVO,
 &TA_DEF_MARKETFI,
 &TA_DEF_NVI,
 &TA_DEF_OBV,

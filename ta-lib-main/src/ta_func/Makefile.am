@@ -131,6 +131,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_HT_TRENDLINE.c \
 	ta_HT_TRENDMODE.c \
 	ta_IBS.c \
+	ta_ICHIMOKU.c \
 	ta_IMI.c \
 	ta_KAMA.c \
 	ta_KC.c \
@@ -138,6 +139,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_KST.c \
 	ta_KSTEXT.c \
 	ta_KURTOSIS.c \
+	ta_KVO.c \
 	ta_LINEARREG.c \
 	ta_LINEARREG_ANGLE.c \
 	ta_LINEARREG_INTERCEPT.c \
@@ -200,6 +202,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_SMA.c \
 	ta_SMI.c \
 	ta_SQRT.c \
+	ta_SQZMOM.c \
 	ta_STC.c \
 	ta_STDDEV.c \
 	ta_STOCH.c \
@@ -235,4 +238,5 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_WCLPRICE.c \
 	ta_WILLR.c \
 	ta_WMA.c \
+	ta_ZIGZAG.c \
 	ta_ZLEMA.c

@@ -248,6 +248,7 @@ public final class Functions {
       put(m, f_HT_TRENDLINE());
       put(m, f_HT_TRENDMODE());
       put(m, f_IBS());
+      put(m, f_ICHIMOKU());
       put(m, f_IMI());
       put(m, f_KAMA());
       put(m, f_KC());
@@ -255,6 +256,7 @@ public final class Functions {
       put(m, f_KST());
       put(m, f_KSTEXT());
       put(m, f_KURTOSIS());
+      put(m, f_KVO());
       put(m, f_LINEARREG());
       put(m, f_LINEARREG_ANGLE());
       put(m, f_LINEARREG_INTERCEPT());
@@ -317,6 +319,7 @@ public final class Functions {
       put(m, f_SMA());
       put(m, f_SMI());
       put(m, f_SQRT());
+      put(m, f_SQZMOM());
       put(m, f_STC());
       put(m, f_STDDEV());
       put(m, f_STOCH());
@@ -352,6 +355,7 @@ public final class Functions {
       put(m, f_WCLPRICE());
       put(m, f_WILLR());
       put(m, f_WMA());
+      put(m, f_ZIGZAG());
       put(m, f_ZLEMA());
       return Collections.unmodifiableMap(m);
    }
@@ -765,7 +769,7 @@ public final class Functions {
 
    private static FuncInfo f_BBW() {
       return new FuncInfo(
-         "BBW", "Volatility Indicators", "Bollinger BandWidth", 0x02000000,
+         "BBW", "Volatility Indicators", "Bollinger BandWidth", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1633,7 +1637,7 @@ public final class Functions {
 
    private static FuncInfo f_CG() {
       return new FuncInfo(
-         "CG", "Momentum Indicators", "Center of Gravity Oscillator", 0x02000000,
+         "CG", "Momentum Indicators", "Center of Gravity Oscillator", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -1770,7 +1774,7 @@ public final class Functions {
 
    private static FuncInfo f_COPPOCK() {
       return new FuncInfo(
-         "COPPOCK", "Momentum Indicators", "Coppock Curve", 0x02000000,
+         "COPPOCK", "Momentum Indicators", "Coppock Curve", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2181,7 +2185,7 @@ public final class Functions {
 
    private static FuncInfo f_FOSC() {
       return new FuncInfo(
-         "FOSC", "Momentum Indicators", "Forecast Oscillator", 0x02000000,
+         "FOSC", "Momentum Indicators", "Forecast Oscillator", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2358,6 +2362,37 @@ public final class Functions {
          ));
    }
 
+   private static FuncInfo f_ICHIMOKU() {
+      return new FuncInfo(
+         "ICHIMOKU", "Overlap Studies", "Ichimoku Kinko Hyo", 0x03000002,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHL", 0x00000006)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTenkanPeriod", 0x00000000,
+               "Tenkan Period", "Period of the conversion line", 9.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInKijunPeriod", 0x00000000,
+               "Kijun Period", "Period of the base line, and the forward shift of the two spans", 26.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInSenkouBPeriod", 0x00000000,
+               "Senkou B Period", "Period of the second leading span", 52.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outTenkanSen", 0x00000001),
+            new OutputInfo(OutputType.REAL, "outKijunSen", 0x00000001),
+            new OutputInfo(OutputType.REAL, "outSenkouSpanA", 0x00004001),
+            new OutputInfo(OutputType.REAL, "outSenkouSpanB", 0x00004001)
+         ));
+   }
+
    private static FuncInfo f_IMI() {
       return new FuncInfo(
          "IMI", "Momentum Indicators", "Intraday Momentum Index", 0x02000000,
@@ -2466,7 +2501,7 @@ public final class Functions {
 
    private static FuncInfo f_KST() {
       return new FuncInfo(
-         "KST", "Momentum Indicators", "Know Sure Thing (Pring)", 0x02000000,
+         "KST", "Momentum Indicators", "Know Sure Thing (Pring)", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2525,7 +2560,7 @@ public final class Functions {
 
    private static FuncInfo f_KSTEXT() {
       return new FuncInfo(
-         "KSTEXT", "Momentum Indicators", "Know Sure Thing with controllable MA type", 0x02000000,
+         "KSTEXT", "Momentum Indicators", "Know Sure Thing with controllable MA type", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2610,6 +2645,35 @@ public final class Functions {
          ));
    }
 
+   private static FuncInfo f_KVO() {
+      return new FuncInfo(
+         "KVO", "Volume Indicators", "Klinger Volume Oscillator", 0x02000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHLCV", 0x0000001E)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInFastPeriod", 0x00000000,
+               "Fast Period", "Period of the faster smoothing of the volume force", 34.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInSlowPeriod", 0x00000000,
+               "Slow Period", "Period of the slower smoothing of the volume force", 55.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInSignalPeriod", 0x00000000,
+               "Signal Period", "Smoothing for the trigger line", 13.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 2, 200, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outKVO", 0x00000001),
+            new OutputInfo(OutputType.REAL, "outKVOSignal", 0x00000004)
+         ));
+   }
+
    private static FuncInfo f_LINEARREG() {
       return new FuncInfo(
          "LINEARREG", "Statistic Functions", "Linear Regression", 0x03000000,
@@ -2684,7 +2748,7 @@ public final class Functions {
 
    private static FuncInfo f_LN() {
       return new FuncInfo(
-         "LN", "Math Transform", "Vector Log Natural", 0x42000004,
+         "LN", "Math Transform", "Vector Log Natural", 0x4200000C,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2696,7 +2760,7 @@ public final class Functions {
 
    private static FuncInfo f_LOG10() {
       return new FuncInfo(
-         "LOG10", "Math Transform", "Vector Log10", 0x42000004,
+         "LOG10", "Math Transform", "Vector Log10", 0x4200000C,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -2950,7 +3014,7 @@ public final class Functions {
 
    private static FuncInfo f_MCGD() {
       return new FuncInfo(
-         "MCGD", "Overlap Studies", "McGinley Dynamic", 0x0B000000,
+         "MCGD", "Overlap Studies", "McGinley Dynamic", 0x0B000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -3193,7 +3257,7 @@ public final class Functions {
 
    private static FuncInfo f_NATR() {
       return new FuncInfo(
-         "NATR", "Volatility Indicators", "Normalized Average True Range", 0x0A000000,
+         "NATR", "Volatility Indicators", "Normalized Average True Range", 0x0A000008,
          List.of(
             new InputInfo(InputType.PRICE, "inPriceHLC", 0x0000000E)
          ),
@@ -3211,7 +3275,7 @@ public final class Functions {
 
    private static FuncInfo f_NVI() {
       return new FuncInfo(
-         "NVI", "Volume Indicators", "Negative Volume Index", 0x22000000,
+         "NVI", "Volume Indicators", "Negative Volume Index", 0x22000008,
          List.of(
             new InputInfo(InputType.PRICE, "inPriceCV", 0x00000018)
          ),
@@ -3346,7 +3410,7 @@ public final class Functions {
 
    private static FuncInfo f_PPO() {
       return new FuncInfo(
-         "PPO", "Momentum Indicators", "Percentage Price Oscillator", 0x02000000,
+         "PPO", "Momentum Indicators", "Percentage Price Oscillator", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -3397,7 +3461,7 @@ public final class Functions {
 
    private static FuncInfo f_PVI() {
       return new FuncInfo(
-         "PVI", "Volume Indicators", "Positive Volume Index", 0x22000000,
+         "PVI", "Volume Indicators", "Positive Volume Index", 0x22000008,
          List.of(
             new InputInfo(InputType.PRICE, "inPriceCV", 0x00000018)
          ),
@@ -3437,7 +3501,7 @@ public final class Functions {
 
    private static FuncInfo f_PVT() {
       return new FuncInfo(
-         "PVT", "Volume Indicators", "Price Volume Trend", 0x22000000,
+         "PVT", "Volume Indicators", "Price Volume Trend", 0x22000008,
          List.of(
             new InputInfo(InputType.PRICE, "inPriceCV", 0x00000018)
          ),
@@ -3485,7 +3549,7 @@ public final class Functions {
 
    private static FuncInfo f_ROC() {
       return new FuncInfo(
-         "ROC", "Momentum Indicators", "Rate of change : ((price/prevPrice)-1)*100", 0x02000000,
+         "ROC", "Momentum Indicators", "Rate of change : ((price/prevPrice)-1)*100", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -3503,7 +3567,7 @@ public final class Functions {
 
    private static FuncInfo f_ROCP() {
       return new FuncInfo(
-         "ROCP", "Momentum Indicators", "Rate of change Percentage: (price-prevPrice)/prevPrice", 0x02000000,
+         "ROCP", "Momentum Indicators", "Rate of change Percentage: (price-prevPrice)/prevPrice", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -3521,7 +3585,7 @@ public final class Functions {
 
    private static FuncInfo f_ROCR() {
       return new FuncInfo(
-         "ROCR", "Momentum Indicators", "Rate of change ratio: (price/prevPrice)", 0x02000000,
+         "ROCR", "Momentum Indicators", "Rate of change ratio: (price/prevPrice)", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -3539,7 +3603,7 @@ public final class Functions {
 
    private static FuncInfo f_ROCR100() {
       return new FuncInfo(
-         "ROCR100", "Momentum Indicators", "Rate of change ratio 100 scale: (price/prevPrice)*100", 0x02000000,
+         "ROCR100", "Momentum Indicators", "Rate of change ratio 100 scale: (price/prevPrice)*100", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -3557,7 +3621,7 @@ public final class Functions {
 
    private static FuncInfo f_ROGERSSATCHELL() {
       return new FuncInfo(
-         "ROGERSSATCHELL", "Volatility Indicators", "Rogers-Satchell Volatility", 0x02000004,
+         "ROGERSSATCHELL", "Volatility Indicators", "Rogers-Satchell Volatility", 0x0200000C,
          List.of(
             new InputInfo(InputType.PRICE, "inPriceOHLC", 0x0000000F)
          ),
@@ -3832,13 +3896,57 @@ public final class Functions {
 
    private static FuncInfo f_SQRT() {
       return new FuncInfo(
-         "SQRT", "Math Transform", "Vector Square Root", 0x42000000,
+         "SQRT", "Math Transform", "Vector Square Root", 0x42000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
          List.of(),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
+   private static FuncInfo f_SQZMOM() {
+      return new FuncInfo(
+         "SQZMOM", "Momentum Indicators", "Squeeze Momentum and Level", 0x02000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHLC", 0x0000000E)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInBBPeriod", 0x00000000,
+               "BB Period", "Period of the Bollinger Bands", 20.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInNbDev", 0x00000000,
+               "Deviations", "Deviation multiplier for both Bollinger Bands", 2.0,
+               0.0, 3e37, 2, 1.0, 3.0, 0.5,
+               0, 0, 0, 0, 0, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInKCPeriod", 0x00000000,
+               "KC Period", "Period of the Keltner Channel, and of the momentum regression", 20.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInFactorWide", 0x00000000,
+               "Wide Factor", "Keltner width for the widest compression test", 2.0,
+               0.0, 3e37, 1, 1.0, 3.0, 0.5,
+               0, 0, 0, 0, 0, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInFactorNormal", 0x00000000,
+               "Normal Factor", "Keltner width for the classic squeeze test", 1.5,
+               0.0, 3e37, 1, 1.0, 3.0, 0.5,
+               0, 0, 0, 0, 0, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInFactorNarrow", 0x00000000,
+               "Narrow Factor", "Keltner width for the tightest compression test", 1.0,
+               0.0, 3e37, 1, 0.5, 2.0, 0.5,
+               0, 0, 0, 0, 0, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outMomentum", 0x00000010),
+            new OutputInfo(OutputType.INTEGER, "outSqueeze", 0x00000001)
          ));
    }
 
@@ -4242,7 +4350,7 @@ public final class Functions {
 
    private static FuncInfo f_TRIX() {
       return new FuncInfo(
-         "TRIX", "Momentum Indicators", "1-day Rate-Of-Change (ROC) of a Triple Smooth EMA", 0x02000000,
+         "TRIX", "Momentum Indicators", "1-day Rate-Of-Change (ROC) of a Triple Smooth EMA", 0x02000008,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -4539,6 +4647,31 @@ public final class Functions {
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
+   private static FuncInfo f_ZIGZAG() {
+      return new FuncInfo(
+         "ZIGZAG", "Overlap Studies", "Zig Zag", 0x23000008,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHL", 0x00000006)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInSensitivity", 0x00100000,
+               "Sensitivity", "Minimum move away from the current extreme that reverses the leg, in percent", 5.0,
+               0.0, 100.0, 2, 1.0, 20.0, 1.0,
+               0, 0, 0, 0, 0, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInMinTrendLength", 0x00000000,
+               "Minimum Trend Length", "Minimum number of bars between two pivots", 1.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 1, 20, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outZigZag", 0x00000001),
+            new OutputInfo(OutputType.INTEGER, "outTrend", 0x00000001),
+            new OutputInfo(OutputType.INTEGER, "outPivotIdx", 0x00000001)
          ));
    }
 

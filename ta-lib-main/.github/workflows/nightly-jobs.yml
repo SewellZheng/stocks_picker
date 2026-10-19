@@ -1697,7 +1697,7 @@ jobs:
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -1951,7 +1951,7 @@ jobs:
       # would skip it.
       - name: Upload the raw callgrind output
         if: always() && steps.decide.outputs.measure == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: callgrind-icount
           path: temp/callgrind.icount.*.out

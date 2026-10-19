@@ -81,6 +81,7 @@ typedef enum
   TA_TESTUTIL_DRT_OUT_OF_BOUND_OUT      = 163,
   TA_TESTUTIL_DRT_OUT_OF_BOUND_OUT_INT  = 164,
   TA_TESTUTIL_DRT_STABILITY_MISMATCH    = 165,
+  TA_TESTUTIL_DRT_NO_COMPARISON         = 166,
 
   /* Error code for test in test_period.c */
   TA_PERIOD_HISTORYALLOC_FAILED               = 200,
@@ -241,6 +242,7 @@ typedef enum
   TA_ABS_TST_FAIL_LOOKBACK_SETTINGS_VACUOUS = 634,
   TA_ABS_TST_FAIL_FIRST_BAR                 = 635,
   TA_ABS_TST_FAIL_FIRST_BAR_VACUOUS         = 636,
+  TA_ABS_TST_FAIL_POSITIVE_INPUT_VACUOUS    = 637,
 
   /* Error code related to internal tests. */
   TA_INTERNAL_CIRC_BUFF_FAIL_0      = 700,

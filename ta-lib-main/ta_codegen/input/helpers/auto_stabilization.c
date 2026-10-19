@@ -63,6 +63,16 @@ int ta_auto_stabilization_adosc(int fastest, int slowest) {
    ) + 7) / 8;
 }
 
+/* KVO is a small difference of two large EMAs seeded on the same bar, so the
+ * seed error left in either is large against the output: the count is an EMA's
+ * at more e-folds, at the longest of the three periods. A measurement, not a
+ * bound (census_table.tsv).
+ */
+int ta_auto_stabilization_kvo(int K, int longest) {
+   return ta_auto_stabilization_ema((4 * K + 23) / 3, longest)
+   - ta_auto_stabilization_ema(K, longest);
+}
+
 /* Saturates at TA_INDEX_MAX. */
 int ta_auto_stabilization_vidya(int X, int period, int root) {
    return 2 * X * (period + 1) * root > 100000000 ? 100000000 : 2 * X * (period + 1) * root;

@@ -6724,6 +6724,72 @@ static void icount_IBS(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_ICHIMOKU(int iters) {
+    const char *nm = "ICHIMOKU";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_ICHIMOKU_Stream *st = NULL;
+    TA_ICHIMOKU_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+    double v2 = 0.0;
+    double v3 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_ICHIMOKU(0, g_nPoints - 1, g_high, g_low, 9, 26, 52, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2, g_outBuf3);
+    ICOUNT_DUMP("ICHIMOKU/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    acc += g_outBuf2[0];
+    acc += g_outBuf3[0];
+
+    ICOUNT_ZERO();
+    rc = TA_ICHIMOKU_OpenAndFill(&stf, g_high, g_low, g_nPoints, 9, 26, 52, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2, g_outBuf3);
+    ICOUNT_DUMP("ICHIMOKU/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    acc += g_outBuf2[0];
+    acc += g_outBuf3[0];
+    if( stf ) TA_ICHIMOKU_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_ICHIMOKU_Open(&st, g_high, g_low, g_nPoints, 9, 26, 52, &v0, &v1, &v2, &v3);
+    ICOUNT_DUMP("ICHIMOKU/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ICHIMOKU_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0, &v1, &v2, &v3);
+            acc += v0;
+            acc += v1;
+            acc += v2;
+            acc += v3;
+        }
+        ICOUNT_DUMP("ICHIMOKU/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ICHIMOKU_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0, &v1, &v2, &v3);
+            acc += v0;
+            acc += v1;
+            acc += v2;
+            acc += v3;
+        }
+        ICOUNT_DUMP("ICHIMOKU/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_ICHIMOKU_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_IMI(int iters) {
     const char *nm = "IMI";
     int outBegIdx = 0, outNBElement = 0;
@@ -7108,6 +7174,62 @@ static void icount_KURTOSIS(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_KURTOSIS_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_KVO(int iters) {
+    const char *nm = "KVO";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_KVO_Stream *st = NULL;
+    TA_KVO_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_KVO(0, g_nPoints - 1, g_high, g_low, g_close, g_volume, 34, 55, 13, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("KVO/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+
+    ICOUNT_ZERO();
+    rc = TA_KVO_OpenAndFill(&stf, g_high, g_low, g_close, g_volume, g_nPoints, 34, 55, 13, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("KVO/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    if( stf ) TA_KVO_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_KVO_Open(&st, g_high, g_low, g_close, g_volume, g_nPoints, 34, 55, 13, &v0, &v1);
+    ICOUNT_DUMP("KVO/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_KVO_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], g_volume[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("KVO/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_KVO_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], g_volume[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("KVO/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_KVO_Close(st);
     g_sink += acc + outNBElement;
 }
 
@@ -10323,6 +10445,62 @@ static void icount_SQRT(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_SQZMOM(int iters) {
+    const char *nm = "SQZMOM";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_SQZMOM_Stream *st = NULL;
+    TA_SQZMOM_Stream *stf = NULL;
+    double v0 = 0.0;
+    int iv0 = 0;
+
+    ICOUNT_ZERO();
+    rc = TA_SQZMOM(0, g_nPoints - 1, g_high, g_low, g_close, 20, 2.000000000000000, 20, 2.000000000000000, 1.500000000000000, 1.000000000000000, &outBegIdx, &outNBElement, g_outBuf0, g_outIntBuf0);
+    ICOUNT_DUMP("SQZMOM/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += (double)g_outIntBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_SQZMOM_OpenAndFill(&stf, g_high, g_low, g_close, g_nPoints, 20, 2.000000000000000, 20, 2.000000000000000, 1.500000000000000, 1.000000000000000, &outBegIdx, &outNBElement, g_outBuf0, g_outIntBuf0);
+    ICOUNT_DUMP("SQZMOM/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += (double)g_outIntBuf0[0];
+    if( stf ) TA_SQZMOM_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_SQZMOM_Open(&st, g_high, g_low, g_close, g_nPoints, 20, 2.000000000000000, 20, 2.000000000000000, 1.500000000000000, 1.000000000000000, &v0, &iv0);
+    ICOUNT_DUMP("SQZMOM/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SQZMOM_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0, &iv0);
+            acc += v0;
+            acc += (double)iv0;
+        }
+        ICOUNT_DUMP("SQZMOM/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SQZMOM_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0, &iv0);
+            acc += v0;
+            acc += (double)iv0;
+        }
+        ICOUNT_DUMP("SQZMOM/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_SQZMOM_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_STC(int iters) {
     const char *nm = "STC";
     int outBegIdx = 0, outNBElement = 0;
@@ -12138,6 +12316,67 @@ static void icount_WMA(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_ZIGZAG(int iters) {
+    const char *nm = "ZIGZAG";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_ZIGZAG_Stream *st = NULL;
+    TA_ZIGZAG_Stream *stf = NULL;
+    double v0 = 0.0;
+    int iv0 = 0;
+    int iv1 = 0;
+
+    ICOUNT_ZERO();
+    rc = TA_ZIGZAG(0, g_nPoints - 1, g_high, g_low, 5.000000000000000, 1, &outBegIdx, &outNBElement, g_outBuf0, g_outIntBuf0, g_outIntBuf1);
+    ICOUNT_DUMP("ZIGZAG/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += (double)g_outIntBuf0[0];
+    acc += (double)g_outIntBuf1[0];
+
+    ICOUNT_ZERO();
+    rc = TA_ZIGZAG_OpenAndFill(&stf, g_high, g_low, g_nPoints, 5.000000000000000, 1, &outBegIdx, &outNBElement, g_outBuf0, g_outIntBuf0, g_outIntBuf1);
+    ICOUNT_DUMP("ZIGZAG/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += (double)g_outIntBuf0[0];
+    acc += (double)g_outIntBuf1[0];
+    if( stf ) TA_ZIGZAG_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_ZIGZAG_Open(&st, g_high, g_low, g_nPoints, 5.000000000000000, 1, &v0, &iv0, &iv1);
+    ICOUNT_DUMP("ZIGZAG/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ZIGZAG_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0, &iv0, &iv1);
+            acc += v0;
+            acc += (double)iv0;
+            acc += (double)iv1;
+        }
+        ICOUNT_DUMP("ZIGZAG/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ZIGZAG_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0, &iv0, &iv1);
+            acc += v0;
+            acc += (double)iv0;
+            acc += (double)iv1;
+        }
+        ICOUNT_DUMP("ZIGZAG/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_ZIGZAG_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_ZLEMA(int iters) {
     const char *nm = "ZLEMA";
     int outBegIdx = 0, outNBElement = 0;
@@ -12318,6 +12557,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "HT_TRENDLINE") ) { icount_HT_TRENDLINE(iters); fflush(stdout); }
     if( func_matches(filter, "HT_TRENDMODE") ) { icount_HT_TRENDMODE(iters); fflush(stdout); }
     if( func_matches(filter, "IBS") ) { icount_IBS(iters); fflush(stdout); }
+    if( func_matches(filter, "ICHIMOKU") ) { icount_ICHIMOKU(iters); fflush(stdout); }
     if( func_matches(filter, "IMI") ) { icount_IMI(iters); fflush(stdout); }
     if( func_matches(filter, "KAMA") ) { icount_KAMA(iters); fflush(stdout); }
     if( func_matches(filter, "KC") ) { icount_KC(iters); fflush(stdout); }
@@ -12325,6 +12565,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "KST") ) { icount_KST(iters); fflush(stdout); }
     if( func_matches(filter, "KSTEXT") ) { icount_KSTEXT(iters); fflush(stdout); }
     if( func_matches(filter, "KURTOSIS") ) { icount_KURTOSIS(iters); fflush(stdout); }
+    if( func_matches(filter, "KVO") ) { icount_KVO(iters); fflush(stdout); }
     if( func_matches(filter, "LINEARREG") ) { icount_LINEARREG(iters); fflush(stdout); }
     if( func_matches(filter, "LINEARREG_ANGLE") ) { icount_LINEARREG_ANGLE(iters); fflush(stdout); }
     if( func_matches(filter, "LINEARREG_INTERCEPT") ) { icount_LINEARREG_INTERCEPT(iters); fflush(stdout); }
@@ -12387,6 +12628,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "SMA") ) { icount_SMA(iters); fflush(stdout); }
     if( func_matches(filter, "SMI") ) { icount_SMI(iters); fflush(stdout); }
     if( func_matches(filter, "SQRT") ) { icount_SQRT(iters); fflush(stdout); }
+    if( func_matches(filter, "SQZMOM") ) { icount_SQZMOM(iters); fflush(stdout); }
     if( func_matches(filter, "STC") ) { icount_STC(iters); fflush(stdout); }
     if( func_matches(filter, "STDDEV") ) { icount_STDDEV(iters); fflush(stdout); }
     if( func_matches(filter, "STOCH") ) { icount_STOCH(iters); fflush(stdout); }
@@ -12422,6 +12664,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "WCLPRICE") ) { icount_WCLPRICE(iters); fflush(stdout); }
     if( func_matches(filter, "WILLR") ) { icount_WILLR(iters); fflush(stdout); }
     if( func_matches(filter, "WMA") ) { icount_WMA(iters); fflush(stdout); }
+    if( func_matches(filter, "ZIGZAG") ) { icount_ZIGZAG(iters); fflush(stdout); }
     if( func_matches(filter, "ZLEMA") ) { icount_ZLEMA(iters); fflush(stdout); }
 }
 

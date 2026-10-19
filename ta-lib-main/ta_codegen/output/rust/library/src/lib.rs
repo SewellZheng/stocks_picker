@@ -178,7 +178,7 @@
 //! * [`TAN`](Core::tan) — Vector Trigonometric Tan
 //! * [`TANH`](Core::tanh) — Vector Trigonometric Tanh
 //!
-//! ## Momentum Indicators (62)
+//! ## Momentum Indicators (63)
 //!
 //! * [`AC`](Core::ac) — Accelerator/Decelerator Oscillator
 //! * [`ADX`](Core::adx) — Average Directional Movement Index
@@ -230,6 +230,7 @@
 //! * [`RSI`](Core::rsi) — Relative Strength Index
 //! * [`SI`](Core::si) — Wilder Swing Index
 //! * [`SMI`](Core::smi) — Stochastic Momentum Index
+//! * [`SQZMOM`](Core::sqzmom) — Squeeze Momentum and Level
 //! * [`STC`](Core::stc) — Schaff Trend Cycle
 //! * [`STOCH`](Core::stoch) — Stochastic
 //! * [`STOCHF`](Core::stochf) — Stochastic Fast
@@ -243,7 +244,7 @@
 //! * [`WAVETREND`](Core::wavetrend) — WaveTrend Oscillator
 //! * [`WILLR`](Core::willr) — Williams' %R
 //!
-//! ## Overlap Studies (32)
+//! ## Overlap Studies (34)
 //!
 //! * [`ACCBANDS`](Core::accbands) — Acceleration Bands
 //! * [`ALMA`](Core::alma) — Arnaud Legoux Moving Average
@@ -255,6 +256,7 @@
 //! * [`FRAMA`](Core::frama) — Fractal Adaptive Moving Average
 //! * [`HMA`](Core::hma) — Hull Moving Average
 //! * [`HT_TRENDLINE`](Core::ht_trendline) — Hilbert Transform - Instantaneous Trendline
+//! * [`ICHIMOKU`](Core::ichimoku) — Ichimoku Kinko Hyo
 //! * [`KAMA`](Core::kama) — Kaufman Adaptive Moving Average
 //! * [`KC`](Core::kc) — Keltner Channels
 //! * [`MA`](Core::ma) — Moving average
@@ -276,6 +278,7 @@
 //! * [`VIDYA`](Core::vidya) — Variable Index Dynamic Average
 //! * [`VWMA`](Core::vwma) — Volume Weighted Moving Average
 //! * [`WMA`](Core::wma) — Weighted Moving Average
+//! * [`ZIGZAG`](Core::zigzag) — Zig Zag
 //! * [`ZLEMA`](Core::zlema) — Zero-Lag Exponential Moving Average
 //!
 //! ## Pattern Recognition (61)
@@ -381,13 +384,14 @@
 //! * [`RVIR`](Core::rvir) — Relative Volatility Index, refined high/low form
 //! * [`TRANGE`](Core::trange) — True Range
 //!
-//! ## Volume Indicators (13)
+//! ## Volume Indicators (14)
 //!
 //! * [`AD`](Core::ad) — Chaikin A/D Line
 //! * [`ADOSC`](Core::adosc) — Chaikin A/D Oscillator
 //! * [`CMF`](Core::cmf) — Chaikin Money Flow
 //! * [`EFI`](Core::efi) — Elder's Force Index
 //! * [`EMV`](Core::emv) — Arms Ease of Movement
+//! * [`KVO`](Core::kvo) — Klinger Volume Oscillator
 //! * [`MARKETFI`](Core::marketfi) — Market Facilitation Index
 //! * [`NVI`](Core::nvi) — Negative Volume Index
 //! * [`OBV`](Core::obv) — On Balance Volume

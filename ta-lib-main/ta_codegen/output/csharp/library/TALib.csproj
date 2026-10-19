@@ -42,7 +42,7 @@
     <IsPackable>true</IsPackable>
     <!-- Written by scripts/sync.py from the VERSION file, like the pom and the
          Cargo manifests. Never hand-edit it. -->
-    <Version>0.8.2</Version>
+    <Version>0.8.3</Version>
     <Authors>Mario Fortier</Authors>
     <!-- Claims a floor, not a count: a published version is immutable, and
          scripts/pre-release-checks.py verifies the corpus still meets it. -->
@@ -64,9 +64,9 @@
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
-    <!-- No PackageId yet. The default is AssemblyName, an id the project does
-         not own, and pushing to an id someone else owns answers 403 with text
-         that blames the API key. -->
+    <!-- Not the default, AssemblyName: the id `TALib` on nuget.org is someone
+         else's, and a push to it answers 403 with text that blames the API key. -->
+    <PackageId>TA-Lib</PackageId>
     <!-- test/ is a SIBLING project (test/TALib.Test.csproj) that compiles these
          same library sources itself. Without this exclusion the SDK's default
          **/*.cs glob pulls the suites — and their obj/ AssemblyInfo — into the

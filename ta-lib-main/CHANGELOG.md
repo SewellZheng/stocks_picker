@@ -6,7 +6,7 @@ Just re-install to upgrade. Older versions are automatically removed.
 
 See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list of changes
 
-## [0.8.2] Not Released Yet
+## [0.8.3] Not Released Yet
 ### Added
 - Rust: the `ta-lib` crate is on crates.io (`cargo add ta-lib`). Its versions 0.1.x are an
   unrelated earlier crate that used the same name. (#179)
@@ -24,6 +24,7 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - CKSP: Chande Kroll Stop, ATR-offset extremes taken over a second window (#477)
   - CRSI: Connors RSI (#431)
   - CTI: Correlation Trend Indicator (#430)
+  - DOSC: Derivative Oscillator, Constance Brown's double-smoothed RSI minus its own simple average (#479)
   - EMV: Arms Ease of Movement, the midpoint move per unit of volume-to-range, SMA-smoothed (#465)
   - FISHER: Ehlers' Fisher Transform (#485)
   - FRAMA: Fractal Adaptive Moving Average, Ehlers' adaptive EMA driven by the window's fractal dimension (#464)
@@ -31,12 +32,15 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - KST: Know Sure Thing (#472)
   - KSTEXT: Know Sure Thing with selectable MA types for the legs and the signal line (#491)
   - KURTOSIS: Rolling Excess Kurtosis (#433)
+  - KVO: Klinger Volume Oscillator, the difference of a fast and a slow EMA of volume force, with a signal line (#484)
   - MCGD: McGinley Dynamic, a moving average whose step adapts to the price-to-line ratio (#471)
   - MEDIAN: Rolling Median (#432)
   - PERCENTB: Bollinger Bands %B, where the input sits relative to the bands (#449)
   - PSO: Premier Stochastic Oscillator, Leibfarth's double-smoothed Fast %K squashed into -1 to +1 (#473)
+  - ROGERSSATCHELL: Rogers-Satchell Volatility, a drift-independent estimator from each bar's open, high, low and close (#483)
   - RVIR: Relative Volatility Index, 1995 refined form (#416)
   - SI: Wilder Swing Index, each bar rated against the one before (#451)
+  - SQZMOM: Squeeze Momentum and Level, a regression-smoothed momentum plus how tightly the Bollinger Bands sit inside three Keltner Channels (#488)
   - STC: Schaff Trend Cycle, a MACD line run twice through a stochastic, each pass smoothed by half (#478)
   - SWAK_2PHP: Swiss Army Knife - Two-Pole High-Pass Filter, Ehlers' high-pass rolling off twice as steeply as SWAK_HP (#486)
   - SWAK_BP: Swiss Army Knife - Band-Pass Filter, Ehlers' resonator passing one period at unity gain and zero phase (#486)
@@ -44,6 +48,8 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - SWAK_GAUSS: Swiss Army Knife - Gaussian Filter, Ehlers' two-pole low-pass with no zeros, hence no overshoot (#486)
   - SWAK_HP: Swiss Army Knife - High-Pass Filter, Ehlers' one-pole detrender centred on zero (#486)
   - VIDYA: Variable Index Dynamic Average, Chande's EMA scaled bar by bar by the CMO (#474)
+  - WAVETREND: WaveTrend Oscillator, the typical price's distance from its EMA scaled by that distance's own EMA, with a signal line (#476)
+  - ZIGZAG: Zig Zag, the percent-reversal swing line with each bar's pivot price, leg direction and pivot bar (#487)
 - New MAType (for MA, BBANDS, STOCH etc...):
   - TA_MAType_VIDYA (#474)
   - TA_MAType_ALMA (#475)

@@ -887,6 +887,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["ICHIMOKU"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.IchimokuImpl(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), out int b, out int n, c.RealOut(0), c.RealOut(1), c.RealOut(2), c.RealOut(3));
+            return new CallOutcome(rc, b, n);
+        },
         ["IMI"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.ImiImpl(
@@ -927,6 +933,12 @@ internal static class NoPhantomIoBinder
         {
             RetCode rc = core.KurtosisImpl(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
+        ["KVO"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.KvoImpl(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.Price(0, PriceComponents.Volume), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), out int b, out int n, c.RealOut(0), c.RealOut(1));
             return new CallOutcome(rc, b, n);
         },
         ["LINEARREG"] = static (core, c, startIdx, endIdx) =>
@@ -1301,6 +1313,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, c.Series(0), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["SQZMOM"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.SqzmomImpl(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.IntOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5), out int b, out int n, c.RealOut(0), c.IntOut(1));
+            return new CallOutcome(rc, b, n);
+        },
         ["STC"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.StcImpl(
@@ -1509,6 +1527,12 @@ internal static class NoPhantomIoBinder
         {
             RetCode rc = core.WmaImpl(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
+        ["ZIGZAG"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.ZigzagImpl(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.RealOpt(0), c.IntOpt(1), out int b, out int n, c.RealOut(0), c.IntOut(1), c.IntOut(2));
             return new CallOutcome(rc, b, n);
         },
         ["ZLEMA"] = static (core, c, startIdx, endIdx) =>
@@ -2290,6 +2314,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), Narrow(c.Price(0, PriceComponents.Close)), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["ICHIMOKU"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.IchimokuImpl(
+                startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), out int b, out int n, c.RealOut(0), c.RealOut(1), c.RealOut(2), c.RealOut(3));
+            return new CallOutcome(rc, b, n);
+        },
         ["IMI"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.ImiImpl(
@@ -2330,6 +2360,12 @@ internal static class NoPhantomIoBinder
         {
             RetCode rc = core.KurtosisImpl(
                 startIdx, endIdx, Narrow(c.Series(0)), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
+        ["KVO"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.KvoImpl(
+                startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), Narrow(c.Price(0, PriceComponents.Close)), Narrow(c.Price(0, PriceComponents.Volume)), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), out int b, out int n, c.RealOut(0), c.RealOut(1));
             return new CallOutcome(rc, b, n);
         },
         ["LINEARREG"] = static (core, c, startIdx, endIdx) =>
@@ -2704,6 +2740,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, Narrow(c.Series(0)), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["SQZMOM"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.SqzmomImpl(
+                startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), Narrow(c.Price(0, PriceComponents.Close)), c.IntOpt(0), c.RealOpt(1), c.IntOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5), out int b, out int n, c.RealOut(0), c.IntOut(1));
+            return new CallOutcome(rc, b, n);
+        },
         ["STC"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.StcImpl(
@@ -2914,6 +2956,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, Narrow(c.Series(0)), c.IntOpt(0), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["ZIGZAG"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.ZigzagImpl(
+                startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), c.RealOpt(0), c.IntOpt(1), out int b, out int n, c.RealOut(0), c.IntOut(1), c.IntOut(2));
+            return new CallOutcome(rc, b, n);
+        },
         ["ZLEMA"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.ZlemaImpl(
@@ -3053,6 +3101,7 @@ internal static class NoPhantomIoBinder
         ["HT_TRENDLINE"] = static (core, c) => core.HtTrendlineOpen(c.Series(0)),
         ["HT_TRENDMODE"] = static (core, c) => core.HtTrendmodeOpen(c.Series(0)),
         ["IBS"] = static (core, c) => core.IbsOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close)),
+        ["ICHIMOKU"] = static (core, c) => core.IchimokuOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),
         ["IMI"] = static (core, c) => core.ImiOpen(c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.Close), c.IntOpt(0)),
         ["KAMA"] = static (core, c) => core.KamaOpen(c.Series(0), c.IntOpt(0)),
         ["KC"] = static (core, c) => core.KcOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), c.RealOpt(2)),
@@ -3060,6 +3109,7 @@ internal static class NoPhantomIoBinder
         ["KST"] = static (core, c) => core.KstOpen(c.Series(0), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5), c.IntOpt(6), c.IntOpt(7), c.IntOpt(8)),
         ["KSTEXT"] = static (core, c) => core.KstextOpen(c.Series(0), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5), c.IntOpt(6), c.IntOpt(7), c.IntOpt(8), (MAType)c.IntOpt(9), (MAType)c.IntOpt(10)),
         ["KURTOSIS"] = static (core, c) => core.KurtosisOpen(c.Series(0), c.IntOpt(0)),
+        ["KVO"] = static (core, c) => core.KvoOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.Price(0, PriceComponents.Volume), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),
         ["LINEARREG"] = static (core, c) => core.LinearregOpen(c.Series(0), c.IntOpt(0)),
         ["LINEARREG_ANGLE"] = static (core, c) => core.LinearregAngleOpen(c.Series(0), c.IntOpt(0)),
         ["LINEARREG_INTERCEPT"] = static (core, c) => core.LinearregInterceptOpen(c.Series(0), c.IntOpt(0)),
@@ -3122,6 +3172,7 @@ internal static class NoPhantomIoBinder
         ["SMA"] = static (core, c) => core.SmaOpen(c.Series(0), c.IntOpt(0)),
         ["SMI"] = static (core, c) => core.SmiOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3)),
         ["SQRT"] = static (core, c) => core.SqrtOpen(c.Series(0)),
+        ["SQZMOM"] = static (core, c) => core.SqzmomOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.IntOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5)),
         ["STC"] = static (core, c) => core.StcOpen(c.Series(0), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),
         ["STDDEV"] = static (core, c) => core.StddevOpen(c.Series(0), c.IntOpt(0), c.RealOpt(1)),
         ["STOCH"] = static (core, c) => core.StochOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), (MAType)c.IntOpt(2), c.IntOpt(3), (MAType)c.IntOpt(4)),
@@ -3157,6 +3208,7 @@ internal static class NoPhantomIoBinder
         ["WCLPRICE"] = static (core, c) => core.WclpriceOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close)),
         ["WILLR"] = static (core, c) => core.WillrOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0)),
         ["WMA"] = static (core, c) => core.WmaOpen(c.Series(0), c.IntOpt(0)),
+        ["ZIGZAG"] = static (core, c) => core.ZigzagOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.RealOpt(0), c.IntOpt(1)),
         ["ZLEMA"] = static (core, c) => core.ZlemaOpen(c.Series(0), c.IntOpt(0)),
     };
 }

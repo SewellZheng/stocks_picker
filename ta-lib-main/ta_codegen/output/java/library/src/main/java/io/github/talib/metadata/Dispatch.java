@@ -442,6 +442,9 @@ final class Dispatch {
          case "IBS":
             return core.ibs(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.realOutput(0));
+         case "ICHIMOKU":
+            return core.ichimoku(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0), h.realOutput(1), h.realOutput(2), h.realOutput(3));
          case "IMI":
             return core.imi(
                startIdx, endIdx, h.price(0, 0), h.price(0, 3), h.intOpt(0), h.realOutput(0));
@@ -463,6 +466,9 @@ final class Dispatch {
          case "KURTOSIS":
             return core.kurtosis(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
+         case "KVO":
+            return core.kvo(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.price(0, 4), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0), h.realOutput(1));
          case "LINEARREG":
             return core.linearreg(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
@@ -649,6 +655,9 @@ final class Dispatch {
          case "SQRT":
             return core.sqrt(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
+         case "SQZMOM":
+            return core.sqzmom(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOpt(1), h.intOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), h.realOutput(0), h.intOutput(1));
          case "STC":
             return core.stc(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0));
@@ -754,6 +763,9 @@ final class Dispatch {
          case "WMA":
             return core.wma(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
+         case "ZIGZAG":
+            return core.zigzag(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.realOpt(0), h.intOpt(1), h.realOutput(0), h.intOutput(1), h.intOutput(2));
          case "ZLEMA":
             return core.zlema(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
@@ -1024,6 +1036,8 @@ final class Dispatch {
             return core.htTrendmodeLookback();
          case "IBS":
             return core.ibsLookback();
+         case "ICHIMOKU":
+            return core.ichimokuLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
          case "IMI":
             return core.imiLookback(h.intOpt(0));
          case "KAMA":
@@ -1038,6 +1052,8 @@ final class Dispatch {
             return core.kstextLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5), h.intOpt(6), h.intOpt(7), h.intOpt(8), h.maTypeOpt(9), h.maTypeOpt(10));
          case "KURTOSIS":
             return core.kurtosisLookback(h.intOpt(0));
+         case "KVO":
+            return core.kvoLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
          case "LINEARREG":
             return core.linearregLookback(h.intOpt(0));
          case "LINEARREG_ANGLE":
@@ -1162,6 +1178,8 @@ final class Dispatch {
             return core.smiLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3));
          case "SQRT":
             return core.sqrtLookback();
+         case "SQZMOM":
+            return core.sqzmomLookback(h.intOpt(0), h.realOpt(1), h.intOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5));
          case "STC":
             return core.stcLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
          case "STDDEV":
@@ -1232,6 +1250,8 @@ final class Dispatch {
             return core.willrLookback(h.intOpt(0));
          case "WMA":
             return core.wmaLookback(h.intOpt(0));
+         case "ZIGZAG":
+            return core.zigzagLookback(h.realOpt(0), h.intOpt(1));
          case "ZLEMA":
             return core.zlemaLookback(h.intOpt(0));
          default:
@@ -1498,6 +1518,8 @@ final class Dispatch {
             return core.htTrendmodeDisplayShift(outputIdx);
          case "IBS":
             return core.ibsDisplayShift(outputIdx);
+         case "ICHIMOKU":
+            return core.ichimokuDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), outputIdx);
          case "IMI":
             return core.imiDisplayShift(h.intOpt(0), outputIdx);
          case "KAMA":
@@ -1512,6 +1534,8 @@ final class Dispatch {
             return core.kstextDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5), h.intOpt(6), h.intOpt(7), h.intOpt(8), h.maTypeOpt(9), h.maTypeOpt(10), outputIdx);
          case "KURTOSIS":
             return core.kurtosisDisplayShift(h.intOpt(0), outputIdx);
+         case "KVO":
+            return core.kvoDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), outputIdx);
          case "LINEARREG":
             return core.linearregDisplayShift(h.intOpt(0), outputIdx);
          case "LINEARREG_ANGLE":
@@ -1636,6 +1660,8 @@ final class Dispatch {
             return core.smiDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), outputIdx);
          case "SQRT":
             return core.sqrtDisplayShift(outputIdx);
+         case "SQZMOM":
+            return core.sqzmomDisplayShift(h.intOpt(0), h.realOpt(1), h.intOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), outputIdx);
          case "STC":
             return core.stcDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), outputIdx);
          case "STDDEV":
@@ -1706,6 +1732,8 @@ final class Dispatch {
             return core.willrDisplayShift(h.intOpt(0), outputIdx);
          case "WMA":
             return core.wmaDisplayShift(h.intOpt(0), outputIdx);
+         case "ZIGZAG":
+            return core.zigzagDisplayShift(h.realOpt(0), h.intOpt(1), outputIdx);
          case "ZLEMA":
             return core.zlemaDisplayShift(h.intOpt(0), outputIdx);
          default:

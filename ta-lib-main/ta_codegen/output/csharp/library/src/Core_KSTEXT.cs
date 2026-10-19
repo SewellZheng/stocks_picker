@@ -54,6 +54,7 @@ public partial class Core
     *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
     *  100126 MF,CC  First version (#491).
+    *  101126 MF,CC  Each lookback is asked once per call (#522).
     */
    /// <summary>
    /// Number of leading input bars <c>Kstext</c> consumes before it can produce
@@ -240,6 +241,10 @@ public partial class Core
       int lookbackSignal = 0;
       int lookbackMA = 0;
       int sigStart = 0;
+      int lookbackMA1 = 0;
+      int lookbackMA2 = 0;
+      int lookbackMA3 = 0;
+      int lookbackMA4 = 0;
       int tempInteger = 0;
       int tempBegIdx = 0;
       int rocNb = 0;
@@ -322,8 +327,26 @@ public partial class Core
        */
       outBegIdx = 0;
       outNBElement = 0;
+      /* lookbackTotal must stay kstext_lookback() of the same parameters. */
       lookbackSignal = MaLookback(optInSignalPeriod, optInSignalMAType);
-      lookbackTotal = KstextLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType);
+      lookbackMA1 = MaLookback(optInMA1Period, optInROCMAType);
+      lookbackMA2 = MaLookback(optInMA2Period, optInROCMAType);
+      lookbackMA3 = MaLookback(optInMA3Period, optInROCMAType);
+      lookbackMA4 = MaLookback(optInMA4Period, optInROCMAType);
+      lookbackTotal = optInROC1Period + lookbackMA1;
+      tempInteger = optInROC2Period + lookbackMA2;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC3Period + lookbackMA3;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC4Period + lookbackMA4;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      lookbackTotal += lookbackSignal;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -334,25 +357,22 @@ public partial class Core
       /* Both buffers are sized by the longest leg average: a rate of change
        * starts its average's lookback before sigStart.
        */
-      lookbackMA = MaLookback(optInMA1Period, optInROCMAType);
-      tempInteger = MaLookback(optInMA2Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      lookbackMA = lookbackMA1;
+      if( lookbackMA2 > lookbackMA ) {
+         lookbackMA = lookbackMA2;
       }
-      tempInteger = MaLookback(optInMA3Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA3 > lookbackMA ) {
+         lookbackMA = lookbackMA3;
       }
-      tempInteger = MaLookback(optInMA4Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA4 > lookbackMA ) {
+         lookbackMA = lookbackMA4;
       }
       tempInteger = endIdx - sigStart + 1 + lookbackMA;
       _rent_kstBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)(tempInteger * 1));
       kstBuffer = _rent_kstBuffer.AsSpan(0, (int)(tempInteger * 1));
       _rent_tempBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)(tempInteger * 1));
       tempBuffer = _rent_tempBuffer.AsSpan(0, (int)(tempInteger * 1));
-      OutRange _xr0 = Roc(sigStart - MaLookback(optInMA1Period, optInROCMAType), endIdx, inReal, optInROC1Period, kstBuffer);
+      OutRange _xr0 = Roc(sigStart - lookbackMA1, endIdx, inReal, optInROC1Period, kstBuffer);
       tempBegIdx = _xr0.BegIdx;
       rocNb = _xr0.Count;
       retCode = RetCode.Success;
@@ -360,7 +380,7 @@ public partial class Core
       tempBegIdx = _xr1.BegIdx;
       kstNb = _xr1.Count;
       retCode = RetCode.Success;
-      OutRange _xr2 = Roc(sigStart - MaLookback(optInMA2Period, optInROCMAType), endIdx, inReal, optInROC2Period, tempBuffer);
+      OutRange _xr2 = Roc(sigStart - lookbackMA2, endIdx, inReal, optInROC2Period, tempBuffer);
       tempBegIdx = _xr2.BegIdx;
       rocNb = _xr2.Count;
       retCode = RetCode.Success;
@@ -371,7 +391,7 @@ public partial class Core
       for( i = 0; i < kstNb; i += 1 ) {
          kstBuffer[i] = Math.FusedMultiplyAdd(2.0, tempBuffer[i], kstBuffer[i]);
       }
-      OutRange _xr4 = Roc(sigStart - MaLookback(optInMA3Period, optInROCMAType), endIdx, inReal, optInROC3Period, tempBuffer);
+      OutRange _xr4 = Roc(sigStart - lookbackMA3, endIdx, inReal, optInROC3Period, tempBuffer);
       tempBegIdx = _xr4.BegIdx;
       rocNb = _xr4.Count;
       retCode = RetCode.Success;
@@ -382,7 +402,7 @@ public partial class Core
       for( i = 0; i < kstNb; i += 1 ) {
          kstBuffer[i] = Math.FusedMultiplyAdd(3.0, tempBuffer[i], kstBuffer[i]);
       }
-      OutRange _xr6 = Roc(sigStart - MaLookback(optInMA4Period, optInROCMAType), endIdx, inReal, optInROC4Period, tempBuffer);
+      OutRange _xr6 = Roc(sigStart - lookbackMA4, endIdx, inReal, optInROC4Period, tempBuffer);
       tempBegIdx = _xr6.BegIdx;
       rocNb = _xr6.Count;
       retCode = RetCode.Success;
@@ -433,6 +453,10 @@ public partial class Core
       int lookbackSignal = 0;
       int lookbackMA = 0;
       int sigStart = 0;
+      int lookbackMA1 = 0;
+      int lookbackMA2 = 0;
+      int lookbackMA3 = 0;
+      int lookbackMA4 = 0;
       int tempInteger = 0;
       int tempBegIdx = 0;
       int rocNb = 0;
@@ -512,7 +536,24 @@ public partial class Core
       outBegIdx = 0;
       outNBElement = 0;
       lookbackSignal = MaLookback(optInSignalPeriod, optInSignalMAType);
-      lookbackTotal = KstextLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType);
+      lookbackMA1 = MaLookback(optInMA1Period, optInROCMAType);
+      lookbackMA2 = MaLookback(optInMA2Period, optInROCMAType);
+      lookbackMA3 = MaLookback(optInMA3Period, optInROCMAType);
+      lookbackMA4 = MaLookback(optInMA4Period, optInROCMAType);
+      lookbackTotal = optInROC1Period + lookbackMA1;
+      tempInteger = optInROC2Period + lookbackMA2;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC3Period + lookbackMA3;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC4Period + lookbackMA4;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      lookbackTotal += lookbackSignal;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -520,25 +561,22 @@ public partial class Core
          return RetCode.Success ;
       }
       sigStart = startIdx - lookbackSignal;
-      lookbackMA = MaLookback(optInMA1Period, optInROCMAType);
-      tempInteger = MaLookback(optInMA2Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      lookbackMA = lookbackMA1;
+      if( lookbackMA2 > lookbackMA ) {
+         lookbackMA = lookbackMA2;
       }
-      tempInteger = MaLookback(optInMA3Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA3 > lookbackMA ) {
+         lookbackMA = lookbackMA3;
       }
-      tempInteger = MaLookback(optInMA4Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA4 > lookbackMA ) {
+         lookbackMA = lookbackMA4;
       }
       tempInteger = endIdx - sigStart + 1 + lookbackMA;
       _rent_kstBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)(tempInteger * 1));
       kstBuffer = _rent_kstBuffer.AsSpan(0, (int)(tempInteger * 1));
       _rent_tempBuffer = System.Buffers.ArrayPool<double>.Shared.Rent((int)(tempInteger * 1));
       tempBuffer = _rent_tempBuffer.AsSpan(0, (int)(tempInteger * 1));
-      OutRange _xr0 = Roc(sigStart - MaLookback(optInMA1Period, optInROCMAType), endIdx, inReal, optInROC1Period, kstBuffer);
+      OutRange _xr0 = Roc(sigStart - lookbackMA1, endIdx, inReal, optInROC1Period, kstBuffer);
       tempBegIdx = _xr0.BegIdx;
       rocNb = _xr0.Count;
       retCode = RetCode.Success;
@@ -546,7 +584,7 @@ public partial class Core
       tempBegIdx = _xr1.BegIdx;
       kstNb = _xr1.Count;
       retCode = RetCode.Success;
-      OutRange _xr2 = Roc(sigStart - MaLookback(optInMA2Period, optInROCMAType), endIdx, inReal, optInROC2Period, tempBuffer);
+      OutRange _xr2 = Roc(sigStart - lookbackMA2, endIdx, inReal, optInROC2Period, tempBuffer);
       tempBegIdx = _xr2.BegIdx;
       rocNb = _xr2.Count;
       retCode = RetCode.Success;
@@ -557,7 +595,7 @@ public partial class Core
       for( i = 0; i < kstNb; i += 1 ) {
          kstBuffer[i] = Math.FusedMultiplyAdd(2.0, tempBuffer[i], kstBuffer[i]);
       }
-      OutRange _xr4 = Roc(sigStart - MaLookback(optInMA3Period, optInROCMAType), endIdx, inReal, optInROC3Period, tempBuffer);
+      OutRange _xr4 = Roc(sigStart - lookbackMA3, endIdx, inReal, optInROC3Period, tempBuffer);
       tempBegIdx = _xr4.BegIdx;
       rocNb = _xr4.Count;
       retCode = RetCode.Success;
@@ -568,7 +606,7 @@ public partial class Core
       for( i = 0; i < kstNb; i += 1 ) {
          kstBuffer[i] = Math.FusedMultiplyAdd(3.0, tempBuffer[i], kstBuffer[i]);
       }
-      OutRange _xr6 = Roc(sigStart - MaLookback(optInMA4Period, optInROCMAType), endIdx, inReal, optInROC4Period, tempBuffer);
+      OutRange _xr6 = Roc(sigStart - lookbackMA4, endIdx, inReal, optInROC4Period, tempBuffer);
       tempBegIdx = _xr6.BegIdx;
       rocNb = _xr6.Count;
       retCode = RetCode.Success;
@@ -606,6 +644,7 @@ public partial class Core
    /// <see href="https://ta-lib.org/functions/kstext">ta-lib.org/functions/kstext</see>.
    /// </para>
    /// <list type="bullet">
+   /// <item><description><b>The input is assumed positive.</b> The price each rate of change looks back to is its divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</description></item>
    /// <item><description>With both MA types set to <c>TA_MAType_SMA</c> the outputs are those of <c>KST</c>.</description></item>
    /// <item><description>Both outputs start at the first bar where the signal line exists. A signal period of 1 disables signal-line smoothing for every signal MAType: the signal is then a copy of the line.</description></item>
    /// <item><description>The unstable period of a selected MA type lengthens the lookback, for the legs and for the signal line separately.</description></item>
@@ -735,6 +774,7 @@ public partial class Core
    /// <see href="https://ta-lib.org/functions/kstext">ta-lib.org/functions/kstext</see>.
    /// </para>
    /// <list type="bullet">
+   /// <item><description><b>The input is assumed positive.</b> The price each rate of change looks back to is its divisor. Near zero the divisor is small and the output very large; no error is returned. A series that reaches or crosses zero, such as an oscillator or a spread, has no meaningful result here.</description></item>
    /// <item><description>With both MA types set to <c>TA_MAType_SMA</c> the outputs are those of <c>KST</c>.</description></item>
    /// <item><description>Both outputs start at the first bar where the signal line exists. A signal period of 1 disables signal-line smoothing for every signal MAType: the signal is then a copy of the line.</description></item>
    /// <item><description>The unstable period of a selected MA type lengthens the lookback, for the legs and for the signal line separately.</description></item>
@@ -1100,6 +1140,10 @@ public partial class Core
       int lookbackSignal = 0;
       int lookbackMA = 0;
       int sigStart = 0;
+      int lookbackMA1 = 0;
+      int lookbackMA2 = 0;
+      int lookbackMA3 = 0;
+      int lookbackMA4 = 0;
       int tempInteger = 0;
       int tempBegIdx = 0;
       int rocNb = 0;
@@ -1186,8 +1230,26 @@ public partial class Core
        */
       outBegIdx = 0;
       outNBElement = 0;
+      /* lookbackTotal must stay kstext_lookback() of the same parameters. */
       lookbackSignal = MaLookback(optInSignalPeriod, optInSignalMAType);
-      lookbackTotal = KstextLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType);
+      lookbackMA1 = MaLookback(optInMA1Period, optInROCMAType);
+      lookbackMA2 = MaLookback(optInMA2Period, optInROCMAType);
+      lookbackMA3 = MaLookback(optInMA3Period, optInROCMAType);
+      lookbackMA4 = MaLookback(optInMA4Period, optInROCMAType);
+      lookbackTotal = optInROC1Period + lookbackMA1;
+      tempInteger = optInROC2Period + lookbackMA2;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC3Period + lookbackMA3;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      tempInteger = optInROC4Period + lookbackMA4;
+      if( tempInteger > lookbackTotal ) {
+         lookbackTotal = tempInteger;
+      }
+      lookbackTotal += lookbackSignal;
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
       }
@@ -1198,25 +1260,22 @@ public partial class Core
       /* Both buffers are sized by the longest leg average: a rate of change
        * starts its average's lookback before sigStart.
        */
-      lookbackMA = MaLookback(optInMA1Period, optInROCMAType);
-      tempInteger = MaLookback(optInMA2Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      lookbackMA = lookbackMA1;
+      if( lookbackMA2 > lookbackMA ) {
+         lookbackMA = lookbackMA2;
       }
-      tempInteger = MaLookback(optInMA3Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA3 > lookbackMA ) {
+         lookbackMA = lookbackMA3;
       }
-      tempInteger = MaLookback(optInMA4Period, optInROCMAType);
-      if( tempInteger > lookbackMA ) {
-         lookbackMA = tempInteger;
+      if( lookbackMA4 > lookbackMA ) {
+         lookbackMA = lookbackMA4;
       }
       tempInteger = endIdx - sigStart + 1 + lookbackMA;
       kstBuffer = new double[(int)(tempInteger * 1)];
       tempBuffer = new double[(int)(tempInteger * 1)];
       /* Sub-stream 0: roc over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      RocStream sub0 = RocOpenAndFillInternal(inReal, sigStart - MaLookback(optInMA1Period, optInROCMAType), optInROC1Period, out tempBegIdx, out rocNb, kstBuffer);
+      RocStream sub0 = RocOpenAndFillInternal(inReal, sigStart - lookbackMA1, optInROC1Period, out tempBegIdx, out rocNb, kstBuffer);
       retCode = RetCode.Success;
       /* Sub-stream 1: ma over `kstBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -1230,7 +1289,7 @@ public partial class Core
       retCode = RetCode.Success;
       /* Sub-stream 2: roc over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      RocStream sub2 = RocOpenAndFillInternal(inReal, sigStart - MaLookback(optInMA2Period, optInROCMAType), optInROC2Period, out tempBegIdx, out rocNb, tempBuffer);
+      RocStream sub2 = RocOpenAndFillInternal(inReal, sigStart - lookbackMA2, optInROC2Period, out tempBegIdx, out rocNb, tempBuffer);
       retCode = RetCode.Success;
       /* Sub-stream 3: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -1247,7 +1306,7 @@ public partial class Core
       }
       /* Sub-stream 4: roc over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      RocStream sub4 = RocOpenAndFillInternal(inReal, sigStart - MaLookback(optInMA3Period, optInROCMAType), optInROC3Period, out tempBegIdx, out rocNb, tempBuffer);
+      RocStream sub4 = RocOpenAndFillInternal(inReal, sigStart - lookbackMA3, optInROC3Period, out tempBegIdx, out rocNb, tempBuffer);
       retCode = RetCode.Success;
       /* Sub-stream 5: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -1264,7 +1323,7 @@ public partial class Core
       }
       /* Sub-stream 6: roc over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
-      RocStream sub6 = RocOpenAndFillInternal(inReal, sigStart - MaLookback(optInMA4Period, optInROCMAType), optInROC4Period, out tempBegIdx, out rocNb, tempBuffer);
+      RocStream sub6 = RocOpenAndFillInternal(inReal, sigStart - lookbackMA4, optInROC4Period, out tempBegIdx, out rocNb, tempBuffer);
       retCode = RetCode.Success;
       /* Sub-stream 7: ma over `tempBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */

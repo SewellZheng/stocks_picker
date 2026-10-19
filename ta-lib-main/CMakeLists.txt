@@ -8,7 +8,7 @@ project(ta-lib)
 # Written by scripts/sync.py from VERSION; do not edit.
 set(TA_LIB_VERSION_MAJOR 0)
 set(TA_LIB_VERSION_MINOR 8)
-set(TA_LIB_VERSION_PATCH 2)
+set(TA_LIB_VERSION_PATCH 3)
 
 set(PROJECT_VERSION "${TA_LIB_VERSION_MAJOR}.${TA_LIB_VERSION_MINOR}.${TA_LIB_VERSION_PATCH}")
 
@@ -439,6 +439,7 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_TRENDLINE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_TRENDMODE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_IBS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ICHIMOKU.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_IMI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KAMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KC.c"
@@ -446,6 +447,7 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KST.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KSTEXT.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KURTOSIS.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KVO.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_ANGLE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_INTERCEPT.c"
@@ -508,6 +510,7 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SMI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SQRT.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SQZMOM.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STC.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STDDEV.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCH.c"
@@ -543,6 +546,7 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WCLPRICE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WILLR.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_WMA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ZIGZAG.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_ZLEMA.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_abstract/frames/ta_frame.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_abstract/ta_func_api.c"
@@ -818,6 +822,10 @@ if(_TA_BUILD_TOOLS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_marketfi.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_dosc.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_fisher.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_kvo.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_ichimoku.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_sqzmom.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_zigzag.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_pso.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_rogerssatchell.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_emv.c"

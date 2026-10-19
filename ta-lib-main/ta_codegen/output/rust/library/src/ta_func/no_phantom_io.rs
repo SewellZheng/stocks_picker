@@ -11824,6 +11824,95 @@ fn legs_IBS(r: &mut Report) {
     r.legs_done("IBS", 3);
 }
 
+const V_ICHIMOKU: &[(&str, i32, i32, i32)] = &[
+    ("defaults", i32::MIN, i32::MIN, i32::MIN),
+    ("minimums", 2i32, 2i32, 2i32),
+];
+
+fn sub_ICHIMOKU(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod) in V_ICHIMOKU {
+        let Ok(lb) = core.ichimoku_lookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod) else { continue; };
+        r.control("ICHIMOKU", label, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let mut outTenkanSen: Vec<f64> = Vec::with_capacity(1);
+            let mut outKijunSen: Vec<f64> = Vec::with_capacity(1);
+            let mut outSenkouSpanA: Vec<f64> = Vec::with_capacity(1);
+            let mut outSenkouSpanB: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ichimoku_impl(0, lb, &inHigh, &inLow, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, &mut _b, &mut _n, &mut outTenkanSen, &mut outKijunSen, &mut outSenkouSpanA, &mut outSenkouSpanB);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("ICHIMOKU", label); continue; }
+        r.quiet("ICHIMOKU", label, lb, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let mut outTenkanSen: Vec<f64> = Vec::with_capacity(1);
+            let mut outKijunSen: Vec<f64> = Vec::with_capacity(1);
+            let mut outSenkouSpanA: Vec<f64> = Vec::with_capacity(1);
+            let mut outSenkouSpanB: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ichimoku_impl(0, lb - 1, &inHigh, &inLow, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, &mut _b, &mut _n, &mut outTenkanSen, &mut outKijunSen, &mut outSenkouSpanA, &mut outSenkouSpanB);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_ICHIMOKU(r: &mut Report) {
+    let core = Core::new();
+    let optInTenkanPeriod = i32::MIN;
+    let optInKijunPeriod = i32::MIN;
+    let optInSenkouBPeriod = i32::MIN;
+    let Ok(lb) = core.ichimoku_lookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod) else { r.no_legs("ICHIMOKU"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let mut outTenkanSen: Vec<f64> = vec![Default::default(); 5];
+        let mut outKijunSen: Vec<f64> = vec![Default::default(); 5];
+        let mut outSenkouSpanA: Vec<f64> = vec![Default::default(); 5];
+        let mut outSenkouSpanB: Vec<f64> = vec![Default::default(); 5];
+        r.legs_control("ICHIMOKU", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ichimoku_impl(startIdx, endIdx, &inHigh, &inLow, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, &mut _b, &mut _n, &mut outTenkanSen, &mut outKijunSen, &mut outSenkouSpanA, &mut outSenkouSpanB);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = Vec::with_capacity(1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let mut outTenkanSen: Vec<f64> = vec![Default::default(); 5];
+        let mut outKijunSen: Vec<f64> = vec![Default::default(); 5];
+        let mut outSenkouSpanA: Vec<f64> = vec![Default::default(); 5];
+        let mut outSenkouSpanB: Vec<f64> = vec![Default::default(); 5];
+        r.leg("ICHIMOKU", "inHigh", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ichimoku_impl(startIdx, endIdx, &inHigh, &inLow, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, &mut _b, &mut _n, &mut outTenkanSen, &mut outKijunSen, &mut outSenkouSpanA, &mut outSenkouSpanB);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = Vec::with_capacity(1);
+        let mut outTenkanSen: Vec<f64> = vec![Default::default(); 5];
+        let mut outKijunSen: Vec<f64> = vec![Default::default(); 5];
+        let mut outSenkouSpanA: Vec<f64> = vec![Default::default(); 5];
+        let mut outSenkouSpanB: Vec<f64> = vec![Default::default(); 5];
+        r.leg("ICHIMOKU", "inLow", 1, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ichimoku_impl(startIdx, endIdx, &inHigh, &inLow, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, &mut _b, &mut _n, &mut outTenkanSen, &mut outKijunSen, &mut outSenkouSpanA, &mut outSenkouSpanB);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("ICHIMOKU", 2);
+}
+
 const V_IMI: &[(&str, i32)] = &[
     ("defaults", i32::MIN),
     ("minimums", 2i32),
@@ -12484,6 +12573,123 @@ fn legs_KURTOSIS(r: &mut Report) {
         }));
     }
     r.legs_done("KURTOSIS", 1);
+}
+
+const V_KVO: &[(&str, i32, i32, i32)] = &[
+    ("defaults", i32::MIN, i32::MIN, i32::MIN),
+    ("minimums", 2i32, 2i32, 2i32),
+];
+
+fn sub_KVO(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInFastPeriod, optInSlowPeriod, optInSignalPeriod) in V_KVO {
+        let Ok(lb) = core.kvo_lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod) else { continue; };
+        r.control("KVO", label, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let inClose: Vec<f64> = Vec::with_capacity(1);
+            let inVolume: Vec<f64> = Vec::with_capacity(1);
+            let mut outKVO: Vec<f64> = Vec::with_capacity(1);
+            let mut outKVOSignal: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.kvo_impl(0, lb, &inHigh, &inLow, &inClose, &inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outKVO, &mut outKVOSignal);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("KVO", label); continue; }
+        r.quiet("KVO", label, lb, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let inClose: Vec<f64> = Vec::with_capacity(1);
+            let inVolume: Vec<f64> = Vec::with_capacity(1);
+            let mut outKVO: Vec<f64> = Vec::with_capacity(1);
+            let mut outKVOSignal: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.kvo_impl(0, lb - 1, &inHigh, &inLow, &inClose, &inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outKVO, &mut outKVOSignal);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_KVO(r: &mut Report) {
+    let core = Core::new();
+    let optInFastPeriod = i32::MIN;
+    let optInSlowPeriod = i32::MIN;
+    let optInSignalPeriod = i32::MIN;
+    let Ok(lb) = core.kvo_lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod) else { r.no_legs("KVO"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let inVolume: Vec<f64> = series("volume", endIdx + 1);
+        let mut outKVO: Vec<f64> = vec![Default::default(); 5];
+        let mut outKVOSignal: Vec<f64> = vec![Default::default(); 5];
+        r.legs_control("KVO", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.kvo_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, &inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outKVO, &mut outKVOSignal);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = Vec::with_capacity(1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let inVolume: Vec<f64> = series("volume", endIdx + 1);
+        let mut outKVO: Vec<f64> = vec![Default::default(); 5];
+        let mut outKVOSignal: Vec<f64> = vec![Default::default(); 5];
+        r.leg("KVO", "inHigh", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.kvo_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, &inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outKVO, &mut outKVOSignal);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = Vec::with_capacity(1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let inVolume: Vec<f64> = series("volume", endIdx + 1);
+        let mut outKVO: Vec<f64> = vec![Default::default(); 5];
+        let mut outKVOSignal: Vec<f64> = vec![Default::default(); 5];
+        r.leg("KVO", "inLow", 1, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.kvo_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, &inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outKVO, &mut outKVOSignal);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = Vec::with_capacity(1);
+        let inVolume: Vec<f64> = series("volume", endIdx + 1);
+        let mut outKVO: Vec<f64> = vec![Default::default(); 5];
+        let mut outKVOSignal: Vec<f64> = vec![Default::default(); 5];
+        r.leg("KVO", "inClose", 2, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.kvo_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, &inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outKVO, &mut outKVOSignal);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let inVolume: Vec<f64> = Vec::with_capacity(1);
+        let mut outKVO: Vec<f64> = vec![Default::default(); 5];
+        let mut outKVOSignal: Vec<f64> = vec![Default::default(); 5];
+        r.leg("KVO", "inVolume", 3, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.kvo_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, &inVolume, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outKVO, &mut outKVOSignal);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("KVO", 4);
 }
 
 const V_LINEARREG: &[(&str, i32)] = &[
@@ -16899,6 +17105,106 @@ fn legs_SQRT(r: &mut Report) {
     r.legs_done("SQRT", 1);
 }
 
+const V_SQZMOM: &[(&str, i32, f64, i32, f64, f64, f64)] = &[
+    ("defaults", i32::MIN, Core::REAL_DEFAULT, i32::MIN, Core::REAL_DEFAULT, Core::REAL_DEFAULT, Core::REAL_DEFAULT),
+    ("minimums", 2i32, 0.0f64, 2i32, 0.0f64, 0.0f64, 0.0f64),
+];
+
+fn sub_SQZMOM(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow) in V_SQZMOM {
+        let Ok(lb) = core.sqzmom_lookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow) else { continue; };
+        r.control("SQZMOM", label, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let inClose: Vec<f64> = Vec::with_capacity(1);
+            let mut outMomentum: Vec<f64> = Vec::with_capacity(1);
+            let mut outSqueeze: Vec<i32> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sqzmom_impl(0, lb, &inHigh, &inLow, &inClose, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, &mut _b, &mut _n, &mut outMomentum, &mut outSqueeze);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("SQZMOM", label); continue; }
+        r.quiet("SQZMOM", label, lb, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let inClose: Vec<f64> = Vec::with_capacity(1);
+            let mut outMomentum: Vec<f64> = Vec::with_capacity(1);
+            let mut outSqueeze: Vec<i32> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sqzmom_impl(0, lb - 1, &inHigh, &inLow, &inClose, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, &mut _b, &mut _n, &mut outMomentum, &mut outSqueeze);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_SQZMOM(r: &mut Report) {
+    let core = Core::new();
+    let optInBBPeriod = i32::MIN;
+    let optInNbDev = Core::REAL_DEFAULT;
+    let optInKCPeriod = i32::MIN;
+    let optInFactorWide = Core::REAL_DEFAULT;
+    let optInFactorNormal = Core::REAL_DEFAULT;
+    let optInFactorNarrow = Core::REAL_DEFAULT;
+    let Ok(lb) = core.sqzmom_lookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow) else { r.no_legs("SQZMOM"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outMomentum: Vec<f64> = vec![Default::default(); 5];
+        let mut outSqueeze: Vec<i32> = vec![Default::default(); 5];
+        r.legs_control("SQZMOM", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sqzmom_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, &mut _b, &mut _n, &mut outMomentum, &mut outSqueeze);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = Vec::with_capacity(1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outMomentum: Vec<f64> = vec![Default::default(); 5];
+        let mut outSqueeze: Vec<i32> = vec![Default::default(); 5];
+        r.leg("SQZMOM", "inHigh", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sqzmom_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, &mut _b, &mut _n, &mut outMomentum, &mut outSqueeze);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = Vec::with_capacity(1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outMomentum: Vec<f64> = vec![Default::default(); 5];
+        let mut outSqueeze: Vec<i32> = vec![Default::default(); 5];
+        r.leg("SQZMOM", "inLow", 1, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sqzmom_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, &mut _b, &mut _n, &mut outMomentum, &mut outSqueeze);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = Vec::with_capacity(1);
+        let mut outMomentum: Vec<f64> = vec![Default::default(); 5];
+        let mut outSqueeze: Vec<i32> = vec![Default::default(); 5];
+        r.leg("SQZMOM", "inClose", 2, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sqzmom_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, &mut _b, &mut _n, &mut outMomentum, &mut outSqueeze);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("SQZMOM", 3);
+}
+
 const V_STC: &[(&str, i32, i32, i32)] = &[
     ("defaults", i32::MIN, i32::MIN, i32::MIN),
     ("minimums", 2i32, 2i32, 2i32),
@@ -19495,6 +19801,89 @@ fn legs_WMA(r: &mut Report) {
     r.legs_done("WMA", 1);
 }
 
+const V_ZIGZAG: &[(&str, f64, i32)] = &[
+    ("defaults", Core::REAL_DEFAULT, i32::MIN),
+    ("minimums", 0.0f64, 1i32),
+];
+
+fn sub_ZIGZAG(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInSensitivity, optInMinTrendLength) in V_ZIGZAG {
+        let Ok(lb) = core.zigzag_lookback(optInSensitivity, optInMinTrendLength) else { continue; };
+        r.control("ZIGZAG", label, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let mut outZigZag: Vec<f64> = Vec::with_capacity(1);
+            let mut outTrend: Vec<i32> = Vec::with_capacity(1);
+            let mut outPivotIdx: Vec<i32> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.zigzag_impl(0, lb, &inHigh, &inLow, optInSensitivity, optInMinTrendLength, &mut _b, &mut _n, &mut outZigZag, &mut outTrend, &mut outPivotIdx);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("ZIGZAG", label); continue; }
+        r.quiet("ZIGZAG", label, lb, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let mut outZigZag: Vec<f64> = Vec::with_capacity(1);
+            let mut outTrend: Vec<i32> = Vec::with_capacity(1);
+            let mut outPivotIdx: Vec<i32> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.zigzag_impl(0, lb - 1, &inHigh, &inLow, optInSensitivity, optInMinTrendLength, &mut _b, &mut _n, &mut outZigZag, &mut outTrend, &mut outPivotIdx);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_ZIGZAG(r: &mut Report) {
+    let core = Core::new();
+    let optInSensitivity = Core::REAL_DEFAULT;
+    let optInMinTrendLength = i32::MIN;
+    let Ok(lb) = core.zigzag_lookback(optInSensitivity, optInMinTrendLength) else { r.no_legs("ZIGZAG"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let mut outZigZag: Vec<f64> = vec![Default::default(); 5];
+        let mut outTrend: Vec<i32> = vec![Default::default(); 5];
+        let mut outPivotIdx: Vec<i32> = vec![Default::default(); 5];
+        r.legs_control("ZIGZAG", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.zigzag_impl(startIdx, endIdx, &inHigh, &inLow, optInSensitivity, optInMinTrendLength, &mut _b, &mut _n, &mut outZigZag, &mut outTrend, &mut outPivotIdx);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = Vec::with_capacity(1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let mut outZigZag: Vec<f64> = vec![Default::default(); 5];
+        let mut outTrend: Vec<i32> = vec![Default::default(); 5];
+        let mut outPivotIdx: Vec<i32> = vec![Default::default(); 5];
+        r.leg("ZIGZAG", "inHigh", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.zigzag_impl(startIdx, endIdx, &inHigh, &inLow, optInSensitivity, optInMinTrendLength, &mut _b, &mut _n, &mut outZigZag, &mut outTrend, &mut outPivotIdx);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = Vec::with_capacity(1);
+        let mut outZigZag: Vec<f64> = vec![Default::default(); 5];
+        let mut outTrend: Vec<i32> = vec![Default::default(); 5];
+        let mut outPivotIdx: Vec<i32> = vec![Default::default(); 5];
+        r.leg("ZIGZAG", "inLow", 1, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.zigzag_impl(startIdx, endIdx, &inHigh, &inLow, optInSensitivity, optInMinTrendLength, &mut _b, &mut _n, &mut outZigZag, &mut outTrend, &mut outPivotIdx);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("ZIGZAG", 2);
+}
+
 const V_ZLEMA: &[(&str, i32)] = &[
     ("defaults", i32::MIN),
     ("minimums", 1i32),
@@ -19684,6 +20073,7 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("HT_TRENDLINE", sub_HT_TRENDLINE, legs_HT_TRENDLINE),
     ("HT_TRENDMODE", sub_HT_TRENDMODE, legs_HT_TRENDMODE),
     ("IBS", sub_IBS, legs_IBS),
+    ("ICHIMOKU", sub_ICHIMOKU, legs_ICHIMOKU),
     ("IMI", sub_IMI, legs_IMI),
     ("KAMA", sub_KAMA, legs_KAMA),
     ("KC", sub_KC, legs_KC),
@@ -19691,6 +20081,7 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("KST", sub_KST, legs_KST),
     ("KSTEXT", sub_KSTEXT, legs_KSTEXT),
     ("KURTOSIS", sub_KURTOSIS, legs_KURTOSIS),
+    ("KVO", sub_KVO, legs_KVO),
     ("LINEARREG", sub_LINEARREG, legs_LINEARREG),
     ("LINEARREG_ANGLE", sub_LINEARREG_ANGLE, legs_LINEARREG_ANGLE),
     ("LINEARREG_INTERCEPT", sub_LINEARREG_INTERCEPT, legs_LINEARREG_INTERCEPT),
@@ -19753,6 +20144,7 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("SMA", sub_SMA, legs_SMA),
     ("SMI", sub_SMI, legs_SMI),
     ("SQRT", sub_SQRT, legs_SQRT),
+    ("SQZMOM", sub_SQZMOM, legs_SQZMOM),
     ("STC", sub_STC, legs_STC),
     ("STDDEV", sub_STDDEV, legs_STDDEV),
     ("STOCH", sub_STOCH, legs_STOCH),
@@ -19788,6 +20180,7 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("WCLPRICE", sub_WCLPRICE, legs_WCLPRICE),
     ("WILLR", sub_WILLR, legs_WILLR),
     ("WMA", sub_WMA, legs_WMA),
+    ("ZIGZAG", sub_ZIGZAG, legs_ZIGZAG),
     ("ZLEMA", sub_ZLEMA, legs_ZLEMA),
 ];
 
@@ -19827,7 +20220,7 @@ fn no_phantom_io() {
     // The corpus is the generator's, not a list kept by hand: a probe that
     // stopped being emitted is a shrinking sweep, which is the one way this
     // file can fail open.
-    assert_eq!(PROBES.len(), 233, "probe count");
+    assert_eq!(PROBES.len(), 237, "probe count");
     assert_eq!(
         PROBES.len(),
         crate::abstract_api::funcs().count(),

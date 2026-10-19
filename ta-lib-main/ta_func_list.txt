@@ -126,6 +126,7 @@ HT_SINE             Hilbert Transform - SineWave
 HT_TRENDLINE        Hilbert Transform - Instantaneous Trendline
 HT_TRENDMODE        Hilbert Transform - Trend vs Cycle Mode
 IBS                 Internal Bar Strength
+ICHIMOKU            Ichimoku Kinko Hyo
 IMI                 Intraday Momentum Index
 KAMA                Kaufman Adaptive Moving Average
 KC                  Keltner Channels
@@ -133,6 +134,7 @@ KDJ                 KDJ Stochastic
 KST                 Know Sure Thing (Pring)
 KSTEXT              Know Sure Thing with controllable MA type
 KURTOSIS            Rolling Excess Kurtosis
+KVO                 Klinger Volume Oscillator
 LINEARREG           Linear Regression
 LINEARREG_ANGLE     Linear Regression Angle
 LINEARREG_INTERCEPT Linear Regression Intercept
@@ -195,6 +197,7 @@ SINH                Vector Trigonometric Sinh
 SMA                 Simple Moving Average
 SMI                 Stochastic Momentum Index
 SQRT                Vector Square Root
+SQZMOM              Squeeze Momentum and Level
 STC                 Schaff Trend Cycle
 STDDEV              Standard Deviation
 STOCH               Stochastic
@@ -230,4 +233,5 @@ WAVETREND           WaveTrend Oscillator
 WCLPRICE            Weighted Close Price
 WILLR               Williams' %R
 WMA                 Weighted Moving Average
+ZIGZAG              Zig Zag
 ZLEMA               Zero-Lag Exponential Moving Average

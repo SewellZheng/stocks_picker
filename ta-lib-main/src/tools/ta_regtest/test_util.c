@@ -129,6 +129,38 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
                                       TA_FuncUnstId unstId,
                                       unsigned int integerTolerance );
 
+/* The grace of the sweep in progress: bars the convergence envelope leaves
+ * uncompared, counted from the start of the output plus the unstable period.
+ * 0 is the default, chosen by the unstable id in dataWithinReasonableRange();
+ * doRangeTestMulti sets a caller's own, and clears it when the sweep ends. */
+static unsigned int g_rangePeriodToIgnore = 0;
+
+/* Values the sweep in progress actually held to a tolerance, counted where
+ * the comparison is made. A TA_STABLE_CONVERGING sweep whose grace swallows
+ * every reachable bar compares nothing and would pass: doRangeTestMulti fails
+ * it instead, so a grace, a lookback or a corpus that outgrows the data is
+ * caught rather than waived. */
+static unsigned long g_rangeNbCompared = 0;
+
+static unsigned int rangeGrace( TA_FuncUnstId unstId )
+{
+   if( g_rangePeriodToIgnore != 0 )
+      return g_rangePeriodToIgnore;
+   switch( unstId )
+   {
+   case TA_FUNC_UNST_T3:
+   /* STC's two stochastic stages amplify the slow EMA's transient: at 150
+    * the sweep fails on every seed. */
+   case TA_FUNC_UNST_STC:
+   /* SWAK_BP's pole radius is 0.97 at its defaults: the seed's transient is
+    * still 4% of its start at bar 100. */
+   case TA_FUNC_UNST_SWAK_BP:
+      return 200;
+   default:
+      return 100;
+   }
+}
+
 static ErrorNumber doRangeTestForOneOutput( RangeTestFunction testFunction,
                                             TA_RangeStability stability,
                                             const TA_FuncUnstId *unstIds,
@@ -756,7 +788,7 @@ ErrorNumber doRangeTestEx( RangeTestFunction testFunction,
    /* One id is the common case; the set form below is the general one. */
    return doRangeTestMulti( testFunction, stability,
                             &unstId, unstId == TA_TEST_UNST_NONE ? 0 : 1,
-                            opaqueData, nbOutput, integerTolerance );
+                            opaqueData, nbOutput, integerTolerance, 0 );
 }
 
 ErrorNumber doRangeTestMulti( RangeTestFunction testFunction,
@@ -765,7 +797,8 @@ ErrorNumber doRangeTestMulti( RangeTestFunction testFunction,
                               int nbUnstIds,
                               void *opaqueData,
                               unsigned int nbOutput,
-                              unsigned int integerTolerance )
+                              unsigned int integerTolerance,
+                              unsigned int periodToIgnore )
 {
    unsigned int outputNb;
    unsigned int savedUnst[TA_FUNC_UNST_COUNT];
@@ -803,6 +836,9 @@ ErrorNumber doRangeTestMulti( RangeTestFunction testFunction,
    for( id = 0; id < TA_FUNC_UNST_COUNT; id++ )
       savedUnst[id] = TA_GetUnstablePeriod( (TA_FuncUnstId)id );
 
+   g_rangePeriodToIgnore = periodToIgnore;
+   g_rangeNbCompared = 0;
+
    /* Test all the outputs individually. */
    errNb = TA_TEST_PASS;
    for( outputNb=0; errNb == TA_TEST_PASS && outputNb < nbOutput; outputNb++ )
@@ -820,6 +856,20 @@ ErrorNumber doRangeTestMulti( RangeTestFunction testFunction,
 
    for( id = 0; id < TA_FUNC_UNST_COUNT; id++ )
       TA_SetUnstablePeriod( (TA_FuncUnstId)id, savedUnst[id] );
+   g_rangePeriodToIgnore = 0;
+
+   /* The floor: a converging function the sweep never held to its envelope
+    * has not been range-tested. Nothing is reachable past
+    * MAX_RANGE_SIZE - lookback - 1 bars, so a grace at least that long, or a
+    * lookback that leaves fewer bars than the grace, lands here. */
+   if( errNb == TA_TEST_PASS && stability == TA_STABLE_CONVERGING
+       && g_rangeNbCompared == 0 )
+   {
+      printf( "Fail: doRangeTest CONVERGING sweep compared no value: every "
+              "reachable bar fell inside the grace (periodToIgnore %u, or the "
+              "id's own when 0)\n", periodToIgnore );
+      return TA_TESTUTIL_DRT_NO_COMPARISON;
+   }
    return errNb;
 }
 
@@ -1141,6 +1191,9 @@ static ErrorNumber doRangeTestFixSize( RangeTestFunction testFunction,
                    * "skip" is uniform across output types and cannot desync from
                    * the real path in dataWithinReasonableRange() (the legacy
                    * integerTolerance == TA_DO_NOT_COMPARE gate is kept too). */
+                  if( stability != TA_STABLE_SKIP
+                      && integerTolerance != TA_DO_NOT_COMPARE )
+                     g_rangeNbCompared++;
                   if( outputBufferInt[1+i] != refBufferInt[relativeIdx+i]
                       && stability != TA_STABLE_SKIP
                       && integerTolerance != TA_DO_NOT_COMPARE )
@@ -1336,6 +1389,19 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
    if( stability == TA_STABLE_SKIP )
       return 1;
 
+   /* TA_STABLE_CONVERGING: inside the grace nothing is held, so it is decided
+    * first and not counted; past it the value is counted as compared whatever
+    * the branches below conclude, bit-identical included. */
+   if( stability == TA_STABLE_CONVERGING )
+   {
+      if( outputPosition + TA_GetUnstablePeriod( unstId ) + 1
+          <= rangeGrace( unstId ) )
+         return 1;
+      g_rangeNbCompared++;
+   }
+   else if( stability != TA_STABLE_SKIP )
+      g_rangeNbCompared++;
+
    /* Bitwise-identical is always coherent, incl. NaN==NaN (ACOS/ASIN
     * on out-of-domain price data). */
    if( memcmp( &val1, &val2, sizeof(TA_Real) ) == 0 )
@@ -1420,24 +1486,7 @@ static int dataWithinReasonableRange( TA_Real val1, TA_Real val2,
     */
 
 
-   /* Some functions requires a longer unstable period.
-    * These are trap here.
-    */
-   switch( unstId )
-   {
-   case TA_FUNC_UNST_T3:
-   /* STC's two stochastic stages amplify the slow EMA's transient: at 150
-    * the sweep fails on every seed. */
-   case TA_FUNC_UNST_STC:
-   /* SWAK_BP's pole radius is 0.97 at its defaults: the seed's transient is
-    * still 4% of its start at bar 100. */
-   case TA_FUNC_UNST_SWAK_BP:
-      periodToIgnore = 200;
-      break;
-   default:
-      periodToIgnore = 100;
-      break;
-   }
+   periodToIgnore = rangeGrace( unstId );
 
    if( integerTolerance == 10 )
    {

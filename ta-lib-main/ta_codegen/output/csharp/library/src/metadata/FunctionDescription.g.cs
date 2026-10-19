@@ -1122,6 +1122,7 @@ public static class FunctionDescription
 		<GroupId>Volatility Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4058,6 +4059,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -4419,6 +4421,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5443,6 +5446,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -5922,6 +5926,102 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- ICHIMOKU -->
+	<FinancialFunction>
+		<Abbreviation>ICHIMOKU</Abbreviation>
+		<ShortDescription>Ichimoku Kinko Hyo</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+			<Flag>Display Shift</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Tenkan Period</Name>
+				<ShortDescription>Period of the conversion line</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>9</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Kijun Period</Name>
+				<ShortDescription>Period of the base line, and the forward shift of the two spans</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>26</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Senkou B Period</Name>
+				<ShortDescription>Period of the second leading span</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>52</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outTenkanSen</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outKijunSen</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outSenkouSpanA</Name>
+				<Flags>
+					<Flag>Line</Flag>
+					<Flag>Display Shift</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outSenkouSpanB</Name>
+				<Flags>
+					<Flag>Line</Flag>
+					<Flag>Display Shift</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- IMI -->
 	<FinancialFunction>
 		<Abbreviation>IMI</Abbreviation>
@@ -6210,6 +6310,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6362,6 +6463,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6561,6 +6663,92 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- KVO -->
+	<FinancialFunction>
+		<Abbreviation>KVO</Abbreviation>
+		<ShortDescription>Klinger Volume Oscillator</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Fast Period</Name>
+				<ShortDescription>Period of the faster smoothing of the volume force</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>34</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Slow Period</Name>
+				<ShortDescription>Period of the slower smoothing of the volume force</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>55</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Signal Period</Name>
+				<ShortDescription>Smoothing for the trigger line</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>2</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>13</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outKVO</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outKVOSignal</Name>
+				<Flags>
+					<Flag>Dashed Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- LINEARREG -->
 	<FinancialFunction>
 		<Abbreviation>LINEARREG</Abbreviation>
@@ -6737,6 +6925,7 @@ public static class FunctionDescription
 			<Flag>Streaming</Flag>
 			<Flag>Can Output NaN or +/-Inf</Flag>
 			<Flag>Uses Transcendental</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -6765,6 +6954,7 @@ public static class FunctionDescription
 			<Flag>Streaming</Flag>
 			<Flag>Can Output NaN or +/-Inf</Flag>
 			<Flag>Uses Transcendental</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -7384,6 +7574,7 @@ public static class FunctionDescription
 			<Flag>Overlap</Flag>
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -7987,6 +8178,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8037,6 +8229,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 			<Flag>Path Dependent</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8369,6 +8562,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8493,6 +8687,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 			<Flag>Path Dependent</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8584,6 +8779,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 			<Flag>Path Dependent</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8703,6 +8899,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8744,6 +8941,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8785,6 +8983,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8826,6 +9025,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -8868,6 +9068,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 			<Flag>Uses Transcendental</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -9588,6 +9789,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 			<Flag>Can Output NaN or +/-Inf</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -9599,6 +9801,131 @@ public static class FunctionDescription
 			<OutputArgument>
 				<Type>Double Array</Type>
 				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- SQZMOM -->
+	<FinancialFunction>
+		<Abbreviation>SQZMOM</Abbreviation>
+		<ShortDescription>Squeeze Momentum and Level</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>BB Period</Name>
+				<ShortDescription>Period of the Bollinger Bands</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Deviations</Name>
+				<ShortDescription>Deviation multiplier for both Bollinger Bands</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>1.000000e+0</SuggestedStart>
+					<SuggestedEnd>3.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>KC Period</Name>
+				<ShortDescription>Period of the Keltner Channel, and of the momentum regression</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Wide Factor</Name>
+				<ShortDescription>Keltner width for the widest compression test</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>1</Precision>
+					<SuggestedStart>1.000000e+0</SuggestedStart>
+					<SuggestedEnd>3.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Normal Factor</Name>
+				<ShortDescription>Keltner width for the classic squeeze test</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>1</Precision>
+					<SuggestedStart>1.000000e+0</SuggestedStart>
+					<SuggestedEnd>3.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>1.500000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Narrow Factor</Name>
+				<ShortDescription>Keltner width for the tightest compression test</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>1</Precision>
+					<SuggestedStart>5.000000e-1</SuggestedStart>
+					<SuggestedEnd>2.000000e+0</SuggestedEnd>
+					<SuggestedIncrement>5.000000e-1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>1.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outMomentum</Name>
+				<Flags>
+					<Flag>Histogram</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Integer Array</Type>
+				<Name>outSqueeze</Name>
 				<Flags>
 					<Flag>Line</Flag>
 				</Flags>
@@ -10592,6 +10919,7 @@ public static class FunctionDescription
 		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
+			<Flag>Positive Input</Flag>
 		</Flags>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
@@ -11365,6 +11693,85 @@ public static class FunctionDescription
 			<OutputArgument>
 				<Type>Double Array</Type>
 				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- ZIGZAG -->
+	<FinancialFunction>
+		<Abbreviation>ZIGZAG</Abbreviation>
+		<ShortDescription>Zig Zag</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+			<Flag>Path Dependent</Flag>
+			<Flag>Positive Input</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Sensitivity</Name>
+				<ShortDescription>Minimum move away from the current extreme that reverses the leg, in percent</ShortDescription>
+				<Flags>
+					<Flag>Percent</Flag>
+				</Flags>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>1.000000e+2</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>1.000000e+0</SuggestedStart>
+					<SuggestedEnd>2.000000e+1</SuggestedEnd>
+					<SuggestedIncrement>1.000000e+0</SuggestedIncrement>
+				</Range>
+				<DefaultValue>5.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Minimum Trend Length</Name>
+				<ShortDescription>Minimum number of bars between two pivots</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>20</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>1</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outZigZag</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Integer Array</Type>
+				<Name>outTrend</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Integer Array</Type>
+				<Name>outPivotIdx</Name>
 				<Flags>
 					<Flag>Line</Flag>
 				</Flags>

@@ -764,6 +764,16 @@ static const UnstableLookup UNSTABLE_MAP[] = {
      * tightens around it. Measured with only UNST_EMA listed, KC moved 1.8%
      * across startIdx at unstable period 140 where 0.15% was allowed. Without
      * any entry it classified EPSILON and moved 0.25% where ~1e-13 was allowed. */
+    /* KVO is converging, as ADOSC is: the difference of two EMA of the volume
+     * force, both seeded on the same anchor bar, with a third EMA as trigger.
+     * The cumulative range two starts carry differs only until the first trend
+     * change after both, which resets it for both alike; what is left is the
+     * seed error, fading at the slow EMA's rate (54/56 per bar at the defaults).
+     * It owns no id -- all three smoothings are EMA sub-calls sharing one
+     * anchor -- so this row is what classes it CONVERGING for the range sweep
+     * and what makes the stream K-leg drive it at a non-zero EMA period; the
+     * grace that sweep needs is keyed on its name in perFuncGrace. */
+    {"KVO",          TA_FUNC_UNST_EMA},
     {"KC",           TA_FUNC_UNST_EMA},
     {"KC",           TA_FUNC_UNST_ATR},
     /* WAVETREND inherits EMA three times over -- the price average, the
@@ -2198,6 +2208,43 @@ static unsigned int get_integer_tolerance(const TA_FuncInfo *funcInfo)
     return 0;
 }
 
+/* The grace of the TA_STABLE_CONVERGING envelope, per function: bars left
+ * uncompared, counted from the output's start plus the swept unstable period.
+ * 0 is the id's own (100, or 200 for T3 / STC / SWAK_BP, in test_util.c). A
+ * function listed here inherits its id and converges more slowly than the id's
+ * owner, so the grace is keyed on its name, not on a new id. On the 252-bar
+ * corpus nothing is reachable past 252 - lookback - 1, so a grace that long
+ * compares nothing: doRangeTestMulti fails a CONVERGING sweep that compared
+ * no value, and that floor is what bounds every row here from above. */
+static const struct { const char *name; unsigned int grace; } perFuncGrace[] = {
+    /* KVO is a small difference of two large EMA of the volume force: on the
+     * corpus mean |KVO| is 7% of either average, so one seed error is ~14x the
+     * output.
+     * MEASURED (#484): 160 fails, 175 compares bars 230-251 at worst 0.13 of
+     * the tolerance, 197 and up compares nothing (252 - 55 - 1 = 196). */
+    { "KVO", 175 },
+    /* At its defaults STC's lookback is 67, which leaves the id's own grace
+     * nothing to compare. MEASURED: 150 fails on 4 of 4 seeds, 175 holds on
+     * 48 of 48. */
+    { "STC", 175 },
+};
+
+static unsigned int get_grace_period(const TA_FuncInfo *funcInfo)
+{
+    return codegen_range_grace(funcInfo->name);
+}
+
+/* Documented in test_codegen.h. */
+unsigned int codegen_range_grace(const char *funcName)
+{
+    for( unsigned int i = 0; i < sizeof(perFuncGrace)/sizeof(perFuncGrace[0]); i++ )
+    {
+        if( strcmp(funcName, perFuncGrace[i].name) == 0 )
+            return perFuncGrace[i].grace;
+    }
+    return 0;
+}
+
 /* ---- Determine range-stability class for doRangeTestEx ---- */
 
 /* Explicit per-function range-test tolerance class (see TA_RangeStability).
@@ -2247,6 +2294,7 @@ static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
         "MOM", "ROC", "ROCP", "ROCR", "ROCR100",
         /* comparison-selected window extrema (cached min/max, no FP accumulation) */
         "MIN", "MAX", "MINMAX", "MIDPOINT", "MIDPRICE", "WILLR", "AROON", "AROONOSC",
+        "ICHIMOKU",
         /* fresh per-bar rescan (window re-summed in bar-absolute order each output) */
         "AVGDEV", "ALMA",
         /* running sums held exactly, so no rounding is carried across bars */
@@ -2723,7 +2771,8 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
             sweepIds, nbSweepIds,
             (void *)&params,
             funcInfo->nbOutput,
-            get_integer_tolerance(funcInfo));
+            get_integer_tolerance(funcInfo),
+            get_grace_period(funcInfo));
         rangeChecked = 1;
     }
 
@@ -6857,7 +6906,7 @@ ErrorNumber fuzz_ref(const char *version, const char *functionFilter)
  *     the exact seed-generated arrays losslessly (hex-of-IEEE-bits, the #115
  *     server_verify transport) and requests want_hash. Non-transcendental calls
  *     are diffed BITWISE; a call that reaches a transcendental (fdlibm != the C
- *     libm, ~1 ULP) drops to a CODEGEN_TRANSCENDENTAL_TOL (1e-9) element
+ *     libm, a few ULP) drops to a CODEGEN_TRANSCENDENTAL_TOL (1e-9) element
  *     compare, and HT_DCPHASE/HT_SINE/HT_TRENDMODE on the zero-variance constant shape are
  *     skipped outright (xlang_illcond — atan2 of a null signal amplifies
  *     the ULP unboundedly; C and Rust stay bitwise there).
@@ -7103,7 +7152,7 @@ void codegen_hash_report(const char *who, TA_RetCode goldRc, int goldBeg,
 
 /* ---- Java-transcendental tolerance path (shared with server_verify, #113/#115)
  * Which CALLS reach a transcendental C math routine (atan/sin/cos/exp/log/...) —
- * the only ones whose Java (fdlibm) output can differ from the C libm (~1 ULP),
+ * the only ones whose Java (fdlibm) output can differ from the C libm (a few ULP),
  * hence the only ones --xlang-hash's Java leg and server_verify relax from
  * bitwise to CODEGEN_TRANSCENDENTAL_TOL. Every other function — including
  * sqrt/ceil/floor users (IEEE correctly-rounded) — stays bit-identical across
@@ -7300,7 +7349,7 @@ static int xlang_selfcheck_inputs(XlangCtx *ctx)
  * (FUZZ_CONSTANT: flat O=H=L=C) those components are floating-point noise (~0),
  * so the phase is atan2(≈0,≈0) — chaotically sensitive to the last bit of every
  * transcendental step. C and Rust share the system libm and stay BIT-IDENTICAL
- * there (0 mismatches), but Java's fdlibm differs by ~1 ULP and this
+ * there (0 mismatches), but Java's fdlibm differs by a few ULP and this
  * ill-conditioning amplifies that to whole degrees. It is not a codegen
  * divergence — every non-degenerate shape agrees within the 1e-9 tolerance, and
  * atan2 of a null signal is mathematically undefined — so no fixed tolerance can
