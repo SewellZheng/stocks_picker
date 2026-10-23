@@ -97,7 +97,6 @@ fn transform_page(
     // Summary is extracted from the untransformed body: it precedes every rewrite.
     let desc = extract_summary(body);
     let injected = inject_parameters(body, func, enums);
-    let injected = mark_declinable_outputs(&injected, func);
     let injected = link_output_values(&injected);
     let with_impl = inject_implementation(&injected, func, root);
     let with_flags = inject_flags(&with_impl, func, enums, stability);
@@ -131,40 +130,6 @@ fn inject_implementation(body: &str, func: &FuncDef, root: &Path) -> String {
     insert_before_later_sections(body, &implementation_section(func, root))
 }
 
-fn mark_declinable_outputs(body: &str, func: &FuncDef) -> String {
-    let names: Vec<String> = func
-        .outputs
-        .iter()
-        .filter(|o| o.is_nullable())
-        .map(|o| format!("- `{}`", o.name))
-        .collect();
-    let lines: Vec<&str> = body.lines().collect();
-    let Some((start, end)) = section_span(&lines, "## Outputs") else {
-        return body.to_string();
-    };
-    let mut out: Vec<String> = lines.iter().map(|l| (*l).to_string()).collect();
-    for i in start + 1..end {
-        if !names.iter().any(|n| lines[i].trim_start().starts_with(n.as_str())) {
-            continue;
-        }
-        let mut last = i;
-        while last + 1 < end
-            && !lines[last + 1].trim().is_empty()
-            && !lines[last + 1].trim_start().starts_with("- ")
-        {
-            last += 1;
-        }
-        let base = out[last].trim_end().to_string();
-        let sep = if base.ends_with('.') { " " } else { ". " };
-        out[last] = format!("{base}{sep}May be declined ([rW5](/spec/inputs-outputs/#rw5)).");
-    }
-    let mut s = out.join("\n");
-    if body.ends_with('\n') {
-        s.push('\n');
-    }
-    s
-}
-
 /// Point a pattern output's value table at the rule that reads it.
 fn link_output_values(body: &str) -> String {
     let lines: Vec<&str> = body.lines().collect();
@@ -174,7 +139,7 @@ fn link_output_values(body: &str) -> String {
     let mut out: Vec<String> = lines.iter().map(|l| (*l).to_string()).collect();
     out.insert(
         start + 1,
-        "\nHow to read these values from the output's flags: [rW8](/spec/inputs-outputs/#rw8).".to_string(),
+        "\nHow to read these values from the output's flags: [rW7](/spec/inputs-outputs/#rw7).".to_string(),
     );
     let mut s = out.join("\n");
     if body.ends_with('\n') {
@@ -398,7 +363,7 @@ fn flag_cell(label: &str, on: bool, tip: &str) -> String {
 ///   (exactly one applies): `Start-Independent` (neither flag; compare across any
 ///   window), `Initial Unstable Period` (`unstable_period`; converges after a
 ///   warm-up), `Path-Dependent` (`path_dependent`; a running accumulation or
-///   path-dependent state machine that never converges — the behavior behind
+///   path-dependent state machine that may never converge — the behavior behind
 ///   ta-lib-python issues like #513).
 /// * The **checkbox list** — `Overlap Input` (output shares the input price
 ///   scale, drawn over price) and its complement `Independent Y-Axis` (own pane) —
@@ -1344,9 +1309,9 @@ fn build_stability_page(
     s.push_str("## If Path-Dependent, then... {#path-dependent}\n\n");
     s.push_str(
         "The value is built up from the first bar by a running accumulation or a state machine \
-         that tracks the path prices took, so it depends on where your data begins and never \
-         converges. Unlike an unstable period, there is no warm-up you can discard: the \
-         difference persists for the whole series.\n\n\
+         that tracks the path prices took, so it depends on where your data begins and may never \
+         converge. Unlike an unstable period, there is no warm-up you can discard: the \
+         difference can persist for the whole series.\n\n\
          Two Examples:\n\n\
          - [AD](/functions/ad.md) adds each bar's money-flow volume to a running total that begins \
          at zero on your first bar. Only the differences between bars carry meaning; the \
@@ -1354,8 +1319,8 @@ fn build_stability_page(
          - [SAR](/functions/sar.md) is a state machine: it reads the first two bars to decide \
          whether the trend starts long or short, then carries that direction, the extreme \
          price, and an acceleration factor forward. Start a day earlier and it can pick the \
-         opposite direction, putting the stop on the other side of price for the rest of the \
-         run.\n\n\
+         opposite direction, putting the stop on the other side of price, possibly for the \
+         rest of the run.\n\n\
          Do not compare these values across differently-sized windows, and expect a backtest \
          starting at a different date to produce different numbers.\n",
     );
@@ -1877,7 +1842,7 @@ mod tests {
         assert!(line.contains("Inherited from RSI"), "{line}");
         assert!(line.contains("may add one of its own"), "{line}");
 
-        // Path-dependent wins over everything: it never converges.
+        // Path-dependent wins over everything: it may never converge.
         let f = stability_of("OBV", &["path_dependent"], vec![]);
         let mut all = HashMap::new();
         all.insert(

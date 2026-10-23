@@ -457,7 +457,7 @@ typedef enum
   TA_STREAM_FINITE_SETUP_FAILED      = 1594,
   TA_STREAM_FINITE_VACUOUS           = 1595,
 
-  /* Streaming short-history rejection (rule rS8 / TA_INSUFFICIENT_HISTORY). */
+  /* Streaming short-history rejection (rule rS7 / TA_INSUFFICIENT_HISTORY). */
   TA_STREAM_SHORT_HISTORY_WRONG_CODE = 1596,
   TA_STREAM_SHORT_HISTORY_ACCEPTED   = 1597,
   TA_STREAM_SHORT_HISTORY_CONTROL    = 1598,
@@ -489,8 +489,6 @@ typedef enum
   TA_BATCH_ARG_WRONG_CODE            = 1630,
   TA_BATCH_ARG_CONTROL               = 1631,
   TA_BATCH_ARG_VACUOUS               = 1632,
-  /* Rule rB7: declining a nullable output changed what the call produced. */
-  TA_BATCH_ARG_NULLABLE_DIVERGED     = 1633,
 
   /* Rule rU3, stated absolutely: what ONE rejected Update costs. Driving two
    * handles off one feed and comparing them is symmetric, so it is blind to any
@@ -614,6 +612,11 @@ typedef enum
   /* (#540) Transcendental outputs against their committed values. */
   TA_TRANSCENDENTAL_REF_FAIL         = 1722,
   TA_TRANSCENDENTAL_REF_VACUOUS      = 1723,
+
+  /* rB7 and rB8: a failed allocation and an internal error reach the caller. */
+  TA_REGTEST_ALLOC_FAIL_NOT_REPORTED = 1724,
+  TA_REGTEST_ALLOC_FAIL_UNARMED      = 1725,
+  TA_REGTEST_INTERNAL_ERROR_NOT_REPORTED = 1726,
 
   /* Error code related to bug fix documentented on SourceForge. */
   TA_TEST_FAIL_BUG1359452_1  = 2000,

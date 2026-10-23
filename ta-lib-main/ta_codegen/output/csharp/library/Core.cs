@@ -277,8 +277,8 @@ public sealed partial class Core
         }
     }
 
-    /* An output that cannot be declined is absent when its span is empty, a
-     * null array included, whatever the call would have written. */
+    /* An output is absent when its span is empty, a null array included,
+     * whatever the call would have written. */
     internal static void RequirePresent(string funcName, string argName, int actual)
     {
         if (actual == 0)
@@ -304,29 +304,26 @@ public sealed partial class Core
     }
 
     /* Rule rS6 at an opener: the same buffer, as C compares it, is one start
-     * address. A null reference is no buffer, and an empty span beside a
-     * non-empty one is a declined output, not that buffer. */
+     * address. A null reference is no buffer. */
     internal static bool SameBuffer<T>(Span<T> a, ReadOnlySpan<T> b)
-        => SameStart(ref MemoryMarshal.GetReference(a), a.IsEmpty,
-                     ref MemoryMarshal.GetReference(b), b.IsEmpty);
+        => SameStart(ref MemoryMarshal.GetReference(a), ref MemoryMarshal.GetReference(b));
 
     internal static bool SameBuffer<T>(Span<T> a, Span<T> b)
-        => SameStart(ref MemoryMarshal.GetReference(a), a.IsEmpty,
-                     ref MemoryMarshal.GetReference(b), b.IsEmpty);
+        => SameStart(ref MemoryMarshal.GetReference(a), ref MemoryMarshal.GetReference(b));
 
-    private static bool SameStart<T>(ref T a, bool aEmpty, ref T b, bool bEmpty)
-        => aEmpty == bEmpty && !Unsafe.IsNullRef(ref a) && Unsafe.AreSame(ref a, ref b);
+    private static bool SameStart<T>(ref T a, ref T b)
+        => !Unsafe.IsNullRef(ref a) && Unsafe.AreSame(ref a, ref b);
 
     /* Rule rS5's bound: how many values an OpenAndFill writes.
      *
      * An opener is a batch call over [0, historyLen - 1], so ClampedStart's
      * produced count -- endIdx - max(startIdx, lookback) + 1 -- collapses to
      * historyLen - lookback. Unlike the batch tier's it has no legitimate zero
-     * case: rule rS8 refuses a history shorter than lookback + 1, so a fill that
+     * case: rule rS7 refuses a history shorter than lookback + 1, so a fill that
      * runs writes at least one value.
      *
-     * A short history is still floored to 0 rather than answered here: rS8 has not
-     * run yet, and that rejection is rS8's to make. A lookback of -1 is NOT
+     * A short history is still floored to 0 rather than answered here: rS7 has not
+     * run yet, and that rejection is rS7's to make. A lookback of -1 is NOT
      * floored -- it is the parameter contract's rejection signal, and swallowing
      * it reported an absent output (rS4) for a call whose fault was its parameter
      * (rS3). Raising it here is what puts rS3 ahead of the buffer rules, exactly as
@@ -372,8 +369,7 @@ public sealed partial class Core
                 argName, RetCode.BadParam);
         }
         /* Reached with required == 0 only, on a history too short to open: an
-         * empty output is absent, and that outranks the history check. A
-         * declinable one is not passed here when empty. */
+         * empty output is absent, and that outranks the history check. */
         if (actual == 0)
         {
             throw new TALibArgumentException(
@@ -381,7 +377,7 @@ public sealed partial class Core
         }
     }
 
-    /* Rule rS8, naming the history and carrying the counts the batch tier's
+    /* Rule rS7, naming the history and carrying the counts the batch tier's
      * length faults carry: max(startIdx, lookback) + 1 is the bound the core
      * tested. */
     internal static InsufficientHistoryException InsufficientHistory(string funcName, string verb,

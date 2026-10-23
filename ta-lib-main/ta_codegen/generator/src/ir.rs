@@ -640,7 +640,7 @@ pub struct Output {
     pub flags: Vec<String>,
 }
 
-/// What the sign of a pattern output's value means (spec rW8).
+/// What the sign of a pattern output's value means (spec rW7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatternSign {
     /// `pattern_bool`: nothing; the values are 0 and 100.
@@ -701,17 +701,6 @@ impl Output {
         }
         values.sort_unstable();
         Some(values)
-    }
-
-    /// A nullable output may be passed `NULL` (C) meaning "compute but don't
-    /// write this output". Carried as the `nullable` flag so it surfaces through
-    /// `ta_abstract` (`TA_OUT_NULLABLE`), where a binding/introspection consumer
-    /// can discover it. The C backend NULL-guards every write and skips the
-    /// output's NULL-validation; the streaming dispatch passes NULL for it. See
-    /// MAMA's `outFAMA`, discarded by MA/BBANDS/STOCH… when `MAType == MAMA`.
-    #[must_use]
-    pub fn is_nullable(&self) -> bool {
-        self.flags.iter().any(|f| f == "nullable")
     }
 }
 

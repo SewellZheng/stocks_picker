@@ -122,7 +122,7 @@ public enum FuncFlags : uint
     /// <summary>A candlestick pattern function: every integer output is a pattern output.</summary>
     Candlestick = 0x10000000,
 
-    /// <summary>Output depends on where the caller started, so it never converges across ranges.</summary>
+    /// <summary>Output depends on where the caller started, so it may never converge across ranges.</summary>
     PathDependent = 0x20000000,
 
     /// <summary>Some inputs have no finite result, so a successful call can return NaN or +/-Infinity.</summary>
@@ -187,7 +187,7 @@ public enum OptInputFlags : uint
     Advanced = 0x01000000,
 }
 
-/// <summary>How an output is meant to be drawn, whether it may be discarded, and what its values can be. Values match C's <c>TA_OUT_*</c>. A pattern output writes 0 or a sign times a level: the sign flags give its signs, the level flags its levels (100 always).</summary>
+/// <summary>How an output is meant to be drawn and what its values can be. Values match C's <c>TA_OUT_*</c>. A pattern output writes 0 or a sign times a level: the sign flags give its signs, the level flags its levels (100 always).</summary>
 [Flags]
 public enum OutputFlags : uint
 {
@@ -233,14 +233,15 @@ public enum OutputFlags : uint
     /// <summary>A lower band or limit line.</summary>
     LowerLimit = 0x00001000,
 
-    /// <summary>The typed call lets the caller decline it. A <c>ParamHolder</c> still needs it bound.</summary>
-    Nullable = 0x00002000,
-
     /// <summary>A chart draws it ahead of or behind the bar that computed it, by the bars the display-shift query reports. The values are never shifted.</summary>
     DisplayShift = 0x00004000,
 
     /// <summary>Adds level 80: a weaker form of the pattern, on the same bar.</summary>
     PatternWeak = 0x00008000,
+
+    /// <summary>Never set: every output is required.</summary>
+    [Obsolete("Never set: every output is required.")]
+    Nullable = 0x00002000,
 }
 
 /// <summary>What a required input carries. Mirrors C's <c>TA_InputParameterType</c>.</summary>

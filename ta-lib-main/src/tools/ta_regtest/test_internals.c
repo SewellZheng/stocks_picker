@@ -70,6 +70,23 @@
 #include "ta_abstract.h"
 #include "codegen_pipe.h"
 #include "../../ta_common/ta_global.h"   /* the #144 canary pokes TA_Globals */
+#include "ta_frame_priv.h"
+
+#if defined(__has_feature)
+   #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+      #define TA_REGTEST_SANITIZED
+   #endif
+#endif
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+   #define TA_REGTEST_SANITIZED
+#endif
+/* A sanitizer reserves address space of its own, so a limit on it breaks the
+ * runtime before it reaches the library. */
+#if defined(__linux__) && !defined(TA_REGTEST_SANITIZED)
+   #define TA_REGTEST_CAN_LIMIT_AS
+   #include <sys/resource.h>
+   #include <unistd.h>
+#endif
 
 
 /**** External functions declarations. ****/
@@ -93,6 +110,8 @@ static ErrorNumber testCandleSettingsBounds( void );
 static ErrorNumber testEnumValueContract( void );
 static ErrorNumber testStreamShortHistory( void );
 static ErrorNumber testBatchArgumentContract( void );
+static ErrorNumber testAllocationFailure( void );
+static ErrorNumber testInternalErrorReported( void );
 
 static TA_RetCode circBufferFillFrom0ToSize( int size, int *buffer );
 
@@ -165,10 +184,24 @@ ErrorNumber test_internals( void )
       return retValue;
    }
 
+   retValue = testAllocationFailure();
+   if( retValue != TA_TEST_PASS )
+   {
+      printf( "\nFailed: Allocation failure contract (%d)\n", retValue );
+      return retValue;
+   }
+
+   retValue = testInternalErrorReported();
+   if( retValue != TA_TEST_PASS )
+   {
+      printf( "\nFailed: Internal error contract (%d)\n", retValue );
+      return retValue;
+   }
+
    return TA_TEST_PASS; /* Success. */
 }
 
-/* Rule rS8: a stream opened on fewer than `lookback + 1` bars reports
+/* Rule rS7: a stream opened on fewer than `lookback + 1` bars reports
  * TA_INSUFFICIENT_HISTORY -- the library's one RECOVERABLE condition.
  *
  * It is worth its own code, and its own probe, because it is the only failure a
@@ -196,7 +229,7 @@ ErrorNumber test_internals( void )
  * ONE MORE BAR must succeed (so the rejection is about the length), and a
  * rejection that is NOT about the length must keep its OWN code -- TA_BAD_PARAM
  * for a spoiled parameter, and for CDLDOJI, which has none to spoil, rS1's
- * TA_OUT_OF_RANGE_START_INDEX. Either way the point is that rS8's code did not
+ * TA_OUT_OF_RANGE_START_INDEX. Either way the point is that rS7's code did not
  * simply swallow every other rejection this tier owns.
  */
 static int shShort, shControl;
@@ -240,7 +273,7 @@ static int shUpper, shEmpty;
       if( rc__ != (otherCode) )                                                \
       {                                                                        \
          printf( "\nFailed: %s bad argument returned %d, expected "             \
-                 "%d -- rS8's code must not swallow the others\n",              \
+                 "%d -- rS7's code must not swallow the others\n",              \
                  name, (int)rc__, (int)(otherCode) );                          \
          return TA_STREAM_SHORT_HISTORY_CONTROL;                               \
       }                                                                        \
@@ -457,7 +490,7 @@ static ErrorNumber testStreamShortHistory( void )
       shEmpty++;
 
       /* Controls. A history of exactly one bar is inside the domain -- it is
-       * rS8's business, not rS1's -- and the handle still answers first. */
+       * rS7's business, not rS1's -- and the handle still answers first. */
       if( TA_SMA_Open( &sst, bars, 1, 30, &v ) != TA_INSUFFICIENT_HISTORY )
       {
          printf( "\nFailed: a one-bar history did not reach the warm-up check\n" );
@@ -543,12 +576,12 @@ static ErrorNumber testStreamShortHistory( void )
  * whole corpus, by `c_batch_prologue_orders_parameters_before_presence` in
  * ta_codegen's own suite.
  *
- * One case per distinct emission shape, matching the rS8 probe above: a plain
+ * One case per distinct emission shape, matching the rS7 probe above: a plain
  * transcribed body (SMA, plus its float twin, which is a separate emission), a
  * composed multi-output (BBANDS), the dispatch tier (MA), the period bank
  * (MAVP), a candlestick with four price legs and an integer output (CDLDOJI),
  * a candlestick leg the body never indexes (CDL3OUTSIDE, CDLHIKKAKE -- #260),
- * and a nullable output (MAMA), which is the control for what "required" means.
+ * and a second output (MAMA's FAMA).
  *
  * Rule rS4 rides along at the end: it is this rule plus the handle, over the
  * same argument shapes, so the streaming openers are driven from here rather
@@ -558,7 +591,6 @@ static ErrorNumber testStreamShortHistory( void )
 static int bacReject, bacAccept;
 static int s4Reject, s4Accept;
 static int s6Probe;
-static int u6aUpd;
 
 /* A rejected call leaves the range pair in scope as it was. */
 #define BAC_REJECT( name, call )                                               \
@@ -647,7 +679,6 @@ static ErrorNumber testBatchArgumentContract( void )
    bacReject = bacAccept = 0;
    s4Reject = s4Accept = 0;
    s6Probe = 0;
-   u6aUpd = 0;
 
    for( i = 0; i < 512; i++ )
    {
@@ -715,70 +746,15 @@ static ErrorNumber testBatchArgumentContract( void )
    BAC_REJECT( "TA_CDLHIKKAKE(inOpen=NULL)",
                TA_CDLHIKKAKE( 0, 251, NULL, bars, bars, bars, &beg, &nb, outI ) );
 
-   /* Rule rB7: a NULLABLE output is not a required argument. Dropping it is
-    * legal, and that is what keeps the rejections above about absence rather
-    * than about NULL. The required half of the same call still answers
-    * TA_BAD_PARAM. */
-   BAC_ACCEPT( "TA_MAMA(outFAMA=NULL)",
+   /* Two outputs: the second is required like the first. */
+   BAC_ACCEPT( "TA_MAMA",
+               TA_MAMA( 0, 251, bars, 0.5, 0.05, &beg, &nb, outA, outB ) );
+   BAC_REJECT( "TA_MAMA(outFAMA=NULL)",
                TA_MAMA( 0, 251, bars, 0.5, 0.05, &beg, &nb, outA, NULL ) );
    BAC_REJECT( "TA_MAMA(outMAMA=NULL)",
                TA_MAMA( 0, 251, bars, 0.5, 0.05, &beg, &nb, NULL, outA ) );
    BAC_REJECT( "TA_MAMA(outNBElement=NULL)",
                TA_MAMA( 0, 251, bars, 0.5, 0.05, &beg, NULL, outA, outB ) );
-
-   /* "Compute but do not write it" is the whole claim, and acceptance alone
-    * does not test it: a body that stopped computing FAMA — or that took a
-    * different path when it is absent — would still be accepted here. So the
-    * declined call has to reproduce the supplied one, value for value, on the
-    * output it DID ask for, and leave the buffer it did not alone.
-    *
-    * The canary above the produced count is the other half: rule rW3 says only
-    * the reported range is written, and a guard that leaked a store past its
-    * own condition would land there. */
-   {
-      int begRef = 0, nbRef = 0, begNull = -1, nbNull = -1;
-      int k;
-      TA_RetCode rcRef, rcNull;
-
-      for( k = 0; k < 512; k++ )
-      {
-         outA[k] = outB[k] = 0.0;
-         outC[k] = -1.2345678901234e300;
-      }
-      rcRef  = TA_MAMA( 0, 251, bars, 0.5, 0.05, &begRef, &nbRef, outA, outB );
-      rcNull = TA_MAMA( 0, 251, bars, 0.5, 0.05, &begNull, &nbNull, outC, NULL );
-      if( rcRef != TA_SUCCESS || rcNull != TA_SUCCESS || nbRef == 0 )
-      {
-         printf( "\nFailed: TA_MAMA nullable comparison did not run (%d, %d, nb %d)\n",
-                 (int)rcRef, (int)rcNull, nbRef );
-         return TA_BATCH_ARG_VACUOUS;
-      }
-      if( begRef != begNull || nbRef != nbNull )
-      {
-         printf( "\nFailed: declining outFAMA changed the reported range "
-                 "(%d,%d vs %d,%d)\n", begRef, nbRef, begNull, nbNull );
-         return TA_BATCH_ARG_NULLABLE_DIVERGED;
-      }
-      for( k = 0; k < nbRef; k++ )
-      {
-         if( memcmp( &outA[k], &outC[k], sizeof(double) ) != 0 )
-         {
-            printf( "\nFailed: declining outFAMA changed outMAMA[%d] "
-                    "(%.17g vs %.17g)\n", k, outA[k], outC[k] );
-            return TA_BATCH_ARG_NULLABLE_DIVERGED;
-         }
-      }
-      for( k = nbRef; k < 512; k++ )
-      {
-         if( outC[k] != -1.2345678901234e300 )
-         {
-            printf( "\nFailed: the declining call wrote outMAMA[%d], past its "
-                    "count of %d\n", k, nbRef );
-            return TA_BATCH_ARG_NULLABLE_DIVERGED;
-         }
-      }
-      bacAccept += 2;
-   }
 
    /* Rule rS4 is rB4 plus one argument: the handle. The streaming openers take
     * the same declared inputs and outputs as the batch call, so rather than a
@@ -819,6 +795,10 @@ static ErrorNumber testBatchArgumentContract( void )
                  TA_MAMA_Open( &mst, bars, 252, 0.5, 0.05, NULL, &v2 ) );
       S4_REJECT( "TA_MAMA_OpenAndFill(outMAMA=NULL)",
                  TA_MAMA_OpenAndFill( &mst, bars, 252, 0.5, 0.05, &beg, &nb, NULL, outB ) );
+      S4_REJECT( "TA_MAMA_Open(outFAMA=NULL)",
+                 TA_MAMA_Open( &mst, bars, 252, 0.5, 0.05, &v, NULL ) );
+      S4_REJECT( "TA_MAMA_OpenAndFill(outFAMA=NULL)",
+                 TA_MAMA_OpenAndFill( &mst, bars, 252, 0.5, 0.05, &beg, &nb, outA, NULL ) );
 
       /* A rejected open leaves no handle behind: the prologue clears *stream
        * before any other check, so a caller cannot be handed a pointer the
@@ -831,18 +811,17 @@ static ErrorNumber testBatchArgumentContract( void )
       }
       s4Reject++;
 
-      /* Controls. The nullable output is rB7's analogue: what the rejections
-       * above reject is absence, not NULL. */
+      /* Controls: the same openers with every argument present. */
       S4_ACCEPT( "TA_SMA_Open", TA_SMA_Open( &sst, bars, 252, 30, &v ) );
       if( sst ) { TA_SMA_Close( sst ); sst = NULL; }
       S4_ACCEPT( "TA_SMA_OpenAndFill",
                  TA_SMA_OpenAndFill( &sst, bars, 252, 30, &beg, &nb, outA ) );
       if( sst ) { TA_SMA_Close( sst ); sst = NULL; }
-      S4_ACCEPT( "TA_MAMA_Open(outFAMA=NULL)",
-                 TA_MAMA_Open( &mst, bars, 252, 0.5, 0.05, &v, NULL ) );
+      S4_ACCEPT( "TA_MAMA_Open",
+                 TA_MAMA_Open( &mst, bars, 252, 0.5, 0.05, &v, &v2 ) );
       if( mst ) { TA_MAMA_Close( mst ); mst = NULL; }
-      S4_ACCEPT( "TA_MAMA_OpenAndFill(outFAMA=NULL)",
-                 TA_MAMA_OpenAndFill( &mst, bars, 252, 0.5, 0.05, &beg, &nb, outA, NULL ) );
+      S4_ACCEPT( "TA_MAMA_OpenAndFill",
+                 TA_MAMA_OpenAndFill( &mst, bars, 252, 0.5, 0.05, &beg, &nb, outA, outB ) );
       if( mst ) { TA_MAMA_Close( mst ); mst = NULL; }
       S4_ACCEPT( "TA_CDL3OUTSIDE_Open",
                  TA_CDL3OUTSIDE_Open( &cst, bars, bars, bars, bars, 252, outI ) );
@@ -850,7 +829,7 @@ static ErrorNumber testBatchArgumentContract( void )
    }
 
    /* Rule rS6 on a history that fills nothing: one buffer passed as two outputs
-    * is still one buffer. The control holds the outputs apart and answers rS8,
+    * is still one buffer. The control holds the outputs apart and answers rS7,
     * so the rejection is the alias guard's and not the history's. The batch
     * half is the sub-lookback leg of test_abstract.c's alias sweep. */
    {
@@ -881,269 +860,15 @@ static ErrorNumber testBatchArgumentContract( void )
       s6Probe++;
    }
 
-   /* Rule rU5: a nullable output may be declined at Update too, and the choice
-    * is the CALL's -- neither matching the opener's nor recorded on the handle.
-    * All four open/update combinations compute the same numbers.
-    *
-    * The comparison an Update that stopped computing FAMA cannot satisfy is the
-    * PEEK after it, which reads the handle's state rather than anything that was
-    * written out. C is the only backend whose advancing tier can spell a
-    * declination at all -- Rust returns a tuple, Java and C# write a
-    * caller-owned value class -- so this is where the per-call reading is
-    * proved. */
-   {
-      static double stepBars[8];
-      static double refM[8], refF[8], gotM[8], gotF[8];
-      TA_MAMA_Stream *st = NULL;
-      double pm = 0.0, pf = 0.0, rpm = 0.0, rpf = 0.0;
-      int declinedAtOpen, k, bad;
-      int beg2 = 0, nb2 = 0, begRef = 0, nbRef = 0, nbBefore = 0;
-
-      for( k = 0; k < 8; k++ )
-         stepBars[k] = bars[251] + 1.0 + (double)k * 0.25;
-
-      /* Canary-filled, not zero-filled: comparing two arrays no Update ever
-       * wrote would otherwise pass on their shared initial value, which is
-       * exactly the break the supplied/supplied leg is meant to catch. */
-      #define U6A_CANARY (-1.2345678901234e300)
-      for( k = 0; k < 8; k++ )
-      {
-         refM[k] = refF[k] = gotM[k] = gotF[k] = U6A_CANARY;
-      }
-
-      /* The oracle: supplied at open, supplied at every Update. */
-      bad = ( TA_MAMA_OpenAndFill( &st, bars, 252, 0.5, 0.05, &beg, &nb, outA, outB ) != TA_SUCCESS );
-      for( k = 0; !bad && k < 8; k++ )
-         bad = ( TA_MAMA_Update( st, stepBars[k], &refM[k], &refF[k] ) != TA_SUCCESS );
-      if( bad ||
-          TA_MAMA_OutRange( st, &begRef, &nbRef ) != TA_SUCCESS ||
-          TA_MAMA_Peek( st, bars[251], &rpm, &rpf ) != TA_SUCCESS )
-      {
-         printf( "\nFailed: the rU5 oracle did not run\n" );
-         if( st ) TA_MAMA_Close( st );
-         return TA_BATCH_ARG_CONTROL;
-      }
-      TA_MAMA_Close( st );
-      st = NULL;
-      for( k = 0; k < 8; k++ )
-      {
-         if( refM[k] == U6A_CANARY || refF[k] == U6A_CANARY )
-         {
-            printf( "\nFailed: the rU5 oracle did not write [%d]\n", k );
-            return TA_BATCH_ARG_CONTROL;
-         }
-      }
-      u6aUpd++;
-
-      for( declinedAtOpen = 0; declinedAtOpen < 2; declinedAtOpen++ )
-      {
-         /* Declined at every Update, whatever the opener was given. */
-         for( k = 0; k < 8; k++ ) gotM[k] = gotF[k] = U6A_CANARY;
-         bad = ( TA_MAMA_OpenAndFill( &st, bars, 252, 0.5, 0.05, &beg, &nb, outA,
-                                      declinedAtOpen ? NULL : outB ) != TA_SUCCESS );
-         for( k = 0; !bad && k < 8; k++ )
-            bad = ( TA_MAMA_Update( st, stepBars[k], &gotM[k], NULL ) != TA_SUCCESS );
-         if( bad ||
-             TA_MAMA_OutRange( st, &beg2, &nb2 ) != TA_SUCCESS ||
-             TA_MAMA_Peek( st, bars[251], &pm, &pf ) != TA_SUCCESS )
-         {
-            printf( "\nFailed: declining outFAMA at Update was rejected "
-                    "(declinedAtOpen=%d)\n", declinedAtOpen );
-            if( st ) TA_MAMA_Close( st );
-            return TA_BATCH_ARG_CONTROL;
-         }
-         TA_MAMA_Close( st );
-         st = NULL;
-         u6aUpd++;
-         for( k = 0; k < 8; k++ )
-         {
-            if( gotM[k] == U6A_CANARY )
-            {
-               printf( "\nFailed: the declining Update did not write outMAMA[%d]\n", k );
-               return TA_BATCH_ARG_WRONG_CODE;
-            }
-            if( memcmp( &gotM[k], &refM[k], sizeof(double) ) != 0 )
-            {
-               printf( "\nFailed: declining outFAMA changed outMAMA[%d] "
-                       "(declinedAtOpen=%d)\n", k, declinedAtOpen );
-               return TA_BATCH_ARG_WRONG_CODE;
-            }
-         }
-         u6aUpd++;
-         if( beg2 != begRef || nb2 != nbRef )
-         {
-            printf( "\nFailed: declining outFAMA moved the reported range\n" );
-            return TA_BATCH_ARG_WRONG_CODE;
-         }
-         u6aUpd++;
-         if( memcmp( &pm, &rpm, sizeof(double) ) != 0 ||
-             memcmp( &pf, &rpf, sizeof(double) ) != 0 )
-         {
-            printf( "\nFailed: a declined outFAMA is not still computed "
-                    "(declinedAtOpen=%d)\n", declinedAtOpen );
-            return TA_BATCH_ARG_WRONG_CODE;
-         }
-         u6aUpd++;
-
-         /* ...and supplying it at every Update, whatever the opener was given. */
-         for( k = 0; k < 8; k++ ) gotM[k] = gotF[k] = U6A_CANARY;
-         bad = ( TA_MAMA_OpenAndFill( &st, bars, 252, 0.5, 0.05, &beg, &nb, outA,
-                                      declinedAtOpen ? NULL : outB ) != TA_SUCCESS );
-         for( k = 0; !bad && k < 8; k++ )
-            bad = ( TA_MAMA_Update( st, stepBars[k], &gotM[k], &gotF[k] ) != TA_SUCCESS );
-         if( bad )
-         {
-            printf( "\nFailed: supplying outFAMA at Update was rejected "
-                    "(declinedAtOpen=%d)\n", declinedAtOpen );
-            if( st ) TA_MAMA_Close( st );
-            return TA_BATCH_ARG_CONTROL;
-         }
-         TA_MAMA_Close( st );
-         st = NULL;
-         for( k = 0; k < 8; k++ )
-         {
-            if( gotM[k] == U6A_CANARY || gotF[k] == U6A_CANARY )
-            {
-               printf( "\nFailed: the supplying Update did not write [%d]\n", k );
-               return TA_BATCH_ARG_WRONG_CODE;
-            }
-         }
-         if( memcmp( gotM, refM, sizeof(refM) ) != 0 ||
-             memcmp( gotF, refF, sizeof(refF) ) != 0 )
-         {
-            printf( "\nFailed: the open's declination changed what Update wrote "
-                    "(declinedAtOpen=%d)\n", declinedAtOpen );
-            return TA_BATCH_ARG_WRONG_CODE;
-         }
-         u6aUpd++;
-      }
-
-      /* "May differ again on the NEXT call" -- the sentence the whole rule rests
-       * on. One handle, bars alternating between declined and supplied, against
-       * an oracle driven the same way with everything supplied. */
-      {
-         TA_MAMA_Stream *alt = NULL, *altRef = NULL;
-         int altBeg = 0, altNb = 0, refBeg = 0, refNb = 0;
-         int declineBar;
-
-         if( TA_MAMA_OpenAndFill( &alt, bars, 252, 0.5, 0.05, &beg, &nb, outA, outB ) != TA_SUCCESS ||
-             TA_MAMA_OpenAndFill( &altRef, bars, 252, 0.5, 0.05, &beg, &nb, outA, outB ) != TA_SUCCESS )
-         {
-            printf( "\nFailed: the alternating rU5 opens did not run\n" );
-            if( alt ) TA_MAMA_Close( alt );
-            if( altRef ) TA_MAMA_Close( altRef );
-            return TA_BATCH_ARG_CONTROL;
-         }
-         for( k = 0; k < 8; k++ )
-         {
-            double wantM = U6A_CANARY, wantF = U6A_CANARY;
-            double haveM = U6A_CANARY, haveF = U6A_CANARY;
-            declineBar = ( k % 2 == 0 );
-            if( TA_MAMA_Update( altRef, stepBars[k], &wantM, &wantF ) != TA_SUCCESS ||
-                TA_MAMA_Update( alt, stepBars[k], &haveM,
-                                declineBar ? NULL : &haveF ) != TA_SUCCESS )
-            {
-               printf( "\nFailed: an alternating bar was rejected (bar %d)\n", k );
-               TA_MAMA_Close( alt );
-               TA_MAMA_Close( altRef );
-               return TA_BATCH_ARG_CONTROL;
-            }
-            if( memcmp( &haveM, &wantM, sizeof(double) ) != 0 ||
-                ( !declineBar && memcmp( &haveF, &wantF, sizeof(double) ) != 0 ) )
-            {
-               printf( "\nFailed: an alternating bar diverged (bar %d)\n", k );
-               TA_MAMA_Close( alt );
-               TA_MAMA_Close( altRef );
-               return TA_BATCH_ARG_WRONG_CODE;
-            }
-            TA_MAMA_OutRange( alt, &altBeg, &altNb );
-            TA_MAMA_OutRange( altRef, &refBeg, &refNb );
-            if( altBeg != refBeg || altNb != refNb )
-            {
-               printf( "\nFailed: an alternating bar moved the range (bar %d)\n", k );
-               TA_MAMA_Close( alt );
-               TA_MAMA_Close( altRef );
-               return TA_BATCH_ARG_WRONG_CODE;
-            }
-         }
-         if( TA_MAMA_Peek( alt, bars[251], &pm, &pf ) != TA_SUCCESS ||
-             TA_MAMA_Peek( altRef, bars[251], &rpm, &rpf ) != TA_SUCCESS ||
-             memcmp( &pf, &rpf, sizeof(double) ) != 0 ||
-             memcmp( &pm, &rpm, sizeof(double) ) != 0 )
-         {
-            printf( "\nFailed: alternating the declined set changed the handle\n" );
-            TA_MAMA_Close( alt );
-            TA_MAMA_Close( altRef );
-            return TA_BATCH_ARG_WRONG_CODE;
-         }
-         TA_MAMA_Close( alt );
-         TA_MAMA_Close( altRef );
-         u6aUpd++;
-      }
-
-      /* Peek takes the same per-call reading, and declining there must not
-       * change what the supplied output answers. */
-      {
-         double peekBothM = 0.0, peekBothF = 0.0, peekSoloM = 0.0;
-
-         if( TA_MAMA_OpenAndFill( &st, bars, 252, 0.5, 0.05, &beg, &nb, outA, outB ) != TA_SUCCESS )
-         {
-            printf( "\nFailed: the rU5 peek open did not run\n" );
-            return TA_BATCH_ARG_CONTROL;
-         }
-         if( TA_MAMA_Peek( st, stepBars[0], &peekBothM, &peekBothF ) != TA_SUCCESS ||
-             TA_MAMA_Peek( st, stepBars[0], &peekSoloM, NULL ) != TA_SUCCESS )
-         {
-            printf( "\nFailed: declining outFAMA at Peek was rejected\n" );
-            TA_MAMA_Close( st );
-            return TA_BATCH_ARG_CONTROL;
-         }
-         if( memcmp( &peekSoloM, &peekBothM, sizeof(double) ) != 0 )
-         {
-            printf( "\nFailed: declining outFAMA at Peek changed outMAMA\n" );
-            TA_MAMA_Close( st );
-            return TA_BATCH_ARG_WRONG_CODE;
-         }
-         TA_MAMA_Close( st );
-         st = NULL;
-         u6aUpd++;
-      }
-
-      /* Declining the nullable output did not make the REQUIRED one optional --
-       * and, like every rejection, it counts no bar. */
-      if( TA_MAMA_OpenAndFill( &st, bars, 252, 0.5, 0.05, &beg, &nb, outA, outB ) != TA_SUCCESS )
-      {
-         printf( "\nFailed: the rU5 control open did not run\n" );
-         return TA_BATCH_ARG_CONTROL;
-      }
-      TA_MAMA_OutRange( st, &beg2, &nbBefore );
-      if( TA_MAMA_Update( st, stepBars[0], NULL, NULL ) != TA_BAD_PARAM )
-      {
-         printf( "\nFailed: an absent outMAMA is still an absent argument\n" );
-         TA_MAMA_Close( st );
-         return TA_BATCH_ARG_WRONG_CODE;
-      }
-      u6aUpd++;
-      TA_MAMA_OutRange( st, &beg2, &nb2 );
-      TA_MAMA_Close( st );
-      st = NULL;
-      if( nb2 != nbBefore )
-      {
-         printf( "\nFailed: a rejected Update counted a bar it never took in (%d)\n", nb2 );
-         return TA_BATCH_ARG_WRONG_CODE;
-      }
-      u6aUpd++;
-   }
-
    /* Literal floors: a count derived from the cases above would move with a
     * deleted case and still pass. */
-   if( bacReject < 19 || bacAccept < 10 )
+   if( bacReject < 20 || bacAccept < 9 )
    {
       printf( "\nFailed: the batch argument gate ran fewer checks than it was "
               "written with\n" );
       return TA_BATCH_ARG_VACUOUS;
    }
-   if( s4Reject < 12 || s4Accept < 5 )
+   if( s4Reject < 14 || s4Accept < 5 )
    {
       printf( "\nFailed: the streaming argument gate ran fewer checks than it "
               "was written with\n" );
@@ -1155,13 +880,6 @@ static ErrorNumber testBatchArgumentContract( void )
               "was written with\n" );
       return TA_BATCH_ARG_VACUOUS;
    }
-   if( u6aUpd < 15 )
-   {
-      printf( "\nFailed: the declined-at-Update gate ran fewer checks "
-              "than it was written with\n" );
-      return TA_BATCH_ARG_VACUOUS;
-   }
-
    return freeLib();
 }
 
@@ -2417,4 +2135,114 @@ static TA_RetCode circBufferFillFrom0ToSize( int size, int *buffer )
    CIRCBUF_DESTROY(MyBuf);
 
    return TA_SUCCESS;
+}
+
+/* rB7: a real allocation, failed by an address-space limit just above what the
+ * process already maps. The probes hold every block the heap can still hand
+ * out at the ring's size, so the ring's own request is the one that fails. */
+static ErrorNumber testAllocationFailure( void )
+{
+#ifdef TA_REGTEST_CAN_LIMIT_AS
+   enum { PERIOD = 100000 };
+   static double bars[PERIOD];
+   void *probes = NULL;
+   struct rlimit saved, low;
+   TA_SMA_Stream *st = NULL;
+   double v = 0.0;
+   long pages = 0;
+   int i;
+   size_t ringBytes = sizeof(double) * (size_t)(PERIOD - 1);
+   TA_RetCode rc;
+   FILE *f;
+
+   for( i = 0; i < PERIOD; i++ )
+      bars[i] = 100.0 + (double)i * 0.25;
+
+   f = fopen( "/proc/self/statm", "r" );
+   if( !f || fscanf( f, "%ld", &pages ) != 1 || getrlimit( RLIMIT_AS, &saved ) != 0 )
+   {
+      if( f ) fclose( f );
+      printf( "\nFailed: cannot read the address space\n" );
+      return TA_REGTEST_ALLOC_FAIL_UNARMED;
+   }
+   fclose( f );
+   low = saved;
+   low.rlim_cur = (rlim_t)pages * (rlim_t)sysconf( _SC_PAGESIZE ) + 256 * 1024;
+   if( (saved.rlim_cur != RLIM_INFINITY && low.rlim_cur > saved.rlim_cur) ||
+       setrlimit( RLIMIT_AS, &low ) != 0 )
+   {
+      printf( "\nFailed: cannot lower the address-space limit\n" );
+      return TA_REGTEST_ALLOC_FAIL_UNARMED;
+   }
+   for( ;; )
+   {
+      void *p = malloc( ringBytes );
+      if( !p ) break;
+      *(void **)p = probes;
+      probes = p;
+   }
+   rc = TA_SMA_Open( &st, bars, PERIOD, PERIOD, &v );
+   setrlimit( RLIMIT_AS, &saved );
+   while( probes )
+   {
+      void *next = *(void **)probes;
+      free( probes );
+      probes = next;
+   }
+
+   if( rc != TA_ALLOC_ERR )
+   {
+      if( rc == TA_SUCCESS )
+         TA_SMA_Close( st );
+      printf( "\nFailed: TA_SMA_Open returned %d, not TA_ALLOC_ERR, on a failed allocation\n", rc );
+      return TA_REGTEST_ALLOC_FAIL_NOT_REPORTED;
+   }
+
+   st = NULL;
+   rc = TA_SMA_Open( &st, bars, PERIOD, PERIOD, &v );
+   if( rc != TA_SUCCESS )
+   {
+      printf( "\nFailed: TA_SMA_Open returned %d with the limit restored\n", rc );
+      return TA_REGTEST_ALLOC_FAIL_NOT_REPORTED;
+   }
+   TA_SMA_Close( st );
+#else
+   printf( "\n  (allocation failure: not tested here, needs Linux without a sanitizer)" );
+#endif
+   return TA_TEST_PASS;
+}
+
+/* rB8: the library's own state made inconsistent, as only a bug could make it,
+ * and a guard that finds it. */
+static ErrorNumber testInternalErrorReported( void )
+{
+   static double bars[16];
+   const TA_FuncHandle *handle;
+   TA_ParamHolder *holder;
+   TA_ParamHolderPriv *priv;
+   const TA_InputParameterInfo *kept;
+   TA_RetCodeInfo info;
+   TA_RetCode rc;
+
+   if( TA_GetFuncHandle( "SMA", &handle ) != TA_SUCCESS ||
+       TA_ParamHolderAlloc( handle, &holder ) != TA_SUCCESS )
+   {
+      printf( "\nFailed: cannot make an SMA parameter holder\n" );
+      return TA_REGTEST_INTERNAL_ERROR_NOT_REPORTED;
+   }
+   priv = (TA_ParamHolderPriv *)holder->hiddenData;
+   kept = priv->in[0].inputInfo;
+   priv->in[0].inputInfo = NULL;
+   rc = TA_SetInputParamRealPtr( holder, 0, bars );
+   priv->in[0].inputInfo = kept;
+   TA_ParamHolderFree( holder );
+
+   TA_SetRetCodeInfo( rc, &info );
+   if( rc != TA_INTERNAL_ERROR(2) || strcmp( info.enumStr, "TA_INTERNAL_ERROR" ) != 0 )
+   {
+      printf( "\nFailed: an inconsistent holder returned %d (%s), not TA_INTERNAL_ERROR(2)\n",
+              rc, info.enumStr );
+      return TA_REGTEST_INTERNAL_ERROR_NOT_REPORTED;
+   }
+   return TA_TEST_PASS;
 }
