@@ -1,7 +1,6 @@
 //! Which selects sit on a loop-carried arithmetic recurrence.
 //!
-//! A backend that makes a select branch-free (C#'s compare masks, Rust's
-//! `select_unpredictable`) leaves these ones branches.
+//! A backend that makes a select branch-free leaves these ones branches.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -188,9 +187,10 @@ impl DefUse {
                 self.add(a, under);
                 self.add(b, under);
             }
-            Expr::FuncCall(_, args) => {
+            Expr::FuncCall(n, args) => {
+                let under = under || n != super::builtins::UNLIKELY;
                 for a in args {
-                    self.add(a, true);
+                    self.add(a, under);
                 }
             }
             Expr::Ternary(c, t, f) => {

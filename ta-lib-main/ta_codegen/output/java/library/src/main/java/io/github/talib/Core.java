@@ -80703,6 +80703,7 @@ public final class Core {
  *  072126 MF,CC  First version (issue #134).
  *  092526 MF,CC  #446 exact zero sums on a dead volume window.
  *  092626 MF,CC  #446 branch-free zero run.
+ *  102326 MF,CC  #554 rare reset, zero run as a mask.
  */
 
    /**
@@ -80771,7 +80772,7 @@ public final class Core {
       int i = 0;
       int today = 0;
       int nullRun = 0;
-      int zeroVol = 0;
+      int liveVol = 0;
       double[] mfv_flow;
       double[] mfv_volume;
       int mfv_Idx = 0;
@@ -80826,9 +80827,10 @@ public final class Core {
       sumVol = 0.0;
       /* Consecutive zero-volume bars. Once they fill a window both sums are
        * exactly zero, where add-then-subtract would leave the rounding residue of
-       * the bars that departed, of either sign. It advances as a product rather
-       * than as v == 0.0 ? nullRun+1 : 0, which gcc and RyuJIT compile to a branch
-       * that mispredicts on scattered zero volumes.
+       * the bars that departed, of either sign. The run advances through a mask:
+       * as a select or a product gcc compiles it to a branch that mispredicts on
+       * scattered zero volumes. The test is fabs(v) <= 0.0 rather than == 0.0:
+       * the same result, NaN included, from one flag instead of two.
        */
       nullRun = 0;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
@@ -80845,8 +80847,8 @@ public final class Core {
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
-         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
-         nullRun = (nullRun + zeroVol) * zeroVol;
+         liveVol = (Math.abs(inVolume[today]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveVol - 1);
          today += 1;
          mfv_Idx++;
          if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
@@ -80879,12 +80881,9 @@ public final class Core {
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
-         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
-         nullRun = (nullRun + zeroVol) * zeroVol;
+         liveVol = (Math.abs(inVolume[today]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveVol - 1);
          today += 1;
-         /* The reset writes its own output: a branch that only zeroes the sums is
-          * if-converted into a mask on their dependency chain.
-          */
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumMFV = 0.0;
@@ -80925,7 +80924,7 @@ public final class Core {
       int i = 0;
       int today = 0;
       int nullRun = 0;
-      int zeroVol = 0;
+      int liveVol = 0;
       double[] mfv_flow;
       double[] mfv_volume;
       int mfv_Idx = 0;
@@ -80974,8 +80973,8 @@ public final class Core {
          mfv_volume[mfv_Idx] = (double)inVolume[today];
          sumMFV += mfv;
          sumVol += (double)inVolume[today];
-         zeroVol = ((double)inVolume[today] == 0.0) ? 1 : 0;
-         nullRun = (nullRun + zeroVol) * zeroVol;
+         liveVol = (Math.abs((double)inVolume[today]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveVol - 1);
          today += 1;
          mfv_Idx++;
          if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
@@ -81001,8 +81000,8 @@ public final class Core {
          mfv_volume[mfv_Idx] = (double)inVolume[today];
          sumMFV += mfv;
          sumVol += (double)inVolume[today];
-         zeroVol = ((double)inVolume[today] == 0.0) ? 1 : 0;
-         nullRun = (nullRun + zeroVol) * zeroVol;
+         liveVol = (Math.abs((double)inVolume[today]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveVol - 1);
          today += 1;
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
@@ -81332,7 +81331,7 @@ public final class Core {
          double close = 0.0;
          double tmp = 0.0;
          double mfv = 0.0;
-         int zeroVol = 0;
+         int liveVol = 0;
          double cur_outReal = 0.0;
          int nullRun = sp.nullRun;
          double sumMFV = sp.sumMFV;
@@ -81350,11 +81349,8 @@ public final class Core {
          }
          sumMFV += mfv;
          sumVol += inVolume;
-         zeroVol = (inVolume == 0.0) ? 1 : 0;
-         nullRun = (nullRun + zeroVol) * zeroVol;
-         /* The reset writes its own output: a branch that only zeroes the sums is
-          * if-converted into a mask on their dependency chain.
-          */
+         liveVol = (Math.abs(inVolume) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveVol - 1);
          if( nullRun >= sp.optInTimePeriod ) {
             nullRun = sp.optInTimePeriod;
             sumMFV = 0.0;
@@ -81401,7 +81397,7 @@ public final class Core {
       double close = 0.0;
       double tmp = 0.0;
       double mfv = 0.0;
-      int zeroVol = 0;
+      int liveVol = 0;
       sp.sumMFV -= sp.cb_mfv_flow[sp.mfv_Idx];
       sp.sumVol -= sp.cb_mfv_volume[sp.mfv_Idx];
       high = inHigh;
@@ -81417,11 +81413,8 @@ public final class Core {
       sp.cb_mfv_volume[sp.mfv_Idx] = inVolume;
       sp.sumMFV += mfv;
       sp.sumVol += inVolume;
-      zeroVol = (inVolume == 0.0) ? 1 : 0;
-      sp.nullRun = (sp.nullRun + zeroVol) * zeroVol;
-      /* The reset writes its own output: a branch that only zeroes the sums is
-       * if-converted into a mask on their dependency chain.
-       */
+      liveVol = (Math.abs(inVolume) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (liveVol - 1);
       if( sp.nullRun >= sp.optInTimePeriod ) {
          sp.nullRun = sp.optInTimePeriod;
          sp.sumMFV = 0.0;
@@ -81451,7 +81444,7 @@ public final class Core {
       int i = 0;
       int today = 0;
       int nullRun = 0;
-      int zeroVol = 0;
+      int liveVol = 0;
       double[] mfv_flow;
       double[] mfv_volume;
       int mfv_Idx = 0;
@@ -81516,9 +81509,10 @@ public final class Core {
       sumVol = 0.0;
       /* Consecutive zero-volume bars. Once they fill a window both sums are
        * exactly zero, where add-then-subtract would leave the rounding residue of
-       * the bars that departed, of either sign. It advances as a product rather
-       * than as v == 0.0 ? nullRun+1 : 0, which gcc and RyuJIT compile to a branch
-       * that mispredicts on scattered zero volumes.
+       * the bars that departed, of either sign. The run advances through a mask:
+       * as a select or a product gcc compiles it to a branch that mispredicts on
+       * scattered zero volumes. The test is fabs(v) <= 0.0 rather than == 0.0:
+       * the same result, NaN included, from one flag instead of two.
        */
       nullRun = 0;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
@@ -81535,8 +81529,8 @@ public final class Core {
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
-         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
-         nullRun = (nullRun + zeroVol) * zeroVol;
+         liveVol = (Math.abs(inVolume[today]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveVol - 1);
          today += 1;
          mfv_Idx++;
          if( mfv_Idx > maxIdx_mfv ) { mfv_Idx = 0; }
@@ -81569,12 +81563,9 @@ public final class Core {
          mfv_volume[mfv_Idx] = inVolume[today];
          sumMFV += mfv;
          sumVol += inVolume[today];
-         zeroVol = (inVolume[today] == 0.0) ? 1 : 0;
-         nullRun = (nullRun + zeroVol) * zeroVol;
+         liveVol = (Math.abs(inVolume[today]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveVol - 1);
          today += 1;
-         /* The reset writes its own output: a branch that only zeroes the sums is
-          * if-converted into a mask on their dependency chain.
-          */
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumMFV = 0.0;
@@ -82522,6 +82513,7 @@ public final class Core {
  *                0/0 is guarded exactly instead of against the fixed
  *                TA_IS_ZERO band -- which zeroed the oscillator for any
  *                instrument quoted small enough to fall under it.
+ *  102326 MF,CC  #554 branch-free up/down split and zero run, rare reset.
  */
 
    /**
@@ -82587,10 +82579,12 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
       double diff = 0;
+      double up = 0;
       double tempReal = 0;
       double prevValue = 0;
       double trailingValue = 0;
@@ -82613,7 +82607,7 @@ public final class Core {
        * smoothing -- hence no unstable period.
        *
        * In-place safe (outReal == inReal): the trailing read inReal[trailingIdx]
-       * precedes this iteration's write (trailingIdx >= outIdx), and the oldest
+       * is of a slot not yet written (trailingIdx >= outIdx), and the oldest
        * change's older endpoint comes from the `trailingValue` cache, not a re-read.
        */
       outBegIdx.value = 0;
@@ -82643,6 +82637,11 @@ public final class Core {
        * answer that question themselves once the window starts sliding: they are
        * maintained by add-then-subtract, so an emptied window leaves them holding
        * rounding residue of arbitrary sign rather than zero.
+       *
+       * Both the split and the run are branch-free, as an if/else on the sign or
+       * on a zero mispredicts on random or flat-heavy prices. `up` is max(diff, 0)
+       * spelled with fabs, which no backend turns back into a branch; adding its
+       * +0.0 is exact because neither sum is ever -0.0.
        */
       nullRun = 0;
       for( i = 0; i < optInTimePeriod; i += 1 ) {
@@ -82650,16 +82649,11 @@ public final class Core {
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       /* Emit the first output (bar startIdx). Su+Sd is a sum of non-negative
        * magnitudes, so it is zero only for an exactly flat window; guard the 0/0
@@ -82679,52 +82673,54 @@ public final class Core {
       } else {
          outReal[outIdx++] = 0.0;
       }
-      /* Slide the window forward one bar at a time. */
+      /* Slide the window forward one bar at a time. Each bar drops the change
+       * that leaves the window AFTER its output, ready for the next bar: the
+       * sums see the same operations in the same order, and a peek, which keeps
+       * nothing past its output, skips that half of the work. The oldest
+       * change's older price comes from the cache.
+       */
+      tempReal = inReal[trailingIdx];
+      diff = tempReal - trailingValue;
+      trailingValue = tempReal;
+      trailingIdx += 1;
+      up = (diff + Math.abs(diff)) * 0.5;
+      upSum -= up;
+      downSum -= up - diff;
       today += 1;
       while( today <= endIdx ) {
-         /* Drop the oldest change: inReal[trailingIdx] - inReal[trailingIdx-1].
-          * inReal[trailingIdx-1] comes from the cache (already overwritten when
-          * outReal == inReal); inReal[trailingIdx] is read here, before this
-          * iteration writes outReal[outIdx], so it is still the original price.
-          */
-         tempReal = inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          /* Add the newest change: inReal[today] - inReal[today-1]. */
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
          /* Once a whole period of flat bars has gone by, every change in the
           * window is exactly zero, so both sums are known to be exactly zero and
           * the residue can be dropped.
           */
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
-         } else {
             outReal[outIdx++] = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
+            } else {
+               outReal[outIdx++] = 0.0;
+            }
          }
+         tempReal = inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -82745,10 +82741,12 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
       double diff = 0;
+      double up = 0;
       double tempReal = 0;
       double prevValue = 0;
       double trailingValue = 0;
@@ -82784,16 +82782,11 @@ public final class Core {
          tempReal = (double)inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       outIdx = 0;
       sum = upSum + downSum;
@@ -82802,41 +82795,43 @@ public final class Core {
       } else {
          outReal[outIdx++] = 0.0;
       }
+      tempReal = (double)inReal[trailingIdx];
+      diff = tempReal - trailingValue;
+      trailingValue = tempReal;
+      trailingIdx += 1;
+      up = (diff + Math.abs(diff)) * 0.5;
+      upSum -= up;
+      downSum -= up - diff;
       today += 1;
       while( today <= endIdx ) {
-         tempReal = (double)inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          tempReal = (double)inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
-         } else {
             outReal[outIdx++] = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
+            } else {
+               outReal[outIdx++] = 0.0;
+            }
          }
+         tempReal = (double)inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -83091,56 +83086,41 @@ public final class Core {
          if( !Double.isFinite(inReal) )
             throw nonFiniteBar("CMOU peek", "inReal");
          CmouStream sp = this;
+         int live = 0;
          double sum = 0.0;
          double diff = 0.0;
+         double up = 0.0;
          double tempReal = 0.0;
          double cur_outReal = 0.0;
          double downSum = sp.downSum;
          int nullRun = sp.nullRun;
          double prevValue = sp.prevValue;
-         double trailingValue = sp.trailingValue;
          double upSum = sp.upSum;
-         /* Drop the oldest change: inReal[trailingIdx] - inReal[trailingIdx-1].
-          * inReal[trailingIdx-1] comes from the cache (already overwritten when
-          * outReal == inReal); inReal[trailingIdx] is read here, before this
-          * iteration writes outReal[outIdx], so it is still the original price.
-          */
-         tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          /* Add the newest change: inReal[today] - inReal[today-1]. */
          tempReal = inReal;
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
          /* Once a whole period of flat bars has gone by, every change in the
           * window is exactly zero, so both sums are known to be exactly zero and
           * the residue can be dropped.
           */
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= sp.optInTimePeriod ) {
             nullRun = sp.optInTimePeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            cur_outReal = 100.0 * (upSum - downSum) / sum;
-         } else {
             cur_outReal = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               cur_outReal = 100.0 * (upSum - downSum) / sum;
+            } else {
+               cur_outReal = 0.0;
+            }
          }
          return cur_outReal;
       }
@@ -83173,52 +83153,44 @@ public final class Core {
    }
    private void cmouStepImpl( CmouStream sp, double inReal )
    {
+      int live = 0;
       double sum = 0.0;
       double diff = 0.0;
+      double up = 0.0;
       double tempReal = 0.0;
       int ringCapL_trailingIdx = 0;
-      /* Drop the oldest change: inReal[trailingIdx] - inReal[trailingIdx-1].
-       * inReal[trailingIdx-1] comes from the cache (already overwritten when
-       * outReal == inReal); inReal[trailingIdx] is read here, before this
-       * iteration writes outReal[outIdx], so it is still the original price.
-       */
-      tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-      diff = tempReal - sp.trailingValue;
-      sp.trailingValue = tempReal;
-      if( diff > 0.0 ) {
-         sp.upSum -= diff;
-      } else if( diff < 0.0 ) {
-         sp.downSum += diff;
-      }
       /* Add the newest change: inReal[today] - inReal[today-1]. */
       tempReal = inReal;
       diff = tempReal - sp.prevValue;
       sp.prevValue = tempReal;
-      if( diff > 0.0 ) {
-         sp.upSum += diff;
-      } else if( diff < 0.0 ) {
-         sp.downSum -= diff;
-      }
+      up = (diff + Math.abs(diff)) * 0.5;
+      sp.upSum += up;
+      sp.downSum += up - diff;
       /* Once a whole period of flat bars has gone by, every change in the
        * window is exactly zero, so both sums are known to be exactly zero and
        * the residue can be dropped.
        */
-      if( diff == 0.0 ) {
-         sp.nullRun += 1;
-      } else {
-         sp.nullRun = 0;
-      }
+      live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (live - 1);
       if( sp.nullRun >= sp.optInTimePeriod ) {
          sp.nullRun = sp.optInTimePeriod;
          sp.upSum = 0.0;
          sp.downSum = 0.0;
-      }
-      sum = sp.upSum + sp.downSum;
-      if( sum > 0.0 ) {
-         sp.cur_outReal = 100.0 * (sp.upSum - sp.downSum) / sum;
-      } else {
          sp.cur_outReal = 0.0;
+      } else {
+         sum = sp.upSum + sp.downSum;
+         if( sum > 0.0 ) {
+            sp.cur_outReal = 100.0 * (sp.upSum - sp.downSum) / sum;
+         } else {
+            sp.cur_outReal = 0.0;
+         }
       }
+      tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
+      diff = tempReal - sp.trailingValue;
+      sp.trailingValue = tempReal;
+      up = (diff + Math.abs(diff)) * 0.5;
+      sp.upSum -= up;
+      sp.downSum -= up - diff;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -83234,10 +83206,12 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
       double diff = 0;
+      double up = 0;
       double tempReal = 0;
       double prevValue = 0;
       double trailingValue = 0;
@@ -83267,7 +83241,7 @@ public final class Core {
        * smoothing -- hence no unstable period.
        *
        * In-place safe (outReal == inReal): the trailing read inReal[trailingIdx]
-       * precedes this iteration's write (trailingIdx >= outIdx), and the oldest
+       * is of a slot not yet written (trailingIdx >= outIdx), and the oldest
        * change's older endpoint comes from the `trailingValue` cache, not a re-read.
        */
       outBegIdx.value = 0;
@@ -83297,6 +83271,11 @@ public final class Core {
        * answer that question themselves once the window starts sliding: they are
        * maintained by add-then-subtract, so an emptied window leaves them holding
        * rounding residue of arbitrary sign rather than zero.
+       *
+       * Both the split and the run are branch-free, as an if/else on the sign or
+       * on a zero mispredicts on random or flat-heavy prices. `up` is max(diff, 0)
+       * spelled with fabs, which no backend turns back into a branch; adding its
+       * +0.0 is exact because neither sum is ever -0.0.
        */
       nullRun = 0;
       for( i = 0; i < optInTimePeriod; i += 1 ) {
@@ -83304,16 +83283,11 @@ public final class Core {
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       /* Emit the first output (bar startIdx). Su+Sd is a sum of non-negative
        * magnitudes, so it is zero only for an exactly flat window; guard the 0/0
@@ -83333,52 +83307,54 @@ public final class Core {
       } else {
          outReal[outIdx++ * outStride] = 0.0;
       }
-      /* Slide the window forward one bar at a time. */
+      /* Slide the window forward one bar at a time. Each bar drops the change
+       * that leaves the window AFTER its output, ready for the next bar: the
+       * sums see the same operations in the same order, and a peek, which keeps
+       * nothing past its output, skips that half of the work. The oldest
+       * change's older price comes from the cache.
+       */
+      tempReal = inReal[trailingIdx];
+      diff = tempReal - trailingValue;
+      trailingValue = tempReal;
+      trailingIdx += 1;
+      up = (diff + Math.abs(diff)) * 0.5;
+      upSum -= up;
+      downSum -= up - diff;
       today += 1;
       while( today <= endIdx ) {
-         /* Drop the oldest change: inReal[trailingIdx] - inReal[trailingIdx-1].
-          * inReal[trailingIdx-1] comes from the cache (already overwritten when
-          * outReal == inReal); inReal[trailingIdx] is read here, before this
-          * iteration writes outReal[outIdx], so it is still the original price.
-          */
-         tempReal = inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          /* Add the newest change: inReal[today] - inReal[today-1]. */
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
          /* Once a whole period of flat bars has gone by, every change in the
           * window is exactly zero, so both sums are known to be exactly zero and
           * the residue can be dropped.
           */
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            outReal[outIdx++ * outStride] = 100.0 * (upSum - downSum) / sum;
-         } else {
             outReal[outIdx++ * outStride] = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               outReal[outIdx++ * outStride] = 100.0 * (upSum - downSum) / sum;
+            } else {
+               outReal[outIdx++ * outStride] = 0.0;
+            }
          }
+         tempReal = inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -98869,12 +98845,15 @@ public final class Core {
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  KL       Kevin Lin
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  090626 KL     First version (issue #350).
+ *  102326 MF,CC  #554 branch-free zero run, rare reset.
  */
 
    /**
@@ -98939,6 +98918,7 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double sumROC1 = 0;
       double periodROC = 0;
       double tempReal = 0;
@@ -98976,8 +98956,8 @@ public final class Core {
        *     bounds nothing on its own, which is what the clamp is for.
        *   - a genuinely flat window is recognized by COUNTING exactly-zero
        *     one-bar changes (nullRun >= P forces sumROC1 to 0.0, purging the
-       *     running sum's rounding residue), after which `0 <= 0` pins the
-       *     0/0 to 1.0 -- never NaN (#112). This is kama.c's #253 form; the
+       *     running sum's rounding residue, and the ratio to 1.0) -- never
+       *     NaN (#112). This is kama.c's #253 form; the
        *     absolute TA_IS_ZERO band it replaced fails the QUOTE-UNIT/SCALE
        *     gate (ER is homogeneous of degree 0, and a fixed 1e-14 met a
        *     price-carrying sum).
@@ -99014,11 +98994,8 @@ public final class Core {
          tempReal = inReal[today++];
          tempReal -= inReal[today];
          sumROC1 += Math.abs(tempReal);
-         if( tempReal == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       /* First output: today == startIdx. */
       tempReal = inReal[today];
@@ -99053,21 +99030,13 @@ public final class Core {
           * only content is rounding residue from the subtract/add carry --
           * purge it so the flat window is recognized exactly (kama.c #253).
           */
-         if( tempReal - inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         /* Save the trailing value: outReal may alias inReal, and the next
-          * iteration's subtraction needs the ORIGINAL bar, not the slot the
-          * write below may have clobbered.
-          */
-         trailingValue = tempReal2;
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            outReal[outIdx++] = 1.0;
+         } else if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++] = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -99076,6 +99045,11 @@ public final class Core {
             }
             outReal[outIdx++] = tempReal;
          }
+         /* Save the trailing value: outReal may alias inReal, and the next
+          * iteration's subtraction needs the ORIGINAL bar, not the slot the
+          * write above may have clobbered.
+          */
+         trailingValue = tempReal2;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -99096,6 +99070,7 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double sumROC1 = 0;
       double periodROC = 0;
       double tempReal = 0;
@@ -99130,11 +99105,8 @@ public final class Core {
          tempReal = (double)inReal[today++];
          tempReal -= (double)inReal[today];
          sumROC1 += Math.abs(tempReal);
-         if( tempReal == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       tempReal = (double)inReal[today];
       tempReal2 = (double)inReal[trailingIdx++];
@@ -99157,17 +99129,13 @@ public final class Core {
          periodROC = tempReal - tempReal2;
          sumROC1 -= Math.abs(trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - (double)inReal[today - 1]);
-         if( tempReal - (double)inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - (double)inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         trailingValue = tempReal2;
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            outReal[outIdx++] = 1.0;
+         } else if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++] = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -99176,6 +99144,7 @@ public final class Core {
             }
             outReal[outIdx++] = tempReal;
          }
+         trailingValue = tempReal2;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -99444,38 +99413,30 @@ public final class Core {
          if( !Double.isFinite(inReal) )
             throw nonFiniteBar("ER peek", "inReal");
          ErStream sp = this;
+         int live = 0;
          double periodROC = 0.0;
          double tempReal = 0.0;
          double tempReal2 = 0.0;
          double cur_outReal = 0.0;
          int nullRun = sp.nullRun;
          double sumROC1 = sp.sumROC1;
-         double trailingValue = sp.trailingValue;
          tempReal = inReal;
          tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
          periodROC = tempReal - tempReal2;
          /* Subtract-then-add, TA_SUM's own order. */
-         sumROC1 -= Math.abs(trailingValue - tempReal2);
+         sumROC1 -= Math.abs(sp.trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - sp.lag1_inReal);
          /* Once a whole window of one-bar changes is exactly zero, the sum's
           * only content is rounding residue from the subtract/add carry --
           * purge it so the flat window is recognized exactly (kama.c #253).
           */
-         if( tempReal - sp.lag1_inReal == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - sp.lag1_inReal) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= sp.optInTimePeriod ) {
             nullRun = sp.optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         /* Save the trailing value: outReal may alias inReal, and the next
-          * iteration's subtraction needs the ORIGINAL bar, not the slot the
-          * write below may have clobbered.
-          */
-         trailingValue = tempReal2;
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            cur_outReal = 1.0;
+         } else if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             cur_outReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -99515,6 +99476,7 @@ public final class Core {
    }
    private void erStepImpl( ErStream sp, double inReal )
    {
+      int live = 0;
       double periodROC = 0.0;
       double tempReal = 0.0;
       double tempReal2 = 0.0;
@@ -99529,21 +99491,13 @@ public final class Core {
        * only content is rounding residue from the subtract/add carry --
        * purge it so the flat window is recognized exactly (kama.c #253).
        */
-      if( tempReal - sp.lag1_inReal == 0.0 ) {
-         sp.nullRun += 1;
-      } else {
-         sp.nullRun = 0;
-      }
+      live = (Math.abs(tempReal - sp.lag1_inReal) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (live - 1);
       if( sp.nullRun >= sp.optInTimePeriod ) {
          sp.nullRun = sp.optInTimePeriod;
          sp.sumROC1 = 0.0;
-      }
-      /* Save the trailing value: outReal may alias inReal, and the next
-       * iteration's subtraction needs the ORIGINAL bar, not the slot the
-       * write below may have clobbered.
-       */
-      sp.trailingValue = tempReal2;
-      if( sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC ) {
+         sp.cur_outReal = 1.0;
+      } else if( sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC ) {
          sp.cur_outReal = 1.0;
       } else {
          tempReal = Math.abs(periodROC / sp.sumROC1);
@@ -99552,6 +99506,11 @@ public final class Core {
          }
          sp.cur_outReal = tempReal;
       }
+      /* Save the trailing value: outReal may alias inReal, and the next
+       * iteration's subtraction needs the ORIGINAL bar, not the slot the
+       * write above may have clobbered.
+       */
+      sp.trailingValue = tempReal2;
       sp.lag1_inReal = inReal;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
@@ -99568,6 +99527,7 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double sumROC1 = 0;
       double periodROC = 0;
       double tempReal = 0;
@@ -99612,8 +99572,8 @@ public final class Core {
        *     bounds nothing on its own, which is what the clamp is for.
        *   - a genuinely flat window is recognized by COUNTING exactly-zero
        *     one-bar changes (nullRun >= P forces sumROC1 to 0.0, purging the
-       *     running sum's rounding residue), after which `0 <= 0` pins the
-       *     0/0 to 1.0 -- never NaN (#112). This is kama.c's #253 form; the
+       *     running sum's rounding residue, and the ratio to 1.0) -- never
+       *     NaN (#112). This is kama.c's #253 form; the
        *     absolute TA_IS_ZERO band it replaced fails the QUOTE-UNIT/SCALE
        *     gate (ER is homogeneous of degree 0, and a fixed 1e-14 met a
        *     price-carrying sum).
@@ -99650,11 +99610,8 @@ public final class Core {
          tempReal = inReal[today++];
          tempReal -= inReal[today];
          sumROC1 += Math.abs(tempReal);
-         if( tempReal == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       /* First output: today == startIdx. */
       tempReal = inReal[today];
@@ -99689,21 +99646,13 @@ public final class Core {
           * only content is rounding residue from the subtract/add carry --
           * purge it so the flat window is recognized exactly (kama.c #253).
           */
-         if( tempReal - inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         /* Save the trailing value: outReal may alias inReal, and the next
-          * iteration's subtraction needs the ORIGINAL bar, not the slot the
-          * write below may have clobbered.
-          */
-         trailingValue = tempReal2;
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            outReal[outIdx++ * outStride] = 1.0;
+         } else if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++ * outStride] = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -99712,6 +99661,11 @@ public final class Core {
             }
             outReal[outIdx++ * outStride] = tempReal;
          }
+         /* Save the trailing value: outReal may alias inReal, and the next
+          * iteration's subtraction needs the ORIGINAL bar, not the slot the
+          * write above may have clobbered.
+          */
+         trailingValue = tempReal2;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -123986,6 +123940,7 @@ public final class Core {
  *  090626 MF,CC  Fix #390. Clamp the efficiency ratio to 1. A drifted sumROC1
  *                let it exceed its own mathematical maximum, and the squared
  *                smoothing constant then amplified instead of averaging.
+ *  102326 MF,CC  #554 branch-free zero run, rare reset.
  */
 
    /**
@@ -124060,6 +124015,7 @@ public final class Core {
       int lookbackTotal = 0;
       int trailingIdx = 0;
       int nullRun = 0;
+      int live = 0;
       double trailingValue = 0;
       if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
@@ -124133,11 +124089,8 @@ public final class Core {
          tempReal = inReal[today++];
          tempReal -= inReal[today];
          sumROC1 += Math.abs(tempReal);
-         if( tempReal == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       /* At this point sumROC1 represent the
        * summation of the 1-day price difference
@@ -124196,26 +124149,18 @@ public final class Core {
          sumROC1 -= Math.abs(trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - inReal[today - 1]);
          /* Once a whole window of flat bars has gone by, every 1-day change it
-          * spans is exactly zero, so the sum is known to be exactly zero and the
-          * residue can be dropped. That is what lets the efficiency ratio be
-          * decided by `sumROC1 <= periodROC` alone: a window that flat has
-          * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+          * spans is exactly zero, so the sum is known to be exactly zero, the
+          * residue can be dropped, and the efficiency ratio is 1.
           */
-         if( tempReal - inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         /* Save the trailing value. Do this because inReal
-          * and outReal can be pointers to the same buffer.
-          */
-         trailingValue = tempReal2;
-         /* Calculate the efficiency ratio */
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            tempReal = 1.0;
+         } else if( sumROC1 <= 0.0 ||
+             sumROC1 <= periodROC ) /* Calculate the efficiency ratio */
+         {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -124223,6 +124168,10 @@ public final class Core {
                tempReal = 1.0;
             }
          }
+         /* Save the trailing value. Do this because inReal
+          * and outReal can be pointers to the same buffer.
+          */
+         trailingValue = tempReal2;
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
@@ -124247,26 +124196,18 @@ public final class Core {
          sumROC1 -= Math.abs(trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - inReal[today - 1]);
          /* Once a whole window of flat bars has gone by, every 1-day change it
-          * spans is exactly zero, so the sum is known to be exactly zero and the
-          * residue can be dropped. That is what lets the efficiency ratio be
-          * decided by `sumROC1 <= periodROC` alone: a window that flat has
-          * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+          * spans is exactly zero, so the sum is known to be exactly zero, the
+          * residue can be dropped, and the efficiency ratio is 1.
           */
-         if( tempReal - inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         /* Save the trailing value. Do this because inReal
-          * and outReal can be pointers to the same buffer.
-          */
-         trailingValue = tempReal2;
-         /* Calculate the efficiency ratio */
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            tempReal = 1.0;
+         } else if( sumROC1 <= 0.0 ||
+             sumROC1 <= periodROC ) /* Calculate the efficiency ratio */
+         {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -124274,6 +124215,10 @@ public final class Core {
                tempReal = 1.0;
             }
          }
+         /* Save the trailing value. Do this because inReal
+          * and outReal can be pointers to the same buffer.
+          */
+         trailingValue = tempReal2;
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
@@ -124307,6 +124252,7 @@ public final class Core {
       int lookbackTotal = 0;
       int trailingIdx = 0;
       int nullRun = 0;
+      int live = 0;
       double trailingValue = 0;
       if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
@@ -124358,11 +124304,8 @@ public final class Core {
          tempReal = (double)inReal[today++];
          tempReal -= (double)inReal[today];
          sumROC1 += Math.abs(tempReal);
-         if( tempReal == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       prevKAMA = (double)inReal[today - 1];
       tempReal = (double)inReal[today];
@@ -124386,17 +124329,13 @@ public final class Core {
          periodROC = tempReal - tempReal2;
          sumROC1 -= Math.abs(trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - (double)inReal[today - 1]);
-         if( tempReal - (double)inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - (double)inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         trailingValue = tempReal2;
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            tempReal = 1.0;
+         } else if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -124404,6 +124343,7 @@ public final class Core {
                tempReal = 1.0;
             }
          }
+         trailingValue = tempReal2;
          tempReal = Math.fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
          prevKAMA = Math.fma((double)inReal[today++] - prevKAMA, tempReal, prevKAMA);
@@ -124417,17 +124357,13 @@ public final class Core {
          periodROC = tempReal - tempReal2;
          sumROC1 -= Math.abs(trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - (double)inReal[today - 1]);
-         if( tempReal - (double)inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - (double)inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         trailingValue = tempReal2;
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            tempReal = 1.0;
+         } else if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -124435,6 +124371,7 @@ public final class Core {
                tempReal = 1.0;
             }
          }
+         trailingValue = tempReal2;
          tempReal = Math.fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
          prevKAMA = Math.fma((double)inReal[today++] - prevKAMA, tempReal, prevKAMA);
@@ -124704,6 +124641,7 @@ public final class Core {
          double tempReal = 0.0;
          double tempReal2 = 0.0;
          double periodROC = 0.0;
+         int live = 0;
          double cur_outReal = 0.0;
          int nullRun = sp.nullRun;
          double prevKAMA = sp.prevKAMA;
@@ -124723,26 +124661,18 @@ public final class Core {
          sumROC1 -= Math.abs(trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - sp.lag1_inReal);
          /* Once a whole window of flat bars has gone by, every 1-day change it
-          * spans is exactly zero, so the sum is known to be exactly zero and the
-          * residue can be dropped. That is what lets the efficiency ratio be
-          * decided by `sumROC1 <= periodROC` alone: a window that flat has
-          * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+          * spans is exactly zero, so the sum is known to be exactly zero, the
+          * residue can be dropped, and the efficiency ratio is 1.
           */
-         if( tempReal - sp.lag1_inReal == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - sp.lag1_inReal) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= sp.optInTimePeriod ) {
             nullRun = sp.optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         /* Save the trailing value. Do this because inReal
-          * and outReal can be pointers to the same buffer.
-          */
-         trailingValue = tempReal2;
-         /* Calculate the efficiency ratio */
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            tempReal = 1.0;
+         } else if( sumROC1 <= 0.0 ||
+             sumROC1 <= periodROC ) /* Calculate the efficiency ratio */
+         {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -124750,6 +124680,10 @@ public final class Core {
                tempReal = 1.0;
             }
          }
+         /* Save the trailing value. Do this because inReal
+          * and outReal can be pointers to the same buffer.
+          */
+         trailingValue = tempReal2;
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, sp.constDiff, sp.constMax);
          tempReal *= tempReal;
@@ -124792,6 +124726,7 @@ public final class Core {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
       double periodROC = 0.0;
+      int live = 0;
       int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -124807,26 +124742,18 @@ public final class Core {
       sp.sumROC1 -= Math.abs(sp.trailingValue - tempReal2);
       sp.sumROC1 += Math.abs(tempReal - sp.lag1_inReal);
       /* Once a whole window of flat bars has gone by, every 1-day change it
-       * spans is exactly zero, so the sum is known to be exactly zero and the
-       * residue can be dropped. That is what lets the efficiency ratio be
-       * decided by `sumROC1 <= periodROC` alone: a window that flat has
-       * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+       * spans is exactly zero, so the sum is known to be exactly zero, the
+       * residue can be dropped, and the efficiency ratio is 1.
        */
-      if( tempReal - sp.lag1_inReal == 0.0 ) {
-         sp.nullRun += 1;
-      } else {
-         sp.nullRun = 0;
-      }
+      live = (Math.abs(tempReal - sp.lag1_inReal) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (live - 1);
       if( sp.nullRun >= sp.optInTimePeriod ) {
          sp.nullRun = sp.optInTimePeriod;
          sp.sumROC1 = 0.0;
-      }
-      /* Save the trailing value. Do this because inReal
-       * and outReal can be pointers to the same buffer.
-       */
-      sp.trailingValue = tempReal2;
-      /* Calculate the efficiency ratio */
-      if( sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC ) {
+         tempReal = 1.0;
+      } else if( sp.sumROC1 <= 0.0 ||
+          sp.sumROC1 <= periodROC ) /* Calculate the efficiency ratio */
+      {
          tempReal = 1.0;
       } else {
          tempReal = Math.abs(periodROC / sp.sumROC1);
@@ -124834,6 +124761,10 @@ public final class Core {
             tempReal = 1.0;
          }
       }
+      /* Save the trailing value. Do this because inReal
+       * and outReal can be pointers to the same buffer.
+       */
+      sp.trailingValue = tempReal2;
       /* Calculate the smoothing constant */
       tempReal = Math.fma(tempReal, sp.constDiff, sp.constMax);
       tempReal *= tempReal;
@@ -124865,6 +124796,7 @@ public final class Core {
       int lookbackTotal = 0;
       int trailingIdx = 0;
       int nullRun = 0;
+      int live = 0;
       double trailingValue = 0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
@@ -124953,11 +124885,8 @@ public final class Core {
          tempReal = inReal[today++];
          tempReal -= inReal[today];
          sumROC1 += Math.abs(tempReal);
-         if( tempReal == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       /* At this point sumROC1 represent the
        * summation of the 1-day price difference
@@ -125016,26 +124945,18 @@ public final class Core {
          sumROC1 -= Math.abs(trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - inReal[today - 1]);
          /* Once a whole window of flat bars has gone by, every 1-day change it
-          * spans is exactly zero, so the sum is known to be exactly zero and the
-          * residue can be dropped. That is what lets the efficiency ratio be
-          * decided by `sumROC1 <= periodROC` alone: a window that flat has
-          * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+          * spans is exactly zero, so the sum is known to be exactly zero, the
+          * residue can be dropped, and the efficiency ratio is 1.
           */
-         if( tempReal - inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         /* Save the trailing value. Do this because inReal
-          * and outReal can be pointers to the same buffer.
-          */
-         trailingValue = tempReal2;
-         /* Calculate the efficiency ratio */
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            tempReal = 1.0;
+         } else if( sumROC1 <= 0.0 ||
+             sumROC1 <= periodROC ) /* Calculate the efficiency ratio */
+         {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -125043,6 +124964,10 @@ public final class Core {
                tempReal = 1.0;
             }
          }
+         /* Save the trailing value. Do this because inReal
+          * and outReal can be pointers to the same buffer.
+          */
+         trailingValue = tempReal2;
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
@@ -125067,26 +124992,18 @@ public final class Core {
          sumROC1 -= Math.abs(trailingValue - tempReal2);
          sumROC1 += Math.abs(tempReal - inReal[today - 1]);
          /* Once a whole window of flat bars has gone by, every 1-day change it
-          * spans is exactly zero, so the sum is known to be exactly zero and the
-          * residue can be dropped. That is what lets the efficiency ratio be
-          * decided by `sumROC1 <= periodROC` alone: a window that flat has
-          * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+          * spans is exactly zero, so the sum is known to be exactly zero, the
+          * residue can be dropped, and the efficiency ratio is 1.
           */
-         if( tempReal - inReal[today - 1] == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(tempReal - inReal[today - 1]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sumROC1 = 0.0;
-         }
-         /* Save the trailing value. Do this because inReal
-          * and outReal can be pointers to the same buffer.
-          */
-         trailingValue = tempReal2;
-         /* Calculate the efficiency ratio */
-         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+            tempReal = 1.0;
+         } else if( sumROC1 <= 0.0 ||
+             sumROC1 <= periodROC ) /* Calculate the efficiency ratio */
+         {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
@@ -125094,6 +125011,10 @@ public final class Core {
                tempReal = 1.0;
             }
          }
+         /* Save the trailing value. Do this because inReal
+          * and outReal can be pointers to the same buffer.
+          */
+         trailingValue = tempReal2;
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
@@ -125207,6 +125128,7 @@ public final class Core {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
       double periodROC = 0.0;
+      int live = 0;
       tempReal = inReal;
       tempReal2 = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
       periodROC = tempReal - tempReal2;
@@ -125217,26 +125139,18 @@ public final class Core {
       sp.sumROC1 -= Math.abs(sp.trailingValue - tempReal2);
       sp.sumROC1 += Math.abs(tempReal - sp.lag1_inReal);
       /* Once a whole window of flat bars has gone by, every 1-day change it
-       * spans is exactly zero, so the sum is known to be exactly zero and the
-       * residue can be dropped. That is what lets the efficiency ratio be
-       * decided by `sumROC1 <= periodROC` alone: a window that flat has
-       * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+       * spans is exactly zero, so the sum is known to be exactly zero, the
+       * residue can be dropped, and the efficiency ratio is 1.
        */
-      if( tempReal - sp.lag1_inReal == 0.0 ) {
-         sp.nullRun += 1;
-      } else {
-         sp.nullRun = 0;
-      }
+      live = (Math.abs(tempReal - sp.lag1_inReal) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (live - 1);
       if( sp.nullRun >= sp.optInTimePeriod ) {
          sp.nullRun = sp.optInTimePeriod;
          sp.sumROC1 = 0.0;
-      }
-      /* Save the trailing value. Do this because inReal
-       * and outReal can be pointers to the same buffer.
-       */
-      sp.trailingValue = tempReal2;
-      /* Calculate the efficiency ratio */
-      if( sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC ) {
+         tempReal = 1.0;
+      } else if( sp.sumROC1 <= 0.0 ||
+          sp.sumROC1 <= periodROC ) /* Calculate the efficiency ratio */
+      {
          tempReal = 1.0;
       } else {
          tempReal = Math.abs(periodROC / sp.sumROC1);
@@ -125244,6 +125158,10 @@ public final class Core {
             tempReal = 1.0;
          }
       }
+      /* Save the trailing value. Do this because inReal
+       * and outReal can be pointers to the same buffer.
+       */
+      sp.trailingValue = tempReal2;
       /* Calculate the smoothing constant */
       tempReal = Math.fma(tempReal, sp.constDiff, sp.constMax);
       tempReal *= tempReal;
@@ -125261,6 +125179,7 @@ public final class Core {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
       double periodROC = 0.0;
+      int live = 0;
       double cur_outReal = 0.0;
       int nullRun = sp.nullRun;
       double prevKAMA = sp.prevKAMA;
@@ -125276,26 +125195,18 @@ public final class Core {
       sumROC1 -= Math.abs(trailingValue - tempReal2);
       sumROC1 += Math.abs(tempReal - sp.lag1_inReal);
       /* Once a whole window of flat bars has gone by, every 1-day change it
-       * spans is exactly zero, so the sum is known to be exactly zero and the
-       * residue can be dropped. That is what lets the efficiency ratio be
-       * decided by `sumROC1 <= periodROC` alone: a window that flat has
-       * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+       * spans is exactly zero, so the sum is known to be exactly zero, the
+       * residue can be dropped, and the efficiency ratio is 1.
        */
-      if( tempReal - sp.lag1_inReal == 0.0 ) {
-         nullRun += 1;
-      } else {
-         nullRun = 0;
-      }
+      live = (Math.abs(tempReal - sp.lag1_inReal) <= 0.0) ? 0 : 1;
+      nullRun = (nullRun + 1) & (live - 1);
       if( nullRun >= sp.optInTimePeriod ) {
          nullRun = sp.optInTimePeriod;
          sumROC1 = 0.0;
-      }
-      /* Save the trailing value. Do this because inReal
-       * and outReal can be pointers to the same buffer.
-       */
-      trailingValue = tempReal2;
-      /* Calculate the efficiency ratio */
-      if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
+         tempReal = 1.0;
+      } else if( sumROC1 <= 0.0 ||
+          sumROC1 <= periodROC ) /* Calculate the efficiency ratio */
+      {
          tempReal = 1.0;
       } else {
          tempReal = Math.abs(periodROC / sumROC1);
@@ -125303,6 +125214,10 @@ public final class Core {
             tempReal = 1.0;
          }
       }
+      /* Save the trailing value. Do this because inReal
+       * and outReal can be pointers to the same buffer.
+       */
+      trailingValue = tempReal2;
       /* Calculate the smoothing constant */
       tempReal = Math.fma(tempReal, sp.constDiff, sp.constMax);
       tempReal *= tempReal;
@@ -152487,6 +152402,7 @@ public final class Core {
  *               testing the money-flow sum against a literal 1.0; classify
  *               branchlessly; clamp the emitted ratio into [0,100].
  *  092526 MF,CC #442. Allocate the money-flow ring only when there is output.
+ *  102326 MF,CC #554 rare reset.
  */
 
    /**
@@ -152622,14 +152538,6 @@ public final class Core {
           * every other bar and dominated the cost of the function.  Adding the
           * unused side's 0.0 to a sum is an exact no-op, so this reproduces the
           * branching form bit for bit.
-          *
-          * The three quantities are named rather than folded back into
-          * tempValue1/2 deliberately, at a known cost: every local in a step body
-          * becomes a field of the stream handle, so each name is another store
-          * per bar (~10% of MFI's streaming Update, +32 handle bytes).  That is
-          * the generator's to fix -- issue #252, which counts 436 such fields
-          * across 125 streaming functions -- not something to obfuscate an
-          * indicator body over.
           */
          moneyFlow = (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
          posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
@@ -153317,14 +153225,6 @@ public final class Core {
           * every other bar and dominated the cost of the function.  Adding the
           * unused side's 0.0 to a sum is an exact no-op, so this reproduces the
           * branching form bit for bit.
-          *
-          * The three quantities are named rather than folded back into
-          * tempValue1/2 deliberately, at a known cost: every local in a step body
-          * becomes a field of the stream handle, so each name is another store
-          * per bar (~10% of MFI's streaming Update, +32 handle bytes).  That is
-          * the generator's to fix -- issue #252, which counts 436 such fields
-          * across 125 streaming functions -- not something to obfuscate an
-          * indicator body over.
           */
          moneyFlow = (Math.abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
          posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
@@ -160166,8 +160066,7 @@ public final class Core {
          prevLow = tempReal;
          /* -DM1 = diffM when diffP < diffM and diffM > 0: the select takes the
           * first test and the max the second, as a non-positive delta cannot raise
-          * the sum. gcc keeps a branch if the select compares diffM itself or if a
-          * select, not the max, ends the step.
+          * the sum. gcc keeps a branch if a select, not the max, ends the step.
           */
          tempReal = diffM - diffP;
          minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
@@ -161278,8 +161177,7 @@ public final class Core {
             prevLow = tempReal;
             /* -DM1 = diffM when diffP < diffM and diffM > 0: the select takes the
              * first test and the max the second, as a non-positive delta cannot raise
-             * the sum. gcc keeps a branch if the select compares diffM itself or if a
-             * select, not the max, ends the step.
+             * the sum. gcc keeps a branch if a select, not the max, ends the step.
              */
             tempReal = diffM - diffP;
             minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
@@ -161712,8 +161610,7 @@ public final class Core {
          prevLow = tempReal;
          /* -DM1 = diffM when diffP < diffM and diffM > 0: the select takes the
           * first test and the max the second, as a non-positive delta cannot raise
-          * the sum. gcc keeps a branch if the select compares diffM itself or if a
-          * select, not the max, ends the step.
+          * the sum. gcc keeps a branch if a select, not the max, ends the step.
           */
          tempReal = diffM - diffP;
          minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
@@ -162491,8 +162388,7 @@ public final class Core {
             prevLow = tempReal;
             /* -DM1 = diffM when diffP < diffM and diffM > 0: the select takes the
              * first test and the max the second, as a non-positive delta cannot raise
-             * the sum. gcc keeps a branch if the select compares diffM itself or if a
-             * select, not the max, ends the step.
+             * the sum. gcc keeps a branch if a select, not the max, ends the step.
              */
             tempReal = diffM - diffP;
             minusDM1 = (tempReal > 0.0) ? diffM : 0.0;
@@ -169213,8 +169109,7 @@ public final class Core {
          prevLow = tempReal;
          /* +DM1 = diffP when diffP > diffM and diffP > 0: the select takes the
           * first test and the max the second, as a non-positive delta cannot raise
-          * the sum. gcc keeps a branch if the select compares diffP itself or if a
-          * select, not the max, ends the step.
+          * the sum. gcc keeps a branch if a select, not the max, ends the step.
           */
          tempReal = diffP - diffM;
          plusDM1 = (tempReal > 0.0) ? diffP : 0.0;
@@ -170325,8 +170220,7 @@ public final class Core {
             prevLow = tempReal;
             /* +DM1 = diffP when diffP > diffM and diffP > 0: the select takes the
              * first test and the max the second, as a non-positive delta cannot raise
-             * the sum. gcc keeps a branch if the select compares diffP itself or if a
-             * select, not the max, ends the step.
+             * the sum. gcc keeps a branch if a select, not the max, ends the step.
              */
             tempReal = diffP - diffM;
             plusDM1 = (tempReal > 0.0) ? diffP : 0.0;
@@ -170761,8 +170655,7 @@ public final class Core {
          prevLow = tempReal;
          /* +DM1 = diffP when diffP > diffM and diffP > 0: the select takes the
           * first test and the max the second, as a non-positive delta cannot raise
-          * the sum. gcc keeps a branch if the select compares diffP itself or if a
-          * select, not the max, ends the step.
+          * the sum. gcc keeps a branch if a select, not the max, ends the step.
           */
          tempReal = diffP - diffM;
          plusDM1 = (tempReal > 0.0) ? diffP : 0.0;
@@ -171540,8 +171433,7 @@ public final class Core {
             prevLow = tempReal;
             /* +DM1 = diffP when diffP > diffM and diffP > 0: the select takes the
              * first test and the max the second, as a non-positive delta cannot raise
-             * the sum. gcc keeps a branch if the select compares diffP itself or if a
-             * select, not the max, ends the step.
+             * the sum. gcc keeps a branch if a select, not the max, ends the step.
              */
             tempReal = diffP - diffM;
             plusDM1 = (tempReal > 0.0) ? diffP : 0.0;
@@ -185435,6 +185327,7 @@ public final class Core {
  *  090426 MF,CC  Initial version (#370).
  *  092526 MF,CC  #446 exact zero total on a dead volume window.
  *  092626 MF,CC  #446 branch-free zero count.
+ *  102326 MF,CC  #554 rare reset, zero run as a mask, output first.
  */
 
    /**
@@ -185498,9 +185391,8 @@ public final class Core {
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      int zeroCount = 0;
-      int zeroIn = 0;
-      int zeroOut = 0;
+      int nullRun = 0;
+      int liveIn = 0;
       if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
@@ -185526,16 +185418,20 @@ public final class Core {
       }
       periodTotal = 0.0;
       trailingIdx = startIdx - lookbackTotal;
-      /* Zero-volume bars in the window. Once they fill it the total is exactly
-       * zero, where add-then-subtract would leave the rounding residue of the
-       * volumes that departed, of either sign. The test is fabs(v) <= 0.0 rather
-       * than == 0.0: the same result, NaN included, from one flag instead of two.
+      /* Consecutive zero-volume bars, ending at the last one added. Once they
+       * fill a window the total is exactly zero, where add-then-subtract would
+       * leave the rounding residue of the volumes that departed, of either sign.
+       * The run advances through a mask: as a select or a product gcc compiles
+       * it to a branch that mispredicts on scattered zero volumes. The test is
+       * fabs(v) <= 0.0 rather than == 0.0: the same result, NaN included, from
+       * one flag instead of two.
        */
-      zeroCount = 0;
+      nullRun = 0;
       i = trailingIdx;
       while( i < startIdx ) {
          periodTotal += (double)inVolume[i];
-         zeroCount += (Math.abs(inVolume[i]) <= 0.0) ? 1 : 0;
+         liveIn = (Math.abs(inVolume[i]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveIn - 1);
          i = i + 1;
       }
       outIdx = 0;
@@ -185547,19 +185443,21 @@ public final class Core {
           */
          baseline = periodTotal / (double)optInTimePeriod;
          trailingVolume = (double)inVolume[trailingIdx];
-         periodTotal -= trailingVolume;
-         zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          todayVolume = (double)inVolume[i];
          i = i + 1;
-         periodTotal += todayVolume;
-         zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
-         zeroCount = zeroCount + zeroIn - zeroOut;
-         if( zeroCount >= optInTimePeriod ) {
-            periodTotal = 0.0;
-         }
+         /* After both reads (input and output may be one buffer) and before the
+          * total moves, or the divide keeps the old total live across the reset.
+          */
          outReal[outIdx] = todayVolume / baseline;
          outIdx = outIdx + 1;
+         periodTotal -= trailingVolume;
+         periodTotal += todayVolume;
+         liveIn = (Math.abs(todayVolume) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveIn - 1);
+         if( nullRun >= optInTimePeriod ) {
+            periodTotal = 0.0;
+         }
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
@@ -185581,9 +185479,8 @@ public final class Core {
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      int zeroCount = 0;
-      int zeroIn = 0;
-      int zeroOut = 0;
+      int nullRun = 0;
+      int liveIn = 0;
       if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
          return RetCode.OUT_OF_RANGE_START_INDEX ;
       }
@@ -185606,30 +185503,30 @@ public final class Core {
       }
       periodTotal = 0.0;
       trailingIdx = startIdx - lookbackTotal;
-      zeroCount = 0;
+      nullRun = 0;
       i = trailingIdx;
       while( i < startIdx ) {
          periodTotal += (double)inVolume[i];
-         zeroCount += (Math.abs((double)inVolume[i]) <= 0.0) ? 1 : 0;
+         liveIn = (Math.abs((double)inVolume[i]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveIn - 1);
          i = i + 1;
       }
       outIdx = 0;
       while( i <= endIdx ) {
          baseline = periodTotal / (double)optInTimePeriod;
          trailingVolume = (double)inVolume[trailingIdx];
-         periodTotal -= trailingVolume;
-         zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          todayVolume = (double)inVolume[i];
          i = i + 1;
-         periodTotal += todayVolume;
-         zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
-         zeroCount = zeroCount + zeroIn - zeroOut;
-         if( zeroCount >= optInTimePeriod ) {
-            periodTotal = 0.0;
-         }
          outReal[outIdx] = todayVolume / baseline;
          outIdx = outIdx + 1;
+         periodTotal -= trailingVolume;
+         periodTotal += todayVolume;
+         liveIn = (Math.abs(todayVolume) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveIn - 1);
+         if( nullRun >= optInTimePeriod ) {
+            periodTotal = 0.0;
+         }
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
@@ -185800,7 +185697,7 @@ public final class Core {
       private Core core;
       private int optInTimePeriod;
       private double periodTotal;
-      private int zeroCount;
+      private int nullRun;
       private int ringPos_trailingIdx;
       private int ringCap_trailingIdx;
       private double[] ring_trailingIdx_inVolume;
@@ -185848,7 +185745,7 @@ public final class Core {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.periodTotal = other.periodTotal;
-         this.zeroCount = other.zeroCount;
+         this.nullRun = other.nullRun;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inVolume = other.ring_trailingIdx_inVolume.clone();
@@ -185899,28 +185796,17 @@ public final class Core {
          RvolStream sp = this;
          double baseline = 0.0;
          double todayVolume = 0.0;
-         double trailingVolume = 0.0;
-         int zeroIn = 0;
-         int zeroOut = 0;
          double cur_outReal = 0.0;
-         double periodTotal = sp.periodTotal;
-         int zeroCount = sp.zeroCount;
          /* Drop the trailing bar BEFORE adding today's. Up to the first dead
           * window, that order makes each baseline bit-identical to the moving
           * average of the same period at the previous bar; the reverse order
           * differs only in the last ulp, so no tolerance can tell the two apart.
           */
-         baseline = periodTotal / (double)sp.optInTimePeriod;
-         trailingVolume = (double)sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
-         periodTotal -= trailingVolume;
-         zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
+         baseline = sp.periodTotal / (double)sp.optInTimePeriod;
          todayVolume = (double)inVolume;
-         periodTotal += todayVolume;
-         zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
-         zeroCount = zeroCount + zeroIn - zeroOut;
-         if( zeroCount >= sp.optInTimePeriod ) {
-            periodTotal = 0.0;
-         }
+         /* After both reads (input and output may be one buffer) and before the
+          * total moves, or the divide keeps the old total live across the reset.
+          */
          cur_outReal = todayVolume / baseline;
          return cur_outReal;
       }
@@ -185956,8 +185842,7 @@ public final class Core {
       double baseline = 0.0;
       double todayVolume = 0.0;
       double trailingVolume = 0.0;
-      int zeroIn = 0;
-      int zeroOut = 0;
+      int liveIn = 0;
       int ringCapL_trailingIdx = 0;
       /* Drop the trailing bar BEFORE adding today's. Up to the first dead
        * window, that order makes each baseline bit-identical to the moving
@@ -185966,16 +185851,18 @@ public final class Core {
        */
       baseline = sp.periodTotal / (double)sp.optInTimePeriod;
       trailingVolume = (double)sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
-      sp.periodTotal -= trailingVolume;
-      zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
       todayVolume = (double)inVolume;
+      /* After both reads (input and output may be one buffer) and before the
+       * total moves, or the divide keeps the old total live across the reset.
+       */
+      sp.cur_outReal = todayVolume / baseline;
+      sp.periodTotal -= trailingVolume;
       sp.periodTotal += todayVolume;
-      zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
-      sp.zeroCount = sp.zeroCount + zeroIn - zeroOut;
-      if( sp.zeroCount >= sp.optInTimePeriod ) {
+      liveIn = (Math.abs(todayVolume) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (liveIn - 1);
+      if( sp.nullRun >= sp.optInTimePeriod ) {
          sp.periodTotal = 0.0;
       }
-      sp.cur_outReal = todayVolume / baseline;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -185993,9 +185880,8 @@ public final class Core {
       int outIdx = 0;
       int trailingIdx = 0;
       int lookbackTotal = 0;
-      int zeroCount = 0;
-      int zeroIn = 0;
-      int zeroOut = 0;
+      int nullRun = 0;
+      int liveIn = 0;
       int historyLen = inVolume.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -186028,16 +185914,20 @@ public final class Core {
       }
       periodTotal = 0.0;
       trailingIdx = startIdx - lookbackTotal;
-      /* Zero-volume bars in the window. Once they fill it the total is exactly
-       * zero, where add-then-subtract would leave the rounding residue of the
-       * volumes that departed, of either sign. The test is fabs(v) <= 0.0 rather
-       * than == 0.0: the same result, NaN included, from one flag instead of two.
+      /* Consecutive zero-volume bars, ending at the last one added. Once they
+       * fill a window the total is exactly zero, where add-then-subtract would
+       * leave the rounding residue of the volumes that departed, of either sign.
+       * The run advances through a mask: as a select or a product gcc compiles
+       * it to a branch that mispredicts on scattered zero volumes. The test is
+       * fabs(v) <= 0.0 rather than == 0.0: the same result, NaN included, from
+       * one flag instead of two.
        */
-      zeroCount = 0;
+      nullRun = 0;
       i = trailingIdx;
       while( i < startIdx ) {
          periodTotal += (double)inVolume[i];
-         zeroCount += (Math.abs(inVolume[i]) <= 0.0) ? 1 : 0;
+         liveIn = (Math.abs(inVolume[i]) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveIn - 1);
          i = i + 1;
       }
       outIdx = 0;
@@ -186049,19 +185939,21 @@ public final class Core {
           */
          baseline = periodTotal / (double)optInTimePeriod;
          trailingVolume = (double)inVolume[trailingIdx];
-         periodTotal -= trailingVolume;
-         zeroOut = (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
          trailingIdx = trailingIdx + 1;
          todayVolume = (double)inVolume[i];
          i = i + 1;
-         periodTotal += todayVolume;
-         zeroIn = (Math.abs(todayVolume) <= 0.0) ? 1 : 0;
-         zeroCount = zeroCount + zeroIn - zeroOut;
-         if( zeroCount >= optInTimePeriod ) {
-            periodTotal = 0.0;
-         }
+         /* After both reads (input and output may be one buffer) and before the
+          * total moves, or the divide keeps the old total live across the reset.
+          */
          outReal[outIdx * outStride] = todayVolume / baseline;
          outIdx = outIdx + 1;
+         periodTotal -= trailingVolume;
+         periodTotal += todayVolume;
+         liveIn = (Math.abs(todayVolume) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (liveIn - 1);
+         if( nullRun >= optInTimePeriod ) {
+            periodTotal = 0.0;
+         }
       }
       outNBElement.value = outIdx;
       outBegIdx.value = startIdx;
@@ -186075,7 +185967,7 @@ public final class Core {
       System.arraycopy(inVolume, historyLen - cap_trailingIdx, capRing_trailingIdx_inVolume, 0, cap_trailingIdx);
       sp.optInTimePeriod = optInTimePeriod;
       sp.periodTotal = periodTotal;
-      sp.zeroCount = zeroCount;
+      sp.nullRun = nullRun;
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inVolume = capRing_trailingIdx_inVolume;
@@ -215923,6 +215815,7 @@ public final class Core {
  *               divides are guarded exactly instead of against the fixed
  *               TA_IS_ZERO band -- which zeroed the oscillator for any
  *               instrument quoted small enough to fall under it.
+ *  102326 MF,CC #554 branch-free zero run, rare reset.
  */
 
    /**
@@ -216027,6 +215920,7 @@ public final class Core {
       int trailingPos1 = 0;
       int trailingPos2 = 0;
       int nullRun = 0;
+      int live = 0;
       int[] usedFlag = new int[3];
       int[] periods = new int[3];
       int[] sortedPeriods = new int[3];
@@ -216150,11 +216044,8 @@ public final class Core {
          term_trueRange[term_Idx] = trueRange;
          term_Idx++;
          if( term_Idx > maxIdx_term ) { term_Idx = 0; }
-         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( i >= startIdx - optInTimePeriod1 + 1 ) {
             a1Total += closeMinusTrueLow;
             b1Total += trueRange;
@@ -216211,11 +216102,8 @@ public final class Core {
           * run long enough for a longer window is long enough for every shorter
           * one.
           */
-         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod1 ) {
             a1Total = 0.0;
             b1Total = 0.0;
@@ -216314,6 +216202,7 @@ public final class Core {
       int trailingPos1 = 0;
       int trailingPos2 = 0;
       int nullRun = 0;
+      int live = 0;
       int[] usedFlag = new int[3];
       int[] periods = new int[3];
       int[] sortedPeriods = new int[3];
@@ -216403,11 +216292,8 @@ public final class Core {
          term_trueRange[term_Idx] = trueRange;
          term_Idx++;
          if( term_Idx > maxIdx_term ) { term_Idx = 0; }
-         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( i >= startIdx - optInTimePeriod1 + 1 ) {
             a1Total += closeMinusTrueLow;
             b1Total += trueRange;
@@ -216452,11 +216338,8 @@ public final class Core {
          b1Total += trueRange;
          b2Total += trueRange;
          b3Total += trueRange;
-         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod1 ) {
             a1Total = 0.0;
             b1Total = 0.0;
@@ -216806,6 +216689,7 @@ public final class Core {
          double tempHT = 0.0;
          double tempLT = 0.0;
          double tempCY = 0.0;
+         int live = 0;
          double a1Total = sp.a1Total;
          double a2Total = sp.a2Total;
          double a3Total = sp.a3Total;
@@ -216852,11 +216736,8 @@ public final class Core {
           * run long enough for a longer window is long enough for every shorter
           * one.
           */
-         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= sp.optInTimePeriod1 ) {
             a1Total = 0.0;
             b1Total = 0.0;
@@ -216951,6 +216832,7 @@ public final class Core {
       double tempHT = 0.0;
       double tempLT = 0.0;
       double tempCY = 0.0;
+      int live = 0;
       /* Add on today's terms */
       tempLT = inLow;
       tempHT = inHigh;
@@ -216980,11 +216862,8 @@ public final class Core {
        * run long enough for a longer window is long enough for every shorter
        * one.
        */
-      if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
-         sp.nullRun += 1;
-      } else {
-         sp.nullRun = 0;
-      }
+      live = (Math.abs(trueRange) + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (live - 1);
       if( sp.nullRun >= sp.optInTimePeriod1 ) {
          sp.a1Total = 0.0;
          sp.b1Total = 0.0;
@@ -217069,6 +216948,7 @@ public final class Core {
       int trailingPos1 = 0;
       int trailingPos2 = 0;
       int nullRun = 0;
+      int live = 0;
       int[] usedFlag = new int[3];
       int[] periods = new int[3];
       int[] sortedPeriods = new int[3];
@@ -217202,11 +217082,8 @@ public final class Core {
          term_trueRange[term_Idx] = trueRange;
          term_Idx++;
          if( term_Idx > maxIdx_term ) { term_Idx = 0; }
-         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( i >= startIdx - optInTimePeriod1 + 1 ) {
             a1Total += closeMinusTrueLow;
             b1Total += trueRange;
@@ -217263,11 +217140,8 @@ public final class Core {
           * run long enough for a longer window is long enough for every shorter
           * one.
           */
-         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod1 ) {
             a1Total = 0.0;
             b1Total = 0.0;
@@ -219312,6 +219186,7 @@ public final class Core {
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  092926 MF,CC  First version (issue #474).
+ *  102326 MF,CC  #554 TA_CMOU's branch-free split and zero run, rare reset.
  */
 
    /**
@@ -219389,10 +219264,12 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
       double diff = 0;
+      double up = 0;
       double tempReal = 0;
       double prevValue = 0;
       double trailingValue = 0;
@@ -219464,16 +219341,11 @@ public final class Core {
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          sum = upSum + downSum;
          if( sum > 0.0 ) {
             k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
@@ -219482,83 +219354,83 @@ public final class Core {
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
       }
+      /* Each bar below drops the change that leaves the window after its own
+       * update, ready for the next bar, as in TA_CMOU.
+       */
+      tempReal = inReal[trailingIdx];
+      diff = tempReal - trailingValue;
+      trailingValue = tempReal;
+      trailingIdx += 1;
+      up = (diff + Math.abs(diff)) * 0.5;
+      upSum -= up;
+      downSum -= up - diff;
       today += 1;
       /* Skip the unstable period: the whole computation, nothing written. */
       while( today <= startIdx ) {
-         tempReal = inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInCMOPeriod ) {
             nullRun = optInCMOPeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
-         } else {
             k = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
+            } else {
+               k = 0.0;
+            }
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
+         tempReal = inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outReal[0] = prevVIDYA;
       outIdx = 1;
       while( today <= endIdx ) {
-         tempReal = inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInCMOPeriod ) {
             nullRun = optInCMOPeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
-         } else {
             k = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
+            } else {
+               k = 0.0;
+            }
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
          outReal[outIdx++] = prevVIDYA;
+         tempReal = inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -219580,10 +219452,12 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
       double diff = 0;
+      double up = 0;
       double tempReal = 0;
       double prevValue = 0;
       double trailingValue = 0;
@@ -219646,16 +219520,11 @@ public final class Core {
          tempReal = (double)inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          sum = upSum + downSum;
          if( sum > 0.0 ) {
             k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
@@ -219664,82 +219533,79 @@ public final class Core {
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
       }
+      tempReal = (double)inReal[trailingIdx];
+      diff = tempReal - trailingValue;
+      trailingValue = tempReal;
+      trailingIdx += 1;
+      up = (diff + Math.abs(diff)) * 0.5;
+      upSum -= up;
+      downSum -= up - diff;
       today += 1;
       while( today <= startIdx ) {
-         tempReal = (double)inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          tempReal = (double)inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInCMOPeriod ) {
             nullRun = optInCMOPeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
-         } else {
             k = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
+            } else {
+               k = 0.0;
+            }
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
+         tempReal = (double)inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outReal[0] = prevVIDYA;
       outIdx = 1;
       while( today <= endIdx ) {
-         tempReal = (double)inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          tempReal = (double)inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInCMOPeriod ) {
             nullRun = optInCMOPeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
-         } else {
             k = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
+            } else {
+               k = 0.0;
+            }
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
          outReal[outIdx++] = prevVIDYA;
+         tempReal = (double)inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -220020,8 +219886,10 @@ public final class Core {
          if( !Double.isFinite(inReal) )
             throw nonFiniteBar("VIDYA peek", "inReal");
          VidyaStream sp = this;
+         int live = 0;
          double sum = 0.0;
          double diff = 0.0;
+         double up = 0.0;
          double tempReal = 0.0;
          double k = 0.0;
          double cur_outReal = 0.0;
@@ -220029,43 +219897,31 @@ public final class Core {
          int nullRun = sp.nullRun;
          double prevVIDYA = sp.prevVIDYA;
          double prevValue = sp.prevValue;
-         double trailingValue = sp.trailingValue;
          double upSum = sp.upSum;
          if( sp.optInTimePeriod == 1 ) {
             cur_outReal = inReal;
             return cur_outReal ;
          }
-         tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          tempReal = inReal;
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= sp.optInCMOPeriod ) {
             nullRun = sp.optInCMOPeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            k = sp.alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
-         } else {
             k = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               k = sp.alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
+            } else {
+               k = 0.0;
+            }
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
          cur_outReal = prevVIDYA;
@@ -220100,8 +219956,10 @@ public final class Core {
    }
    private void vidyaStepImpl( VidyaStream sp, double inReal )
    {
+      int live = 0;
       double sum = 0.0;
       double diff = 0.0;
+      double up = 0.0;
       double tempReal = 0.0;
       double k = 0.0;
       int ringCapL_trailingIdx = 0;
@@ -220109,40 +219967,35 @@ public final class Core {
          sp.cur_outReal = inReal;
          return ;
       }
-      tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-      diff = tempReal - sp.trailingValue;
-      sp.trailingValue = tempReal;
-      if( diff > 0.0 ) {
-         sp.upSum -= diff;
-      } else if( diff < 0.0 ) {
-         sp.downSum += diff;
-      }
       tempReal = inReal;
       diff = tempReal - sp.prevValue;
       sp.prevValue = tempReal;
-      if( diff > 0.0 ) {
-         sp.upSum += diff;
-      } else if( diff < 0.0 ) {
-         sp.downSum -= diff;
-      }
-      if( diff == 0.0 ) {
-         sp.nullRun += 1;
-      } else {
-         sp.nullRun = 0;
-      }
+      up = (diff + Math.abs(diff)) * 0.5;
+      sp.upSum += up;
+      sp.downSum += up - diff;
+      live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (live - 1);
       if( sp.nullRun >= sp.optInCMOPeriod ) {
          sp.nullRun = sp.optInCMOPeriod;
          sp.upSum = 0.0;
          sp.downSum = 0.0;
-      }
-      sum = sp.upSum + sp.downSum;
-      if( sum > 0.0 ) {
-         k = sp.alpha * (Math.abs(100.0 * (sp.upSum - sp.downSum) / sum) / 100.0);
-      } else {
          k = 0.0;
+      } else {
+         sum = sp.upSum + sp.downSum;
+         if( sum > 0.0 ) {
+            k = sp.alpha * (Math.abs(100.0 * (sp.upSum - sp.downSum) / sum) / 100.0);
+         } else {
+            k = 0.0;
+         }
       }
       sp.prevVIDYA = Math.fma(sp.prevValue - sp.prevVIDYA, k, sp.prevVIDYA);
       sp.cur_outReal = sp.prevVIDYA;
+      tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
+      diff = tempReal - sp.trailingValue;
+      sp.trailingValue = tempReal;
+      up = (diff + Math.abs(diff)) * 0.5;
+      sp.upSum -= up;
+      sp.downSum -= up - diff;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
       sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -220158,10 +220011,12 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
       double diff = 0;
+      double up = 0;
       double tempReal = 0;
       double prevValue = 0;
       double trailingValue = 0;
@@ -220250,16 +220105,11 @@ public final class Core {
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          sum = upSum + downSum;
          if( sum > 0.0 ) {
             k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
@@ -220268,83 +220118,83 @@ public final class Core {
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
       }
+      /* Each bar below drops the change that leaves the window after its own
+       * update, ready for the next bar, as in TA_CMOU.
+       */
+      tempReal = inReal[trailingIdx];
+      diff = tempReal - trailingValue;
+      trailingValue = tempReal;
+      trailingIdx += 1;
+      up = (diff + Math.abs(diff)) * 0.5;
+      upSum -= up;
+      downSum -= up - diff;
       today += 1;
       /* Skip the unstable period: the whole computation, nothing written. */
       while( today <= startIdx ) {
-         tempReal = inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInCMOPeriod ) {
             nullRun = optInCMOPeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
-         } else {
             k = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
+            } else {
+               k = 0.0;
+            }
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
+         tempReal = inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outReal[0 * outStride] = prevVIDYA;
       outIdx = 1;
       while( today <= endIdx ) {
-         tempReal = inReal[trailingIdx];
-         diff = tempReal - trailingValue;
-         trailingValue = tempReal;
-         trailingIdx += 1;
-         if( diff > 0.0 ) {
-            upSum -= diff;
-         } else if( diff < 0.0 ) {
-            downSum += diff;
-         }
          tempReal = inReal[today];
          diff = tempReal - prevValue;
          prevValue = tempReal;
-         if( diff > 0.0 ) {
-            upSum += diff;
-         } else if( diff < 0.0 ) {
-            downSum -= diff;
-         }
-         if( diff == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum += up;
+         downSum += up - diff;
+         live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInCMOPeriod ) {
             nullRun = optInCMOPeriod;
             upSum = 0.0;
             downSum = 0.0;
-         }
-         sum = upSum + downSum;
-         if( sum > 0.0 ) {
-            k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
-         } else {
             k = 0.0;
+         } else {
+            sum = upSum + downSum;
+            if( sum > 0.0 ) {
+               k = alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
+            } else {
+               k = 0.0;
+            }
          }
          prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
          outReal[outIdx++ * outStride] = prevVIDYA;
+         tempReal = inReal[trailingIdx];
+         diff = tempReal - trailingValue;
+         trailingValue = tempReal;
+         trailingIdx += 1;
+         up = (diff + Math.abs(diff)) * 0.5;
+         upSum -= up;
+         downSum -= up - diff;
          today += 1;
       }
       outBegIdx.value = startIdx;
@@ -220450,51 +220300,50 @@ public final class Core {
    }
    private double vidyaStepTape( VidyaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
    {
+      int live = 0;
       double sum = 0.0;
       double diff = 0.0;
+      double up = 0.0;
       double tempReal = 0.0;
       double k = 0.0;
-      tempReal = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
-      diff = tempReal - sp.trailingValue;
-      sp.trailingValue = tempReal;
-      if( diff > 0.0 ) {
-         sp.upSum -= diff;
-      } else if( diff < 0.0 ) {
-         sp.downSum += diff;
-      }
       tempReal = inReal;
       diff = tempReal - sp.prevValue;
       sp.prevValue = tempReal;
-      if( diff > 0.0 ) {
-         sp.upSum += diff;
-      } else if( diff < 0.0 ) {
-         sp.downSum -= diff;
-      }
-      if( diff == 0.0 ) {
-         sp.nullRun += 1;
-      } else {
-         sp.nullRun = 0;
-      }
+      up = (diff + Math.abs(diff)) * 0.5;
+      sp.upSum += up;
+      sp.downSum += up - diff;
+      live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (live - 1);
       if( sp.nullRun >= sp.optInCMOPeriod ) {
          sp.nullRun = sp.optInCMOPeriod;
          sp.upSum = 0.0;
          sp.downSum = 0.0;
-      }
-      sum = sp.upSum + sp.downSum;
-      if( sum > 0.0 ) {
-         k = sp.alpha * (Math.abs(100.0 * (sp.upSum - sp.downSum) / sum) / 100.0);
-      } else {
          k = 0.0;
+      } else {
+         sum = sp.upSum + sp.downSum;
+         if( sum > 0.0 ) {
+            k = sp.alpha * (Math.abs(100.0 * (sp.upSum - sp.downSum) / sum) / 100.0);
+         } else {
+            k = 0.0;
+         }
       }
       sp.prevVIDYA = Math.fma(sp.prevValue - sp.prevVIDYA, k, sp.prevVIDYA);
       sp.cur_outReal = sp.prevVIDYA;
+      tempReal = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
+      diff = tempReal - sp.trailingValue;
+      sp.trailingValue = tempReal;
+      up = (diff + Math.abs(diff)) * 0.5;
+      sp.upSum -= up;
+      sp.downSum -= up - diff;
       sp.outRangeCount++;
       return sp.cur_outReal;
    }
    private double vidyaPeekTape( VidyaStream sp, double[] tape, int tapeBase, int tapeMask, double inReal )
    {
+      int live = 0;
       double sum = 0.0;
       double diff = 0.0;
+      double up = 0.0;
       double tempReal = 0.0;
       double k = 0.0;
       double cur_outReal = 0.0;
@@ -220502,39 +220351,27 @@ public final class Core {
       int nullRun = sp.nullRun;
       double prevVIDYA = sp.prevVIDYA;
       double prevValue = sp.prevValue;
-      double trailingValue = sp.trailingValue;
       double upSum = sp.upSum;
-      tempReal = tape[(tapeBase - sp.ringCap_trailingIdx) & tapeMask];
-      diff = tempReal - trailingValue;
-      trailingValue = tempReal;
-      if( diff > 0.0 ) {
-         upSum -= diff;
-      } else if( diff < 0.0 ) {
-         downSum += diff;
-      }
       tempReal = inReal;
       diff = tempReal - prevValue;
       prevValue = tempReal;
-      if( diff > 0.0 ) {
-         upSum += diff;
-      } else if( diff < 0.0 ) {
-         downSum -= diff;
-      }
-      if( diff == 0.0 ) {
-         nullRun += 1;
-      } else {
-         nullRun = 0;
-      }
+      up = (diff + Math.abs(diff)) * 0.5;
+      upSum += up;
+      downSum += up - diff;
+      live = (Math.abs(diff) <= 0.0) ? 0 : 1;
+      nullRun = (nullRun + 1) & (live - 1);
       if( nullRun >= sp.optInCMOPeriod ) {
          nullRun = sp.optInCMOPeriod;
          upSum = 0.0;
          downSum = 0.0;
-      }
-      sum = upSum + downSum;
-      if( sum > 0.0 ) {
-         k = sp.alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
-      } else {
          k = 0.0;
+      } else {
+         sum = upSum + downSum;
+         if( sum > 0.0 ) {
+            k = sp.alpha * (Math.abs(100.0 * (upSum - downSum) / sum) / 100.0);
+         } else {
+            k = 0.0;
+         }
       }
       prevVIDYA = Math.fma(prevValue - prevVIDYA, k, prevVIDYA);
       cur_outReal = prevVIDYA;
@@ -220554,12 +220391,15 @@ public final class Core {
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  KL       Kevin Lin
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  090626 KL     First version (issue #349).
+ *  102326 MF,CC  #554 branch-free zero run, rare reset.
  */
 
    /**
@@ -220627,6 +220467,7 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double sTR = 0;
       double sVMP = 0;
       double sVMM = 0;
@@ -220705,11 +220546,8 @@ public final class Core {
          sTR += trueRange;
          sVMP += Math.abs(inHigh[i] - inLow[i - 1]);
          sVMM += Math.abs(inLow[i] - inHigh[i - 1]);
-         if( trueRange == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       outIdx = 0;
       today = startIdx;
@@ -220731,11 +220569,8 @@ public final class Core {
          sTR += trueRange;
          sVMP += Math.abs(inHigh[today] - inLow[today - 1]);
          sVMM += Math.abs(inLow[today] - inHigh[today - 1]);
-         if( trueRange == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          /* Once the whole window is flat, every TRUE-RANGE term in it is
           * provably zero (nullRun counts exactly that), so sTR's only content
           * is the running add/subtract's rounding residue -- purge it, and the
@@ -220825,6 +220660,7 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double sTR = 0;
       double sVMP = 0;
       double sVMM = 0;
@@ -220879,11 +220715,8 @@ public final class Core {
          sTR += trueRange;
          sVMP += Math.abs((double)inHigh[i] - (double)inLow[i - 1]);
          sVMM += Math.abs((double)inLow[i] - (double)inHigh[i - 1]);
-         if( trueRange == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       outIdx = 0;
       today = startIdx;
@@ -220904,11 +220737,8 @@ public final class Core {
          sTR += trueRange;
          sVMP += Math.abs((double)inHigh[today] - (double)inLow[today - 1]);
          sVMM += Math.abs((double)inLow[today] - (double)inHigh[today - 1]);
-         if( trueRange == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          if( nullRun >= optInTimePeriod ) {
             nullRun = optInTimePeriod;
             sTR = 0.0;
@@ -221243,6 +221073,7 @@ public final class Core {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw nonFiniteBar("VORTEX peek", !Double.isFinite(inHigh) ? "inHigh" : !Double.isFinite(inLow) ? "inLow" : "inClose");
          VortexStream sp = this;
+         int live = 0;
          double curTR = 0.0;
          double curVMP = 0.0;
          double curVMM = 0.0;
@@ -221285,11 +221116,8 @@ public final class Core {
          sTR += trueRange;
          sVMP += Math.abs(inHigh - sp.lag1_inLow);
          sVMM += Math.abs(inLow - sp.lag1_inHigh);
-         if( trueRange == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          /* Once the whole window is flat, every TRUE-RANGE term in it is
           * provably zero (nullRun counts exactly that), so sTR's only content
           * is the running add/subtract's rounding residue -- purge it, and the
@@ -221410,6 +221238,7 @@ public final class Core {
    }
    private void vortexStepImpl( VortexStream sp, double inHigh, double inLow, double inClose )
    {
+      int live = 0;
       double curTR = 0.0;
       double curVMP = 0.0;
       double curVMM = 0.0;
@@ -221437,11 +221266,8 @@ public final class Core {
       sp.sTR += trueRange;
       sp.sVMP += Math.abs(inHigh - sp.lag1_inLow);
       sp.sVMM += Math.abs(inLow - sp.lag1_inHigh);
-      if( trueRange == 0.0 ) {
-         sp.nullRun += 1;
-      } else {
-         sp.nullRun = 0;
-      }
+      live = (Math.abs(trueRange) <= 0.0) ? 0 : 1;
+      sp.nullRun = (sp.nullRun + 1) & (live - 1);
       /* Once the whole window is flat, every TRUE-RANGE term in it is
        * provably zero (nullRun counts exactly that), so sTR's only content
        * is the running add/subtract's rounding residue -- purge it, and the
@@ -221522,6 +221348,7 @@ public final class Core {
       int lookbackTotal = 0;
       int i = 0;
       int nullRun = 0;
+      int live = 0;
       double sTR = 0;
       double sVMP = 0;
       double sVMM = 0;
@@ -221607,11 +221434,8 @@ public final class Core {
          sTR += trueRange;
          sVMP += Math.abs(inHigh[i] - inLow[i - 1]);
          sVMM += Math.abs(inLow[i] - inHigh[i - 1]);
-         if( trueRange == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
       }
       outIdx = 0;
       today = startIdx;
@@ -221633,11 +221457,8 @@ public final class Core {
          sTR += trueRange;
          sVMP += Math.abs(inHigh[today] - inLow[today - 1]);
          sVMM += Math.abs(inLow[today] - inHigh[today - 1]);
-         if( trueRange == 0.0 ) {
-            nullRun += 1;
-         } else {
-            nullRun = 0;
-         }
+         live = (Math.abs(trueRange) <= 0.0) ? 0 : 1;
+         nullRun = (nullRun + 1) & (live - 1);
          /* Once the whole window is flat, every TRUE-RANGE term in it is
           * provably zero (nullRun counts exactly that), so sTR's only content
           * is the running add/subtract's rounding residue -- purge it, and the
@@ -222782,6 +222603,7 @@ public final class Core {
  *  080926 MF,CC  Allow period of 1. Just copy input into output.
  *  092526 MF,CC  #446 exact zero sums on a dead volume window.
  *  092626 MF,CC  #446 branch-free zero count.
+ *  102326 MF,CC  #554 rare reset.
  */
 
    /**
@@ -222932,7 +222754,7 @@ public final class Core {
          trailingVolume = inVolume[trailingIdx];
          tempReal = inReal[trailingIdx] * trailingVolume;
          /* Each branch writes its own output: a branch that only zeroes the sums
-          * is if-converted into a mask on their dependency chain.
+          * is if-converted into a mask on their dependency chain, hint or not.
           */
          if( zeroCount >= optInTimePeriod ) {
             /* Zero, then subtract the departing bar: a non-finite price times its
@@ -223350,7 +223172,7 @@ public final class Core {
          trailingVolume = sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
          tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] * trailingVolume;
          /* Each branch writes its own output: a branch that only zeroes the sums
-          * is if-converted into a mask on their dependency chain.
+          * is if-converted into a mask on their dependency chain, hint or not.
           */
          if( zeroCount >= sp.optInTimePeriod ) {
             /* Zero, then subtract the departing bar: a non-finite price times its
@@ -223423,7 +223245,7 @@ public final class Core {
       trailingVolume = sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
       tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] * trailingVolume;
       /* Each branch writes its own output: a branch that only zeroes the sums
-       * is if-converted into a mask on their dependency chain.
+       * is if-converted into a mask on their dependency chain, hint or not.
        */
       if( sp.zeroCount >= sp.optInTimePeriod ) {
          /* Zero, then subtract the departing bar: a non-finite price times its
@@ -223574,7 +223396,7 @@ public final class Core {
          trailingVolume = inVolume[trailingIdx];
          tempReal = inReal[trailingIdx] * trailingVolume;
          /* Each branch writes its own output: a branch that only zeroes the sums
-          * is if-converted into a mask on their dependency chain.
+          * is if-converted into a mask on their dependency chain, hint or not.
           */
          if( zeroCount >= optInTimePeriod ) {
             /* Zero, then subtract the departing bar: a non-finite price times its

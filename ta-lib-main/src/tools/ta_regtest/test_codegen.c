@@ -3861,7 +3861,8 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                  * 14, where a tie at ONE extremum cannot change the bits of
                  * (highest+lowest)/2. At range.min/min+1 the same shape carries
                  * 5-21 windows per function whose emitted bits are a tie-break
-                 * choice. Costs <= 2 extra vectors x 8 shapes per function. */
+                 * choice. Costs <= 2 extra vectors per shape but RANDWALK, per
+                 * function. */
                 if( v != 0 && !vecIsMin[v] ) continue;
             }
             /* Variants 2.. walk the shape list from MONO_UP up, so every shape
@@ -9693,7 +9694,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
 /* Shapes the candlestick stream/fuzz sweeps actually run for a pattern. */
 static const int CDL_STREAM_SHAPES[] =
     { FUZZ_RANDWALK, FUZZ_CONSTANT, FUZZ_TIE_HEAVY, FUZZ_EXTREME,
-      FUZZ_WITH_ZEROS, FUZZ_CANDLE, FUZZ_ZEROSUM };
+      FUZZ_WITH_ZEROS, FUZZ_CANDLE, FUZZ_ZEROSUM, FUZZ_DOMAIN_MAX };
 #define CDL_NSTREAM_SHAPES ((int)(sizeof(CDL_STREAM_SHAPES)/sizeof(int)))
 
 /* Patterns not yet covered by a deterministic FUZZ_CANDLE window (issue #109).
@@ -9947,6 +9948,59 @@ static ErrorNumber verify_fuzz_zerosum_nonvacuous(void)
     return TA_TEST_PASS;
 }
 
+/* Non-vacuity guard for FUZZ_DOMAIN_MAX: a generator that drifted to an
+ * all-positive or all-ordinary series would leave every gate green while
+ * testing nothing at the bound. */
+static ErrorNumber verify_fuzz_domain_max_nonvacuous(void)
+{
+    enum { DN = 512 };
+    static double o[DN], h[DN], l[DN], c[DN], vv[DN], oi[DN];
+    const double edge = TA_REAL_MAX * 0.9;
+    int seed, k, nearMax = 0, nearMin = 0, ordinary = 0, flips = 0, bigVol = 0;
+    if( FUZZ_DOMAIN_BOUND != TA_REAL_MAX )
+    {
+        printf("FUZZ_DOMAIN_MAX: FUZZ_DOMAIN_BOUND (%g) is not TA_REAL_MAX (%g)\n",
+               (double)FUZZ_DOMAIN_BOUND, (double)TA_REAL_MAX);
+        return TA_TSTCDL_PREDICATE_VACUOUS;
+    }
+    for( seed = 1; seed <= 6; seed++ )
+    {
+        fuzz_gen(FUZZ_DOMAIN_MAX, seed, DN, o, h, l, c, vv, oi);
+        for( k = 0; k < DN; k++ )
+        {
+            const double bar[6] = { o[k], h[k], l[k], c[k], vv[k], oi[k] };
+            int f;
+            for( f = 0; f < 6; f++ )
+            {
+                if( !isfinite(bar[f]) || bar[f] > TA_REAL_MAX || bar[f] < TA_REAL_MIN )
+                {
+                    printf("FUZZ_DOMAIN_MAX: seed %d bar %d field %d = %g is outside "
+                           "TA_REAL_MIN..TA_REAL_MAX\n", seed, k, f, bar[f]);
+                    return TA_TSTCDL_PREDICATE_VACUOUS;
+                }
+            }
+            if( h[k] < o[k] || h[k] < c[k] || l[k] > o[k] || l[k] > c[k] || vv[k] < 1000.0 )
+            {
+                printf("FUZZ_DOMAIN_MAX: seed %d bar %d is not a valid bar\n", seed, k);
+                return TA_TSTCDL_PREDICATE_VACUOUS;
+            }
+            if( h[k] >= edge ) nearMax++;
+            else if( l[k] <= -edge ) nearMin++;
+            else ordinary++;
+            if( vv[k] >= edge ) bigVol++;
+            if( k > 0 && (c[k] < 0.0) != (c[k - 1] < 0.0) ) flips++;
+        }
+    }
+    if( nearMax == 0 || nearMin == 0 || ordinary == 0 || flips == 0 || bigVol == 0 )
+    {
+        printf("FUZZ_DOMAIN_MAX VACUOUS: bars near +bound=%d, near -bound=%d, "
+               "ordinary=%d, sign flips=%d, volume near bound=%d\n",
+               nearMax, nearMin, ordinary, flips, bigVol);
+        return TA_TSTCDL_PREDICATE_VACUOUS;
+    }
+    return TA_TEST_PASS;
+}
+
 /* ACCBANDS supports input==output aliasing: the fused single-loop rewrite reads
  * every current and trailing bar BEFORE it writes any band for that output
  * index, so an output buffer that aliases an input buffer is only overwritten
@@ -10051,6 +10105,11 @@ ErrorNumber test_codegen(const TA_History *history,
     if( errNb != TA_TEST_PASS )
         return errNb;
     errNb = verify_accbands_inplace_aliasing();
+    if( errNb != TA_TEST_PASS )
+        return errNb;
+
+    /* Non-vacuity guard for the shape at the edges of the input domain. */
+    errNb = verify_fuzz_domain_max_nonvacuous();
     if( errNb != TA_TEST_PASS )
         return errNb;
 

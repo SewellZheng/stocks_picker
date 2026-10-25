@@ -68,6 +68,7 @@
  *               testing the money-flow sum against a literal 1.0; classify
  *               branchlessly; clamp the emitted ratio into [0,100].
  *  092526 MF,CC #442. Allocate the money-flow ring only when there is output.
+ *  102326 MF,CC #554 rare reset.
  */
 
 // Import types from parent module
@@ -241,14 +242,6 @@ impl Core {
             // every other bar and dominated the cost of the function.  Adding the
             // unused side's 0.0 to a sum is an exact no-op, so this reproduces the
             // branching form bit for bit.
-            //
-            // The three quantities are named rather than folded back into
-            // tempValue1/2 deliberately, at a known cost: every local in a step body
-            // becomes a field of the stream handle, so each name is another store
-            // per bar (~10% of MFI's streaming Update, +32 handle bytes).  That is
-            // the generator's to fix -- issue #252, which counts 436 such fields
-            // across 125 streaming functions -- not something to obfuscate an
-            // indicator body over.
             moneyFlow = (if ((tempValue2).abs() <= 1e-14 * (tempValue3)) { 0.0 } else { tempValue1 });
             posFlow = (if tempValue2 < 0.0 { 0.0 } else { moneyFlow });
             negFlow = f64::from_bits(f64::to_bits(0.0) ^ f64::to_bits(moneyFlow) ^ f64::to_bits(posFlow));
@@ -262,6 +255,7 @@ impl Core {
             // be exactly zero and the residue can be dropped.
             nullRun = (if moneyFlow == 0.0 { nullRun + 1 } else { 0 });
             if nullRun >= ((optInTimePeriod) as usize) {
+                cold_arm();
                 nullRun = (optInTimePeriod) as usize;
                 posSumMF = 0.0;
                 negSumMF = 0.0;
@@ -316,6 +310,7 @@ impl Core {
             negSumMF += negFlow;
             nullRun = (if moneyFlow == 0.0 { nullRun + 1 } else { 0 });
             if nullRun >= ((optInTimePeriod) as usize) {
+                cold_arm();
                 nullRun = (optInTimePeriod) as usize;
                 posSumMF = 0.0;
                 negSumMF = 0.0;
@@ -528,6 +523,7 @@ impl Core {
         sp.negSumMF += negFlow;
         sp.nullRun = (if moneyFlow == 0.0 { sp.nullRun + 1 } else { 0 });
         if sp.nullRun >= ((sp.optInTimePeriod) as usize) {
+            cold_arm();
             sp.nullRun = (sp.optInTimePeriod) as usize;
             sp.posSumMF = 0.0;
             sp.negSumMF = 0.0;
@@ -642,14 +638,6 @@ impl Core {
             // every other bar and dominated the cost of the function.  Adding the
             // unused side's 0.0 to a sum is an exact no-op, so this reproduces the
             // branching form bit for bit.
-            //
-            // The three quantities are named rather than folded back into
-            // tempValue1/2 deliberately, at a known cost: every local in a step body
-            // becomes a field of the stream handle, so each name is another store
-            // per bar (~10% of MFI's streaming Update, +32 handle bytes).  That is
-            // the generator's to fix -- issue #252, which counts 436 such fields
-            // across 125 streaming functions -- not something to obfuscate an
-            // indicator body over.
             moneyFlow = (if ((tempValue2).abs() <= 1e-14 * (tempValue3)) { 0.0 } else { tempValue1 });
             posFlow = (if tempValue2 < 0.0 { 0.0 } else { moneyFlow });
             negFlow = f64::from_bits(f64::to_bits(0.0) ^ f64::to_bits(moneyFlow) ^ f64::to_bits(posFlow));
@@ -663,6 +651,7 @@ impl Core {
             // be exactly zero and the residue can be dropped.
             nullRun = (if moneyFlow == 0.0 { nullRun + 1 } else { 0 });
             if nullRun >= ((optInTimePeriod) as usize) {
+                cold_arm();
                 nullRun = (optInTimePeriod) as usize;
                 posSumMF = 0.0;
                 negSumMF = 0.0;
@@ -715,6 +704,7 @@ impl Core {
             negSumMF += negFlow;
             nullRun = (if moneyFlow == 0.0 { nullRun + 1 } else { 0 });
             if nullRun >= ((optInTimePeriod) as usize) {
+                cold_arm();
                 nullRun = (optInTimePeriod) as usize;
                 posSumMF = 0.0;
                 negSumMF = 0.0;

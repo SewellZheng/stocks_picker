@@ -2,9 +2,10 @@
  *
  * Compared from period 1 and over every MAType. The rows cover the value
  * changes made since, each sized at 3x its measured maximum; the waivers cover
- * the flat-start 0/0 (#480), TRIX at a period of 1 (#505) and the index named
- * on a tie (#503). */
+ * the flat-start 0/0 (#480), TRIX at a period of 1 (#505), the index named
+ * on a tie (#503) and inputs near the domain bound for six of the rows. */
 
+#include <math.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -67,7 +68,7 @@ static const TaRefTol TOL[] = {
 
 /* Each ceiling sits halfway between the largest share measured on one function
  * and 1. */
-enum { W_RSI, W_TRIX1, W_INDEX_TIE };
+enum { W_RSI, W_TRIX1, W_INDEX_TIE, W_DOMAIN_EDGE };
 static const TaRefWaiver WAIVERS[] = {
    [W_RSI] = { "rsi_flat_480",
                "RSI with no change from the first bar read to the first output, where 0.8.1 answers 0 for 0/0, and STOCHRSI once a move follows (#480)", 0.56 },
@@ -75,7 +76,28 @@ static const TaRefWaiver WAIVERS[] = {
                  "TRIX at a period of 1 over a bar where (x-prev)+prev is not x: 0.8.1 takes three such steps and loses the input, the one-FMA step copies it (#505)", 0.51 },
    [W_INDEX_TIE] = { "index_tie_503",
                "MAXINDEX/MININDEX/MINMAXINDEX over a window that holds its extreme on several bars, where 0.8.1 names the oldest or the newest of them by where the call started (#503)", 0.71 },
+   [W_DOMAIN_EDGE] = { "domain_edge",
+               "VAR/STDDEV/CORREL/TRIX/PPO/EFI reading an input near the domain bound, where 0.8.1's rounding sits further from the current values than the rows sized on ordinary data", 0.55 },
 };
+
+/* Keeps those rows at their ordinary-data size: a case whose inputs pass
+ * DOMAIN_EDGE in the span it reads is not compared at all. */
+#define DOMAIN_EDGE 1e30
+static int domain_edge( const TaRefCase *c )
+{
+   static const char *const FUNCS[] = { "VAR", "STDDEV", "CORREL", "TRIX", "PPO", "EFI", NULL };
+   int i, first, j, readsVolume;
+
+   for( i = 0; FUNCS[i] && strcmp( c->func, FUNCS[i] ) != 0; i++ ) ;
+   if( !FUNCS[i] || c->lookback < 0 ) return 0;
+   first = (c->startIdx > c->lookback) ? c->startIdx : c->lookback;
+   if( first > c->endIdx || c->endIdx >= c->n ) return 0;
+   readsVolume = strcmp( c->func, "CORREL" ) == 0 || strcmp( c->func, "EFI" ) == 0;
+   for( j = first - c->lookback; j <= c->endIdx; j++ )
+      if( fabs( c->close[j] ) > DOMAIN_EDGE || (readsVolume && fabs( c->volume[j] ) > DOMAIN_EDGE) )
+         return 1;
+   return 0;
+}
 
 /* RSI's gain and loss sums are both zero while nothing has moved since the
  * first bar read, so the bars from that one to the first output tell whether
@@ -100,6 +122,7 @@ static int waive( const TaRefCase *c )
    int isRsi = strcmp( c->func, "RSI" ) == 0;
    int first, from, seed;
 
+   if( domain_edge( c ) ) return W_DOMAIN_EDGE;
    if( strcmp( c->func, "TRIX" ) == 0 )
    {
       if( (int)ta_ref_opt( c, "optInTimePeriod", 0 ) != 1 || c->lookback < 0 ) return -1;

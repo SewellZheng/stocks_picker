@@ -202,7 +202,7 @@ What enters a lookback, in C, in a bare run:
 - rZ2: the same file's offset check asks CKSP, ADOSC and KVO for their lookback
   with the id they inherit on a count of 30 and on each level: a count adds
   exactly 30 bars, a level the owner's count plus the function's own.
-- rL5, rL7 and rL9: `abstract_lookback_under_settings` (`test_abstract.c`), for
+- rL5, rL7 and rL12: `abstract_lookback_under_settings` and, for rL12, `ds_under_settings` (`test_abstract.c`), for
   every function at its default parameters: another range type and factor on
   every candle setting moves no lookback; seven more bars on every averaging
   period move a candlestick lookback by seven or not at all, and no other;
@@ -559,6 +559,12 @@ are rows like any other: their ceiling is the share measured, not zero.
 
 ### Versions and determinism
 
+rV1: `scripts/abi.py check`, the PR gate's "Public C ABI matches ABI.manifest"
+step (`pr-codegen-gate.yml`), measures the installed headers' declarations
+against `ABI.released` and refuses a removed or changed one without a new N;
+`nightly-jobs.yml` checks the soname and the macOS install name against the N
+in `ABI.manifest`.
+
 rV2: `testEnumValueContract` pins C's numbers. `MAType` reaches every language
 from `enums.yaml`, and `FuncUnstId` reaches C, Java and C# from it; Rust's
 `FuncUnstId` is a template that `generate` refuses when its member names or
@@ -818,12 +824,17 @@ domain. Sizing a change against a value outside the domain is
 over-engineering, and this is the citation for saying so.
 
 The bound is not enforced: checking it would cost a pass over every input array
-on every call, to reject values no caller sends. It is not the range the gates
-exercise either: the fuzz corpus tops out around 1e9 (`FUZZ_EXTREME`), so
-between 1e9 and 3e37 the domain rests on the arithmetic rather than on
-measurement. The constant is reused rather than invented: it already bounds a
-real optional parameter, and it sits inside `FLT_MAX`, so a value in the domain
-is representable in the `TA_S_*` variants. `DBL_MIN` would mislead, being the
+on every call, to reject values no caller sends. The gates exercise its edges:
+`FUZZ_DOMAIN_MAX` puts most bars within 9% of +3e37 or -3e37 (volume and open
+interest within reach of +3e37), with adjacent bars of opposite sign and
+ordinary bars near 100 in the same windows. Every gate that walks the fuzz
+shapes runs it, among them the VARIANT gate, whose calls the metadata ride
+holds to finite outputs, the cross-language and stream comparisons, and the
+frozen-release fuzz. Between 1e9 and the edges the domain rests on the
+arithmetic rather than on measurement.
+The constant is reused rather than invented: it already bounds a real optional
+parameter, and it sits inside `FLT_MAX`, so a value in the domain is
+representable in the `TA_S_*` variants. `DBL_MIN` would mislead, being the
 smallest normalised *positive* double.
 
 ### Finite inputs: no history scan
