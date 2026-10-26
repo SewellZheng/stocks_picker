@@ -8,7 +8,7 @@ project(ta-lib)
 # Written by scripts/sync.py from VERSION; do not edit.
 set(TA_LIB_VERSION_MAJOR 0)
 set(TA_LIB_VERSION_MINOR 8)
-set(TA_LIB_VERSION_PATCH 3)
+set(TA_LIB_VERSION_PATCH 4)
 
 set(PROJECT_VERSION "${TA_LIB_VERSION_MAJOR}.${TA_LIB_VERSION_MINOR}.${TA_LIB_VERSION_PATCH}")
 
@@ -654,9 +654,8 @@ if(BUILD_STATIC_LIBS)
 
 	if(WIN32)
 		# Note: WIN32 is defined regardless of 32 or 64 bits host.
-		# Keep the -static suffix so it does not collide with the shared import
-		# library ta-lib.lib; the vcpkg port renames it to ta-lib.lib for the
-		# static triplet.
+		# Keep the -static suffix so it does not collide with the shared build's
+		# import library.
 		set_target_properties(ta-lib-static PROPERTIES OUTPUT_NAME ta-lib-static)
 	endif(WIN32)
 

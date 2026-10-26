@@ -1,3 +1,4 @@
+import gzip
 import json
 import os
 import re
@@ -10,6 +11,11 @@ from .files import path_join
 LATEST_RELEASE_URL = "https://api.github.com/repos/ta-lib/ta-lib/releases/latest"
 MAVEN_METADATA_URL = ("https://repo1.maven.org/maven2/io/github/ta-lib/ta-lib/"
                       "maven-metadata.xml")
+CRATES_URL = "https://crates.io/api/v1/crates/ta-lib"
+FIRST_CRATE_VERSION = (0, 8, 0)
+# The SemVer 2 hive: the SemVer 1 one omits any version nuget.org classes as SemVer 2.0.0.
+# It is always served gzip-compressed, which urllib does not undo.
+NUGET_REGISTRATION_URL = "https://api.nuget.org/v3/registration5-gz-semver2/ta-lib/index.json"
 
 # Each pattern names the version it owns `ver`, and only that group is rewritten,
 # so a pattern may match as much surrounding text as it needs to be unambiguous.
@@ -25,6 +31,12 @@ VERSION_PATTERN = r'(?<=[v/\["\'\-_\s])(?P<ver>\d+\.\d+\.\d+)(?=[/\]"\'\-_\s])'
 MAVEN_VERSION_PATTERN = (r'<artifactId>ta-lib</artifactId>\s*'
                          r'<version>(?P<ver>\d+\.\d+\.\d+)</version>')
 
+NUGET_VERSION_PATTERN = r'<PackageReference Include="TA-Lib" Version="(?P<ver>\d+\.\d+\.\d+)"'
+
+# MAJOR.MINOR: the page writes the requirement cargo users write, `ta-lib = "0.8"`,
+# which already accepts every patch of that minor.
+CRATES_VERSION_PATTERN = r'(?m)^ta-lib = "(?P<ver>\d+\.\d+)"$'
+
 # A registry that has never published this artifact. Distinct from None, which
 # means the lookup failed: nothing published is a steady state the page is
 # already correct for, while a failed lookup is worth reporting and retrying.
@@ -38,6 +50,8 @@ NOT_PUBLISHED = "not-published"
 PAGES = (
     ("C", ('website', 'src', 'install', 'c', 'README.md'), VERSION_PATTERN),
     ("Java", ('website', 'src', 'api', 'java', 'README.md'), MAVEN_VERSION_PATTERN),
+    ("C#", ('website', 'src', 'api', 'csharp', 'README.md'), NUGET_VERSION_PATTERN),
+    ("Rust", ('website', 'src', 'api', 'rust', 'README.md'), CRATES_VERSION_PATTERN),
 )
 
 
@@ -104,7 +118,87 @@ def latest_maven_version() -> str:
     return released
 
 
-LOOKUPS = {"C": latest_release_version, "Java": latest_maven_version}
+def latest_nuget_version() -> str:
+    """The newest listed X.Y.Z of TA-Lib on nuget.org, NOT_PUBLISHED, or None.
+
+    The id also holds four-part 0.5.0.x versions from before this repository
+    published it; only X.Y.Z counts. An unlisted version is skipped: nuget.org
+    hides it from search, so the page must not point at it.
+    """
+    headers = {"User-Agent": "ta-lib-sync"}
+
+    def parse(raw):
+        return json.loads(gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw)
+
+    body, status, error = _get(NUGET_REGISTRATION_URL, headers)
+    if body is None:
+        if status == 404:
+            return NOT_PUBLISHED
+        print(f"Warning: could not query nuget.org ({error}).")
+        return None
+    try:
+        versions, unlisted = [], []
+        for page in parse(body).get("items", []):
+            items = page.get("items")
+            if items is None:
+                page_body, _status, error = _get(page["@id"], headers)
+                if page_body is None:
+                    print(f"Warning: could not query nuget.org ({error}).")
+                    return None
+                items = parse(page_body).get("items", [])
+            for item in items:
+                entry = item.get("catalogEntry", {})
+                version = entry.get("version", "")
+                if re.fullmatch(r'\d+\.\d+\.\d+', version):
+                    (versions if entry.get("listed", True) else unlisted).append(version)
+    except Exception as e:
+        print(f"Warning: the nuget.org registration is not readable JSON ({e}).")
+        return None
+    if not versions:
+        if unlisted:
+            # Leaving the page alone would leave it on an unlisted version unreported.
+            print(f"Warning: every TA-Lib X.Y.Z on nuget.org is unlisted ({', '.join(unlisted)}).")
+            return None
+        return NOT_PUBLISHED
+    return max(versions, key=lambda v: tuple(int(x) for x in v.split('.')))
+
+
+def latest_crate_minor() -> str:
+    """MAJOR.MINOR of the newest unyanked X.Y.Z of ta-lib on crates.io, NOT_PUBLISHED, or None.
+
+    The name also holds 0.1.x from an unrelated earlier crate, never ours: with every
+    one of our versions yanked, it would otherwise become the newest and the page
+    would install someone else's crate.
+    """
+    # crates.io refuses a request without a User-Agent.
+    body, status, error = _get(CRATES_URL, {"User-Agent": "ta-lib-sync (https://ta-lib.org)"})
+    if body is None:
+        if status == 404:
+            return NOT_PUBLISHED
+        print(f"Warning: could not query crates.io ({error}).")
+        return None
+
+    def key(v):
+        return tuple(int(x) for x in v.split('.'))
+
+    try:
+        ours = [v for v in json.loads(body).get("versions", [])
+                if re.fullmatch(r'\d+\.\d+\.\d+', v.get("num", ""))
+                and key(v["num"]) >= FIRST_CRATE_VERSION]
+    except Exception as e:
+        print(f"Warning: the crates.io answer is not readable JSON ({e}).")
+        return None
+    live = [v["num"] for v in ours if not v.get("yanked")]
+    if not live:
+        if ours:
+            print("Warning: every ta-lib version on crates.io from this repository is yanked.")
+            return None
+        return NOT_PUBLISHED
+    return max(live, key=key).rsplit('.', 1)[0]
+
+
+LOOKUPS = {"C": latest_release_version, "Java": latest_maven_version,
+           "C#": latest_nuget_version, "Rust": latest_crate_minor}
 
 
 def page_path(root_dir: str, relpath) -> str:
