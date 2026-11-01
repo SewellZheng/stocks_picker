@@ -303,6 +303,10 @@ static void record_retcode( int langIndex, int code )
  * intention: set the pad to 0, or break the server's parsing of it, and the
  * floor stays green over calls that are all exactly sized. */
 static long g_slackCalls[NUM_LANGUAGES];
+/* Padded calls whose spare slots the server reported checking (`out_tail_dirty`).
+ * C is exempt: its server writes into fixed statics, and the in-process range
+ * test already fences every C output with canaries. */
+static long g_tailChecked[NUM_LANGUAGES];
 /* How much larger. Small on purpose — a big pad is the state this replaced, and
  * would not distinguish "the bound is a minimum" from "the bound is unchecked". */
 #define OUT_SLACK_PAD 7
@@ -1736,7 +1740,7 @@ static TA_RetCode codegen_range_generic(
     CodegenRangeTestParam *p = (CodegenRangeTestParam *)opaqueData;
 
     /* Unstable integer outputs (HT_TRENDMODE) go through the real-path
-     * comparator, like the hand tests' FREE_INT_BUFFER conversion. */
+     * comparator. */
     *isOutputInteger = (unsigned int)p->outputIsInteger[outputNb];
     if( p->outputIsInteger[outputNb] && p->unstId != TA_TEST_UNST_NONE )
         *isOutputInteger = 0;
@@ -1749,41 +1753,34 @@ static TA_RetCode codegen_range_generic(
      * output 1, etc. — so the startIdx/endIdx differ between outputNb calls
      * and we cannot cache across them. */
 
-    /* Re-point all output buffers (TA_CallFunc writes into these) */
+    /* The requested output is written straight into the sweep's buffer, so
+     * its out-of-bound checks see every slot the call writes. */
     for( unsigned int i = 0; i < p->funcInfo->nbOutput; i++ )
     {
         if( p->outputIsInteger[i] )
-            TA_SetOutputParamIntegerPtr(p->paramHolder, i, p->outIntBufs[i]);
+            TA_SetOutputParamIntegerPtr(p->paramHolder, i,
+                                        i == outputNb ? outputBufferInt : p->outIntBufs[i]);
         else
-            TA_SetOutputParamRealPtr(p->paramHolder, i, p->outRealBufs[i]);
+            TA_SetOutputParamRealPtr(p->paramHolder, i,
+                                     i == outputNb ? outputBuffer : p->outRealBufs[i]);
     }
 
-    /* Call the C reference function via ta_abstract */
     p->lastRetCode = TA_CallFunc(p->paramHolder, startIdx, endIdx,
                                   &p->lastBegIdx, &p->lastNbElement);
 
+    /* The sweep's buffer is freed when it returns: leave the holder on its own. */
+    if( p->outputIsInteger[outputNb] )
+        TA_SetOutputParamIntegerPtr(p->paramHolder, outputNb, p->outIntBufs[outputNb]);
+    else
+        TA_SetOutputParamRealPtr(p->paramHolder, outputNb, p->outRealBufs[outputNb]);
 
     *outBegIdx = p->lastBegIdx;
     *outNbElement = p->lastNbElement;
 
-    /* Copy the requested output into the doRangeTest buffer */
-    if( p->lastRetCode == TA_SUCCESS && p->lastNbElement > 0 )
+    if( p->lastRetCode == TA_SUCCESS && p->outputIsInteger[outputNb] && !*isOutputInteger )
     {
-        if( *isOutputInteger )
-        {
-            for( int i = 0; i < p->lastNbElement; i++ )
-                outputBufferInt[i] = p->outIntBufs[outputNb][i];
-        }
-        else if( p->outputIsInteger[outputNb] )
-        {
-            for( int i = 0; i < p->lastNbElement; i++ )
-                outputBuffer[i] = (TA_Real)p->outIntBufs[outputNb][i];
-        }
-        else
-        {
-            for( int i = 0; i < p->lastNbElement; i++ )
-                outputBuffer[i] = p->outRealBufs[outputNb][i];
-        }
+        for( int i = 0; i < p->lastNbElement; i++ )
+            outputBuffer[i] = (TA_Real)outputBufferInt[i];
     }
 
     /* Codegen comparison is done once in test_one_function (full range).
@@ -2613,6 +2610,7 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
      * - range test: is the C function coherent across sub-ranges?
      */
     build_json_request(&params, 0, params.nbBars - 1);
+    long tailReports = codegen_tail_reports_ever();
     ErrorNumber codegenErr = codegen_pipe_call(params.cp, params.requestBuf,
                                                params.responseBuf, JSON_BUF_SIZE);
     if( codegenErr != TA_TEST_PASS )
@@ -2653,6 +2651,9 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
         int outLen = json_get_int(params.responseBuf, "out_len");
         if( outLen > params.lastNbElement )
             g_slackCalls[ctx->langIndex]++;
+        if( outLen > params.lastNbElement
+            && codegen_tail_reports_ever() > tailReports )
+            g_tailChecked[ctx->langIndex]++;
     }
 
     /* Whether the backend supported this function at the default period (non-error
@@ -10335,6 +10336,16 @@ ErrorNumber test_codegen(const TA_History *history,
                            "out_pad request field stopped being honoured, or the "
                            "harness is asserting the bound is an equality, which "
                            "it is not\n",
+                           ALL_LANGUAGES[li].display);
+                    return TA_CODEGEN_OUTPUT_MISMATCH;
+                }
+                if( g_codegenCompared[li] > 0 && g_slackCalls[li] > 0
+                    && g_tailChecked[li] == 0
+                    && strcmp(ALL_LANGUAGES[li].name, "c") != 0 )
+                {
+                    printf("\nCODEGEN FAILED: %s never once reported checking "
+                           "the output slots past outNBElement (out_tail_dirty) "
+                           "on a padded call\n",
                            ALL_LANGUAGES[li].display);
                     return TA_CODEGEN_OUTPUT_MISMATCH;
                 }
