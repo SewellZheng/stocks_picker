@@ -993,6 +993,17 @@ unsigned int TA_CDLXSIDEGAP3METHODS_FramePPLB( const TA_ParamHolderPriv *params 
 int TA_CDLXSIDEGAP3METHODS_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
+TA_RetCode TA_CE_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_CE_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_CE_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
 TA_RetCode TA_CEIL_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -1664,6 +1675,17 @@ unsigned int TA_MACDFIX_FramePPLB( const TA_ParamHolderPriv *params )
 int TA_MACDFIX_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
+TA_RetCode TA_MACDV_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_MACDV_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_MACDV_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
 TA_RetCode TA_MAMA_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -2201,6 +2223,17 @@ TA_RetCode TA_SINH_FramePP( const TA_ParamHolderPriv *params,
 unsigned int TA_SINH_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 int TA_SINH_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
+TA_RetCode TA_SKEW_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_SKEW_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_SKEW_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
 TA_RetCode TA_SMA_FramePP( const TA_ParamHolderPriv *params,

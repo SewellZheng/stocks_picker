@@ -126,6 +126,7 @@ extern const TA_FuncDef TA_DEF_CDLTRISTAR;
 extern const TA_FuncDef TA_DEF_CDLUNIQUE3RIVER;
 extern const TA_FuncDef TA_DEF_CDLUPSIDEGAP2CROWS;
 extern const TA_FuncDef TA_DEF_CDLXSIDEGAP3METHODS;
+extern const TA_FuncDef TA_DEF_CE;
 extern const TA_FuncDef TA_DEF_CEIL;
 extern const TA_FuncDef TA_DEF_CG;
 extern const TA_FuncDef TA_DEF_CHOP;
@@ -187,6 +188,7 @@ extern const TA_FuncDef TA_DEF_MA;
 extern const TA_FuncDef TA_DEF_MACD;
 extern const TA_FuncDef TA_DEF_MACDEXT;
 extern const TA_FuncDef TA_DEF_MACDFIX;
+extern const TA_FuncDef TA_DEF_MACDV;
 extern const TA_FuncDef TA_DEF_MAMA;
 extern const TA_FuncDef TA_DEF_MARKETFI;
 extern const TA_FuncDef TA_DEF_MASSI;
@@ -236,6 +238,7 @@ extern const TA_FuncDef TA_DEF_SAREXT;
 extern const TA_FuncDef TA_DEF_SI;
 extern const TA_FuncDef TA_DEF_SIN;
 extern const TA_FuncDef TA_DEF_SINH;
+extern const TA_FuncDef TA_DEF_SKEW;
 extern const TA_FuncDef TA_DEF_SMA;
 extern const TA_FuncDef TA_DEF_SMI;
 extern const TA_FuncDef TA_DEF_SQRT;
@@ -317,6 +320,7 @@ const TA_FuncDef *TA_PerGroupFunc_2[] = {
 &TA_DEF_ACCBANDS,
 &TA_DEF_ALMA,
 &TA_DEF_BBANDS,
+&TA_DEF_CE,
 &TA_DEF_CKSP,
 &TA_DEF_DEMA,
 &TA_DEF_DONCHIAN,
@@ -401,6 +405,7 @@ const TA_FuncDef *TA_PerGroupFunc_4[] = {
 &TA_DEF_MACD,
 &TA_DEF_MACDEXT,
 &TA_DEF_MACDFIX,
+&TA_DEF_MACDV,
 &TA_DEF_MFI,
 &TA_DEF_MINUS_DI,
 &TA_DEF_MINUS_DM,
@@ -539,6 +544,7 @@ const TA_FuncDef *TA_PerGroupFunc_8[] = {
 &TA_DEF_MEDIAN,
 &TA_DEF_PERCENTILE,
 &TA_DEF_PERCENTRANK,
+&TA_DEF_SKEW,
 &TA_DEF_STDDEV,
 &TA_DEF_TSF,
 &TA_DEF_VAR,

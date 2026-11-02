@@ -89,6 +89,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_CDLUNIQUE3RIVER.c \
 	ta_CDLUPSIDEGAP2CROWS.c \
 	ta_CDLXSIDEGAP3METHODS.c \
+	ta_CE.c \
 	ta_CEIL.c \
 	ta_CG.c \
 	ta_CHOP.c \
@@ -150,6 +151,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_MACD.c \
 	ta_MACDEXT.c \
 	ta_MACDFIX.c \
+	ta_MACDV.c \
 	ta_MAMA.c \
 	ta_MARKETFI.c \
 	ta_MASSI.c \
@@ -199,6 +201,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_SI.c \
 	ta_SIN.c \
 	ta_SINH.c \
+	ta_SKEW.c \
 	ta_SMA.c \
 	ta_SMI.c \
 	ta_SQRT.c \

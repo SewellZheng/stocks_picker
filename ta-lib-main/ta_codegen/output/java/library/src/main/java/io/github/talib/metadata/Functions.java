@@ -206,6 +206,7 @@ public final class Functions {
       put(m, f_CDLUNIQUE3RIVER());
       put(m, f_CDLUPSIDEGAP2CROWS());
       put(m, f_CDLXSIDEGAP3METHODS());
+      put(m, f_CE());
       put(m, f_CEIL());
       put(m, f_CG());
       put(m, f_CHOP());
@@ -267,6 +268,7 @@ public final class Functions {
       put(m, f_MACD());
       put(m, f_MACDEXT());
       put(m, f_MACDFIX());
+      put(m, f_MACDV());
       put(m, f_MAMA());
       put(m, f_MARKETFI());
       put(m, f_MASSI());
@@ -316,6 +318,7 @@ public final class Functions {
       put(m, f_SI());
       put(m, f_SIN());
       put(m, f_SINH());
+      put(m, f_SKEW());
       put(m, f_SMA());
       put(m, f_SMI());
       put(m, f_SQRT());
@@ -1623,6 +1626,30 @@ public final class Functions {
          ));
    }
 
+   private static FuncInfo f_CE() {
+      return new FuncInfo(
+         "CE", "Overlap Studies", "Chandelier Exit", 0x03000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHLC", 0x0000000E)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTimePeriod", 0x00000000,
+               "Time Period", "ATR and extreme window", 22.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInMultiplier", 0x00000000,
+               "Multiplier", "ATR multiplier", 3.0,
+               0.0, 3e37, 2, 1.0, 5.0, 0.5,
+               0, 0, 0, 0, 0, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outRealLong", 0x00001000),
+            new OutputInfo(OutputType.REAL, "outRealShort", 0x00000800)
+         ));
+   }
+
    private static FuncInfo f_CEIL() {
       return new FuncInfo(
          "CEIL", "Math Transform", "Vector Ceil", 0x02000000,
@@ -2888,6 +2915,36 @@ public final class Functions {
          ));
    }
 
+   private static FuncInfo f_MACDV() {
+      return new FuncInfo(
+         "MACDV", "Momentum Indicators", "MACD-V, Volatility Normalised Momentum", 0x02000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHLC", 0x0000000E)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInFastPeriod", 0x00000000,
+               "Fast Period", "Period of the fast MA", 12.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInSlowPeriod", 0x00000000,
+               "Slow Period", "Period of the slow MA and of the ATR", 26.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInSignalPeriod", 0x00000000,
+               "Signal Period", "Smoothing for the signal line (period length)", 9.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 1, 200, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outMACDV", 0x00000001),
+            new OutputInfo(OutputType.REAL, "outMACDVSignal", 0x00000004),
+            new OutputInfo(OutputType.REAL, "outMACDVHist", 0x00000010)
+         ));
+   }
+
    private static FuncInfo f_MAMA() {
       return new FuncInfo(
          "MAMA", "Overlap Studies", "MESA Adaptive Moving Average", 0x0B000004,
@@ -3837,6 +3894,24 @@ public final class Functions {
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
          List.of(),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
+   private static FuncInfo f_SKEW() {
+      return new FuncInfo(
+         "SKEW", "Statistic Functions", "Rolling Skewness", 0x02000000,
+         List.of(
+            new InputInfo(InputType.REAL, "inReal", 0x00000000)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTimePeriod", 0x00000000,
+               "Time Period", "Time period", 30.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               3, 100000, 10, 200, 5, null)
+         ),
          List.of(
             new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
          ));

@@ -316,6 +316,9 @@ final class Dispatch {
          case "CDLXSIDEGAP3METHODS":
             return core.cdlxsidegap3methods(
                startIdx, endIdx, h.price(0, 0), h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOutput(0));
+         case "CE":
+            return core.ce(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOpt(1), h.realOutput(0), h.realOutput(1));
          case "CEIL":
             return core.ceil(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
@@ -499,6 +502,9 @@ final class Dispatch {
          case "MACDFIX":
             return core.macdfix(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0), h.realOutput(1), h.realOutput(2));
+         case "MACDV":
+            return core.macdv(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0), h.realOutput(1), h.realOutput(2));
          case "MAMA":
             return core.mama(
                startIdx, endIdx, h.realInput(0), h.realOpt(0), h.realOpt(1), h.realOutput(0), h.realOutput(1));
@@ -646,6 +652,9 @@ final class Dispatch {
          case "SINH":
             return core.sinh(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
+         case "SKEW":
+            return core.skew(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
          case "SMA":
             return core.sma(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
@@ -952,6 +961,8 @@ final class Dispatch {
             return core.cdlupsidegap2crowsLookback();
          case "CDLXSIDEGAP3METHODS":
             return core.cdlxsidegap3methodsLookback();
+         case "CE":
+            return core.ceLookback(h.intOpt(0), h.realOpt(1));
          case "CEIL":
             return core.ceilLookback();
          case "CG":
@@ -1074,6 +1085,8 @@ final class Dispatch {
             return core.macdextLookback(h.intOpt(0), h.maTypeOpt(1), h.intOpt(2), h.maTypeOpt(3), h.intOpt(4), h.maTypeOpt(5));
          case "MACDFIX":
             return core.macdfixLookback(h.intOpt(0));
+         case "MACDV":
+            return core.macdvLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
          case "MAMA":
             return core.mamaLookback(h.realOpt(0), h.realOpt(1));
          case "MARKETFI":
@@ -1172,6 +1185,8 @@ final class Dispatch {
             return core.sinLookback();
          case "SINH":
             return core.sinhLookback();
+         case "SKEW":
+            return core.skewLookback(h.intOpt(0));
          case "SMA":
             return core.smaLookback(h.intOpt(0));
          case "SMI":
@@ -1434,6 +1449,8 @@ final class Dispatch {
             return core.cdlupsidegap2crowsDisplayShift(outputIdx);
          case "CDLXSIDEGAP3METHODS":
             return core.cdlxsidegap3methodsDisplayShift(outputIdx);
+         case "CE":
+            return core.ceDisplayShift(h.intOpt(0), h.realOpt(1), outputIdx);
          case "CEIL":
             return core.ceilDisplayShift(outputIdx);
          case "CG":
@@ -1556,6 +1573,8 @@ final class Dispatch {
             return core.macdextDisplayShift(h.intOpt(0), h.maTypeOpt(1), h.intOpt(2), h.maTypeOpt(3), h.intOpt(4), h.maTypeOpt(5), outputIdx);
          case "MACDFIX":
             return core.macdfixDisplayShift(h.intOpt(0), outputIdx);
+         case "MACDV":
+            return core.macdvDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), outputIdx);
          case "MAMA":
             return core.mamaDisplayShift(h.realOpt(0), h.realOpt(1), outputIdx);
          case "MARKETFI":
@@ -1654,6 +1673,8 @@ final class Dispatch {
             return core.sinDisplayShift(outputIdx);
          case "SINH":
             return core.sinhDisplayShift(outputIdx);
+         case "SKEW":
+            return core.skewDisplayShift(h.intOpt(0), outputIdx);
          case "SMA":
             return core.smaDisplayShift(h.intOpt(0), outputIdx);
          case "SMI":

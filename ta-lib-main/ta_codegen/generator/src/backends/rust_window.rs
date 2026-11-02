@@ -355,10 +355,12 @@ fn mentions_reserved(cond: &Expr, body: &[Statement]) -> bool {
     found
 }
 
-/// A call that evaluates each argument exactly once.
+/// A call that evaluates each argument exactly once, or whose every argument
+/// is safe to evaluate on every pass.
 fn eager_call(name: &str) -> bool {
     MathFn::from_name(name).is_some()
         || name == SELECT_OTHER
+        || super::eager_select::is_pseudo_call(name)
         || matches!(
             SpecialBuiltin::from_name(name),
             Some(

@@ -201,6 +201,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeCdlunique3river(),
             MakeCdlupsidegap2crows(),
             MakeCdlxsidegap3methods(),
+            MakeCe(),
             MakeCeil(),
             MakeCg(),
             MakeChop(),
@@ -262,6 +263,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeMacd(),
             MakeMacdext(),
             MakeMacdfix(),
+            MakeMacdv(),
             MakeMama(),
             MakeMarketfi(),
             MakeMassi(),
@@ -311,6 +313,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             MakeSi(),
             MakeSin(),
             MakeSinh(),
+            MakeSkew(),
             MakeSma(),
             MakeSmi(),
             MakeSqrt(),
@@ -2296,6 +2299,32 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Cdlxsidegap3methods(
                 startIdx, endIdx, c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOut(0)));
 
+    private static FuncInfo MakeCe() => new(
+        name: "CE",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Chandelier Exit",
+        flags: FuncFlags.Overlap | FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "ATR and extreme window", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 22, 4, 200, 1)),
+            new OptInputInfo("optInMultiplier", "Multiplier", "ATR multiplier", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 3e37, 2, 3.0, 1.0, 5.0, 0.5)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outRealLong", OutputFlags.LowerLimit),
+            new OutputInfo(OutputKind.Real, "outRealShort", OutputFlags.UpperLimit),
+        ],
+        lookback: static (core, c) => core.CeLookback(c.IntOpt(0), c.RealOpt(1)),
+        displayShift: static (core, c, outputIdx) => core.CeDisplayShift(c.IntOpt(0), c.RealOpt(1), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Ce(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.RealOut(0), c.RealOut(1)));
+
     private static FuncInfo MakeCeil() => new(
         name: "CEIL",
         group: FunctionGroup.MathTransform,
@@ -3786,6 +3815,34 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
             core.Macdfix(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0), c.RealOut(1), c.RealOut(2)));
 
+    private static FuncInfo MakeMacdv() => new(
+        name: "MACDV",
+        group: FunctionGroup.MomentumIndicators,
+        hint: "MACD-V, Volatility Normalised Momentum",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInFastPeriod", "Fast Period", "Period of the fast MA", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 12, 4, 200, 1)),
+            new OptInputInfo("optInSlowPeriod", "Slow Period", "Period of the slow MA and of the ATR", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 26, 4, 200, 1)),
+            new OptInputInfo("optInSignalPeriod", "Signal Period", "Smoothing for the signal line (period length)", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 9, 1, 200, 1)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outMACDV", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outMACDVSignal", OutputFlags.DashLine),
+            new OutputInfo(OutputKind.Real, "outMACDVHist", OutputFlags.Histogram),
+        ],
+        lookback: static (core, c) => core.MacdvLookback(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),
+        displayShift: static (core, c, outputIdx) => core.MacdvDisplayShift(c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Macdv(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.RealOut(0), c.RealOut(1), c.RealOut(2)));
+
     private static FuncInfo MakeMama() => new(
         name: "MAMA",
         group: FunctionGroup.OverlapStudies,
@@ -4964,6 +5021,30 @@ public sealed class FunctionCatalog : IReadOnlyList<FuncInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.Sinh(
                 startIdx, endIdx, c.Series(0), c.RealOut(0)));
+
+    private static FuncInfo MakeSkew() => new(
+        name: "SKEW",
+        group: FunctionGroup.StatisticFunctions,
+        hint: "Rolling Skewness",
+        flags: FuncFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Real, "inReal", PriceComponents.None, []),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period", OptInputFlags.None, new OptInputDomain.IntegerRange(3, 100000, 30, 10, 200, 5)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.SkewLookback(c.IntOpt(0)),
+        displayShift: static (core, c, outputIdx) => core.SkewDisplayShift(c.IntOpt(0), outputIdx),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.Skew(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
 
     private static FuncInfo MakeSma() => new(
         name: "SMA",

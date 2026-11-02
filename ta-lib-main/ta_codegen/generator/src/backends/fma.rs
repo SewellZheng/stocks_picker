@@ -34,12 +34,12 @@
 /// that grows is a comment that goes stale on the next indicator.
 pub const FUSING_INVENTORY: &[&str] = &[
     "adosc", "apo", "atr", "bbands", "bbw", "cdlabandonedbaby",
-    "cdlmorningdojistar", "cdlmorningstar", "cdlpiercing", "cdlthrusting", "cksp",
+    "cdlmorningdojistar", "cdlmorningstar", "cdlpiercing", "cdlthrusting", "ce", "cksp",
     "cvi",
     "dema", "dosc", "efi", "ema", "eri", "fisher", "fosc", "frama", "ht_dcperiod", "ht_dcphase", "ht_phasor", "ht_sine",
     "ht_trendline", "ht_trendmode", "kama", "kst", "kstext", "kurtosis", "kvo", "linearreg", "macd",
-    "macdfix", "mama", "massi", "natr", "percentb", "ppo", "pso", "pvo", "rma", "rvi",
-    "sar", "sarext", "smi", "stc", "supertrend",
+    "macdfix", "macdv", "mama", "massi", "natr", "percentb", "ppo", "pso", "pvo", "rma", "rvi",
+    "sar", "sarext", "skew", "smi", "stc", "supertrend",
     "swak_2php", "swak_bp", "swak_butter", "swak_gauss", "swak_hp",
     "t3", "tema", "trix", "tsf", "tsi", "vidya", "wavetrend", "wclprice", "zlema",
 ];
@@ -255,9 +255,15 @@ pub(crate) fn expr_is_float_typed(expr: &Expr, ctx: Option<&FmaCtx>) -> bool {
                 || name.starts_with("jI")
                 || name.starts_with("jQ")
         }
-        Expr::FuncCall(name, _) => {
+        Expr::FuncCall(name, args) => {
+            if super::eager_select::note_of(name).is_some() {
+                return args.iter().any(|a| expr_is_float_typed(a, ctx));
+            }
+            if name == super::eager_select::SELECT || name == super::eager_select::GUARD {
+                return args[1..].iter().any(|a| expr_is_float_typed(a, ctx));
+            }
             // Math functions and ta_ methods return T, but NOT integer-returning helpers
-            if is_integer_returning_helper(name) {
+            if is_integer_returning_helper(name) || super::eager_select::is_pseudo_call(name) {
                 return false;
             }
             name.starts_with("ta_")

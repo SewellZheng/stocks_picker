@@ -178,7 +178,7 @@
 //! * [`TAN`](Core::tan) — Vector Trigonometric Tan
 //! * [`TANH`](Core::tanh) — Vector Trigonometric Tanh
 //!
-//! ## Momentum Indicators (63)
+//! ## Momentum Indicators (64)
 //!
 //! * [`AC`](Core::ac) — Accelerator/Decelerator Oscillator
 //! * [`ADX`](Core::adx) — Average Directional Movement Index
@@ -214,6 +214,7 @@
 //! * [`MACD`](Core::macd) — Moving Average Convergence/Divergence
 //! * [`MACDEXT`](Core::macdext) — MACD with controllable MA type
 //! * [`MACDFIX`](Core::macdfix) — Moving Average Convergence/Divergence Fix 12/26
+//! * [`MACDV`](Core::macdv) — MACD-V, Volatility Normalised Momentum
 //! * [`MFI`](Core::mfi) — Money Flow Index
 //! * [`MINUS_DI`](Core::minus_di) — Minus Directional Indicator
 //! * [`MINUS_DM`](Core::minus_dm) — Minus Directional Movement
@@ -244,11 +245,12 @@
 //! * [`WAVETREND`](Core::wavetrend) — WaveTrend Oscillator
 //! * [`WILLR`](Core::willr) — Williams' %R
 //!
-//! ## Overlap Studies (34)
+//! ## Overlap Studies (35)
 //!
 //! * [`ACCBANDS`](Core::accbands) — Acceleration Bands
 //! * [`ALMA`](Core::alma) — Arnaud Legoux Moving Average
 //! * [`BBANDS`](Core::bbands) — Bollinger Bands
+//! * [`CE`](Core::ce) — Chandelier Exit
 //! * [`CKSP`](Core::cksp) — Chande Kroll Stop
 //! * [`DEMA`](Core::dema) — Double Exponential Moving Average
 //! * [`DONCHIAN`](Core::donchian) — Donchian Channels
@@ -354,7 +356,7 @@
 //! * [`TYPPRICE`](Core::typprice) — Typical Price
 //! * [`WCLPRICE`](Core::wclprice) — Weighted Close Price
 //!
-//! ## Statistic Functions (13)
+//! ## Statistic Functions (14)
 //!
 //! * [`BETA`](Core::beta) — Beta
 //! * [`CORREL`](Core::correl) — Pearson's Correlation Coefficient (r)
@@ -366,6 +368,7 @@
 //! * [`MEDIAN`](Core::median) — Rolling Median
 //! * [`PERCENTILE`](Core::percentile) — Percentile (nearest rank)
 //! * [`PERCENTRANK`](Core::percentrank) — Percent Rank
+//! * [`SKEW`](Core::skew) — Rolling Skewness
 //! * [`STDDEV`](Core::stddev) — Standard Deviation
 //! * [`TSF`](Core::tsf) — Time Series Forecast
 //! * [`VAR`](Core::var) — Variance

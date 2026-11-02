@@ -112,6 +112,7 @@
 #include "ta_CDLUNIQUE3RIVER.c"
 #include "ta_CDLUPSIDEGAP2CROWS.c"
 #include "ta_CDLXSIDEGAP3METHODS.c"
+#include "ta_CE.c"
 #include "ta_CEIL.c"
 #include "ta_CG.c"
 #include "ta_CHOP.c"
@@ -172,6 +173,7 @@
 #include "ta_MACD.c"
 #include "ta_MACDEXT.c"
 #include "ta_MACDFIX.c"
+#include "ta_MACDV.c"
 #include "ta_MAMA.c"
 #include "ta_MARKETFI.c"
 #include "ta_MASSI.c"
@@ -221,6 +223,7 @@
 #include "ta_SI.c"
 #include "ta_SIN.c"
 #include "ta_SINH.c"
+#include "ta_SKEW.c"
 #include "ta_SMA.c"
 #include "ta_SMI.c"
 #include "ta_SQRT.c"
@@ -1745,6 +1748,23 @@ static void bench_all(const char *filter, int iters) {
         printf("CDLXSIDEGAP3METHODS %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "CE") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_CE(0, g_nPoints - 1, g_high, g_low, g_close, 22, 3.000000000000000, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+            g_sink += g_outBuf1[0];
+        }
+        printf("CE %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "CEIL") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -2748,6 +2768,24 @@ static void bench_all(const char *filter, int iters) {
         printf("MACDFIX %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "MACDV") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_MACDV(0, g_nPoints - 1, g_high, g_low, g_close, 12, 26, 9, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+            g_sink += g_outBuf1[0];
+            g_sink += g_outBuf2[0];
+        }
+        printf("MACDV %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "MAMA") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -3533,6 +3571,22 @@ static void bench_all(const char *filter, int iters) {
             g_sink += g_outBuf0[0];
         }
         printf("SINH %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "SKEW") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_SKEW(0, g_nPoints - 1, g_close, 30, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+        }
+        printf("SKEW %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "SMA") ) {

@@ -3770,6 +3770,54 @@ static TA_RetCode TA_CDLXSIDEGAP3METHODS_VFrameS( int startIdx, int endIdx,
 static const TA_VInputKind TA_VIn_CDLXSIDEGAP3METHODS[] = { TA_VIN_OPEN, TA_VIN_HIGH, TA_VIN_LOW, TA_VIN_CLOSE };
 static const int TA_VOutIsInt_CDLXSIDEGAP3METHODS[] = { 1 };
 
+static TA_RetCode TA_CE_VFrameD( int startIdx, int endIdx,
+                  const double *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_CE(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               in[2] /* inClose */,
+               (int)optIn[0] /* optInTimePeriod */,
+               optIn[1] /* optInMultiplier */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outRealLong */,
+               outReal[1] /* outRealShort */
+               );
+}
+static TA_RetCode TA_CE_VFrameS( int startIdx, int endIdx,
+                  const float *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_S_CE(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               in[2] /* inClose */,
+               (int)optIn[0] /* optInTimePeriod */,
+               optIn[1] /* optInMultiplier */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outRealLong */,
+               outReal[1] /* outRealShort */
+               );
+}
+
+static const TA_VInputKind TA_VIn_CE[] = { TA_VIN_HIGH, TA_VIN_LOW, TA_VIN_CLOSE };
+static const int TA_VOutIsInt_CE[] = { 0, 0 };
+static const TA_VOptSpec TA_VOpt_CE[] = {
+   { "optInTimePeriod", TA_VOPT_INT, 2.0, 100000.0, 22.0 },
+   { "optInMultiplier", TA_VOPT_REAL, 0.0, 3.00000000000000022e37, 3.0 },
+};
+
 static TA_RetCode TA_CEIL_VFrameD( int startIdx, int endIdx,
                   const double *const in[], const double optIn[],
                   int *outBegIdx, int *outNBElement,
@@ -6370,6 +6418,59 @@ static const TA_VOptSpec TA_VOpt_MACDFIX[] = {
    { "optInSignalPeriod", TA_VOPT_INT, 1.0, 100000.0, 9.0 },
 };
 
+static TA_RetCode TA_MACDV_VFrameD( int startIdx, int endIdx,
+                  const double *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_MACDV(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               in[2] /* inClose */,
+               (int)optIn[0] /* optInFastPeriod */,
+               (int)optIn[1] /* optInSlowPeriod */,
+               (int)optIn[2] /* optInSignalPeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outMACDV */,
+               outReal[1] /* outMACDVSignal */,
+               outReal[2] /* outMACDVHist */
+               );
+}
+static TA_RetCode TA_MACDV_VFrameS( int startIdx, int endIdx,
+                  const float *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_S_MACDV(
+               startIdx,
+               endIdx,
+               in[0] /* inHigh */,
+               in[1] /* inLow */,
+               in[2] /* inClose */,
+               (int)optIn[0] /* optInFastPeriod */,
+               (int)optIn[1] /* optInSlowPeriod */,
+               (int)optIn[2] /* optInSignalPeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outMACDV */,
+               outReal[1] /* outMACDVSignal */,
+               outReal[2] /* outMACDVHist */
+               );
+}
+
+static const TA_VInputKind TA_VIn_MACDV[] = { TA_VIN_HIGH, TA_VIN_LOW, TA_VIN_CLOSE };
+static const int TA_VOutIsInt_MACDV[] = { 0, 0, 0 };
+static const TA_VOptSpec TA_VOpt_MACDV[] = {
+   { "optInFastPeriod", TA_VOPT_INT, 2.0, 100000.0, 12.0 },
+   { "optInSlowPeriod", TA_VOPT_INT, 2.0, 100000.0, 26.0 },
+   { "optInSignalPeriod", TA_VOPT_INT, 1.0, 100000.0, 9.0 },
+};
+
 static TA_RetCode TA_MAMA_VFrameD( int startIdx, int endIdx,
                   const double *const in[], const double optIn[],
                   int *outBegIdx, int *outNBElement,
@@ -8400,6 +8501,45 @@ static TA_RetCode TA_SINH_VFrameS( int startIdx, int endIdx,
 static const TA_VInputKind TA_VIn_SINH[] = { TA_VIN_REAL };
 static const int TA_VOutIsInt_SINH[] = { 0 };
 
+static TA_RetCode TA_SKEW_VFrameD( int startIdx, int endIdx,
+                  const double *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_SKEW(
+               startIdx,
+               endIdx,
+               in[0] /* inReal */,
+               (int)optIn[0] /* optInTimePeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outReal */
+               );
+}
+static TA_RetCode TA_SKEW_VFrameS( int startIdx, int endIdx,
+                  const float *const in[], const double optIn[],
+                  int *outBegIdx, int *outNBElement,
+                  double *const outReal[], int *const outInteger[] )
+{
+   (void)outInteger;
+   return TA_S_SKEW(
+               startIdx,
+               endIdx,
+               in[0] /* inReal */,
+               (int)optIn[0] /* optInTimePeriod */,
+               outBegIdx,
+               outNBElement,
+               outReal[0] /* outReal */
+               );
+}
+
+static const TA_VInputKind TA_VIn_SKEW[] = { TA_VIN_REAL };
+static const int TA_VOutIsInt_SKEW[] = { 0 };
+static const TA_VOptSpec TA_VOpt_SKEW[] = {
+   { "optInTimePeriod", TA_VOPT_INT, 3.0, 100000.0, 30.0 },
+};
+
 static TA_RetCode TA_SMA_VFrameD( int startIdx, int endIdx,
                   const double *const in[], const double optIn[],
                   int *outBegIdx, int *outNBElement,
@@ -10316,6 +10456,8 @@ static const TA_VariantEntry TA_VariantTable[] = {
      4, TA_VIn_CDLUPSIDEGAP2CROWS, 0, NULL, 1, TA_VOutIsInt_CDLUPSIDEGAP2CROWS, 0 },
    { "CDLXSIDEGAP3METHODS", TA_CDLXSIDEGAP3METHODS_VFrameD, TA_CDLXSIDEGAP3METHODS_VFrameS,
      4, TA_VIn_CDLXSIDEGAP3METHODS, 0, NULL, 1, TA_VOutIsInt_CDLXSIDEGAP3METHODS, 0 },
+   { "CE", TA_CE_VFrameD, TA_CE_VFrameS,
+     3, TA_VIn_CE, 2, TA_VOpt_CE, 2, TA_VOutIsInt_CE, 0 },
    { "CEIL", TA_CEIL_VFrameD, TA_CEIL_VFrameS,
      1, TA_VIn_CEIL, 0, NULL, 1, TA_VOutIsInt_CEIL, 0 },
    { "CG", TA_CG_VFrameD, TA_CG_VFrameS,
@@ -10438,6 +10580,8 @@ static const TA_VariantEntry TA_VariantTable[] = {
      1, TA_VIn_MACDEXT, 6, TA_VOpt_MACDEXT, 3, TA_VOutIsInt_MACDEXT, 0 },
    { "MACDFIX", TA_MACDFIX_VFrameD, TA_MACDFIX_VFrameS,
      1, TA_VIn_MACDFIX, 1, TA_VOpt_MACDFIX, 3, TA_VOutIsInt_MACDFIX, 0 },
+   { "MACDV", TA_MACDV_VFrameD, TA_MACDV_VFrameS,
+     3, TA_VIn_MACDV, 3, TA_VOpt_MACDV, 3, TA_VOutIsInt_MACDV, 0 },
    { "MAMA", TA_MAMA_VFrameD, TA_MAMA_VFrameS,
      1, TA_VIn_MAMA, 2, TA_VOpt_MAMA, 2, TA_VOutIsInt_MAMA, 0 },
    { "MARKETFI", TA_MARKETFI_VFrameD, TA_MARKETFI_VFrameS,
@@ -10536,6 +10680,8 @@ static const TA_VariantEntry TA_VariantTable[] = {
      1, TA_VIn_SIN, 0, NULL, 1, TA_VOutIsInt_SIN, 0 },
    { "SINH", TA_SINH_VFrameD, TA_SINH_VFrameS,
      1, TA_VIn_SINH, 0, NULL, 1, TA_VOutIsInt_SINH, 0 },
+   { "SKEW", TA_SKEW_VFrameD, TA_SKEW_VFrameS,
+     1, TA_VIn_SKEW, 1, TA_VOpt_SKEW, 1, TA_VOutIsInt_SKEW, 0 },
    { "SMA", TA_SMA_VFrameD, TA_SMA_VFrameS,
      1, TA_VIn_SMA, 1, TA_VOpt_SMA, 1, TA_VOutIsInt_SMA, 0 },
    { "SMI", TA_SMI_VFrameD, TA_SMI_VFrameS,
@@ -10620,6 +10766,6 @@ static const TA_VariantEntry TA_VariantTable[] = {
      1, TA_VIn_ZLEMA, 1, TA_VOpt_ZLEMA, 1, TA_VOutIsInt_ZLEMA, 0 },
 };
 
-#define TA_VARIANT_TABLE_SIZE 237
+#define TA_VARIANT_TABLE_SIZE 240
 
 #endif /* TA_VARIANT_FRAME_H */

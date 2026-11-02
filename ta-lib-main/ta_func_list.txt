@@ -84,6 +84,7 @@ CDLTRISTAR          Tristar Pattern
 CDLUNIQUE3RIVER     Unique 3 River
 CDLUPSIDEGAP2CROWS  Upside Gap Two Crows
 CDLXSIDEGAP3METHODS Upside/Downside Gap Three Methods
+CE                  Chandelier Exit
 CEIL                Vector Ceil
 CG                  Center of Gravity Oscillator
 CHOP                Choppiness Index
@@ -145,6 +146,7 @@ MA                  Moving average
 MACD                Moving Average Convergence/Divergence
 MACDEXT             MACD with controllable MA type
 MACDFIX             Moving Average Convergence/Divergence Fix 12/26
+MACDV               MACD-V, Volatility Normalised Momentum
 MAMA                MESA Adaptive Moving Average
 MARKETFI            Market Facilitation Index
 MASSI               Mass Index
@@ -194,6 +196,7 @@ SAREXT              Parabolic SAR - Extended
 SI                  Wilder Swing Index
 SIN                 Vector Trigonometric Sin
 SINH                Vector Trigonometric Sinh
+SKEW                Rolling Skewness
 SMA                 Simple Moving Average
 SMI                 Stochastic Momentum Index
 SQRT                Vector Square Root

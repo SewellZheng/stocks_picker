@@ -8941,6 +8941,102 @@ fn legs_CDLXSIDEGAP3METHODS(r: &mut Report) {
     r.legs_done("CDLXSIDEGAP3METHODS", 4);
 }
 
+const V_CE: &[(&str, i32, f64)] = &[
+    ("defaults", i32::MIN, Core::REAL_DEFAULT),
+    ("minimums", 2i32, 0.0f64),
+];
+
+fn sub_CE(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInTimePeriod, optInMultiplier) in V_CE {
+        let Ok(lb) = core.ce_lookback(optInTimePeriod, optInMultiplier) else { continue; };
+        r.control("CE", label, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let inClose: Vec<f64> = Vec::with_capacity(1);
+            let mut outRealLong: Vec<f64> = Vec::with_capacity(1);
+            let mut outRealShort: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ce_impl(0, lb, &inHigh, &inLow, &inClose, optInTimePeriod, optInMultiplier, &mut _b, &mut _n, &mut outRealLong, &mut outRealShort);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("CE", label); continue; }
+        r.quiet("CE", label, lb, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let inClose: Vec<f64> = Vec::with_capacity(1);
+            let mut outRealLong: Vec<f64> = Vec::with_capacity(1);
+            let mut outRealShort: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ce_impl(0, lb - 1, &inHigh, &inLow, &inClose, optInTimePeriod, optInMultiplier, &mut _b, &mut _n, &mut outRealLong, &mut outRealShort);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_CE(r: &mut Report) {
+    let core = Core::new();
+    let optInTimePeriod = i32::MIN;
+    let optInMultiplier = Core::REAL_DEFAULT;
+    let Ok(lb) = core.ce_lookback(optInTimePeriod, optInMultiplier) else { r.no_legs("CE"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outRealLong: Vec<f64> = vec![Default::default(); 5];
+        let mut outRealShort: Vec<f64> = vec![Default::default(); 5];
+        r.legs_control("CE", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ce_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInTimePeriod, optInMultiplier, &mut _b, &mut _n, &mut outRealLong, &mut outRealShort);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = Vec::with_capacity(1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outRealLong: Vec<f64> = vec![Default::default(); 5];
+        let mut outRealShort: Vec<f64> = vec![Default::default(); 5];
+        r.leg("CE", "inHigh", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ce_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInTimePeriod, optInMultiplier, &mut _b, &mut _n, &mut outRealLong, &mut outRealShort);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = Vec::with_capacity(1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outRealLong: Vec<f64> = vec![Default::default(); 5];
+        let mut outRealShort: Vec<f64> = vec![Default::default(); 5];
+        r.leg("CE", "inLow", 1, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ce_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInTimePeriod, optInMultiplier, &mut _b, &mut _n, &mut outRealLong, &mut outRealShort);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = Vec::with_capacity(1);
+        let mut outRealLong: Vec<f64> = vec![Default::default(); 5];
+        let mut outRealShort: Vec<f64> = vec![Default::default(); 5];
+        r.leg("CE", "inClose", 2, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.ce_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInTimePeriod, optInMultiplier, &mut _b, &mut _n, &mut outRealLong, &mut outRealShort);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("CE", 3);
+}
+
 const V_CEIL: &[&str] = &[
     "defaults",
 ];
@@ -13418,6 +13514,109 @@ fn legs_MACDFIX(r: &mut Report) {
     r.legs_done("MACDFIX", 1);
 }
 
+const V_MACDV: &[(&str, i32, i32, i32)] = &[
+    ("defaults", i32::MIN, i32::MIN, i32::MIN),
+    ("minimums", 2i32, 2i32, 1i32),
+];
+
+fn sub_MACDV(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInFastPeriod, optInSlowPeriod, optInSignalPeriod) in V_MACDV {
+        let Ok(lb) = core.macdv_lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod) else { continue; };
+        r.control("MACDV", label, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let inClose: Vec<f64> = Vec::with_capacity(1);
+            let mut outMACDV: Vec<f64> = Vec::with_capacity(1);
+            let mut outMACDVSignal: Vec<f64> = Vec::with_capacity(1);
+            let mut outMACDVHist: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.macdv_impl(0, lb, &inHigh, &inLow, &inClose, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outMACDV, &mut outMACDVSignal, &mut outMACDVHist);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("MACDV", label); continue; }
+        r.quiet("MACDV", label, lb, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let inClose: Vec<f64> = Vec::with_capacity(1);
+            let mut outMACDV: Vec<f64> = Vec::with_capacity(1);
+            let mut outMACDVSignal: Vec<f64> = Vec::with_capacity(1);
+            let mut outMACDVHist: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.macdv_impl(0, lb - 1, &inHigh, &inLow, &inClose, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outMACDV, &mut outMACDVSignal, &mut outMACDVHist);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_MACDV(r: &mut Report) {
+    let core = Core::new();
+    let optInFastPeriod = i32::MIN;
+    let optInSlowPeriod = i32::MIN;
+    let optInSignalPeriod = i32::MIN;
+    let Ok(lb) = core.macdv_lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod) else { r.no_legs("MACDV"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outMACDV: Vec<f64> = vec![Default::default(); 5];
+        let mut outMACDVSignal: Vec<f64> = vec![Default::default(); 5];
+        let mut outMACDVHist: Vec<f64> = vec![Default::default(); 5];
+        r.legs_control("MACDV", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.macdv_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outMACDV, &mut outMACDVSignal, &mut outMACDVHist);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = Vec::with_capacity(1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outMACDV: Vec<f64> = vec![Default::default(); 5];
+        let mut outMACDVSignal: Vec<f64> = vec![Default::default(); 5];
+        let mut outMACDVHist: Vec<f64> = vec![Default::default(); 5];
+        r.leg("MACDV", "inHigh", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.macdv_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outMACDV, &mut outMACDVSignal, &mut outMACDVHist);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = Vec::with_capacity(1);
+        let inClose: Vec<f64> = series("close", endIdx + 1);
+        let mut outMACDV: Vec<f64> = vec![Default::default(); 5];
+        let mut outMACDVSignal: Vec<f64> = vec![Default::default(); 5];
+        let mut outMACDVHist: Vec<f64> = vec![Default::default(); 5];
+        r.leg("MACDV", "inLow", 1, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.macdv_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outMACDV, &mut outMACDVSignal, &mut outMACDVHist);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let inClose: Vec<f64> = Vec::with_capacity(1);
+        let mut outMACDV: Vec<f64> = vec![Default::default(); 5];
+        let mut outMACDVSignal: Vec<f64> = vec![Default::default(); 5];
+        let mut outMACDVHist: Vec<f64> = vec![Default::default(); 5];
+        r.leg("MACDV", "inClose", 2, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.macdv_impl(startIdx, endIdx, &inHigh, &inLow, &inClose, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut _b, &mut _n, &mut outMACDV, &mut outMACDVSignal, &mut outMACDVHist);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("MACDV", 3);
+}
+
 const V_MAMA: &[(&str, f64, f64)] = &[
     ("defaults", Core::REAL_DEFAULT, Core::REAL_DEFAULT),
     ("minimums", 0.01f64, 0.01f64),
@@ -16895,6 +17094,63 @@ fn legs_SINH(r: &mut Report) {
     r.legs_done("SINH", 1);
 }
 
+const V_SKEW: &[(&str, i32)] = &[
+    ("defaults", i32::MIN),
+    ("minimums", 3i32),
+];
+
+fn sub_SKEW(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInTimePeriod) in V_SKEW {
+        let Ok(lb) = core.skew_lookback(optInTimePeriod) else { continue; };
+        r.control("SKEW", label, run(|| {
+            let inReal: Vec<f64> = Vec::with_capacity(1);
+            let mut outReal: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.skew_impl(0, lb, &inReal, optInTimePeriod, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("SKEW", label); continue; }
+        r.quiet("SKEW", label, lb, run(|| {
+            let inReal: Vec<f64> = Vec::with_capacity(1);
+            let mut outReal: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.skew_impl(0, lb - 1, &inReal, optInTimePeriod, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_SKEW(r: &mut Report) {
+    let core = Core::new();
+    let optInTimePeriod = i32::MIN;
+    let Ok(lb) = core.skew_lookback(optInTimePeriod) else { r.no_legs("SKEW"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inReal: Vec<f64> = series("real", endIdx + 1);
+        let mut outReal: Vec<f64> = vec![Default::default(); 5];
+        r.legs_control("SKEW", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.skew_impl(startIdx, endIdx, &inReal, optInTimePeriod, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+    {
+        let inReal: Vec<f64> = Vec::with_capacity(1);
+        let mut outReal: Vec<f64> = vec![Default::default(); 5];
+        r.leg("SKEW", "inReal", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.skew_impl(startIdx, endIdx, &inReal, optInTimePeriod, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("SKEW", 1);
+}
+
 const V_SMA: &[(&str, i32)] = &[
     ("defaults", i32::MIN),
     ("minimums", 1i32),
@@ -20031,6 +20287,7 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("CDLUNIQUE3RIVER", sub_CDLUNIQUE3RIVER, legs_CDLUNIQUE3RIVER),
     ("CDLUPSIDEGAP2CROWS", sub_CDLUPSIDEGAP2CROWS, legs_CDLUPSIDEGAP2CROWS),
     ("CDLXSIDEGAP3METHODS", sub_CDLXSIDEGAP3METHODS, legs_CDLXSIDEGAP3METHODS),
+    ("CE", sub_CE, legs_CE),
     ("CEIL", sub_CEIL, legs_CEIL),
     ("CG", sub_CG, legs_CG),
     ("CHOP", sub_CHOP, legs_CHOP),
@@ -20092,6 +20349,7 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("MACD", sub_MACD, legs_MACD),
     ("MACDEXT", sub_MACDEXT, legs_MACDEXT),
     ("MACDFIX", sub_MACDFIX, legs_MACDFIX),
+    ("MACDV", sub_MACDV, legs_MACDV),
     ("MAMA", sub_MAMA, legs_MAMA),
     ("MARKETFI", sub_MARKETFI, legs_MARKETFI),
     ("MASSI", sub_MASSI, legs_MASSI),
@@ -20141,6 +20399,7 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("SI", sub_SI, legs_SI),
     ("SIN", sub_SIN, legs_SIN),
     ("SINH", sub_SINH, legs_SINH),
+    ("SKEW", sub_SKEW, legs_SKEW),
     ("SMA", sub_SMA, legs_SMA),
     ("SMI", sub_SMI, legs_SMI),
     ("SQRT", sub_SQRT, legs_SQRT),
@@ -20220,7 +20479,7 @@ fn no_phantom_io() {
     // The corpus is the generator's, not a list kept by hand: a probe that
     // stopped being emitted is a shrinking sweep, which is the one way this
     // file can fail open.
-    assert_eq!(PROBES.len(), 237, "probe count");
+    assert_eq!(PROBES.len(), 240, "probe count");
     assert_eq!(
         PROBES.len(),
         crate::abstract_api::funcs().count(),

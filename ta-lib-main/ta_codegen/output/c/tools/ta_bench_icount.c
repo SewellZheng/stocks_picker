@@ -4527,6 +4527,62 @@ static void icount_CDLXSIDEGAP3METHODS(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_CE(int iters) {
+    const char *nm = "CE";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_CE_Stream *st = NULL;
+    TA_CE_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_CE(0, g_nPoints - 1, g_high, g_low, g_close, 22, 3.000000000000000, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("CE/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+
+    ICOUNT_ZERO();
+    rc = TA_CE_OpenAndFill(&stf, g_high, g_low, g_close, g_nPoints, 22, 3.000000000000000, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+    ICOUNT_DUMP("CE/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    if( stf ) TA_CE_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_CE_Open(&st, g_high, g_low, g_close, g_nPoints, 22, 3.000000000000000, &v0, &v1);
+    ICOUNT_DUMP("CE/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CE_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("CE/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_CE_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0, &v1);
+            acc += v0;
+            acc += v1;
+        }
+        ICOUNT_DUMP("CE/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_CE_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_CEIL(int iters) {
     const char *nm = "CEIL";
     int outBegIdx = 0, outNBElement = 0;
@@ -7773,6 +7829,67 @@ static void icount_MACDFIX(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_MACDV(int iters) {
+    const char *nm = "MACDV";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_MACDV_Stream *st = NULL;
+    TA_MACDV_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+    double v2 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_MACDV(0, g_nPoints - 1, g_high, g_low, g_close, 12, 26, 9, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+    ICOUNT_DUMP("MACDV/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    acc += g_outBuf2[0];
+
+    ICOUNT_ZERO();
+    rc = TA_MACDV_OpenAndFill(&stf, g_high, g_low, g_close, g_nPoints, 12, 26, 9, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+    ICOUNT_DUMP("MACDV/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    acc += g_outBuf2[0];
+    if( stf ) TA_MACDV_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_MACDV_Open(&st, g_high, g_low, g_close, g_nPoints, 12, 26, 9, &v0, &v1, &v2);
+    ICOUNT_DUMP("MACDV/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_MACDV_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0, &v1, &v2);
+            acc += v0;
+            acc += v1;
+            acc += v2;
+        }
+        ICOUNT_DUMP("MACDV/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_MACDV_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], g_close[it & ICOUNT_MASK], &v0, &v1, &v2);
+            acc += v0;
+            acc += v1;
+            acc += v2;
+        }
+        ICOUNT_DUMP("MACDV/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_MACDV_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_MAMA(int iters) {
     const char *nm = "MAMA";
     int outBegIdx = 0, outNBElement = 0;
@@ -10287,6 +10404,57 @@ static void icount_SINH(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_SKEW(int iters) {
+    const char *nm = "SKEW";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_SKEW_Stream *st = NULL;
+    TA_SKEW_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_SKEW(0, g_nPoints - 1, g_close, 30, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("SKEW/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_SKEW_OpenAndFill(&stf, g_close, g_nPoints, 30, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("SKEW/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_SKEW_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_SKEW_Open(&st, g_close, g_nPoints, 30, &v0);
+    ICOUNT_DUMP("SKEW/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SKEW_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("SKEW/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SKEW_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("SKEW/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_SKEW_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_SMA(int iters) {
     const char *nm = "SMA";
     int outBegIdx = 0, outNBElement = 0;
@@ -12515,6 +12683,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "CDLUNIQUE3RIVER") ) { icount_CDLUNIQUE3RIVER(iters); fflush(stdout); }
     if( func_matches(filter, "CDLUPSIDEGAP2CROWS") ) { icount_CDLUPSIDEGAP2CROWS(iters); fflush(stdout); }
     if( func_matches(filter, "CDLXSIDEGAP3METHODS") ) { icount_CDLXSIDEGAP3METHODS(iters); fflush(stdout); }
+    if( func_matches(filter, "CE") ) { icount_CE(iters); fflush(stdout); }
     if( func_matches(filter, "CEIL") ) { icount_CEIL(iters); fflush(stdout); }
     if( func_matches(filter, "CG") ) { icount_CG(iters); fflush(stdout); }
     if( func_matches(filter, "CHOP") ) { icount_CHOP(iters); fflush(stdout); }
@@ -12576,6 +12745,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "MACD") ) { icount_MACD(iters); fflush(stdout); }
     if( func_matches(filter, "MACDEXT") ) { icount_MACDEXT(iters); fflush(stdout); }
     if( func_matches(filter, "MACDFIX") ) { icount_MACDFIX(iters); fflush(stdout); }
+    if( func_matches(filter, "MACDV") ) { icount_MACDV(iters); fflush(stdout); }
     if( func_matches(filter, "MAMA") ) { icount_MAMA(iters); fflush(stdout); }
     if( func_matches(filter, "MARKETFI") ) { icount_MARKETFI(iters); fflush(stdout); }
     if( func_matches(filter, "MASSI") ) { icount_MASSI(iters); fflush(stdout); }
@@ -12625,6 +12795,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "SI") ) { icount_SI(iters); fflush(stdout); }
     if( func_matches(filter, "SIN") ) { icount_SIN(iters); fflush(stdout); }
     if( func_matches(filter, "SINH") ) { icount_SINH(iters); fflush(stdout); }
+    if( func_matches(filter, "SKEW") ) { icount_SKEW(iters); fflush(stdout); }
     if( func_matches(filter, "SMA") ) { icount_SMA(iters); fflush(stdout); }
     if( func_matches(filter, "SMI") ) { icount_SMI(iters); fflush(stdout); }
     if( func_matches(filter, "SQRT") ) { icount_SQRT(iters); fflush(stdout); }
