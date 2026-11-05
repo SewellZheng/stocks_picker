@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -238,7 +238,7 @@ export function cdlgravestonedoji(
   requireLength('CDLGRAVESTONEDOJI', 'inHigh', inHigh, guardInLen);
   requireLength('CDLGRAVESTONEDOJI', 'inLow', inLow, guardInLen);
   requireLength('CDLGRAVESTONEDOJI', 'inClose', inClose, guardInLen);
-  requireLength('CDLGRAVESTONEDOJI', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLGRAVESTONEDOJI', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -304,9 +304,13 @@ export class CdlgravestonedojiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlgravestonedojiStream {
+    return new CdlgravestonedojiStream(core);
   }
 
   /**
@@ -605,7 +609,7 @@ export function cdlgravestonedojiOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlgravestonedojiStream {
-  const sp = new CdlgravestonedojiStream(core);
+  const sp = CdlgravestonedojiStream.of(core);
   const retCode = cdlgravestonedojiOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -627,7 +631,7 @@ export function cdlgravestonedojiOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlgravestonedojiStream {
-  const sp = new CdlgravestonedojiStream(core);
+  const sp = CdlgravestonedojiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -759,7 +763,7 @@ export function cdlgravestonedojiOpenAndFill(
   requireHistoryLength('CDLGRAVESTONEDOJI openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLGRAVESTONEDOJI openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLGRAVESTONEDOJI openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLGRAVESTONEDOJI openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLGRAVESTONEDOJI openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

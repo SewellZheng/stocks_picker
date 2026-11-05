@@ -19,7 +19,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -267,7 +267,7 @@ export function cdlhikkake(
   requireLength('CDLHIKKAKE', 'inHigh', inHigh, guardInLen);
   requireLength('CDLHIKKAKE', 'inLow', inLow, guardInLen);
   requireLength('CDLHIKKAKE', 'inClose', inClose, guardInLen);
-  requireLength('CDLHIKKAKE', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHIKKAKE', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -320,9 +320,13 @@ export class CdlhikkakeStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlhikkakeStream {
+    return new CdlhikkakeStream(core);
   }
 
   /**
@@ -633,7 +637,7 @@ export function cdlhikkakeOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlhikkakeStream {
-  const sp = new CdlhikkakeStream(core);
+  const sp = CdlhikkakeStream.of(core);
   const retCode = cdlhikkakeOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -655,7 +659,7 @@ export function cdlhikkakeOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlhikkakeStream {
-  const sp = new CdlhikkakeStream(core);
+  const sp = CdlhikkakeStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -787,7 +791,7 @@ export function cdlhikkakeOpenAndFill(
   requireHistoryLength('CDLHIKKAKE openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLHIKKAKE openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLHIKKAKE openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLHIKKAKE openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHIKKAKE openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

@@ -25,6 +25,8 @@ beside it. `library/README.md` is hand-written and ships frozen inside each vers
 this one all carry the repo `VERSION`. Never edit the version in `library/package.json` by
 hand.
 
+**Never above the Core.** No backend publishes a version the C library has not released.
+
 **Bump `MINOR` whenever the API breaks.** Below 1.0 npm treats the minor as the breaking
 position: `^0.8.4` accepts every later 0.8.x and nothing else, so a break shipped in a patch
 reaches every consumer's next install.
@@ -34,11 +36,19 @@ version, not even after `npm unpublish`. `npm deprecate` leaves it installable w
 Anything wrong in a published tarball is fixed only by a new version, so every step below that
 can still be undone comes before the one that cannot.
 
+**Never deprecate our newest version while it is `latest`.** With the earlier package's three
+deprecated as well, npm would then send a bare `npm install ta-lib` to its 0.11.0. A fix waits
+for the next Core release (never above the Core); once `npm view ta-lib dist-tags.latest` names
+it, deprecate the broken version. Even with ours `latest`, npm skips it for a Node below this
+package's `engines` floor, and a bare `npm install ta-lib` there gets the earlier package's
+0.11.0, which has no floor; its deprecation message points to `ta-lib@latest`.
+
 ## Credentials
 
 Publish as an owner of the package (`npm owner ls ta-lib`), from your own machine, signed in
 with `npm login`, with two-factor authentication on: `npm publish` asks for the one-time
-password. No CI secret and no token in a file.
+password. No CI secret and no token in a file. The package refuses tokens: its Publishing access
+on npmjs.com reads "Require two-factor authentication and disallow tokens".
 
 **Later: trusted publishing** (GitHub OIDC, with `--provenance`). Its policy names the publish
 workflow by **file name**, so that workflow is written first and this runbook then names it.
@@ -136,6 +146,8 @@ release as shipped.
 
 ## Versions 0.9.0, 0.10.0 and 0.11.0
 
-`ta-lib` 0.9.0, 0.10.0 and 0.11.0 on npm belong to an unrelated earlier package that used the
-same name. npm never accepts a version it has already seen, so this package can never publish
-those three: TP1's version check catches a `VERSION` that lands on one.
+`ta-lib` 0.9.0, 0.10.0 and 0.11.0 on npm belong to an earlier package by another author that
+used the same name. npm never accepts a version it has already seen, and every backend ships the
+one `VERSION`, so no release carries those three: `scripts/sync.py` and `check_versions` refuse
+them, and the 0.9 line starts at 0.9.1. They are deprecated; leave them on the registry: the
+package has public dependents, so npm refuses to unpublish them.

@@ -12,7 +12,7 @@
  *  092926 MF,CC  First version (#472).
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -735,8 +735,8 @@ export function kst(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('KST', 'inReal', inReal, guardInLen);
-  requireLength('KST', 'outKST', outKST, guardOutLen);
-  requireLength('KST', 'outKSTSignal', outKSTSignal, guardOutLen);
+  requireOutput('KST', 'outKST', outKST, guardOutLen, Float64Array);
+  requireOutput('KST', 'outKSTSignal', outKSTSignal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outKST, inRealF64) || overlapsPartly(outKSTSignal, inRealF64) || overlaps(outKST, outKSTSignal)) {
     throw failure('KST', RetCode.BAD_PARAM);
@@ -864,9 +864,13 @@ export class KstStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): KstStream {
+    return new KstStream(core);
   }
 
   /**
@@ -1872,7 +1876,7 @@ export function kstOpenAndFillInternal(
   outKST: Float64Array,
   outKSTSignal: Float64Array,
 ): KstStream {
-  const sp = new KstStream(core);
+  const sp = KstStream.of(core);
   const retCode = kstOpenImpl(sp, inReal, startIdx, optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInSMA1Period, optInSMA2Period, optInSMA3Period, optInSMA4Period, optInSignalPeriod, outBegIdx, outNBElement, outKST, outKSTSignal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1900,7 +1904,7 @@ export function kstOpenInternal(
   optInSMA4Period: number,
   optInSignalPeriod: number,
 ): KstStream {
-  const sp = new KstStream(core);
+  const sp = KstStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outKST = new Float64Array(1);
@@ -2071,8 +2075,8 @@ export function kstOpenAndFill(
   requireArgument('KST openAndFill', 'inReal', inReal);
   requireHistory('KST openAndFill', inReal.length);
   const guardOutLen = openFillCount('KST openAndFill', inReal.length, kstLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInSMA1Period, optInSMA2Period, optInSMA3Period, optInSMA4Period, optInSignalPeriod, core));
-  requireLength('KST openAndFill', 'outKST', outKST, guardOutLen);
-  requireLength('KST openAndFill', 'outKSTSignal', outKSTSignal, guardOutLen);
+  requireOutput('KST openAndFill', 'outKST', outKST, guardOutLen, Float64Array);
+  requireOutput('KST openAndFill', 'outKSTSignal', outKSTSignal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outKST.buffer === inRealF64.buffer && outKST.byteOffset === inRealF64.byteOffset) || (outKSTSignal.buffer === inRealF64.buffer && outKSTSignal.byteOffset === inRealF64.byteOffset) || (outKST.buffer === outKSTSignal.buffer && outKST.byteOffset === outKSTSignal.byteOffset)) {
     throw streamFailure('KST openAndFill', RetCode.BAD_PARAM);

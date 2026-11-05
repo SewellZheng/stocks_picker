@@ -15,7 +15,7 @@
  *  102426 MF,CC  #554 zero-run test on the true range itself.
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -361,8 +361,8 @@ export function vortex(
   requireLength('VORTEX', 'inHigh', inHigh, guardInLen);
   requireLength('VORTEX', 'inLow', inLow, guardInLen);
   requireLength('VORTEX', 'inClose', inClose, guardInLen);
-  requireLength('VORTEX', 'outPlusVI', outPlusVI, guardOutLen);
-  requireLength('VORTEX', 'outMinusVI', outMinusVI, guardOutLen);
+  requireOutput('VORTEX', 'outPlusVI', outPlusVI, guardOutLen, Float64Array);
+  requireOutput('VORTEX', 'outMinusVI', outMinusVI, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -428,9 +428,13 @@ export class VortexStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): VortexStream {
+    return new VortexStream(core);
   }
 
   /**
@@ -1024,7 +1028,7 @@ export function vortexOpenAndFillInternal(
   outPlusVI: Float64Array,
   outMinusVI: Float64Array,
 ): VortexStream {
-  const sp = new VortexStream(core);
+  const sp = VortexStream.of(core);
   const retCode = vortexOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outPlusVI, outMinusVI, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1046,7 +1050,7 @@ export function vortexOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): VortexStream {
-  const sp = new VortexStream(core);
+  const sp = VortexStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outPlusVI = new Float64Array(1);
@@ -1179,8 +1183,8 @@ export function vortexOpenAndFill(
   const guardOutLen = openFillCount('VORTEX openAndFill', inHigh.length, vortexLookback(optInTimePeriod, core));
   requireHistoryLength('VORTEX openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('VORTEX openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('VORTEX openAndFill', 'outPlusVI', outPlusVI, guardOutLen);
-  requireLength('VORTEX openAndFill', 'outMinusVI', outMinusVI, guardOutLen);
+  requireOutput('VORTEX openAndFill', 'outPlusVI', outPlusVI, guardOutLen, Float64Array);
+  requireOutput('VORTEX openAndFill', 'outMinusVI', outMinusVI, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

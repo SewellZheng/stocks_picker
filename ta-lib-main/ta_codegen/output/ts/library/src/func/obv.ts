@@ -15,7 +15,7 @@
  *  110206 AC   Change volume and open interest to double
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -151,7 +151,7 @@ export function obv(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('OBV', 'inReal', inReal, guardInLen);
   requireLength('OBV', 'inVolume', inVolume, guardInLen);
-  requireLength('OBV', 'outReal', outReal, guardOutLen);
+  requireOutput('OBV', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   const inVolumeF64 = float64(inVolume);
   if (overlapsPartly(outReal, inRealF64) || overlapsPartly(outReal, inVolumeF64)) {
@@ -190,9 +190,13 @@ export class ObvStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): ObvStream {
+    return new ObvStream(core);
   }
 
   /**
@@ -363,7 +367,7 @@ export function obvOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): ObvStream {
-  const sp = new ObvStream(core);
+  const sp = ObvStream.of(core);
   const retCode = obvOpenImpl(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -383,7 +387,7 @@ export function obvOpenInternal(
   inVolume: Float64Array,
   startIdx: number,
 ): ObvStream {
-  const sp = new ObvStream(core);
+  const sp = ObvStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -485,7 +489,7 @@ export function obvOpenAndFill(
   requireArgument('OBV openAndFill', 'inVolume', inVolume);
   const guardOutLen = openFillCount('OBV openAndFill', inReal.length, obvLookback(core));
   requireHistoryLength('OBV openAndFill', 'inVolume', inVolume.length, inReal.length);
-  requireLength('OBV openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('OBV openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   const inVolumeF64 = float64(inVolume);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset) || (outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset)) {

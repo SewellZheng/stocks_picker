@@ -15,7 +15,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -217,7 +217,7 @@ export function cdlxsidegap3methods(
   requireLength('CDLXSIDEGAP3METHODS', 'inHigh', inHigh, guardInLen);
   requireLength('CDLXSIDEGAP3METHODS', 'inLow', inLow, guardInLen);
   requireLength('CDLXSIDEGAP3METHODS', 'inClose', inClose, guardInLen);
-  requireLength('CDLXSIDEGAP3METHODS', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLXSIDEGAP3METHODS', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -263,9 +263,13 @@ export class Cdlxsidegap3methodsStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): Cdlxsidegap3methodsStream {
+    return new Cdlxsidegap3methodsStream(core);
   }
 
   /**
@@ -502,7 +506,7 @@ export function cdlxsidegap3methodsOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): Cdlxsidegap3methodsStream {
-  const sp = new Cdlxsidegap3methodsStream(core);
+  const sp = Cdlxsidegap3methodsStream.of(core);
   const retCode = cdlxsidegap3methodsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -524,7 +528,7 @@ export function cdlxsidegap3methodsOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): Cdlxsidegap3methodsStream {
-  const sp = new Cdlxsidegap3methodsStream(core);
+  const sp = Cdlxsidegap3methodsStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -658,7 +662,7 @@ export function cdlxsidegap3methodsOpenAndFill(
   requireHistoryLength('CDLXSIDEGAP3METHODS openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLXSIDEGAP3METHODS openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLXSIDEGAP3METHODS openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLXSIDEGAP3METHODS openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLXSIDEGAP3METHODS openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

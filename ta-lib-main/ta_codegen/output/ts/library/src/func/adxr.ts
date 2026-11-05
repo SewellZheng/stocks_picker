@@ -19,13 +19,13 @@
  *                streamable-source form (a sub-output lag ring).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 import { AdxStream, adx as adx_, adxLookback, adxOpenAndFillInternal } from './adx.ts';
-import { adxrLookback as adxrLookback_ } from './adxr.ts';
+const adxrLookback_ = adxrLookback;
 
 /**
  * Number of leading input bars {@link adxr} consumes before its first value: the
@@ -229,7 +229,7 @@ export function adxr(
   requireLength('ADXR', 'inHigh', inHigh, guardInLen);
   requireLength('ADXR', 'inLow', inLow, guardInLen);
   requireLength('ADXR', 'inClose', inClose, guardInLen);
-  requireLength('ADXR', 'outReal', outReal, guardOutLen);
+  requireOutput('ADXR', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -275,9 +275,13 @@ export class AdxrStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AdxrStream {
+    return new AdxrStream(core);
   }
 
   /**
@@ -495,7 +499,7 @@ export function adxrOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): AdxrStream {
-  const sp = new AdxrStream(core);
+  const sp = AdxrStream.of(core);
   const retCode = adxrOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -517,7 +521,7 @@ export function adxrOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): AdxrStream {
-  const sp = new AdxrStream(core);
+  const sp = AdxrStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -645,7 +649,7 @@ export function adxrOpenAndFill(
   const guardOutLen = openFillCount('ADXR openAndFill', inHigh.length, adxrLookback(optInTimePeriod, core));
   requireHistoryLength('ADXR openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('ADXR openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('ADXR openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('ADXR openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

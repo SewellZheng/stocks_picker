@@ -12,7 +12,7 @@
  *  092926 MF,CC  Initial version (#469).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -251,7 +251,7 @@ export function chop(
   requireLength('CHOP', 'inHigh', inHigh, guardInLen);
   requireLength('CHOP', 'inLow', inLow, guardInLen);
   requireLength('CHOP', 'inClose', inClose, guardInLen);
-  requireLength('CHOP', 'outReal', outReal, guardOutLen);
+  requireOutput('CHOP', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -301,9 +301,13 @@ export class ChopStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): ChopStream {
+    return new ChopStream(core);
   }
 
   /**
@@ -657,7 +661,7 @@ export function chopOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): ChopStream {
-  const sp = new ChopStream(core);
+  const sp = ChopStream.of(core);
   const retCode = chopOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -679,7 +683,7 @@ export function chopOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): ChopStream {
-  const sp = new ChopStream(core);
+  const sp = ChopStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -805,7 +809,7 @@ export function chopOpenAndFill(
   const guardOutLen = openFillCount('CHOP openAndFill', inHigh.length, chopLookback(optInTimePeriod, core));
   requireHistoryLength('CHOP openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('CHOP openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('CHOP openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('CHOP openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

@@ -17,7 +17,7 @@
  */
 
 import { MAType, MATypes } from '../enums.ts';
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -317,8 +317,8 @@ export function stochrsi(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('STOCHRSI', 'inReal', inReal, guardInLen);
-  requireLength('STOCHRSI', 'outFastK', outFastK, guardOutLen);
-  requireLength('STOCHRSI', 'outFastD', outFastD, guardOutLen);
+  requireOutput('STOCHRSI', 'outFastK', outFastK, guardOutLen, Float64Array);
+  requireOutput('STOCHRSI', 'outFastD', outFastD, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outFastK, inRealF64) || overlapsPartly(outFastD, inRealF64) || overlaps(outFastK, outFastD)) {
     throw failure('STOCHRSI', RetCode.BAD_PARAM);
@@ -366,9 +366,13 @@ export class StochrsiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): StochrsiStream {
+    return new StochrsiStream(core);
   }
 
   /**
@@ -654,7 +658,7 @@ export function stochrsiOpenAndFillInternal(
   outFastK: Float64Array,
   outFastD: Float64Array,
 ): StochrsiStream {
-  const sp = new StochrsiStream(core);
+  const sp = StochrsiStream.of(core);
   const retCode = stochrsiOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -677,7 +681,7 @@ export function stochrsiOpenInternal(
   optInFastD_Period: number,
   optInFastD_MAType: number,
 ): StochrsiStream {
-  const sp = new StochrsiStream(core);
+  const sp = StochrsiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outFastK = new Float64Array(1);
@@ -809,8 +813,8 @@ export function stochrsiOpenAndFill(
   requireArgument('STOCHRSI openAndFill', 'inReal', inReal);
   requireHistory('STOCHRSI openAndFill', inReal.length);
   const guardOutLen = openFillCount('STOCHRSI openAndFill', inReal.length, stochrsiLookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType as MAType, core));
-  requireLength('STOCHRSI openAndFill', 'outFastK', outFastK, guardOutLen);
-  requireLength('STOCHRSI openAndFill', 'outFastD', outFastD, guardOutLen);
+  requireOutput('STOCHRSI openAndFill', 'outFastK', outFastK, guardOutLen, Float64Array);
+  requireOutput('STOCHRSI openAndFill', 'outFastD', outFastD, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outFastK.buffer === inRealF64.buffer && outFastK.byteOffset === inRealF64.byteOffset) || (outFastD.buffer === inRealF64.buffer && outFastD.byteOffset === inRealF64.byteOffset) || (outFastK.buffer === outFastD.buffer && outFastK.byteOffset === outFastD.byteOffset)) {
     throw streamFailure('STOCHRSI openAndFill', RetCode.BAD_PARAM);

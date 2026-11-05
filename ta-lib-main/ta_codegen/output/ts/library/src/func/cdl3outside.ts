@@ -15,7 +15,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -213,7 +213,7 @@ export function cdl3outside(
   requireLength('CDL3OUTSIDE', 'inHigh', inHigh, guardInLen);
   requireLength('CDL3OUTSIDE', 'inLow', inLow, guardInLen);
   requireLength('CDL3OUTSIDE', 'inClose', inClose, guardInLen);
-  requireLength('CDL3OUTSIDE', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDL3OUTSIDE', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -258,9 +258,13 @@ export class Cdl3outsideStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): Cdl3outsideStream {
+    return new Cdl3outsideStream(core);
   }
 
   /**
@@ -490,7 +494,7 @@ export function cdl3outsideOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): Cdl3outsideStream {
-  const sp = new Cdl3outsideStream(core);
+  const sp = Cdl3outsideStream.of(core);
   const retCode = cdl3outsideOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -512,7 +516,7 @@ export function cdl3outsideOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): Cdl3outsideStream {
-  const sp = new Cdl3outsideStream(core);
+  const sp = Cdl3outsideStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -644,7 +648,7 @@ export function cdl3outsideOpenAndFill(
   requireHistoryLength('CDL3OUTSIDE openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDL3OUTSIDE openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDL3OUTSIDE openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDL3OUTSIDE openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDL3OUTSIDE openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

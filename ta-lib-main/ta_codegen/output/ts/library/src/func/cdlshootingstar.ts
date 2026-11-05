@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -254,7 +254,7 @@ export function cdlshootingstar(
   requireLength('CDLSHOOTINGSTAR', 'inHigh', inHigh, guardInLen);
   requireLength('CDLSHOOTINGSTAR', 'inLow', inLow, guardInLen);
   requireLength('CDLSHOOTINGSTAR', 'inClose', inClose, guardInLen);
-  requireLength('CDLSHOOTINGSTAR', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLSHOOTINGSTAR', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -338,9 +338,13 @@ export class CdlshootingstarStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlshootingstarStream {
+    return new CdlshootingstarStream(core);
   }
 
   /**
@@ -709,7 +713,7 @@ export function cdlshootingstarOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlshootingstarStream {
-  const sp = new CdlshootingstarStream(core);
+  const sp = CdlshootingstarStream.of(core);
   const retCode = cdlshootingstarOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -731,7 +735,7 @@ export function cdlshootingstarOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlshootingstarStream {
-  const sp = new CdlshootingstarStream(core);
+  const sp = CdlshootingstarStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -862,7 +866,7 @@ export function cdlshootingstarOpenAndFill(
   requireHistoryLength('CDLSHOOTINGSTAR openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLSHOOTINGSTAR openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLSHOOTINGSTAR openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLSHOOTINGSTAR openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLSHOOTINGSTAR openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

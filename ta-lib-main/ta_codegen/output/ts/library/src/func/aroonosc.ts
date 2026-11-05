@@ -15,7 +15,7 @@
  *  050703 MF   Fix algorithm base on Adrian Michel bug report #748163
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -266,7 +266,7 @@ export function aroonosc(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('AROONOSC', 'inHigh', inHigh, guardInLen);
   requireLength('AROONOSC', 'inLow', inLow, guardInLen);
-  requireLength('AROONOSC', 'outReal', outReal, guardOutLen);
+  requireOutput('AROONOSC', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64)) {
@@ -325,9 +325,13 @@ export class AroonoscStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AroonoscStream {
+    return new AroonoscStream(core);
   }
 
   /**
@@ -720,7 +724,7 @@ export function aroonoscOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): AroonoscStream {
-  const sp = new AroonoscStream(core);
+  const sp = AroonoscStream.of(core);
   const retCode = aroonoscOpenImpl(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -741,7 +745,7 @@ export function aroonoscOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): AroonoscStream {
-  const sp = new AroonoscStream(core);
+  const sp = AroonoscStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -856,7 +860,7 @@ export function aroonoscOpenAndFill(
   requireArgument('AROONOSC openAndFill', 'inLow', inLow);
   const guardOutLen = openFillCount('AROONOSC openAndFill', inHigh.length, aroonoscLookback(optInTimePeriod, core));
   requireHistoryLength('AROONOSC openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireLength('AROONOSC openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('AROONOSC openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset)) {

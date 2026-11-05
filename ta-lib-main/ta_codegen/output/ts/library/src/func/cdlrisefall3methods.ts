@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -272,7 +272,7 @@ export function cdlrisefall3methods(
   requireLength('CDLRISEFALL3METHODS', 'inHigh', inHigh, guardInLen);
   requireLength('CDLRISEFALL3METHODS', 'inLow', inLow, guardInLen);
   requireLength('CDLRISEFALL3METHODS', 'inClose', inClose, guardInLen);
-  requireLength('CDLRISEFALL3METHODS', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLRISEFALL3METHODS', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -372,9 +372,13 @@ export class Cdlrisefall3methodsStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): Cdlrisefall3methodsStream {
+    return new Cdlrisefall3methodsStream(core);
   }
 
   /**
@@ -792,7 +796,7 @@ export function cdlrisefall3methodsOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): Cdlrisefall3methodsStream {
-  const sp = new Cdlrisefall3methodsStream(core);
+  const sp = Cdlrisefall3methodsStream.of(core);
   const retCode = cdlrisefall3methodsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -814,7 +818,7 @@ export function cdlrisefall3methodsOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): Cdlrisefall3methodsStream {
-  const sp = new Cdlrisefall3methodsStream(core);
+  const sp = Cdlrisefall3methodsStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -947,7 +951,7 @@ export function cdlrisefall3methodsOpenAndFill(
   requireHistoryLength('CDLRISEFALL3METHODS openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLRISEFALL3METHODS openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLRISEFALL3METHODS openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLRISEFALL3METHODS openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLRISEFALL3METHODS openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

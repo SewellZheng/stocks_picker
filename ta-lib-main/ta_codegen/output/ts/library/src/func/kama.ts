@@ -30,7 +30,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
@@ -455,7 +455,7 @@ export function kama(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('KAMA', 'inReal', inReal, guardInLen);
-  requireLength('KAMA', 'outReal', outReal, guardOutLen);
+  requireOutput('KAMA', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('KAMA', RetCode.BAD_PARAM);
@@ -511,9 +511,13 @@ export class KamaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): KamaStream {
+    return new KamaStream(core);
   }
 
   /**
@@ -1064,7 +1068,7 @@ export function kamaOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): KamaStream {
-  const sp = new KamaStream(core);
+  const sp = KamaStream.of(core);
   const retCode = kamaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1084,7 +1088,7 @@ export function kamaOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): KamaStream {
-  const sp = new KamaStream(core);
+  const sp = KamaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1179,7 +1183,7 @@ export function kamaOpenAndFill(
   requireArgument('KAMA openAndFill', 'inReal', inReal);
   requireHistory('KAMA openAndFill', inReal.length);
   const guardOutLen = openFillCount('KAMA openAndFill', inReal.length, kamaLookback(optInTimePeriod, core));
-  requireLength('KAMA openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('KAMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('KAMA openAndFill', RetCode.BAD_PARAM);

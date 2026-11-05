@@ -27,7 +27,7 @@
  */
 
 import { MAType, MATypes } from '../enums.ts';
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -493,8 +493,8 @@ export function stoch(
   requireLength('STOCH', 'inHigh', inHigh, guardInLen);
   requireLength('STOCH', 'inLow', inLow, guardInLen);
   requireLength('STOCH', 'inClose', inClose, guardInLen);
-  requireLength('STOCH', 'outSlowK', outSlowK, guardOutLen);
-  requireLength('STOCH', 'outSlowD', outSlowD, guardOutLen);
+  requireOutput('STOCH', 'outSlowK', outSlowK, guardOutLen, Float64Array);
+  requireOutput('STOCH', 'outSlowD', outSlowD, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -568,9 +568,13 @@ export class StochStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): StochStream {
+    return new StochStream(core);
   }
 
   /**
@@ -1151,7 +1155,7 @@ export function stochOpenAndFillInternal(
   outSlowK: Float64Array,
   outSlowD: Float64Array,
 ): StochStream {
-  const sp = new StochStream(core);
+  const sp = StochStream.of(core);
   const retCode = stochOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, outSlowK, outSlowD, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1177,7 +1181,7 @@ export function stochOpenInternal(
   optInSlowD_Period: number,
   optInSlowD_MAType: number,
 ): StochStream {
-  const sp = new StochStream(core);
+  const sp = StochStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outSlowK = new Float64Array(1);
@@ -1356,8 +1360,8 @@ export function stochOpenAndFill(
   const guardOutLen = openFillCount('STOCH openAndFill', inHigh.length, stochLookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType as MAType, optInSlowD_Period, optInSlowD_MAType as MAType, core));
   requireHistoryLength('STOCH openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('STOCH openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('STOCH openAndFill', 'outSlowK', outSlowK, guardOutLen);
-  requireLength('STOCH openAndFill', 'outSlowD', outSlowD, guardOutLen);
+  requireOutput('STOCH openAndFill', 'outSlowK', outSlowK, guardOutLen, Float64Array);
+  requireOutput('STOCH openAndFill', 'outSlowD', outSlowD, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

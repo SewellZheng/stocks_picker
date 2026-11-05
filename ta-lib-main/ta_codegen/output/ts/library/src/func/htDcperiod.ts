@@ -14,7 +14,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -600,7 +600,7 @@ export function htDcperiod(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('HT_DCPERIOD', 'inReal', inReal, guardInLen);
-  requireLength('HT_DCPERIOD', 'outReal', outReal, guardOutLen);
+  requireOutput('HT_DCPERIOD', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('HT_DCPERIOD', RetCode.BAD_PARAM);
@@ -724,9 +724,13 @@ export class HtDcperiodStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): HtDcperiodStream {
+    return new HtDcperiodStream(core);
   }
 
   /**
@@ -2018,7 +2022,7 @@ export function htDcperiodOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): HtDcperiodStream {
-  const sp = new HtDcperiodStream(core);
+  const sp = HtDcperiodStream.of(core);
   const retCode = htDcperiodOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -2037,7 +2041,7 @@ export function htDcperiodOpenInternal(
   inReal: Float64Array,
   startIdx: number,
 ): HtDcperiodStream {
-  const sp = new HtDcperiodStream(core);
+  const sp = HtDcperiodStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -2123,7 +2127,7 @@ export function htDcperiodOpenAndFill(
   requireArgument('HT_DCPERIOD openAndFill', 'inReal', inReal);
   requireHistory('HT_DCPERIOD openAndFill', inReal.length);
   const guardOutLen = openFillCount('HT_DCPERIOD openAndFill', inReal.length, htDcperiodLookback(core));
-  requireLength('HT_DCPERIOD openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('HT_DCPERIOD openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('HT_DCPERIOD openAndFill', RetCode.BAD_PARAM);

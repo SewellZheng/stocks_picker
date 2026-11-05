@@ -13,7 +13,7 @@
  *  100126 MF,CC  Display shift (#489).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -234,7 +234,7 @@ export function dpo(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('DPO', 'inReal', inReal, guardInLen);
-  requireLength('DPO', 'outReal', outReal, guardOutLen);
+  requireOutput('DPO', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('DPO', RetCode.BAD_PARAM);
@@ -284,9 +284,13 @@ export class DpoStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): DpoStream {
+    return new DpoStream(core);
   }
 
   /**
@@ -542,7 +546,7 @@ export function dpoOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): DpoStream {
-  const sp = new DpoStream(core);
+  const sp = DpoStream.of(core);
   const retCode = dpoOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -562,7 +566,7 @@ export function dpoOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): DpoStream {
-  const sp = new DpoStream(core);
+  const sp = DpoStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -662,7 +666,7 @@ export function dpoOpenAndFill(
   requireArgument('DPO openAndFill', 'inReal', inReal);
   requireHistory('DPO openAndFill', inReal.length);
   const guardOutLen = openFillCount('DPO openAndFill', inReal.length, dpoLookback(optInTimePeriod, core));
-  requireLength('DPO openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('DPO openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('DPO openAndFill', RetCode.BAD_PARAM);

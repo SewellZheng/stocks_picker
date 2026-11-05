@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -320,7 +320,7 @@ export function cdladvanceblock(
   requireLength('CDLADVANCEBLOCK', 'inHigh', inHigh, guardInLen);
   requireLength('CDLADVANCEBLOCK', 'inLow', inLow, guardInLen);
   requireLength('CDLADVANCEBLOCK', 'inClose', inClose, guardInLen);
-  requireLength('CDLADVANCEBLOCK', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLADVANCEBLOCK', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -454,9 +454,13 @@ export class CdladvanceblockStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdladvanceblockStream {
+    return new CdladvanceblockStream(core);
   }
 
   /**
@@ -1023,7 +1027,7 @@ export function cdladvanceblockOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdladvanceblockStream {
-  const sp = new CdladvanceblockStream(core);
+  const sp = CdladvanceblockStream.of(core);
   const retCode = cdladvanceblockOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1045,7 +1049,7 @@ export function cdladvanceblockOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdladvanceblockStream {
-  const sp = new CdladvanceblockStream(core);
+  const sp = CdladvanceblockStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -1176,7 +1180,7 @@ export function cdladvanceblockOpenAndFill(
   requireHistoryLength('CDLADVANCEBLOCK openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLADVANCEBLOCK openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLADVANCEBLOCK openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLADVANCEBLOCK openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLADVANCEBLOCK openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

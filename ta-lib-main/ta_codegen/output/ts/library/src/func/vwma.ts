@@ -17,7 +17,7 @@
  *  102326 MF,CC  #554 rare reset.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -295,7 +295,7 @@ export function vwma(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('VWMA', 'inReal', inReal, guardInLen);
   requireLength('VWMA', 'inVolume', inVolume, guardInLen);
-  requireLength('VWMA', 'outReal', outReal, guardOutLen);
+  requireOutput('VWMA', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   const inVolumeF64 = float64(inVolume);
   if (overlapsPartly(outReal, inRealF64) || overlapsPartly(outReal, inVolumeF64)) {
@@ -346,9 +346,13 @@ export class VwmaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): VwmaStream {
+    return new VwmaStream(core);
   }
 
   /**
@@ -734,7 +738,7 @@ export function vwmaOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): VwmaStream {
-  const sp = new VwmaStream(core);
+  const sp = VwmaStream.of(core);
   const retCode = vwmaOpenImpl(sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -755,7 +759,7 @@ export function vwmaOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): VwmaStream {
-  const sp = new VwmaStream(core);
+  const sp = VwmaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -868,7 +872,7 @@ export function vwmaOpenAndFill(
   requireArgument('VWMA openAndFill', 'inVolume', inVolume);
   const guardOutLen = openFillCount('VWMA openAndFill', inReal.length, vwmaLookback(optInTimePeriod, core));
   requireHistoryLength('VWMA openAndFill', 'inVolume', inVolume.length, inReal.length);
-  requireLength('VWMA openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('VWMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   const inVolumeF64 = float64(inVolume);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset) || (outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset)) {

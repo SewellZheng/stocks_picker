@@ -16,7 +16,7 @@
  *  103126 MF,CC  Pre-check the cheap tests in an outer if, the candle averages inside
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -246,7 +246,7 @@ export function cdlupsidegap2crows(
   requireLength('CDLUPSIDEGAP2CROWS', 'inHigh', inHigh, guardInLen);
   requireLength('CDLUPSIDEGAP2CROWS', 'inLow', inLow, guardInLen);
   requireLength('CDLUPSIDEGAP2CROWS', 'inClose', inClose, guardInLen);
-  requireLength('CDLUPSIDEGAP2CROWS', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLUPSIDEGAP2CROWS', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -328,9 +328,13 @@ export class Cdlupsidegap2crowsStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): Cdlupsidegap2crowsStream {
+    return new Cdlupsidegap2crowsStream(core);
   }
 
   /**
@@ -682,7 +686,7 @@ export function cdlupsidegap2crowsOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): Cdlupsidegap2crowsStream {
-  const sp = new Cdlupsidegap2crowsStream(core);
+  const sp = Cdlupsidegap2crowsStream.of(core);
   const retCode = cdlupsidegap2crowsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -704,7 +708,7 @@ export function cdlupsidegap2crowsOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): Cdlupsidegap2crowsStream {
-  const sp = new Cdlupsidegap2crowsStream(core);
+  const sp = Cdlupsidegap2crowsStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -836,7 +840,7 @@ export function cdlupsidegap2crowsOpenAndFill(
   requireHistoryLength('CDLUPSIDEGAP2CROWS openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLUPSIDEGAP2CROWS openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLUPSIDEGAP2CROWS openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLUPSIDEGAP2CROWS openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLUPSIDEGAP2CROWS openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

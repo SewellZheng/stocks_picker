@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -232,7 +232,7 @@ export function cdlladderbottom(
   requireLength('CDLLADDERBOTTOM', 'inHigh', inHigh, guardInLen);
   requireLength('CDLLADDERBOTTOM', 'inLow', inLow, guardInLen);
   requireLength('CDLLADDERBOTTOM', 'inClose', inClose, guardInLen);
-  requireLength('CDLLADDERBOTTOM', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLLADDERBOTTOM', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -306,9 +306,13 @@ export class CdlladderbottomStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlladderbottomStream {
+    return new CdlladderbottomStream(core);
   }
 
   /**
@@ -621,7 +625,7 @@ export function cdlladderbottomOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlladderbottomStream {
-  const sp = new CdlladderbottomStream(core);
+  const sp = CdlladderbottomStream.of(core);
   const retCode = cdlladderbottomOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -643,7 +647,7 @@ export function cdlladderbottomOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlladderbottomStream {
-  const sp = new CdlladderbottomStream(core);
+  const sp = CdlladderbottomStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -774,7 +778,7 @@ export function cdlladderbottomOpenAndFill(
   requireHistoryLength('CDLLADDERBOTTOM openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLLADDERBOTTOM openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLLADDERBOTTOM openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLLADDERBOTTOM openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLLADDERBOTTOM openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

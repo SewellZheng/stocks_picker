@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -235,7 +235,7 @@ export function cdllongleggeddoji(
   requireLength('CDLLONGLEGGEDDOJI', 'inHigh', inHigh, guardInLen);
   requireLength('CDLLONGLEGGEDDOJI', 'inLow', inLow, guardInLen);
   requireLength('CDLLONGLEGGEDDOJI', 'inClose', inClose, guardInLen);
-  requireLength('CDLLONGLEGGEDDOJI', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLLONGLEGGEDDOJI', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -301,9 +301,13 @@ export class CdllongleggeddojiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdllongleggeddojiStream {
+    return new CdllongleggeddojiStream(core);
   }
 
   /**
@@ -601,7 +605,7 @@ export function cdllongleggeddojiOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdllongleggeddojiStream {
-  const sp = new CdllongleggeddojiStream(core);
+  const sp = CdllongleggeddojiStream.of(core);
   const retCode = cdllongleggeddojiOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -623,7 +627,7 @@ export function cdllongleggeddojiOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdllongleggeddojiStream {
-  const sp = new CdllongleggeddojiStream(core);
+  const sp = CdllongleggeddojiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -755,7 +759,7 @@ export function cdllongleggeddojiOpenAndFill(
   requireHistoryLength('CDLLONGLEGGEDDOJI openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLLONGLEGGEDDOJI openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLLONGLEGGEDDOJI openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLLONGLEGGEDDOJI openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLLONGLEGGEDDOJI openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

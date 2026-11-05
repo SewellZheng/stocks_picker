@@ -16,7 +16,7 @@
  *  103126 MF,CC  Pre-check the cheap tests in an outer if, the candle averages inside
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -239,7 +239,7 @@ export function cdlinneck(
   requireLength('CDLINNECK', 'inHigh', inHigh, guardInLen);
   requireLength('CDLINNECK', 'inLow', inLow, guardInLen);
   requireLength('CDLINNECK', 'inClose', inClose, guardInLen);
-  requireLength('CDLINNECK', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLINNECK', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -316,9 +316,13 @@ export class CdlinneckStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlinneckStream {
+    return new CdlinneckStream(core);
   }
 
   /**
@@ -646,7 +650,7 @@ export function cdlinneckOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlinneckStream {
-  const sp = new CdlinneckStream(core);
+  const sp = CdlinneckStream.of(core);
   const retCode = cdlinneckOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -668,7 +672,7 @@ export function cdlinneckOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlinneckStream {
-  const sp = new CdlinneckStream(core);
+  const sp = CdlinneckStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -800,7 +804,7 @@ export function cdlinneckOpenAndFill(
   requireHistoryLength('CDLINNECK openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLINNECK openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLINNECK openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLINNECK openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLINNECK openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

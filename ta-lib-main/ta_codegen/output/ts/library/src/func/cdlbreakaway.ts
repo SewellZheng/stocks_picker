@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -242,7 +242,7 @@ export function cdlbreakaway(
   requireLength('CDLBREAKAWAY', 'inHigh', inHigh, guardInLen);
   requireLength('CDLBREAKAWAY', 'inLow', inLow, guardInLen);
   requireLength('CDLBREAKAWAY', 'inClose', inClose, guardInLen);
-  requireLength('CDLBREAKAWAY', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLBREAKAWAY', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -327,9 +327,13 @@ export class CdlbreakawayStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlbreakawayStream {
+    return new CdlbreakawayStream(core);
   }
 
   /**
@@ -686,7 +690,7 @@ export function cdlbreakawayOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlbreakawayStream {
-  const sp = new CdlbreakawayStream(core);
+  const sp = CdlbreakawayStream.of(core);
   const retCode = cdlbreakawayOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -708,7 +712,7 @@ export function cdlbreakawayOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlbreakawayStream {
-  const sp = new CdlbreakawayStream(core);
+  const sp = CdlbreakawayStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -840,7 +844,7 @@ export function cdlbreakawayOpenAndFill(
   requireHistoryLength('CDLBREAKAWAY openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLBREAKAWAY openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLBREAKAWAY openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLBREAKAWAY openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLBREAKAWAY openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

@@ -12,7 +12,7 @@
  *  092726 MF,CC  Initial version (#451).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -248,7 +248,7 @@ export function si(
   requireLength('SI', 'inHigh', inHigh, guardInLen);
   requireLength('SI', 'inLow', inLow, guardInLen);
   requireLength('SI', 'inClose', inClose, guardInLen);
-  requireLength('SI', 'outReal', outReal, guardOutLen);
+  requireOutput('SI', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -291,9 +291,13 @@ export class SiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SiStream {
+    return new SiStream(core);
   }
 
   /**
@@ -584,7 +588,7 @@ export function siOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): SiStream {
-  const sp = new SiStream(core);
+  const sp = SiStream.of(core);
   const retCode = siOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInLimitMove, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -607,7 +611,7 @@ export function siOpenInternal(
   startIdx: number,
   optInLimitMove: number,
 ): SiStream {
-  const sp = new SiStream(core);
+  const sp = SiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -750,7 +754,7 @@ export function siOpenAndFill(
   requireHistoryLength('SI openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('SI openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('SI openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('SI openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

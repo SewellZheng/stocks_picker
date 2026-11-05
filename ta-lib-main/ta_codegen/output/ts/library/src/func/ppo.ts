@@ -24,7 +24,7 @@
  */
 
 import { MAType, MATypes } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -570,7 +570,7 @@ export function ppo(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('PPO', 'inReal', inReal, guardInLen);
-  requireLength('PPO', 'outReal', outReal, guardOutLen);
+  requireOutput('PPO', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('PPO', RetCode.BAD_PARAM);
@@ -620,9 +620,13 @@ export class PpoStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): PpoStream {
+    return new PpoStream(core);
   }
 
   /**
@@ -930,7 +934,7 @@ export function ppoOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): PpoStream {
-  const sp = new PpoStream(core);
+  const sp = PpoStream.of(core);
   const retCode = ppoOpenImpl(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -952,7 +956,7 @@ export function ppoOpenInternal(
   optInSlowPeriod: number,
   optInMAType: number,
 ): PpoStream {
-  const sp = new PpoStream(core);
+  const sp = PpoStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1067,7 +1071,7 @@ export function ppoOpenAndFill(
   requireArgument('PPO openAndFill', 'inReal', inReal);
   requireHistory('PPO openAndFill', inReal.length);
   const guardOutLen = openFillCount('PPO openAndFill', inReal.length, ppoLookback(optInFastPeriod, optInSlowPeriod, optInMAType as MAType, core));
-  requireLength('PPO openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('PPO openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('PPO openAndFill', RetCode.BAD_PARAM);

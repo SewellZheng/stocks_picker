@@ -19,7 +19,7 @@
  *               the read was of an uninitialised local.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -665,7 +665,7 @@ export function sarext(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('SAREXT', 'inHigh', inHigh, guardInLen);
   requireLength('SAREXT', 'inLow', inLow, guardInLen);
-  requireLength('SAREXT', 'outReal', outReal, guardOutLen);
+  requireOutput('SAREXT', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64)) {
@@ -730,9 +730,13 @@ export class SarextStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SarextStream {
+    return new SarextStream(core);
   }
 
   /**
@@ -1646,7 +1650,7 @@ export function sarextOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): SarextStream {
-  const sp = new SarextStream(core);
+  const sp = SarextStream.of(core);
   const retCode = sarextOpenImpl(sp, inHigh, inLow, startIdx, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1674,7 +1678,7 @@ export function sarextOpenInternal(
   optInAccelerationShort: number,
   optInAccelerationMaxShort: number,
 ): SarextStream {
-  const sp = new SarextStream(core);
+  const sp = SarextStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1847,7 +1851,7 @@ export function sarextOpenAndFill(
   requireArgument('SAREXT openAndFill', 'inLow', inLow);
   const guardOutLen = openFillCount('SAREXT openAndFill', inHigh.length, sarextLookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, core));
   requireHistoryLength('SAREXT openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireLength('SAREXT openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SAREXT openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset)) {

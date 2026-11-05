@@ -20,7 +20,7 @@
  *                lockstep pass (bit-exact, no temporary buffers).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -486,7 +486,7 @@ export function tema(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('TEMA', 'inReal', inReal, guardInLen);
-  requireLength('TEMA', 'outReal', outReal, guardOutLen);
+  requireOutput('TEMA', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('TEMA', RetCode.BAD_PARAM);
@@ -532,9 +532,13 @@ export class TemaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): TemaStream {
+    return new TemaStream(core);
   }
 
   /**
@@ -1111,7 +1115,7 @@ export function temaOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): TemaStream {
-  const sp = new TemaStream(core);
+  const sp = TemaStream.of(core);
   const retCode = temaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1131,7 +1135,7 @@ export function temaOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): TemaStream {
-  const sp = new TemaStream(core);
+  const sp = TemaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1226,7 +1230,7 @@ export function temaOpenAndFill(
   requireArgument('TEMA openAndFill', 'inReal', inReal);
   requireHistory('TEMA openAndFill', inReal.length);
   const guardOutLen = openFillCount('TEMA openAndFill', inReal.length, temaLookback(optInTimePeriod, core));
-  requireLength('TEMA openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('TEMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('TEMA openAndFill', RetCode.BAD_PARAM);

@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -246,7 +246,7 @@ export function cdl3linestrike(
   requireLength('CDL3LINESTRIKE', 'inHigh', inHigh, guardInLen);
   requireLength('CDL3LINESTRIKE', 'inLow', inLow, guardInLen);
   requireLength('CDL3LINESTRIKE', 'inClose', inClose, guardInLen);
-  requireLength('CDL3LINESTRIKE', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDL3LINESTRIKE', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -324,9 +324,13 @@ export class Cdl3linestrikeStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): Cdl3linestrikeStream {
+    return new Cdl3linestrikeStream(core);
   }
 
   /**
@@ -669,7 +673,7 @@ export function cdl3linestrikeOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): Cdl3linestrikeStream {
-  const sp = new Cdl3linestrikeStream(core);
+  const sp = Cdl3linestrikeStream.of(core);
   const retCode = cdl3linestrikeOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -691,7 +695,7 @@ export function cdl3linestrikeOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): Cdl3linestrikeStream {
-  const sp = new Cdl3linestrikeStream(core);
+  const sp = Cdl3linestrikeStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -823,7 +827,7 @@ export function cdl3linestrikeOpenAndFill(
   requireHistoryLength('CDL3LINESTRIKE openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDL3LINESTRIKE openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDL3LINESTRIKE openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDL3LINESTRIKE openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDL3LINESTRIKE openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

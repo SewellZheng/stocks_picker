@@ -15,7 +15,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -224,7 +224,7 @@ export function cdlshortline(
   requireLength('CDLSHORTLINE', 'inHigh', inHigh, guardInLen);
   requireLength('CDLSHORTLINE', 'inLow', inLow, guardInLen);
   requireLength('CDLSHORTLINE', 'inClose', inClose, guardInLen);
-  requireLength('CDLSHORTLINE', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLSHORTLINE', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -289,9 +289,13 @@ export class CdlshortlineStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlshortlineStream {
+    return new CdlshortlineStream(core);
   }
 
   /**
@@ -588,7 +592,7 @@ export function cdlshortlineOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlshortlineStream {
-  const sp = new CdlshortlineStream(core);
+  const sp = CdlshortlineStream.of(core);
   const retCode = cdlshortlineOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -610,7 +614,7 @@ export function cdlshortlineOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlshortlineStream {
-  const sp = new CdlshortlineStream(core);
+  const sp = CdlshortlineStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -742,7 +746,7 @@ export function cdlshortlineOpenAndFill(
   requireHistoryLength('CDLSHORTLINE openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLSHORTLINE openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLSHORTLINE openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLSHORTLINE openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLSHORTLINE openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

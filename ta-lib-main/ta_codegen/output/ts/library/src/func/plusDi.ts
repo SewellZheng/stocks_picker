@@ -24,7 +24,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -499,7 +499,7 @@ export function plusDi(
   requireLength('PLUS_DI', 'inHigh', inHigh, guardInLen);
   requireLength('PLUS_DI', 'inLow', inLow, guardInLen);
   requireLength('PLUS_DI', 'inClose', inClose, guardInLen);
-  requireLength('PLUS_DI', 'outReal', outReal, guardOutLen);
+  requireOutput('PLUS_DI', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -549,9 +549,13 @@ export class PlusDiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): PlusDiStream {
+    return new PlusDiStream(core);
   }
 
   /**
@@ -1300,7 +1304,7 @@ export function plusDiOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): PlusDiStream {
-  const sp = new PlusDiStream(core);
+  const sp = PlusDiStream.of(core);
   const retCode = plusDiOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1322,7 +1326,7 @@ export function plusDiOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): PlusDiStream {
-  const sp = new PlusDiStream(core);
+  const sp = PlusDiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1448,7 +1452,7 @@ export function plusDiOpenAndFill(
   const guardOutLen = openFillCount('PLUS_DI openAndFill', inHigh.length, plusDiLookback(optInTimePeriod, core));
   requireHistoryLength('PLUS_DI openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('PLUS_DI openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('PLUS_DI openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('PLUS_DI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

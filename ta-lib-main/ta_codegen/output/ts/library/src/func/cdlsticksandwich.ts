@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -224,7 +224,7 @@ export function cdlsticksandwich(
   requireLength('CDLSTICKSANDWICH', 'inHigh', inHigh, guardInLen);
   requireLength('CDLSTICKSANDWICH', 'inLow', inLow, guardInLen);
   requireLength('CDLSTICKSANDWICH', 'inClose', inClose, guardInLen);
-  requireLength('CDLSTICKSANDWICH', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLSTICKSANDWICH', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -294,9 +294,13 @@ export class CdlsticksandwichStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlsticksandwichStream {
+    return new CdlsticksandwichStream(core);
   }
 
   /**
@@ -585,7 +589,7 @@ export function cdlsticksandwichOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlsticksandwichStream {
-  const sp = new CdlsticksandwichStream(core);
+  const sp = CdlsticksandwichStream.of(core);
   const retCode = cdlsticksandwichOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -607,7 +611,7 @@ export function cdlsticksandwichOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlsticksandwichStream {
-  const sp = new CdlsticksandwichStream(core);
+  const sp = CdlsticksandwichStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -738,7 +742,7 @@ export function cdlsticksandwichOpenAndFill(
   requireHistoryLength('CDLSTICKSANDWICH openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLSTICKSANDWICH openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLSTICKSANDWICH openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLSTICKSANDWICH openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLSTICKSANDWICH openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

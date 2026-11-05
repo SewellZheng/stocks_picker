@@ -15,7 +15,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -267,7 +267,7 @@ export function cdlhammer(
   requireLength('CDLHAMMER', 'inHigh', inHigh, guardInLen);
   requireLength('CDLHAMMER', 'inLow', inLow, guardInLen);
   requireLength('CDLHAMMER', 'inClose', inClose, guardInLen);
-  requireLength('CDLHAMMER', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHAMMER', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -368,9 +368,13 @@ export class CdlhammerStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlhammerStream {
+    return new CdlhammerStream(core);
   }
 
   /**
@@ -798,7 +802,7 @@ export function cdlhammerOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlhammerStream {
-  const sp = new CdlhammerStream(core);
+  const sp = CdlhammerStream.of(core);
   const retCode = cdlhammerOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -820,7 +824,7 @@ export function cdlhammerOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlhammerStream {
-  const sp = new CdlhammerStream(core);
+  const sp = CdlhammerStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -951,7 +955,7 @@ export function cdlhammerOpenAndFill(
   requireHistoryLength('CDLHAMMER openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLHAMMER openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLHAMMER openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLHAMMER openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHAMMER openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

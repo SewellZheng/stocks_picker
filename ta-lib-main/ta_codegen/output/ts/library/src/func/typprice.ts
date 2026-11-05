@@ -14,7 +14,7 @@
  *  112605 MF   Fix outBegIdx when startIdx != 0
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -148,7 +148,7 @@ export function typprice(
   requireLength('TYPPRICE', 'inHigh', inHigh, guardInLen);
   requireLength('TYPPRICE', 'inLow', inLow, guardInLen);
   requireLength('TYPPRICE', 'inClose', inClose, guardInLen);
-  requireLength('TYPPRICE', 'outReal', outReal, guardOutLen);
+  requireOutput('TYPPRICE', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -184,9 +184,13 @@ export class TyppriceStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): TyppriceStream {
+    return new TyppriceStream(core);
   }
 
   /**
@@ -329,7 +333,7 @@ export function typpriceOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): TyppriceStream {
-  const sp = new TyppriceStream(core);
+  const sp = TyppriceStream.of(core);
   const retCode = typpriceOpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -350,7 +354,7 @@ export function typpriceOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): TyppriceStream {
-  const sp = new TyppriceStream(core);
+  const sp = TyppriceStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -466,7 +470,7 @@ export function typpriceOpenAndFill(
   const guardOutLen = openFillCount('TYPPRICE openAndFill', inHigh.length, typpriceLookback(core));
   requireHistoryLength('TYPPRICE openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('TYPPRICE openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('TYPPRICE openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('TYPPRICE openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

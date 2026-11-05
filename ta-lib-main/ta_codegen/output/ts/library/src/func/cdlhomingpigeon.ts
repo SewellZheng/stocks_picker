@@ -16,7 +16,7 @@
  *  110126 MF,CC  Pre-check the colour and close tests in an outer if, the candle averages inside
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -239,7 +239,7 @@ export function cdlhomingpigeon(
   requireLength('CDLHOMINGPIGEON', 'inHigh', inHigh, guardInLen);
   requireLength('CDLHOMINGPIGEON', 'inLow', inLow, guardInLen);
   requireLength('CDLHOMINGPIGEON', 'inClose', inClose, guardInLen);
-  requireLength('CDLHOMINGPIGEON', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHOMINGPIGEON', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -315,9 +315,13 @@ export class CdlhomingpigeonStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlhomingpigeonStream {
+    return new CdlhomingpigeonStream(core);
   }
 
   /**
@@ -645,7 +649,7 @@ export function cdlhomingpigeonOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlhomingpigeonStream {
-  const sp = new CdlhomingpigeonStream(core);
+  const sp = CdlhomingpigeonStream.of(core);
   const retCode = cdlhomingpigeonOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -667,7 +671,7 @@ export function cdlhomingpigeonOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlhomingpigeonStream {
-  const sp = new CdlhomingpigeonStream(core);
+  const sp = CdlhomingpigeonStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -798,7 +802,7 @@ export function cdlhomingpigeonOpenAndFill(
   requireHistoryLength('CDLHOMINGPIGEON openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLHOMINGPIGEON openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLHOMINGPIGEON openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLHOMINGPIGEON openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHOMINGPIGEON openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

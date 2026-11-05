@@ -18,7 +18,7 @@
  *               the pre-scaled divisor left the documented [-100,0] bound.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -363,7 +363,7 @@ export function willr(
   requireLength('WILLR', 'inHigh', inHigh, guardInLen);
   requireLength('WILLR', 'inLow', inLow, guardInLen);
   requireLength('WILLR', 'inClose', inClose, guardInLen);
-  requireLength('WILLR', 'outReal', outReal, guardOutLen);
+  requireOutput('WILLR', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -425,9 +425,13 @@ export class WillrStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): WillrStream {
+    return new WillrStream(core);
   }
 
   /**
@@ -836,7 +840,7 @@ export function willrOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): WillrStream {
-  const sp = new WillrStream(core);
+  const sp = WillrStream.of(core);
   const retCode = willrOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -858,7 +862,7 @@ export function willrOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): WillrStream {
-  const sp = new WillrStream(core);
+  const sp = WillrStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -985,7 +989,7 @@ export function willrOpenAndFill(
   const guardOutLen = openFillCount('WILLR openAndFill', inHigh.length, willrLookback(optInTimePeriod, core));
   requireHistoryLength('WILLR openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('WILLR openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('WILLR openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('WILLR openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

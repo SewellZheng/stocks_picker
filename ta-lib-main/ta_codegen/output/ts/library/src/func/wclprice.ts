@@ -14,7 +14,7 @@
  *  112605 MF   Fix outBegIdx when startIdx != 0
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
@@ -149,7 +149,7 @@ export function wclprice(
   requireLength('WCLPRICE', 'inHigh', inHigh, guardInLen);
   requireLength('WCLPRICE', 'inLow', inLow, guardInLen);
   requireLength('WCLPRICE', 'inClose', inClose, guardInLen);
-  requireLength('WCLPRICE', 'outReal', outReal, guardOutLen);
+  requireOutput('WCLPRICE', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -185,9 +185,13 @@ export class WclpriceStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): WclpriceStream {
+    return new WclpriceStream(core);
   }
 
   /**
@@ -330,7 +334,7 @@ export function wclpriceOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): WclpriceStream {
-  const sp = new WclpriceStream(core);
+  const sp = WclpriceStream.of(core);
   const retCode = wclpriceOpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -351,7 +355,7 @@ export function wclpriceOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): WclpriceStream {
-  const sp = new WclpriceStream(core);
+  const sp = WclpriceStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -467,7 +471,7 @@ export function wclpriceOpenAndFill(
   const guardOutLen = openFillCount('WCLPRICE openAndFill', inHigh.length, wclpriceLookback(core));
   requireHistoryLength('WCLPRICE openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('WCLPRICE openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('WCLPRICE openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('WCLPRICE openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

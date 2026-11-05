@@ -15,7 +15,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -378,7 +378,7 @@ export function adosc(
   requireLength('ADOSC', 'inLow', inLow, guardInLen);
   requireLength('ADOSC', 'inClose', inClose, guardInLen);
   requireLength('ADOSC', 'inVolume', inVolume, guardInLen);
-  requireLength('ADOSC', 'outReal', outReal, guardOutLen);
+  requireOutput('ADOSC', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -433,9 +433,13 @@ export class AdoscStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AdoscStream {
+    return new AdoscStream(core);
   }
 
   /**
@@ -860,7 +864,7 @@ export function adoscOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): AdoscStream {
-  const sp = new AdoscStream(core);
+  const sp = AdoscStream.of(core);
   const retCode = adoscOpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -884,7 +888,7 @@ export function adoscOpenInternal(
   optInFastPeriod: number,
   optInSlowPeriod: number,
 ): AdoscStream {
-  const sp = new AdoscStream(core);
+  const sp = AdoscStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1033,7 +1037,7 @@ export function adoscOpenAndFill(
   requireHistoryLength('ADOSC openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('ADOSC openAndFill', 'inClose', inClose.length, inHigh.length);
   requireHistoryLength('ADOSC openAndFill', 'inVolume', inVolume.length, inHigh.length);
-  requireLength('ADOSC openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('ADOSC openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

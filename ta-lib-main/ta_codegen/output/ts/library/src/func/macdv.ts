@@ -12,7 +12,7 @@
  *  103126 MF,CC  Creation (#570).
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -794,9 +794,9 @@ export function macdv(
   requireLength('MACDV', 'inHigh', inHigh, guardInLen);
   requireLength('MACDV', 'inLow', inLow, guardInLen);
   requireLength('MACDV', 'inClose', inClose, guardInLen);
-  requireLength('MACDV', 'outMACDV', outMACDV, guardOutLen);
-  requireLength('MACDV', 'outMACDVSignal', outMACDVSignal, guardOutLen);
-  requireLength('MACDV', 'outMACDVHist', outMACDVHist, guardOutLen);
+  requireOutput('MACDV', 'outMACDV', outMACDV, guardOutLen, Float64Array);
+  requireOutput('MACDV', 'outMACDVSignal', outMACDVSignal, guardOutLen, Float64Array);
+  requireOutput('MACDV', 'outMACDVHist', outMACDVHist, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -870,9 +870,13 @@ export class MacdvStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): MacdvStream {
+    return new MacdvStream(core);
   }
 
   /**
@@ -1831,7 +1835,7 @@ export function macdvOpenAndFillInternal(
   outMACDVSignal: Float64Array,
   outMACDVHist: Float64Array,
 ): MacdvStream {
-  const sp = new MacdvStream(core);
+  const sp = MacdvStream.of(core);
   const retCode = macdvOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACDV, outMACDVSignal, outMACDVHist, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1855,7 +1859,7 @@ export function macdvOpenInternal(
   optInSlowPeriod: number,
   optInSignalPeriod: number,
 ): MacdvStream {
-  const sp = new MacdvStream(core);
+  const sp = MacdvStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outMACDV = new Float64Array(1);
@@ -2016,9 +2020,9 @@ export function macdvOpenAndFill(
   const guardOutLen = openFillCount('MACDV openAndFill', inHigh.length, macdvLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod, core));
   requireHistoryLength('MACDV openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('MACDV openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('MACDV openAndFill', 'outMACDV', outMACDV, guardOutLen);
-  requireLength('MACDV openAndFill', 'outMACDVSignal', outMACDVSignal, guardOutLen);
-  requireLength('MACDV openAndFill', 'outMACDVHist', outMACDVHist, guardOutLen);
+  requireOutput('MACDV openAndFill', 'outMACDV', outMACDV, guardOutLen, Float64Array);
+  requireOutput('MACDV openAndFill', 'outMACDVSignal', outMACDVSignal, guardOutLen, Float64Array);
+  requireOutput('MACDV openAndFill', 'outMACDVHist', outMACDVHist, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

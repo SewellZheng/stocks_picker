@@ -13,7 +13,7 @@
  *  071726 MF,CC Implement Positive Volume Index (#126).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -187,7 +187,7 @@ export function pvi(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('PVI', 'inClose', inClose, guardInLen);
   requireLength('PVI', 'inVolume', inVolume, guardInLen);
-  requireLength('PVI', 'outReal', outReal, guardOutLen);
+  requireOutput('PVI', 'outReal', outReal, guardOutLen, Float64Array);
   const inCloseF64 = float64(inClose);
   const inVolumeF64 = float64(inVolume);
   if (overlapsPartly(outReal, inCloseF64) || overlapsPartly(outReal, inVolumeF64)) {
@@ -228,9 +228,13 @@ export class PviStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): PviStream {
+    return new PviStream(core);
   }
 
   /**
@@ -470,7 +474,7 @@ export function pviOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): PviStream {
-  const sp = new PviStream(core);
+  const sp = PviStream.of(core);
   const retCode = pviOpenImpl(sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -490,7 +494,7 @@ export function pviOpenInternal(
   inVolume: Float64Array,
   startIdx: number,
 ): PviStream {
-  const sp = new PviStream(core);
+  const sp = PviStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -593,7 +597,7 @@ export function pviOpenAndFill(
   requireArgument('PVI openAndFill', 'inVolume', inVolume);
   const guardOutLen = openFillCount('PVI openAndFill', inClose.length, pviLookback(core));
   requireHistoryLength('PVI openAndFill', 'inVolume', inVolume.length, inClose.length);
-  requireLength('PVI openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('PVI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inCloseF64 = float64(inClose);
   const inVolumeF64 = float64(inVolume);
   if ((outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset) || (outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset)) {

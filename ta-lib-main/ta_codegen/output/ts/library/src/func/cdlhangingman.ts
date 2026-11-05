@@ -15,7 +15,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -270,7 +270,7 @@ export function cdlhangingman(
   requireLength('CDLHANGINGMAN', 'inHigh', inHigh, guardInLen);
   requireLength('CDLHANGINGMAN', 'inLow', inLow, guardInLen);
   requireLength('CDLHANGINGMAN', 'inClose', inClose, guardInLen);
-  requireLength('CDLHANGINGMAN', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHANGINGMAN', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -372,9 +372,13 @@ export class CdlhangingmanStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlhangingmanStream {
+    return new CdlhangingmanStream(core);
   }
 
   /**
@@ -802,7 +806,7 @@ export function cdlhangingmanOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlhangingmanStream {
-  const sp = new CdlhangingmanStream(core);
+  const sp = CdlhangingmanStream.of(core);
   const retCode = cdlhangingmanOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -824,7 +828,7 @@ export function cdlhangingmanOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlhangingmanStream {
-  const sp = new CdlhangingmanStream(core);
+  const sp = CdlhangingmanStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -955,7 +959,7 @@ export function cdlhangingmanOpenAndFill(
   requireHistoryLength('CDLHANGINGMAN openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLHANGINGMAN openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLHANGINGMAN openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLHANGINGMAN openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHANGINGMAN openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

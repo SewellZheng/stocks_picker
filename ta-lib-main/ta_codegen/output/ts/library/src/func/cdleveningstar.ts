@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -275,7 +275,7 @@ export function cdleveningstar(
   requireLength('CDLEVENINGSTAR', 'inHigh', inHigh, guardInLen);
   requireLength('CDLEVENINGSTAR', 'inLow', inLow, guardInLen);
   requireLength('CDLEVENINGSTAR', 'inClose', inClose, guardInLen);
-  requireLength('CDLEVENINGSTAR', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLEVENINGSTAR', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -363,9 +363,13 @@ export class CdleveningstarStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdleveningstarStream {
+    return new CdleveningstarStream(core);
   }
 
   /**
@@ -728,7 +732,7 @@ export function cdleveningstarOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdleveningstarStream {
-  const sp = new CdleveningstarStream(core);
+  const sp = CdleveningstarStream.of(core);
   const retCode = cdleveningstarOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -751,7 +755,7 @@ export function cdleveningstarOpenInternal(
   startIdx: number,
   optInPenetration: number,
 ): CdleveningstarStream {
-  const sp = new CdleveningstarStream(core);
+  const sp = CdleveningstarStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -894,7 +898,7 @@ export function cdleveningstarOpenAndFill(
   requireHistoryLength('CDLEVENINGSTAR openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLEVENINGSTAR openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLEVENINGSTAR openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLEVENINGSTAR openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLEVENINGSTAR openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

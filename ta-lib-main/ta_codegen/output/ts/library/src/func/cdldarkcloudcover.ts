@@ -16,7 +16,7 @@
  *  103126 MF,CC  Pre-check the cheap tests in an outer if, the candle averages inside
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -252,7 +252,7 @@ export function cdldarkcloudcover(
   requireLength('CDLDARKCLOUDCOVER', 'inHigh', inHigh, guardInLen);
   requireLength('CDLDARKCLOUDCOVER', 'inLow', inLow, guardInLen);
   requireLength('CDLDARKCLOUDCOVER', 'inClose', inClose, guardInLen);
-  requireLength('CDLDARKCLOUDCOVER', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLDARKCLOUDCOVER', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -316,9 +316,13 @@ export class CdldarkcloudcoverStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdldarkcloudcoverStream {
+    return new CdldarkcloudcoverStream(core);
   }
 
   /**
@@ -605,7 +609,7 @@ export function cdldarkcloudcoverOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdldarkcloudcoverStream {
-  const sp = new CdldarkcloudcoverStream(core);
+  const sp = CdldarkcloudcoverStream.of(core);
   const retCode = cdldarkcloudcoverOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -628,7 +632,7 @@ export function cdldarkcloudcoverOpenInternal(
   startIdx: number,
   optInPenetration: number,
 ): CdldarkcloudcoverStream {
-  const sp = new CdldarkcloudcoverStream(core);
+  const sp = CdldarkcloudcoverStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -771,7 +775,7 @@ export function cdldarkcloudcoverOpenAndFill(
   requireHistoryLength('CDLDARKCLOUDCOVER openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLDARKCLOUDCOVER openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLDARKCLOUDCOVER openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLDARKCLOUDCOVER openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLDARKCLOUDCOVER openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

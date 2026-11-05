@@ -13,7 +13,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
@@ -260,7 +260,7 @@ export function rma(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('RMA', 'inReal', inReal, guardInLen);
-  requireLength('RMA', 'outReal', outReal, guardOutLen);
+  requireOutput('RMA', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('RMA', RetCode.BAD_PARAM);
@@ -302,9 +302,13 @@ export class RmaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): RmaStream {
+    return new RmaStream(core);
   }
 
   /**
@@ -514,7 +518,7 @@ export function rmaOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): RmaStream {
-  const sp = new RmaStream(core);
+  const sp = RmaStream.of(core);
   const retCode = rmaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -534,7 +538,7 @@ export function rmaOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): RmaStream {
-  const sp = new RmaStream(core);
+  const sp = RmaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -632,7 +636,7 @@ export function rmaOpenAndFill(
   requireArgument('RMA openAndFill', 'inReal', inReal);
   requireHistory('RMA openAndFill', inReal.length);
   const guardOutLen = openFillCount('RMA openAndFill', inReal.length, rmaLookback(optInTimePeriod, core));
-  requireLength('RMA openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('RMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('RMA openAndFill', RetCode.BAD_PARAM);

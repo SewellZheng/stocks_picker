@@ -12,7 +12,7 @@
  *  090426 MF,CC  First version (issue #359).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
@@ -420,7 +420,7 @@ export function massi(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('MASSI', 'inHigh', inHigh, guardInLen);
   requireLength('MASSI', 'inLow', inLow, guardInLen);
-  requireLength('MASSI', 'outReal', outReal, guardOutLen);
+  requireOutput('MASSI', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64)) {
@@ -477,9 +477,13 @@ export class MassiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): MassiStream {
+    return new MassiStream(core);
   }
 
   /**
@@ -901,7 +905,7 @@ export function massiOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): MassiStream {
-  const sp = new MassiStream(core);
+  const sp = MassiStream.of(core);
   const retCode = massiOpenImpl(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -923,7 +927,7 @@ export function massiOpenInternal(
   optInFastPeriod: number,
   optInSlowPeriod: number,
 ): MassiStream {
-  const sp = new MassiStream(core);
+  const sp = MassiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1042,7 +1046,7 @@ export function massiOpenAndFill(
   requireArgument('MASSI openAndFill', 'inLow', inLow);
   const guardOutLen = openFillCount('MASSI openAndFill', inHigh.length, massiLookback(optInFastPeriod, optInSlowPeriod, core));
   requireHistoryLength('MASSI openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireLength('MASSI openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('MASSI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset)) {

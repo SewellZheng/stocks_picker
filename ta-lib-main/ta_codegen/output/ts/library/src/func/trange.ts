@@ -13,7 +13,7 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -196,7 +196,7 @@ export function trange(
   requireLength('TRANGE', 'inHigh', inHigh, guardInLen);
   requireLength('TRANGE', 'inLow', inLow, guardInLen);
   requireLength('TRANGE', 'inClose', inClose, guardInLen);
-  requireLength('TRANGE', 'outReal', outReal, guardOutLen);
+  requireOutput('TRANGE', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -234,9 +234,13 @@ export class TrangeStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): TrangeStream {
+    return new TrangeStream(core);
   }
 
   /**
@@ -469,7 +473,7 @@ export function trangeOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): TrangeStream {
-  const sp = new TrangeStream(core);
+  const sp = TrangeStream.of(core);
   const retCode = trangeOpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -490,7 +494,7 @@ export function trangeOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): TrangeStream {
-  const sp = new TrangeStream(core);
+  const sp = TrangeStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -606,7 +610,7 @@ export function trangeOpenAndFill(
   const guardOutLen = openFillCount('TRANGE openAndFill', inHigh.length, trangeLookback(core));
   requireHistoryLength('TRANGE openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('TRANGE openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('TRANGE openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('TRANGE openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

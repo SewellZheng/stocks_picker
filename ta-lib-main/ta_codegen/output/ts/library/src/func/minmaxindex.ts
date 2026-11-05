@@ -14,7 +14,7 @@
  *  100526 MF,CC A tie names the newest bar from any start (#503)
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -254,8 +254,8 @@ export function minmaxindex(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('MINMAXINDEX', 'inReal', inReal, guardInLen);
-  requireLength('MINMAXINDEX', 'outMinIdx', outMinIdx, guardOutLen);
-  requireLength('MINMAXINDEX', 'outMaxIdx', outMaxIdx, guardOutLen);
+  requireOutput('MINMAXINDEX', 'outMinIdx', outMinIdx, guardOutLen, Int32Array);
+  requireOutput('MINMAXINDEX', 'outMaxIdx', outMaxIdx, guardOutLen, Int32Array);
   const inRealF64 = float64(inReal);
   if (overlaps(outMinIdx, inRealF64) || overlaps(outMaxIdx, inRealF64) || overlaps(outMinIdx, outMaxIdx)) {
     throw failure('MINMAXINDEX', RetCode.BAD_PARAM);
@@ -311,9 +311,13 @@ export class MinmaxindexStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): MinmaxindexStream {
+    return new MinmaxindexStream(core);
   }
 
   /**
@@ -674,7 +678,7 @@ export function minmaxindexOpenAndFillInternal(
   outMinIdx: Int32Array,
   outMaxIdx: Int32Array,
 ): MinmaxindexStream {
-  const sp = new MinmaxindexStream(core);
+  const sp = MinmaxindexStream.of(core);
   const retCode = minmaxindexOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -694,7 +698,7 @@ export function minmaxindexOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): MinmaxindexStream {
-  const sp = new MinmaxindexStream(core);
+  const sp = MinmaxindexStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outMinIdx = new Int32Array(1);
@@ -798,8 +802,8 @@ export function minmaxindexOpenAndFill(
   requireArgument('MINMAXINDEX openAndFill', 'inReal', inReal);
   requireHistory('MINMAXINDEX openAndFill', inReal.length);
   const guardOutLen = openFillCount('MINMAXINDEX openAndFill', inReal.length, minmaxindexLookback(optInTimePeriod, core));
-  requireLength('MINMAXINDEX openAndFill', 'outMinIdx', outMinIdx, guardOutLen);
-  requireLength('MINMAXINDEX openAndFill', 'outMaxIdx', outMaxIdx, guardOutLen);
+  requireOutput('MINMAXINDEX openAndFill', 'outMinIdx', outMinIdx, guardOutLen, Int32Array);
+  requireOutput('MINMAXINDEX openAndFill', 'outMaxIdx', outMaxIdx, guardOutLen, Int32Array);
   const inRealF64 = float64(inReal);
   if ((outMinIdx.buffer === inRealF64.buffer && outMinIdx.byteOffset === inRealF64.byteOffset) || (outMaxIdx.buffer === inRealF64.buffer && outMaxIdx.byteOffset === inRealF64.byteOffset) || (outMinIdx.buffer === outMaxIdx.buffer && outMinIdx.byteOffset === outMaxIdx.byteOffset)) {
     throw streamFailure('MINMAXINDEX openAndFill', RetCode.BAD_PARAM);

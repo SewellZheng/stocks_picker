@@ -12,7 +12,7 @@
  *  081626 MF,CC  Initial version (#227).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -297,7 +297,7 @@ export function ao(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('AO', 'inHigh', inHigh, guardInLen);
   requireLength('AO', 'inLow', inLow, guardInLen);
-  requireLength('AO', 'outReal', outReal, guardOutLen);
+  requireOutput('AO', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64)) {
@@ -352,9 +352,13 @@ export class AoStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AoStream {
+    return new AoStream(core);
   }
 
   /**
@@ -693,7 +697,7 @@ export function aoOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): AoStream {
-  const sp = new AoStream(core);
+  const sp = AoStream.of(core);
   const retCode = aoOpenImpl(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -715,7 +719,7 @@ export function aoOpenInternal(
   optInFastPeriod: number,
   optInSlowPeriod: number,
 ): AoStream {
-  const sp = new AoStream(core);
+  const sp = AoStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -836,7 +840,7 @@ export function aoOpenAndFill(
   requireArgument('AO openAndFill', 'inLow', inLow);
   const guardOutLen = openFillCount('AO openAndFill', inHigh.length, aoLookback(optInFastPeriod, optInSlowPeriod, core));
   requireHistoryLength('AO openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireLength('AO openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('AO openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset)) {

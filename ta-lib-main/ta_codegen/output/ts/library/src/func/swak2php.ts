@@ -16,7 +16,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
@@ -317,7 +317,7 @@ export function swak2php(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('SWAK_2PHP', 'inReal', inReal, guardInLen);
-  requireLength('SWAK_2PHP', 'outReal', outReal, guardOutLen);
+  requireOutput('SWAK_2PHP', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('SWAK_2PHP', RetCode.BAD_PARAM);
@@ -367,9 +367,13 @@ export class Swak2phpStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): Swak2phpStream {
+    return new Swak2phpStream(core);
   }
 
   /**
@@ -697,7 +701,7 @@ export function swak2phpOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): Swak2phpStream {
-  const sp = new Swak2phpStream(core);
+  const sp = Swak2phpStream.of(core);
   const retCode = swak2phpOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -717,7 +721,7 @@ export function swak2phpOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): Swak2phpStream {
-  const sp = new Swak2phpStream(core);
+  const sp = Swak2phpStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -817,7 +821,7 @@ export function swak2phpOpenAndFill(
   requireArgument('SWAK_2PHP openAndFill', 'inReal', inReal);
   requireHistory('SWAK_2PHP openAndFill', inReal.length);
   const guardOutLen = openFillCount('SWAK_2PHP openAndFill', inReal.length, swak2phpLookback(optInTimePeriod, core));
-  requireLength('SWAK_2PHP openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SWAK_2PHP openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('SWAK_2PHP openAndFill', RetCode.BAD_PARAM);

@@ -27,7 +27,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
@@ -771,7 +771,7 @@ export function t3(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('T3', 'inReal', inReal, guardInLen);
-  requireLength('T3', 'outReal', outReal, guardOutLen);
+  requireOutput('T3', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('T3', RetCode.BAD_PARAM);
@@ -833,9 +833,13 @@ export class T3Stream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): T3Stream {
+    return new T3Stream(core);
   }
 
   /**
@@ -1877,7 +1881,7 @@ export function t3OpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): T3Stream {
-  const sp = new T3Stream(core);
+  const sp = T3Stream.of(core);
   const retCode = t3OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1898,7 +1902,7 @@ export function t3OpenInternal(
   optInTimePeriod: number,
   optInVFactor: number,
 ): T3Stream {
-  const sp = new T3Stream(core);
+  const sp = T3Stream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -2004,7 +2008,7 @@ export function t3OpenAndFill(
   requireArgument('T3 openAndFill', 'inReal', inReal);
   requireHistory('T3 openAndFill', inReal.length);
   const guardOutLen = openFillCount('T3 openAndFill', inReal.length, t3Lookback(optInTimePeriod, optInVFactor, core));
-  requireLength('T3 openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('T3 openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('T3 openAndFill', RetCode.BAD_PARAM);

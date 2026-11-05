@@ -11,7 +11,7 @@
  *  090626 KL     First version (issue #361).
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
@@ -282,8 +282,8 @@ export function eri(
   requireLength('ERI', 'inHigh', inHigh, guardInLen);
   requireLength('ERI', 'inLow', inLow, guardInLen);
   requireLength('ERI', 'inClose', inClose, guardInLen);
-  requireLength('ERI', 'outBullPower', outBullPower, guardOutLen);
-  requireLength('ERI', 'outBearPower', outBearPower, guardOutLen);
+  requireOutput('ERI', 'outBullPower', outBullPower, guardOutLen, Float64Array);
+  requireOutput('ERI', 'outBearPower', outBearPower, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -329,9 +329,13 @@ export class EriStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): EriStream {
+    return new EriStream(core);
   }
 
   /**
@@ -689,7 +693,7 @@ export function eriOpenAndFillInternal(
   outBullPower: Float64Array,
   outBearPower: Float64Array,
 ): EriStream {
-  const sp = new EriStream(core);
+  const sp = EriStream.of(core);
   const retCode = eriOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outBullPower, outBearPower, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -711,7 +715,7 @@ export function eriOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): EriStream {
-  const sp = new EriStream(core);
+  const sp = EriStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outBullPower = new Float64Array(1);
@@ -846,8 +850,8 @@ export function eriOpenAndFill(
   const guardOutLen = openFillCount('ERI openAndFill', inHigh.length, eriLookback(optInTimePeriod, core));
   requireHistoryLength('ERI openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('ERI openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('ERI openAndFill', 'outBullPower', outBullPower, guardOutLen);
-  requireLength('ERI openAndFill', 'outBearPower', outBearPower, guardOutLen);
+  requireOutput('ERI openAndFill', 'outBullPower', outBullPower, guardOutLen, Float64Array);
+  requireOutput('ERI openAndFill', 'outBearPower', outBearPower, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

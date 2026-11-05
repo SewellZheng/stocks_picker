@@ -11,7 +11,7 @@
  *  081226 KL   Initial version.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -232,7 +232,7 @@ export function qstick(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('QSTICK', 'inOpen', inOpen, guardInLen);
   requireLength('QSTICK', 'inClose', inClose, guardInLen);
-  requireLength('QSTICK', 'outReal', outReal, guardOutLen);
+  requireOutput('QSTICK', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inCloseF64 = float64(inClose);
   if (overlapsPartly(outReal, inOpenF64) || overlapsPartly(outReal, inCloseF64)) {
@@ -277,9 +277,13 @@ export class QstickStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): QstickStream {
+    return new QstickStream(core);
   }
 
   /**
@@ -527,7 +531,7 @@ export function qstickOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): QstickStream {
-  const sp = new QstickStream(core);
+  const sp = QstickStream.of(core);
   const retCode = qstickOpenImpl(sp, inOpen, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -548,7 +552,7 @@ export function qstickOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): QstickStream {
-  const sp = new QstickStream(core);
+  const sp = QstickStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -665,7 +669,7 @@ export function qstickOpenAndFill(
   requireArgument('QSTICK openAndFill', 'inClose', inClose);
   const guardOutLen = openFillCount('QSTICK openAndFill', inOpen.length, qstickLookback(optInTimePeriod, core));
   requireHistoryLength('QSTICK openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('QSTICK openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('QSTICK openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inCloseF64 = float64(inClose);
   if ((outReal.buffer === inOpenF64.buffer && outReal.byteOffset === inOpenF64.byteOffset) || (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset)) {

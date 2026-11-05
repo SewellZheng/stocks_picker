@@ -11,7 +11,7 @@
  *  090807 MF     Initial Version
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -130,7 +130,7 @@ export function sqrt(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('SQRT', 'inReal', inReal, guardInLen);
-  requireLength('SQRT', 'outReal', outReal, guardOutLen);
+  requireOutput('SQRT', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('SQRT', RetCode.BAD_PARAM);
@@ -164,9 +164,13 @@ export class SqrtStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SqrtStream {
+    return new SqrtStream(core);
   }
 
   /**
@@ -296,7 +300,7 @@ export function sqrtOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): SqrtStream {
-  const sp = new SqrtStream(core);
+  const sp = SqrtStream.of(core);
   const retCode = sqrtOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -315,7 +319,7 @@ export function sqrtOpenInternal(
   inReal: Float64Array,
   startIdx: number,
 ): SqrtStream {
-  const sp = new SqrtStream(core);
+  const sp = SqrtStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -401,7 +405,7 @@ export function sqrtOpenAndFill(
   requireArgument('SQRT openAndFill', 'inReal', inReal);
   requireHistory('SQRT openAndFill', inReal.length);
   const guardOutLen = openFillCount('SQRT openAndFill', inReal.length, sqrtLookback(core));
-  requireLength('SQRT openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SQRT openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('SQRT openAndFill', RetCode.BAD_PARAM);

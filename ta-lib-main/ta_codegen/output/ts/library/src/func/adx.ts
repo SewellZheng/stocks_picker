@@ -24,7 +24,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -548,7 +548,7 @@ export function adx(
   requireLength('ADX', 'inHigh', inHigh, guardInLen);
   requireLength('ADX', 'inLow', inLow, guardInLen);
   requireLength('ADX', 'inClose', inClose, guardInLen);
-  requireLength('ADX', 'outReal', outReal, guardOutLen);
+  requireOutput('ADX', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -602,9 +602,13 @@ export class AdxStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AdxStream {
+    return new AdxStream(core);
   }
 
   /**
@@ -1242,7 +1246,7 @@ export function adxOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): AdxStream {
-  const sp = new AdxStream(core);
+  const sp = AdxStream.of(core);
   const retCode = adxOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1264,7 +1268,7 @@ export function adxOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): AdxStream {
-  const sp = new AdxStream(core);
+  const sp = AdxStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1391,7 +1395,7 @@ export function adxOpenAndFill(
   const guardOutLen = openFillCount('ADX openAndFill', inHigh.length, adxLookback(optInTimePeriod, core));
   requireHistoryLength('ADX openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('ADX openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('ADX openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('ADX openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

@@ -14,7 +14,7 @@
  *  092926 MF,CC  Store the quotient, then overwrite it, so the loop vectorizes.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -169,7 +169,7 @@ export function ibs(
   requireLength('IBS', 'inHigh', inHigh, guardInLen);
   requireLength('IBS', 'inLow', inLow, guardInLen);
   requireLength('IBS', 'inClose', inClose, guardInLen);
-  requireLength('IBS', 'outReal', outReal, guardOutLen);
+  requireOutput('IBS', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -205,9 +205,13 @@ export class IbsStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): IbsStream {
+    return new IbsStream(core);
   }
 
   /**
@@ -389,7 +393,7 @@ export function ibsOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): IbsStream {
-  const sp = new IbsStream(core);
+  const sp = IbsStream.of(core);
   const retCode = ibsOpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -410,7 +414,7 @@ export function ibsOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): IbsStream {
-  const sp = new IbsStream(core);
+  const sp = IbsStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -527,7 +531,7 @@ export function ibsOpenAndFill(
   const guardOutLen = openFillCount('IBS openAndFill', inHigh.length, ibsLookback(core));
   requireHistoryLength('IBS openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('IBS openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('IBS openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('IBS openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -295,7 +295,7 @@ export function cdlmathold(
   requireLength('CDLMATHOLD', 'inHigh', inHigh, guardInLen);
   requireLength('CDLMATHOLD', 'inLow', inLow, guardInLen);
   requireLength('CDLMATHOLD', 'inClose', inClose, guardInLen);
-  requireLength('CDLMATHOLD', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLMATHOLD', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -396,9 +396,13 @@ export class CdlmatholdStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlmatholdStream {
+    return new CdlmatholdStream(core);
   }
 
   /**
@@ -817,7 +821,7 @@ export function cdlmatholdOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlmatholdStream {
-  const sp = new CdlmatholdStream(core);
+  const sp = CdlmatholdStream.of(core);
   const retCode = cdlmatholdOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -840,7 +844,7 @@ export function cdlmatholdOpenInternal(
   startIdx: number,
   optInPenetration: number,
 ): CdlmatholdStream {
-  const sp = new CdlmatholdStream(core);
+  const sp = CdlmatholdStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -983,7 +987,7 @@ export function cdlmatholdOpenAndFill(
   requireHistoryLength('CDLMATHOLD openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLMATHOLD openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLMATHOLD openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLMATHOLD openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLMATHOLD openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

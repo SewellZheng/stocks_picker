@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 from .files import path_join
+from .versions import FOREIGN_NPM_VERSIONS
 
 LATEST_RELEASE_URL = "https://api.github.com/repos/ta-lib/ta-lib/releases/latest"
 MAVEN_METADATA_URL = ("https://repo1.maven.org/maven2/io/github/ta-lib/ta-lib/"
@@ -17,8 +18,6 @@ FIRST_CRATE_VERSION = (0, 8, 0)
 # It is always served gzip-compressed, which urllib does not undo.
 NUGET_REGISTRATION_URL = "https://api.nuget.org/v3/registration5-gz-semver2/ta-lib/index.json"
 NPM_PACKUMENT_URL = "https://registry.npmjs.org/ta-lib"
-# The previous holder's versions of the npm name; npm never lets them be republished.
-FOREIGN_NPM_VERSIONS = {"0.9.0", "0.10.0", "0.11.0"}
 
 # Each pattern names the version it owns `ver`, and only that group is rewritten,
 # so a pattern may match as much surrounding text as it needs to be unambiguous.
@@ -218,13 +217,16 @@ def latest_npm_version() -> str:
         print(f"Warning: could not query npm ({error}).")
         return None
     try:
-        live = [v for v, meta in json.loads(body).get("versions", {}).items()
-                if re.fullmatch(r'\d+\.\d+\.\d+', v) and v not in FOREIGN_NPM_VERSIONS
-                and not meta.get("deprecated")]
+        ours = {v: meta for v, meta in json.loads(body).get("versions", {}).items()
+                if re.fullmatch(r'\d+\.\d+\.\d+', v) and v not in FOREIGN_NPM_VERSIONS}
     except Exception as e:
         print(f"Warning: the npm packument is not readable JSON ({e}).")
         return None
+    live = [v for v, meta in ours.items() if not meta.get("deprecated")]
     if not live:
+        if ours:
+            print("Warning: every ta-lib version on npm from this repository is deprecated.")
+            return None
         return NOT_PUBLISHED
     return max(live, key=lambda v: tuple(int(x) for x in v.split('.')))
 

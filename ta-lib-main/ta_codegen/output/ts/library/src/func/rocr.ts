@@ -13,7 +13,7 @@
  *  052603 MF   Adapt code to compile with .NET Managed C++
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -222,7 +222,7 @@ export function rocr(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('ROCR', 'inReal', inReal, guardInLen);
-  requireLength('ROCR', 'outReal', outReal, guardOutLen);
+  requireOutput('ROCR', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('ROCR', RetCode.BAD_PARAM);
@@ -264,9 +264,13 @@ export class RocrStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): RocrStream {
+    return new RocrStream(core);
   }
 
   /**
@@ -494,7 +498,7 @@ export function rocrOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): RocrStream {
-  const sp = new RocrStream(core);
+  const sp = RocrStream.of(core);
   const retCode = rocrOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -514,7 +518,7 @@ export function rocrOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): RocrStream {
-  const sp = new RocrStream(core);
+  const sp = RocrStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -610,7 +614,7 @@ export function rocrOpenAndFill(
   requireArgument('ROCR openAndFill', 'inReal', inReal);
   requireHistory('ROCR openAndFill', inReal.length);
   const guardOutLen = openFillCount('ROCR openAndFill', inReal.length, rocrLookback(optInTimePeriod, core));
-  requireLength('ROCR openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('ROCR openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('ROCR openAndFill', RetCode.BAD_PARAM);

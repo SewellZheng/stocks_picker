@@ -14,7 +14,7 @@
  *  050703 MF   Fix algorithm base on Adrian Michel bug report #748163
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -265,8 +265,8 @@ export function aroon(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('AROON', 'inHigh', inHigh, guardInLen);
   requireLength('AROON', 'inLow', inLow, guardInLen);
-  requireLength('AROON', 'outAroonDown', outAroonDown, guardOutLen);
-  requireLength('AROON', 'outAroonUp', outAroonUp, guardOutLen);
+  requireOutput('AROON', 'outAroonDown', outAroonDown, guardOutLen, Float64Array);
+  requireOutput('AROON', 'outAroonUp', outAroonUp, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if (overlapsPartly(outAroonDown, inHighF64) || overlapsPartly(outAroonDown, inLowF64) || overlapsPartly(outAroonUp, inHighF64) || overlapsPartly(outAroonUp, inLowF64) || overlaps(outAroonDown, outAroonUp)) {
@@ -327,9 +327,13 @@ export class AroonStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AroonStream {
+    return new AroonStream(core);
   }
 
   /**
@@ -722,7 +726,7 @@ export function aroonOpenAndFillInternal(
   outAroonDown: Float64Array,
   outAroonUp: Float64Array,
 ): AroonStream {
-  const sp = new AroonStream(core);
+  const sp = AroonStream.of(core);
   const retCode = aroonOpenImpl(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -743,7 +747,7 @@ export function aroonOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): AroonStream {
-  const sp = new AroonStream(core);
+  const sp = AroonStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outAroonDown = new Float64Array(1);
@@ -864,8 +868,8 @@ export function aroonOpenAndFill(
   requireArgument('AROON openAndFill', 'inLow', inLow);
   const guardOutLen = openFillCount('AROON openAndFill', inHigh.length, aroonLookback(optInTimePeriod, core));
   requireHistoryLength('AROON openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireLength('AROON openAndFill', 'outAroonDown', outAroonDown, guardOutLen);
-  requireLength('AROON openAndFill', 'outAroonUp', outAroonUp, guardOutLen);
+  requireOutput('AROON openAndFill', 'outAroonDown', outAroonDown, guardOutLen, Float64Array);
+  requireOutput('AROON openAndFill', 'outAroonUp', outAroonUp, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if ((outAroonDown.buffer === inHighF64.buffer && outAroonDown.byteOffset === inHighF64.byteOffset) || (outAroonDown.buffer === inLowF64.buffer && outAroonDown.byteOffset === inLowF64.byteOffset) || (outAroonUp.buffer === inHighF64.buffer && outAroonUp.byteOffset === inHighF64.byteOffset) || (outAroonUp.buffer === inLowF64.buffer && outAroonUp.byteOffset === inLowF64.byteOffset) || (outAroonDown.buffer === outAroonUp.buffer && outAroonDown.byteOffset === outAroonUp.byteOffset)) {

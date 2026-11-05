@@ -12,7 +12,7 @@
  *  090426 MF,CC  Initial version (#369).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -208,7 +208,7 @@ export function percentrank(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('PERCENTRANK', 'inReal', inReal, guardInLen);
-  requireLength('PERCENTRANK', 'outReal', outReal, guardOutLen);
+  requireOutput('PERCENTRANK', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('PERCENTRANK', RetCode.BAD_PARAM);
@@ -250,9 +250,13 @@ export class PercentrankStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): PercentrankStream {
+    return new PercentrankStream(core);
   }
 
   /**
@@ -461,7 +465,7 @@ export function percentrankOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): PercentrankStream {
-  const sp = new PercentrankStream(core);
+  const sp = PercentrankStream.of(core);
   const retCode = percentrankOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -481,7 +485,7 @@ export function percentrankOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): PercentrankStream {
-  const sp = new PercentrankStream(core);
+  const sp = PercentrankStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -579,7 +583,7 @@ export function percentrankOpenAndFill(
   requireArgument('PERCENTRANK openAndFill', 'inReal', inReal);
   requireHistory('PERCENTRANK openAndFill', inReal.length);
   const guardOutLen = openFillCount('PERCENTRANK openAndFill', inReal.length, percentrankLookback(optInTimePeriod, core));
-  requireLength('PERCENTRANK openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('PERCENTRANK openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('PERCENTRANK openAndFill', RetCode.BAD_PARAM);

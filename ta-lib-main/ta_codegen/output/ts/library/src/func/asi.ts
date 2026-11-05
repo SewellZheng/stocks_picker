@@ -12,7 +12,7 @@
  *  092726 MF,CC  Initial version (#451).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -239,7 +239,7 @@ export function asi(
   requireLength('ASI', 'inHigh', inHigh, guardInLen);
   requireLength('ASI', 'inLow', inLow, guardInLen);
   requireLength('ASI', 'inClose', inClose, guardInLen);
-  requireLength('ASI', 'outReal', outReal, guardOutLen);
+  requireOutput('ASI', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -284,9 +284,13 @@ export class AsiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AsiStream {
+    return new AsiStream(core);
   }
 
   /**
@@ -564,7 +568,7 @@ export function asiOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): AsiStream {
-  const sp = new AsiStream(core);
+  const sp = AsiStream.of(core);
   const retCode = asiOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInLimitMove, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -587,7 +591,7 @@ export function asiOpenInternal(
   startIdx: number,
   optInLimitMove: number,
 ): AsiStream {
-  const sp = new AsiStream(core);
+  const sp = AsiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -730,7 +734,7 @@ export function asiOpenAndFill(
   requireHistoryLength('ASI openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('ASI openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('ASI openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('ASI openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('ASI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

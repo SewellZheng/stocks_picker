@@ -16,7 +16,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
@@ -715,8 +715,8 @@ export function cksp(
   requireLength('CKSP', 'inHigh', inHigh, guardInLen);
   requireLength('CKSP', 'inLow', inLow, guardInLen);
   requireLength('CKSP', 'inClose', inClose, guardInLen);
-  requireLength('CKSP', 'outHighStop', outHighStop, guardOutLen);
-  requireLength('CKSP', 'outLowStop', outLowStop, guardOutLen);
+  requireOutput('CKSP', 'outHighStop', outHighStop, guardOutLen, Float64Array);
+  requireOutput('CKSP', 'outLowStop', outLowStop, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -812,9 +812,13 @@ export class CkspStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CkspStream {
+    return new CkspStream(core);
   }
 
   /**
@@ -1766,7 +1770,7 @@ export function ckspOpenAndFillInternal(
   outHighStop: Float64Array,
   outLowStop: Float64Array,
 ): CkspStream {
-  const sp = new CkspStream(core);
+  const sp = CkspStream.of(core);
   const retCode = ckspOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, optInStopPeriod, outBegIdx, outNBElement, outHighStop, outLowStop, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1790,7 +1794,7 @@ export function ckspOpenInternal(
   optInMultiplier: number,
   optInStopPeriod: number,
 ): CkspStream {
-  const sp = new CkspStream(core);
+  const sp = CkspStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outHighStop = new Float64Array(1);
@@ -1944,8 +1948,8 @@ export function ckspOpenAndFill(
   const guardOutLen = openFillCount('CKSP openAndFill', inHigh.length, ckspLookback(optInTimePeriod, optInMultiplier, optInStopPeriod, core));
   requireHistoryLength('CKSP openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('CKSP openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('CKSP openAndFill', 'outHighStop', outHighStop, guardOutLen);
-  requireLength('CKSP openAndFill', 'outLowStop', outLowStop, guardOutLen);
+  requireOutput('CKSP openAndFill', 'outHighStop', outHighStop, guardOutLen, Float64Array);
+  requireOutput('CKSP openAndFill', 'outLowStop', outLowStop, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

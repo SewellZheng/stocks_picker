@@ -11,7 +11,7 @@
  *  081226 KL   Initial version (#200).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -223,7 +223,7 @@ export function wad(
   requireLength('WAD', 'inHigh', inHigh, guardInLen);
   requireLength('WAD', 'inLow', inLow, guardInLen);
   requireLength('WAD', 'inClose', inClose, guardInLen);
-  requireLength('WAD', 'outReal', outReal, guardOutLen);
+  requireOutput('WAD', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -263,9 +263,13 @@ export class WadStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): WadStream {
+    return new WadStream(core);
   }
 
   /**
@@ -506,7 +510,7 @@ export function wadOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): WadStream {
-  const sp = new WadStream(core);
+  const sp = WadStream.of(core);
   const retCode = wadOpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -527,7 +531,7 @@ export function wadOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): WadStream {
-  const sp = new WadStream(core);
+  const sp = WadStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -644,7 +648,7 @@ export function wadOpenAndFill(
   const guardOutLen = openFillCount('WAD openAndFill', inHigh.length, wadLookback(core));
   requireHistoryLength('WAD openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('WAD openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('WAD openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('WAD openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

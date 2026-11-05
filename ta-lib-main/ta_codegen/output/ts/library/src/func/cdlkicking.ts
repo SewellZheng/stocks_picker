@@ -16,7 +16,7 @@
  *  103126 MF,CC  Lead with the colour and gap tests as the one pre-check
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -249,7 +249,7 @@ export function cdlkicking(
   requireLength('CDLKICKING', 'inHigh', inHigh, guardInLen);
   requireLength('CDLKICKING', 'inLow', inLow, guardInLen);
   requireLength('CDLKICKING', 'inClose', inClose, guardInLen);
-  requireLength('CDLKICKING', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLKICKING', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -326,9 +326,13 @@ export class CdlkickingStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlkickingStream {
+    return new CdlkickingStream(core);
   }
 
   /**
@@ -682,7 +686,7 @@ export function cdlkickingOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlkickingStream {
-  const sp = new CdlkickingStream(core);
+  const sp = CdlkickingStream.of(core);
   const retCode = cdlkickingOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -704,7 +708,7 @@ export function cdlkickingOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlkickingStream {
-  const sp = new CdlkickingStream(core);
+  const sp = CdlkickingStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -835,7 +839,7 @@ export function cdlkickingOpenAndFill(
   requireHistoryLength('CDLKICKING openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLKICKING openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLKICKING openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLKICKING openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLKICKING openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

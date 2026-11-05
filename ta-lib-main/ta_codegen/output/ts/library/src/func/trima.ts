@@ -20,7 +20,7 @@
  *                for every period where the int product fits.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -424,7 +424,7 @@ export function trima(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('TRIMA', 'inReal', inReal, guardInLen);
-  requireLength('TRIMA', 'outReal', outReal, guardOutLen);
+  requireOutput('TRIMA', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('TRIMA', RetCode.BAD_PARAM);
@@ -482,9 +482,13 @@ export class TrimaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): TrimaStream {
+    return new TrimaStream(core);
   }
 
   /**
@@ -1165,7 +1169,7 @@ export function trimaOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): TrimaStream {
-  const sp = new TrimaStream(core);
+  const sp = TrimaStream.of(core);
   const retCode = trimaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1185,7 +1189,7 @@ export function trimaOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): TrimaStream {
-  const sp = new TrimaStream(core);
+  const sp = TrimaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1280,7 +1284,7 @@ export function trimaOpenAndFill(
   requireArgument('TRIMA openAndFill', 'inReal', inReal);
   requireHistory('TRIMA openAndFill', inReal.length);
   const guardOutLen = openFillCount('TRIMA openAndFill', inReal.length, trimaLookback(optInTimePeriod, core));
-  requireLength('TRIMA openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('TRIMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('TRIMA openAndFill', RetCode.BAD_PARAM);

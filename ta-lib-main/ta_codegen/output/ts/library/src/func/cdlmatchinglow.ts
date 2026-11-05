@@ -15,7 +15,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -219,7 +219,7 @@ export function cdlmatchinglow(
   requireLength('CDLMATCHINGLOW', 'inHigh', inHigh, guardInLen);
   requireLength('CDLMATCHINGLOW', 'inLow', inLow, guardInLen);
   requireLength('CDLMATCHINGLOW', 'inClose', inClose, guardInLen);
-  requireLength('CDLMATCHINGLOW', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLMATCHINGLOW', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -281,9 +281,13 @@ export class CdlmatchinglowStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlmatchinglowStream {
+    return new CdlmatchinglowStream(core);
   }
 
   /**
@@ -553,7 +557,7 @@ export function cdlmatchinglowOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlmatchinglowStream {
-  const sp = new CdlmatchinglowStream(core);
+  const sp = CdlmatchinglowStream.of(core);
   const retCode = cdlmatchinglowOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -575,7 +579,7 @@ export function cdlmatchinglowOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlmatchinglowStream {
-  const sp = new CdlmatchinglowStream(core);
+  const sp = CdlmatchinglowStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -707,7 +711,7 @@ export function cdlmatchinglowOpenAndFill(
   requireHistoryLength('CDLMATCHINGLOW openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLMATCHINGLOW openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLMATCHINGLOW openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLMATCHINGLOW openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLMATCHINGLOW openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

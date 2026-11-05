@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -238,7 +238,7 @@ export function cdl3blackcrows(
   requireLength('CDL3BLACKCROWS', 'inHigh', inHigh, guardInLen);
   requireLength('CDL3BLACKCROWS', 'inLow', inLow, guardInLen);
   requireLength('CDL3BLACKCROWS', 'inClose', inClose, guardInLen);
-  requireLength('CDL3BLACKCROWS', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDL3BLACKCROWS', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -314,9 +314,13 @@ export class Cdl3blackcrowsStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): Cdl3blackcrowsStream {
+    return new Cdl3blackcrowsStream(core);
   }
 
   /**
@@ -649,7 +653,7 @@ export function cdl3blackcrowsOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): Cdl3blackcrowsStream {
-  const sp = new Cdl3blackcrowsStream(core);
+  const sp = Cdl3blackcrowsStream.of(core);
   const retCode = cdl3blackcrowsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -671,7 +675,7 @@ export function cdl3blackcrowsOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): Cdl3blackcrowsStream {
-  const sp = new Cdl3blackcrowsStream(core);
+  const sp = Cdl3blackcrowsStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -802,7 +806,7 @@ export function cdl3blackcrowsOpenAndFill(
   requireHistoryLength('CDL3BLACKCROWS openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDL3BLACKCROWS openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDL3BLACKCROWS openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDL3BLACKCROWS openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDL3BLACKCROWS openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

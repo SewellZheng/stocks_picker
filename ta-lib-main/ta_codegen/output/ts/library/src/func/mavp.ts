@@ -24,7 +24,7 @@
  */
 
 import { MAType, MATypes } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -464,7 +464,7 @@ export function mavp(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('MAVP', 'inReal', inReal, guardInLen);
   requireLength('MAVP', 'inPeriods', inPeriods, guardInLen);
-  requireLength('MAVP', 'outReal', outReal, guardOutLen);
+  requireOutput('MAVP', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   const inPeriodsF64 = float64(inPeriods);
   if (overlapsPartly(outReal, inRealF64) || overlapsPartly(outReal, inPeriodsF64)) {
@@ -513,9 +513,13 @@ export class MavpStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): MavpStream {
+    return new MavpStream(core);
   }
 
   /**
@@ -935,7 +939,7 @@ export function mavpOpenInternal(
   optInMaxPeriod: number,
   optInMAType: number,
 ): MavpStream {
-  const sp = new MavpStream(core);
+  const sp = MavpStream.of(core);
   const retCode = mavpOpenImpl(sp, inReal, inPeriods, startIdx, optInMinPeriod, optInMaxPeriod, optInMAType);
   if (retCode === RetCode.SUCCESS) {
     return sp;
@@ -1061,10 +1065,10 @@ export function mavpOpenAndFill(
   requireArgument('MAVP openAndFill', 'inPeriods', inPeriods);
   const guardOutLen = openFillCount('MAVP openAndFill', inReal.length, mavpLookback(optInMinPeriod, optInMaxPeriod, optInMAType as MAType, core));
   requireHistoryLength('MAVP openAndFill', 'inPeriods', inPeriods.length, inReal.length);
-  requireLength('MAVP openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('MAVP openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   const inPeriodsF64 = float64(inPeriods);
-  const sp = new MavpStream(core);
+  const sp = MavpStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const retCode = mavpOpenAndFillImpl(sp, inRealF64, inPeriodsF64, optInMinPeriod, optInMaxPeriod, optInMAType, outBegIdx, outNBElement, outReal);

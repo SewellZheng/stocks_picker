@@ -16,7 +16,7 @@
  *  103126 MF,CC  Write the two gaps as an else-if chain of pre-checks
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -249,7 +249,7 @@ export function cdltasukigap(
   requireLength('CDLTASUKIGAP', 'inHigh', inHigh, guardInLen);
   requireLength('CDLTASUKIGAP', 'inLow', inLow, guardInLen);
   requireLength('CDLTASUKIGAP', 'inClose', inClose, guardInLen);
-  requireLength('CDLTASUKIGAP', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLTASUKIGAP', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -314,9 +314,13 @@ export class CdltasukigapStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdltasukigapStream {
+    return new CdltasukigapStream(core);
   }
 
   /**
@@ -661,7 +665,7 @@ export function cdltasukigapOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdltasukigapStream {
-  const sp = new CdltasukigapStream(core);
+  const sp = CdltasukigapStream.of(core);
   const retCode = cdltasukigapOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -683,7 +687,7 @@ export function cdltasukigapOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdltasukigapStream {
-  const sp = new CdltasukigapStream(core);
+  const sp = CdltasukigapStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -815,7 +819,7 @@ export function cdltasukigapOpenAndFill(
   requireHistoryLength('CDLTASUKIGAP openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLTASUKIGAP openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLTASUKIGAP openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLTASUKIGAP openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLTASUKIGAP openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

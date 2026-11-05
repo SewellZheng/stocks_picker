@@ -16,7 +16,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
@@ -243,7 +243,7 @@ export function ema(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('EMA', 'inReal', inReal, guardInLen);
-  requireLength('EMA', 'outReal', outReal, guardOutLen);
+  requireOutput('EMA', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('EMA', RetCode.BAD_PARAM);
@@ -285,9 +285,13 @@ export class EmaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): EmaStream {
+    return new EmaStream(core);
   }
 
   /**
@@ -522,7 +526,7 @@ export function emaOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): EmaStream {
-  const sp = new EmaStream(core);
+  const sp = EmaStream.of(core);
   const retCode = emaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -542,7 +546,7 @@ export function emaOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): EmaStream {
-  const sp = new EmaStream(core);
+  const sp = EmaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -640,7 +644,7 @@ export function emaOpenAndFill(
   requireArgument('EMA openAndFill', 'inReal', inReal);
   requireHistory('EMA openAndFill', inReal.length);
   const guardOutLen = openFillCount('EMA openAndFill', inReal.length, emaLookback(optInTimePeriod, core));
-  requireLength('EMA openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('EMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('EMA openAndFill', RetCode.BAD_PARAM);

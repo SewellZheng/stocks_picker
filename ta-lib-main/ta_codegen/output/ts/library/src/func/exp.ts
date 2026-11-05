@@ -11,7 +11,7 @@
  *  090807 MF     Initial Version
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -132,7 +132,7 @@ export function exp(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('EXP', 'inReal', inReal, guardInLen);
-  requireLength('EXP', 'outReal', outReal, guardOutLen);
+  requireOutput('EXP', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('EXP', RetCode.BAD_PARAM);
@@ -166,9 +166,13 @@ export class ExpStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): ExpStream {
+    return new ExpStream(core);
   }
 
   /**
@@ -298,7 +302,7 @@ export function expOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): ExpStream {
-  const sp = new ExpStream(core);
+  const sp = ExpStream.of(core);
   const retCode = expOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -317,7 +321,7 @@ export function expOpenInternal(
   inReal: Float64Array,
   startIdx: number,
 ): ExpStream {
-  const sp = new ExpStream(core);
+  const sp = ExpStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -402,7 +406,7 @@ export function expOpenAndFill(
   requireArgument('EXP openAndFill', 'inReal', inReal);
   requireHistory('EXP openAndFill', inReal.length);
   const guardOutLen = openFillCount('EXP openAndFill', inReal.length, expLookback(core));
-  requireLength('EXP openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('EXP openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('EXP openAndFill', RetCode.BAD_PARAM);

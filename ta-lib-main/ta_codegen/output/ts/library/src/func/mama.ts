@@ -15,7 +15,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -735,8 +735,8 @@ export function mama(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('MAMA', 'inReal', inReal, guardInLen);
-  requireLength('MAMA', 'outMAMA', outMAMA, guardOutLen);
-  requireLength('MAMA', 'outFAMA', outFAMA, guardOutLen);
+  requireOutput('MAMA', 'outMAMA', outMAMA, guardOutLen, Float64Array);
+  requireOutput('MAMA', 'outFAMA', outFAMA, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outMAMA, inRealF64) || overlapsPartly(outFAMA, inRealF64) || overlaps(outMAMA, outFAMA)) {
     throw failure('MAMA', RetCode.BAD_PARAM);
@@ -870,9 +870,13 @@ export class MamaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): MamaStream {
+    return new MamaStream(core);
   }
 
   /**
@@ -2175,7 +2179,7 @@ export function mamaOpenAndFillInternal(
   outMAMA: Float64Array,
   outFAMA: Float64Array,
 ): MamaStream {
-  const sp = new MamaStream(core);
+  const sp = MamaStream.of(core);
   const retCode = mamaOpenImpl(sp, inReal, startIdx, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -2196,7 +2200,7 @@ export function mamaOpenInternal(
   optInFastLimit: number,
   optInSlowLimit: number,
 ): MamaStream {
-  const sp = new MamaStream(core);
+  const sp = MamaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outMAMA = new Float64Array(1);
@@ -2308,8 +2312,8 @@ export function mamaOpenAndFill(
   requireArgument('MAMA openAndFill', 'inReal', inReal);
   requireHistory('MAMA openAndFill', inReal.length);
   const guardOutLen = openFillCount('MAMA openAndFill', inReal.length, mamaLookback(optInFastLimit, optInSlowLimit, core));
-  requireLength('MAMA openAndFill', 'outMAMA', outMAMA, guardOutLen);
-  requireLength('MAMA openAndFill', 'outFAMA', outFAMA, guardOutLen);
+  requireOutput('MAMA openAndFill', 'outMAMA', outMAMA, guardOutLen, Float64Array);
+  requireOutput('MAMA openAndFill', 'outFAMA', outFAMA, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outMAMA.buffer === inRealF64.buffer && outMAMA.byteOffset === inRealF64.byteOffset) || (outFAMA.buffer === inRealF64.buffer && outFAMA.byteOffset === inRealF64.byteOffset) || (outMAMA.buffer === outFAMA.buffer && outMAMA.byteOffset === outFAMA.byteOffset)) {
     throw streamFailure('MAMA openAndFill', RetCode.BAD_PARAM);

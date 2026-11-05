@@ -18,7 +18,7 @@
  *                and on the bar a large value leaves the window.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -327,7 +327,7 @@ export function linearregIntercept(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('LINEARREG_INTERCEPT', 'inReal', inReal, guardInLen);
-  requireLength('LINEARREG_INTERCEPT', 'outReal', outReal, guardOutLen);
+  requireOutput('LINEARREG_INTERCEPT', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('LINEARREG_INTERCEPT', RetCode.BAD_PARAM);
@@ -390,9 +390,13 @@ export class LinearregInterceptStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): LinearregInterceptStream {
+    return new LinearregInterceptStream(core);
   }
 
   /**
@@ -918,7 +922,7 @@ export function linearregInterceptOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): LinearregInterceptStream {
-  const sp = new LinearregInterceptStream(core);
+  const sp = LinearregInterceptStream.of(core);
   const retCode = linearregInterceptOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -938,7 +942,7 @@ export function linearregInterceptOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): LinearregInterceptStream {
-  const sp = new LinearregInterceptStream(core);
+  const sp = LinearregInterceptStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1035,7 +1039,7 @@ export function linearregInterceptOpenAndFill(
   requireArgument('LINEARREG_INTERCEPT openAndFill', 'inReal', inReal);
   requireHistory('LINEARREG_INTERCEPT openAndFill', inReal.length);
   const guardOutLen = openFillCount('LINEARREG_INTERCEPT openAndFill', inReal.length, linearregInterceptLookback(optInTimePeriod, core));
-  requireLength('LINEARREG_INTERCEPT openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('LINEARREG_INTERCEPT openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('LINEARREG_INTERCEPT openAndFill', RetCode.BAD_PARAM);

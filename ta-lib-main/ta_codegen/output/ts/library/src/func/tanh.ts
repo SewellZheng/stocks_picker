@@ -11,7 +11,7 @@
  *  090807 MF     Initial Version
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -128,7 +128,7 @@ export function tanh(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('TANH', 'inReal', inReal, guardInLen);
-  requireLength('TANH', 'outReal', outReal, guardOutLen);
+  requireOutput('TANH', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('TANH', RetCode.BAD_PARAM);
@@ -162,9 +162,13 @@ export class TanhStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): TanhStream {
+    return new TanhStream(core);
   }
 
   /**
@@ -294,7 +298,7 @@ export function tanhOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): TanhStream {
-  const sp = new TanhStream(core);
+  const sp = TanhStream.of(core);
   const retCode = tanhOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -313,7 +317,7 @@ export function tanhOpenInternal(
   inReal: Float64Array,
   startIdx: number,
 ): TanhStream {
-  const sp = new TanhStream(core);
+  const sp = TanhStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -397,7 +401,7 @@ export function tanhOpenAndFill(
   requireArgument('TANH openAndFill', 'inReal', inReal);
   requireHistory('TANH openAndFill', inReal.length);
   const guardOutLen = openFillCount('TANH openAndFill', inReal.length, tanhLookback(core));
-  requireLength('TANH openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('TANH openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('TANH openAndFill', RetCode.BAD_PARAM);

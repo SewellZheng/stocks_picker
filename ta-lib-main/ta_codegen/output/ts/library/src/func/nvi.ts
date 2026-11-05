@@ -13,7 +13,7 @@
  *  071726 MF,CC Implement Negative Volume Index (#126).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -188,7 +188,7 @@ export function nvi(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('NVI', 'inClose', inClose, guardInLen);
   requireLength('NVI', 'inVolume', inVolume, guardInLen);
-  requireLength('NVI', 'outReal', outReal, guardOutLen);
+  requireOutput('NVI', 'outReal', outReal, guardOutLen, Float64Array);
   const inCloseF64 = float64(inClose);
   const inVolumeF64 = float64(inVolume);
   if (overlapsPartly(outReal, inCloseF64) || overlapsPartly(outReal, inVolumeF64)) {
@@ -229,9 +229,13 @@ export class NviStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): NviStream {
+    return new NviStream(core);
   }
 
   /**
@@ -471,7 +475,7 @@ export function nviOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): NviStream {
-  const sp = new NviStream(core);
+  const sp = NviStream.of(core);
   const retCode = nviOpenImpl(sp, inClose, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -491,7 +495,7 @@ export function nviOpenInternal(
   inVolume: Float64Array,
   startIdx: number,
 ): NviStream {
-  const sp = new NviStream(core);
+  const sp = NviStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -594,7 +598,7 @@ export function nviOpenAndFill(
   requireArgument('NVI openAndFill', 'inVolume', inVolume);
   const guardOutLen = openFillCount('NVI openAndFill', inClose.length, nviLookback(core));
   requireHistoryLength('NVI openAndFill', 'inVolume', inVolume.length, inClose.length);
-  requireLength('NVI openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('NVI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inCloseF64 = float64(inClose);
   const inVolumeF64 = float64(inVolume);
   if ((outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset) || (outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset)) {

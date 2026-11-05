@@ -12,7 +12,7 @@
  *  092926 MF,CC  Initial version (#469).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -253,7 +253,7 @@ export function choptr(
   requireLength('CHOPTR', 'inHigh', inHigh, guardInLen);
   requireLength('CHOPTR', 'inLow', inLow, guardInLen);
   requireLength('CHOPTR', 'inClose', inClose, guardInLen);
-  requireLength('CHOPTR', 'outReal', outReal, guardOutLen);
+  requireOutput('CHOPTR', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -303,9 +303,13 @@ export class ChoptrStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): ChoptrStream {
+    return new ChoptrStream(core);
   }
 
   /**
@@ -668,7 +672,7 @@ export function choptrOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): ChoptrStream {
-  const sp = new ChoptrStream(core);
+  const sp = ChoptrStream.of(core);
   const retCode = choptrOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -690,7 +694,7 @@ export function choptrOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): ChoptrStream {
-  const sp = new ChoptrStream(core);
+  const sp = ChoptrStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -816,7 +820,7 @@ export function choptrOpenAndFill(
   const guardOutLen = openFillCount('CHOPTR openAndFill', inHigh.length, choptrLookback(optInTimePeriod, core));
   requireHistoryLength('CHOPTR openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('CHOPTR openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('CHOPTR openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('CHOPTR openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

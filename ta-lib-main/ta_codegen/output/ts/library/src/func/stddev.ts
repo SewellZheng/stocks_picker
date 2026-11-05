@@ -16,7 +16,7 @@
  *  082326 MF,CC #243 the sqrt trap moves to var's scale-relative floor.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -222,7 +222,7 @@ export function stddev(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('STDDEV', 'inReal', inReal, guardInLen);
-  requireLength('STDDEV', 'outReal', outReal, guardOutLen);
+  requireOutput('STDDEV', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('STDDEV', RetCode.BAD_PARAM);
@@ -262,9 +262,13 @@ export class StddevStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): StddevStream {
+    return new StddevStream(core);
   }
 
   /**
@@ -468,7 +472,7 @@ export function stddevOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): StddevStream {
-  const sp = new StddevStream(core);
+  const sp = StddevStream.of(core);
   const retCode = stddevOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -489,7 +493,7 @@ export function stddevOpenInternal(
   optInTimePeriod: number,
   optInNbDev: number,
 ): StddevStream {
-  const sp = new StddevStream(core);
+  const sp = StddevStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -594,7 +598,7 @@ export function stddevOpenAndFill(
   requireArgument('STDDEV openAndFill', 'inReal', inReal);
   requireHistory('STDDEV openAndFill', inReal.length);
   const guardOutLen = openFillCount('STDDEV openAndFill', inReal.length, stddevLookback(optInTimePeriod, optInNbDev, core));
-  requireLength('STDDEV openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('STDDEV openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('STDDEV openAndFill', RetCode.BAD_PARAM);

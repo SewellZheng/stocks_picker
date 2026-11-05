@@ -16,7 +16,7 @@
  *  103126 MF,CC  Pre-check the cheap tests in an outer if, the candle averages inside
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
@@ -244,7 +244,7 @@ export function cdlthrusting(
   requireLength('CDLTHRUSTING', 'inHigh', inHigh, guardInLen);
   requireLength('CDLTHRUSTING', 'inLow', inLow, guardInLen);
   requireLength('CDLTHRUSTING', 'inClose', inClose, guardInLen);
-  requireLength('CDLTHRUSTING', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLTHRUSTING', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -321,9 +321,13 @@ export class CdlthrustingStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlthrustingStream {
+    return new CdlthrustingStream(core);
   }
 
   /**
@@ -652,7 +656,7 @@ export function cdlthrustingOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlthrustingStream {
-  const sp = new CdlthrustingStream(core);
+  const sp = CdlthrustingStream.of(core);
   const retCode = cdlthrustingOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -674,7 +678,7 @@ export function cdlthrustingOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlthrustingStream {
-  const sp = new CdlthrustingStream(core);
+  const sp = CdlthrustingStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -805,7 +809,7 @@ export function cdlthrustingOpenAndFill(
   requireHistoryLength('CDLTHRUSTING openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLTHRUSTING openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLTHRUSTING openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLTHRUSTING openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLTHRUSTING openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

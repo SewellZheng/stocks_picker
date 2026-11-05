@@ -16,7 +16,7 @@
  *  103126 MF,CC  Lead with the colour and gap tests as the one pre-check
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -245,7 +245,7 @@ export function cdlkickingbylength(
   requireLength('CDLKICKINGBYLENGTH', 'inHigh', inHigh, guardInLen);
   requireLength('CDLKICKINGBYLENGTH', 'inLow', inLow, guardInLen);
   requireLength('CDLKICKINGBYLENGTH', 'inClose', inClose, guardInLen);
-  requireLength('CDLKICKINGBYLENGTH', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLKICKINGBYLENGTH', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -323,9 +323,13 @@ export class CdlkickingbylengthStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlkickingbylengthStream {
+    return new CdlkickingbylengthStream(core);
   }
 
   /**
@@ -679,7 +683,7 @@ export function cdlkickingbylengthOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlkickingbylengthStream {
-  const sp = new CdlkickingbylengthStream(core);
+  const sp = CdlkickingbylengthStream.of(core);
   const retCode = cdlkickingbylengthOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -701,7 +705,7 @@ export function cdlkickingbylengthOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlkickingbylengthStream {
-  const sp = new CdlkickingbylengthStream(core);
+  const sp = CdlkickingbylengthStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -835,7 +839,7 @@ export function cdlkickingbylengthOpenAndFill(
   requireHistoryLength('CDLKICKINGBYLENGTH openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLKICKINGBYLENGTH openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLKICKINGBYLENGTH openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLKICKINGBYLENGTH openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLKICKINGBYLENGTH openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

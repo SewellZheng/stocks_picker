@@ -16,7 +16,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
@@ -252,7 +252,7 @@ export function swakHp(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('SWAK_HP', 'inReal', inReal, guardInLen);
-  requireLength('SWAK_HP', 'outReal', outReal, guardOutLen);
+  requireOutput('SWAK_HP', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('SWAK_HP', RetCode.BAD_PARAM);
@@ -296,9 +296,13 @@ export class SwakHpStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SwakHpStream {
+    return new SwakHpStream(core);
   }
 
   /**
@@ -548,7 +552,7 @@ export function swakHpOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): SwakHpStream {
-  const sp = new SwakHpStream(core);
+  const sp = SwakHpStream.of(core);
   const retCode = swakHpOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -568,7 +572,7 @@ export function swakHpOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): SwakHpStream {
-  const sp = new SwakHpStream(core);
+  const sp = SwakHpStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -668,7 +672,7 @@ export function swakHpOpenAndFill(
   requireArgument('SWAK_HP openAndFill', 'inReal', inReal);
   requireHistory('SWAK_HP openAndFill', inReal.length);
   const guardOutLen = openFillCount('SWAK_HP openAndFill', inReal.length, swakHpLookback(optInTimePeriod, core));
-  requireLength('SWAK_HP openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SWAK_HP openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('SWAK_HP openAndFill', RetCode.BAD_PARAM);

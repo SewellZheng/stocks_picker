@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -244,7 +244,7 @@ export function cdlunique3river(
   requireLength('CDLUNIQUE3RIVER', 'inHigh', inHigh, guardInLen);
   requireLength('CDLUNIQUE3RIVER', 'inLow', inLow, guardInLen);
   requireLength('CDLUNIQUE3RIVER', 'inClose', inClose, guardInLen);
-  requireLength('CDLUNIQUE3RIVER', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLUNIQUE3RIVER', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -326,9 +326,13 @@ export class Cdlunique3riverStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): Cdlunique3riverStream {
+    return new Cdlunique3riverStream(core);
   }
 
   /**
@@ -679,7 +683,7 @@ export function cdlunique3riverOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): Cdlunique3riverStream {
-  const sp = new Cdlunique3riverStream(core);
+  const sp = Cdlunique3riverStream.of(core);
   const retCode = cdlunique3riverOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -701,7 +705,7 @@ export function cdlunique3riverOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): Cdlunique3riverStream {
-  const sp = new Cdlunique3riverStream(core);
+  const sp = Cdlunique3riverStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -832,7 +836,7 @@ export function cdlunique3riverOpenAndFill(
   requireHistoryLength('CDLUNIQUE3RIVER openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLUNIQUE3RIVER openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLUNIQUE3RIVER openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLUNIQUE3RIVER openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLUNIQUE3RIVER openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

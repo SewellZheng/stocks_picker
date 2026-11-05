@@ -18,7 +18,7 @@
  *  103126 MF,CC  Join the long and short tests into the one pre-check
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -252,7 +252,7 @@ export function cdlharami(
   requireLength('CDLHARAMI', 'inHigh', inHigh, guardInLen);
   requireLength('CDLHARAMI', 'inLow', inLow, guardInLen);
   requireLength('CDLHARAMI', 'inClose', inClose, guardInLen);
-  requireLength('CDLHARAMI', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHARAMI', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -325,9 +325,13 @@ export class CdlharamiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlharamiStream {
+    return new CdlharamiStream(core);
   }
 
   /**
@@ -688,7 +692,7 @@ export function cdlharamiOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlharamiStream {
-  const sp = new CdlharamiStream(core);
+  const sp = CdlharamiStream.of(core);
   const retCode = cdlharamiOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -710,7 +714,7 @@ export function cdlharamiOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlharamiStream {
-  const sp = new CdlharamiStream(core);
+  const sp = CdlharamiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -843,7 +847,7 @@ export function cdlharamiOpenAndFill(
   requireHistoryLength('CDLHARAMI openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLHARAMI openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLHARAMI openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLHARAMI openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLHARAMI openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

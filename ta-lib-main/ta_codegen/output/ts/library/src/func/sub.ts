@@ -11,7 +11,7 @@
  *  090807 MF     Initial Version
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -136,7 +136,7 @@ export function sub(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('SUB', 'inReal0', inReal0, guardInLen);
   requireLength('SUB', 'inReal1', inReal1, guardInLen);
-  requireLength('SUB', 'outReal', outReal, guardOutLen);
+  requireOutput('SUB', 'outReal', outReal, guardOutLen, Float64Array);
   const inReal0F64 = float64(inReal0);
   const inReal1F64 = float64(inReal1);
   if (overlapsPartly(outReal, inReal0F64) || overlapsPartly(outReal, inReal1F64)) {
@@ -171,9 +171,13 @@ export class SubStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SubStream {
+    return new SubStream(core);
   }
 
   /**
@@ -311,7 +315,7 @@ export function subOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): SubStream {
-  const sp = new SubStream(core);
+  const sp = SubStream.of(core);
   const retCode = subOpenImpl(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -331,7 +335,7 @@ export function subOpenInternal(
   inReal1: Float64Array,
   startIdx: number,
 ): SubStream {
-  const sp = new SubStream(core);
+  const sp = SubStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -434,7 +438,7 @@ export function subOpenAndFill(
   requireArgument('SUB openAndFill', 'inReal1', inReal1);
   const guardOutLen = openFillCount('SUB openAndFill', inReal0.length, subLookback(core));
   requireHistoryLength('SUB openAndFill', 'inReal1', inReal1.length, inReal0.length);
-  requireLength('SUB openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SUB openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inReal0F64 = float64(inReal0);
   const inReal1F64 = float64(inReal1);
   if ((outReal.buffer === inReal0F64.buffer && outReal.byteOffset === inReal0F64.byteOffset) || (outReal.buffer === inReal1F64.buffer && outReal.byteOffset === inReal1F64.byteOffset)) {

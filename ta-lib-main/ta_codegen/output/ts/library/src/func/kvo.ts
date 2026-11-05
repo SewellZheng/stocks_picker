@@ -15,7 +15,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -522,8 +522,8 @@ export function kvo(
   requireLength('KVO', 'inLow', inLow, guardInLen);
   requireLength('KVO', 'inClose', inClose, guardInLen);
   requireLength('KVO', 'inVolume', inVolume, guardInLen);
-  requireLength('KVO', 'outKVO', outKVO, guardOutLen);
-  requireLength('KVO', 'outKVOSignal', outKVOSignal, guardOutLen);
+  requireOutput('KVO', 'outKVO', outKVO, guardOutLen, Float64Array);
+  requireOutput('KVO', 'outKVOSignal', outKVOSignal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -594,9 +594,13 @@ export class KvoStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): KvoStream {
+    return new KvoStream(core);
   }
 
   /**
@@ -1225,7 +1229,7 @@ export function kvoOpenAndFillInternal(
   outKVO: Float64Array,
   outKVOSignal: Float64Array,
 ): KvoStream {
-  const sp = new KvoStream(core);
+  const sp = KvoStream.of(core);
   const retCode = kvoOpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outKVO, outKVOSignal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1250,7 +1254,7 @@ export function kvoOpenInternal(
   optInSlowPeriod: number,
   optInSignalPeriod: number,
 ): KvoStream {
-  const sp = new KvoStream(core);
+  const sp = KvoStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outKVO = new Float64Array(1);
@@ -1418,8 +1422,8 @@ export function kvoOpenAndFill(
   requireHistoryLength('KVO openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('KVO openAndFill', 'inClose', inClose.length, inHigh.length);
   requireHistoryLength('KVO openAndFill', 'inVolume', inVolume.length, inHigh.length);
-  requireLength('KVO openAndFill', 'outKVO', outKVO, guardOutLen);
-  requireLength('KVO openAndFill', 'outKVOSignal', outKVOSignal, guardOutLen);
+  requireOutput('KVO openAndFill', 'outKVO', outKVO, guardOutLen, Float64Array);
+  requireOutput('KVO openAndFill', 'outKVOSignal', outKVOSignal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

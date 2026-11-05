@@ -15,7 +15,7 @@
  *               and on the bar a large value leaves the window.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -333,7 +333,7 @@ export function wma(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('WMA', 'inReal', inReal, guardInLen);
-  requireLength('WMA', 'outReal', outReal, guardOutLen);
+  requireOutput('WMA', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('WMA', RetCode.BAD_PARAM);
@@ -393,9 +393,13 @@ export class WmaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): WmaStream {
+    return new WmaStream(core);
   }
 
   /**
@@ -923,7 +927,7 @@ export function wmaOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): WmaStream {
-  const sp = new WmaStream(core);
+  const sp = WmaStream.of(core);
   const retCode = wmaOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -943,7 +947,7 @@ export function wmaOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): WmaStream {
-  const sp = new WmaStream(core);
+  const sp = WmaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1039,7 +1043,7 @@ export function wmaOpenAndFill(
   requireArgument('WMA openAndFill', 'inReal', inReal);
   requireHistory('WMA openAndFill', inReal.length);
   const guardOutLen = openFillCount('WMA openAndFill', inReal.length, wmaLookback(optInTimePeriod, core));
-  requireLength('WMA openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('WMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('WMA openAndFill', RetCode.BAD_PARAM);

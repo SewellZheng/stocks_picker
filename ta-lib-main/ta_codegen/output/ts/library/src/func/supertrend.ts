@@ -13,7 +13,7 @@
  *  090326 MF,CC  #338 Two-coefficient Wilder step, in lockstep with TA_ATR.
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
@@ -409,8 +409,8 @@ export function supertrend(
   requireLength('SUPERTREND', 'inHigh', inHigh, guardInLen);
   requireLength('SUPERTREND', 'inLow', inLow, guardInLen);
   requireLength('SUPERTREND', 'inClose', inClose, guardInLen);
-  requireLength('SUPERTREND', 'outSupertrend', outSupertrend, guardOutLen);
-  requireLength('SUPERTREND', 'outTrend', outTrend, guardOutLen);
+  requireOutput('SUPERTREND', 'outSupertrend', outSupertrend, guardOutLen, Float64Array);
+  requireOutput('SUPERTREND', 'outTrend', outTrend, guardOutLen, Int32Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -468,9 +468,13 @@ export class SupertrendStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SupertrendStream {
+    return new SupertrendStream(core);
   }
 
   /**
@@ -976,7 +980,7 @@ export function supertrendOpenAndFillInternal(
   outSupertrend: Float64Array,
   outTrend: Int32Array,
 ): SupertrendStream {
-  const sp = new SupertrendStream(core);
+  const sp = SupertrendStream.of(core);
   const retCode = supertrendOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outSupertrend, outTrend, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -999,7 +1003,7 @@ export function supertrendOpenInternal(
   optInTimePeriod: number,
   optInMultiplier: number,
 ): SupertrendStream {
-  const sp = new SupertrendStream(core);
+  const sp = SupertrendStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outSupertrend = new Float64Array(1);
@@ -1147,8 +1151,8 @@ export function supertrendOpenAndFill(
   const guardOutLen = openFillCount('SUPERTREND openAndFill', inHigh.length, supertrendLookback(optInTimePeriod, optInMultiplier, core));
   requireHistoryLength('SUPERTREND openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('SUPERTREND openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('SUPERTREND openAndFill', 'outSupertrend', outSupertrend, guardOutLen);
-  requireLength('SUPERTREND openAndFill', 'outTrend', outTrend, guardOutLen);
+  requireOutput('SUPERTREND openAndFill', 'outSupertrend', outSupertrend, guardOutLen, Float64Array);
+  requireOutput('SUPERTREND openAndFill', 'outTrend', outTrend, guardOutLen, Int32Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

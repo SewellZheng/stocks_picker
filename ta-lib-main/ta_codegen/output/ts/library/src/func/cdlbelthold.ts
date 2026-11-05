@@ -15,7 +15,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -239,7 +239,7 @@ export function cdlbelthold(
   requireLength('CDLBELTHOLD', 'inHigh', inHigh, guardInLen);
   requireLength('CDLBELTHOLD', 'inLow', inLow, guardInLen);
   requireLength('CDLBELTHOLD', 'inClose', inClose, guardInLen);
-  requireLength('CDLBELTHOLD', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLBELTHOLD', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -304,9 +304,13 @@ export class CdlbeltholdStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlbeltholdStream {
+    return new CdlbeltholdStream(core);
   }
 
   /**
@@ -618,7 +622,7 @@ export function cdlbeltholdOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlbeltholdStream {
-  const sp = new CdlbeltholdStream(core);
+  const sp = CdlbeltholdStream.of(core);
   const retCode = cdlbeltholdOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -640,7 +644,7 @@ export function cdlbeltholdOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlbeltholdStream {
-  const sp = new CdlbeltholdStream(core);
+  const sp = CdlbeltholdStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -771,7 +775,7 @@ export function cdlbeltholdOpenAndFill(
   requireHistoryLength('CDLBELTHOLD openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLBELTHOLD openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLBELTHOLD openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLBELTHOLD openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLBELTHOLD openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

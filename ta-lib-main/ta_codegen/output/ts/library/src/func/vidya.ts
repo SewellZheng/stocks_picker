@@ -14,7 +14,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
@@ -401,7 +401,7 @@ export function vidya(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('VIDYA', 'inReal', inReal, guardInLen);
-  requireLength('VIDYA', 'outReal', outReal, guardOutLen);
+  requireOutput('VIDYA', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('VIDYA', RetCode.BAD_PARAM);
@@ -459,9 +459,13 @@ export class VidyaStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): VidyaStream {
+    return new VidyaStream(core);
   }
 
   /**
@@ -928,7 +932,7 @@ export function vidyaOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): VidyaStream {
-  const sp = new VidyaStream(core);
+  const sp = VidyaStream.of(core);
   const retCode = vidyaOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInCMOPeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -949,7 +953,7 @@ export function vidyaOpenInternal(
   optInTimePeriod: number,
   optInCMOPeriod: number,
 ): VidyaStream {
-  const sp = new VidyaStream(core);
+  const sp = VidyaStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1053,7 +1057,7 @@ export function vidyaOpenAndFill(
   requireArgument('VIDYA openAndFill', 'inReal', inReal);
   requireHistory('VIDYA openAndFill', inReal.length);
   const guardOutLen = openFillCount('VIDYA openAndFill', inReal.length, vidyaLookback(optInTimePeriod, optInCMOPeriod, core));
-  requireLength('VIDYA openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('VIDYA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('VIDYA openAndFill', RetCode.BAD_PARAM);

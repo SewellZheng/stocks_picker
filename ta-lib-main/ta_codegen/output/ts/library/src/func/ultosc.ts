@@ -22,7 +22,7 @@
  *  102426 MF,CC #554 zero-run test on the true range itself.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -485,7 +485,7 @@ export function ultosc(
   requireLength('ULTOSC', 'inHigh', inHigh, guardInLen);
   requireLength('ULTOSC', 'inLow', inLow, guardInLen);
   requireLength('ULTOSC', 'inClose', inClose, guardInLen);
-  requireLength('ULTOSC', 'outReal', outReal, guardOutLen);
+  requireOutput('ULTOSC', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -557,9 +557,13 @@ export class UltoscStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): UltoscStream {
+    return new UltoscStream(core);
   }
 
   /**
@@ -1215,7 +1219,7 @@ export function ultoscOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): UltoscStream {
-  const sp = new UltoscStream(core);
+  const sp = UltoscStream.of(core);
   const retCode = ultoscOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1239,7 +1243,7 @@ export function ultoscOpenInternal(
   optInTimePeriod2: number,
   optInTimePeriod3: number,
 ): UltoscStream {
-  const sp = new UltoscStream(core);
+  const sp = UltoscStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1381,7 +1385,7 @@ export function ultoscOpenAndFill(
   const guardOutLen = openFillCount('ULTOSC openAndFill', inHigh.length, ultoscLookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, core));
   requireHistoryLength('ULTOSC openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('ULTOSC openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('ULTOSC openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('ULTOSC openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

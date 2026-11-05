@@ -16,7 +16,7 @@
  *  103126 MF,CC  Pre-check the two colour tests in an outer if, the gaps inside
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -248,7 +248,7 @@ export function cdlgapsidesidewhite(
   requireLength('CDLGAPSIDESIDEWHITE', 'inHigh', inHigh, guardInLen);
   requireLength('CDLGAPSIDESIDEWHITE', 'inLow', inLow, guardInLen);
   requireLength('CDLGAPSIDESIDEWHITE', 'inClose', inClose, guardInLen);
-  requireLength('CDLGAPSIDESIDEWHITE', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLGAPSIDESIDEWHITE', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -330,9 +330,13 @@ export class CdlgapsidesidewhiteStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdlgapsidesidewhiteStream {
+    return new CdlgapsidesidewhiteStream(core);
   }
 
   /**
@@ -681,7 +685,7 @@ export function cdlgapsidesidewhiteOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdlgapsidesidewhiteStream {
-  const sp = new CdlgapsidesidewhiteStream(core);
+  const sp = CdlgapsidesidewhiteStream.of(core);
   const retCode = cdlgapsidesidewhiteOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -703,7 +707,7 @@ export function cdlgapsidesidewhiteOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdlgapsidesidewhiteStream {
-  const sp = new CdlgapsidesidewhiteStream(core);
+  const sp = CdlgapsidesidewhiteStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -837,7 +841,7 @@ export function cdlgapsidesidewhiteOpenAndFill(
   requireHistoryLength('CDLGAPSIDESIDEWHITE openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLGAPSIDESIDEWHITE openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLGAPSIDESIDEWHITE openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLGAPSIDESIDEWHITE openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLGAPSIDESIDEWHITE openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

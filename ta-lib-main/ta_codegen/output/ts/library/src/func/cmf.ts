@@ -15,7 +15,7 @@
  *  102326 MF,CC  #554 rare reset, zero run as a mask.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -342,7 +342,7 @@ export function cmf(
   requireLength('CMF', 'inLow', inLow, guardInLen);
   requireLength('CMF', 'inClose', inClose, guardInLen);
   requireLength('CMF', 'inVolume', inVolume, guardInLen);
-  requireLength('CMF', 'outReal', outReal, guardOutLen);
+  requireOutput('CMF', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -397,9 +397,13 @@ export class CmfStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CmfStream {
+    return new CmfStream(core);
   }
 
   /**
@@ -770,7 +774,7 @@ export function cmfOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): CmfStream {
-  const sp = new CmfStream(core);
+  const sp = CmfStream.of(core);
   const retCode = cmfOpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -793,7 +797,7 @@ export function cmfOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): CmfStream {
-  const sp = new CmfStream(core);
+  const sp = CmfStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -934,7 +938,7 @@ export function cmfOpenAndFill(
   requireHistoryLength('CMF openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('CMF openAndFill', 'inClose', inClose.length, inHigh.length);
   requireHistoryLength('CMF openAndFill', 'inVolume', inVolume.length, inHigh.length);
-  requireLength('CMF openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('CMF openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

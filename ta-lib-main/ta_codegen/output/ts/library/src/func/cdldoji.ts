@@ -15,7 +15,7 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -207,7 +207,7 @@ export function cdldoji(
   requireLength('CDLDOJI', 'inHigh', inHigh, guardInLen);
   requireLength('CDLDOJI', 'inLow', inLow, guardInLen);
   requireLength('CDLDOJI', 'inClose', inClose, guardInLen);
-  requireLength('CDLDOJI', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLDOJI', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -258,9 +258,13 @@ export class CdldojiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdldojiStream {
+    return new CdldojiStream(core);
   }
 
   /**
@@ -505,7 +509,7 @@ export function cdldojiOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdldojiStream {
-  const sp = new CdldojiStream(core);
+  const sp = CdldojiStream.of(core);
   const retCode = cdldojiOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -527,7 +531,7 @@ export function cdldojiOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): CdldojiStream {
-  const sp = new CdldojiStream(core);
+  const sp = CdldojiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -658,7 +662,7 @@ export function cdldojiOpenAndFill(
   requireHistoryLength('CDLDOJI openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLDOJI openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLDOJI openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLDOJI openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLDOJI openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

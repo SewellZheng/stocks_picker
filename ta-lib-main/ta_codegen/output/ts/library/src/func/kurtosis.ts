@@ -14,7 +14,7 @@
  *  092126 MF,CC  Rebuild against the peak moments (issue #433).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -395,7 +395,7 @@ export function kurtosis(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('KURTOSIS', 'inReal', inReal, guardInLen);
-  requireLength('KURTOSIS', 'outReal', outReal, guardOutLen);
+  requireOutput('KURTOSIS', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('KURTOSIS', RetCode.BAD_PARAM);
@@ -469,9 +469,13 @@ export class KurtosisStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): KurtosisStream {
+    return new KurtosisStream(core);
   }
 
   /**
@@ -1202,7 +1206,7 @@ export function kurtosisOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): KurtosisStream {
-  const sp = new KurtosisStream(core);
+  const sp = KurtosisStream.of(core);
   const retCode = kurtosisOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1222,7 +1226,7 @@ export function kurtosisOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): KurtosisStream {
-  const sp = new KurtosisStream(core);
+  const sp = KurtosisStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1318,7 +1322,7 @@ export function kurtosisOpenAndFill(
   requireArgument('KURTOSIS openAndFill', 'inReal', inReal);
   requireHistory('KURTOSIS openAndFill', inReal.length);
   const guardOutLen = openFillCount('KURTOSIS openAndFill', inReal.length, kurtosisLookback(optInTimePeriod, core));
-  requireLength('KURTOSIS openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('KURTOSIS openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('KURTOSIS openAndFill', RetCode.BAD_PARAM);

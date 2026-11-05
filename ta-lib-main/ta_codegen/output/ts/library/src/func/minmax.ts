@@ -11,7 +11,7 @@
  *  120906 AC   Creation
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -315,8 +315,8 @@ export function minmax(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('MINMAX', 'inReal', inReal, guardInLen);
-  requireLength('MINMAX', 'outMin', outMin, guardOutLen);
-  requireLength('MINMAX', 'outMax', outMax, guardOutLen);
+  requireOutput('MINMAX', 'outMin', outMin, guardOutLen, Float64Array);
+  requireOutput('MINMAX', 'outMax', outMax, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outMin, inRealF64) || overlapsPartly(outMax, inRealF64) || overlaps(outMin, outMax)) {
     throw failure('MINMAX', RetCode.BAD_PARAM);
@@ -374,9 +374,13 @@ export class MinmaxStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): MinmaxStream {
+    return new MinmaxStream(core);
   }
 
   /**
@@ -756,7 +760,7 @@ export function minmaxOpenAndFillInternal(
   outMin: Float64Array,
   outMax: Float64Array,
 ): MinmaxStream {
-  const sp = new MinmaxStream(core);
+  const sp = MinmaxStream.of(core);
   const retCode = minmaxOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outMin, outMax, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -776,7 +780,7 @@ export function minmaxOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): MinmaxStream {
-  const sp = new MinmaxStream(core);
+  const sp = MinmaxStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outMin = new Float64Array(1);
@@ -880,8 +884,8 @@ export function minmaxOpenAndFill(
   requireArgument('MINMAX openAndFill', 'inReal', inReal);
   requireHistory('MINMAX openAndFill', inReal.length);
   const guardOutLen = openFillCount('MINMAX openAndFill', inReal.length, minmaxLookback(optInTimePeriod, core));
-  requireLength('MINMAX openAndFill', 'outMin', outMin, guardOutLen);
-  requireLength('MINMAX openAndFill', 'outMax', outMax, guardOutLen);
+  requireOutput('MINMAX openAndFill', 'outMin', outMin, guardOutLen, Float64Array);
+  requireOutput('MINMAX openAndFill', 'outMax', outMax, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outMin.buffer === inRealF64.buffer && outMin.byteOffset === inRealF64.byteOffset) || (outMax.buffer === inRealF64.buffer && outMax.byteOffset === inRealF64.byteOffset) || (outMin.buffer === outMax.buffer && outMin.byteOffset === outMax.byteOffset)) {
     throw streamFailure('MINMAX openAndFill', RetCode.BAD_PARAM);

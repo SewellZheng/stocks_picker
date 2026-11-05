@@ -14,7 +14,7 @@
  *  112605 MF   Fix outBegIdx when startIdx != 0
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -158,7 +158,7 @@ export function avgprice(
   requireLength('AVGPRICE', 'inHigh', inHigh, guardInLen);
   requireLength('AVGPRICE', 'inLow', inLow, guardInLen);
   requireLength('AVGPRICE', 'inClose', inClose, guardInLen);
-  requireLength('AVGPRICE', 'outReal', outReal, guardOutLen);
+  requireOutput('AVGPRICE', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -195,9 +195,13 @@ export class AvgpriceStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AvgpriceStream {
+    return new AvgpriceStream(core);
   }
 
   /**
@@ -344,7 +348,7 @@ export function avgpriceOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): AvgpriceStream {
-  const sp = new AvgpriceStream(core);
+  const sp = AvgpriceStream.of(core);
   const retCode = avgpriceOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -366,7 +370,7 @@ export function avgpriceOpenInternal(
   inClose: Float64Array,
   startIdx: number,
 ): AvgpriceStream {
-  const sp = new AvgpriceStream(core);
+  const sp = AvgpriceStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -497,7 +501,7 @@ export function avgpriceOpenAndFill(
   requireHistoryLength('AVGPRICE openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('AVGPRICE openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('AVGPRICE openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('AVGPRICE openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('AVGPRICE openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

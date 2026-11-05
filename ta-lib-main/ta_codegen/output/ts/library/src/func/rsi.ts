@@ -24,7 +24,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -299,7 +299,7 @@ export function rsi(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('RSI', 'inReal', inReal, guardInLen);
-  requireLength('RSI', 'outReal', outReal, guardOutLen);
+  requireOutput('RSI', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('RSI', RetCode.BAD_PARAM);
@@ -343,9 +343,13 @@ export class RsiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): RsiStream {
+    return new RsiStream(core);
   }
 
   /**
@@ -653,7 +657,7 @@ export function rsiOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): RsiStream {
-  const sp = new RsiStream(core);
+  const sp = RsiStream.of(core);
   const retCode = rsiOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -673,7 +677,7 @@ export function rsiOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): RsiStream {
-  const sp = new RsiStream(core);
+  const sp = RsiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -768,7 +772,7 @@ export function rsiOpenAndFill(
   requireArgument('RSI openAndFill', 'inReal', inReal);
   requireHistory('RSI openAndFill', inReal.length);
   const guardOutLen = openFillCount('RSI openAndFill', inReal.length, rsiLookback(optInTimePeriod, core));
-  requireLength('RSI openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('RSI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('RSI openAndFill', RetCode.BAD_PARAM);

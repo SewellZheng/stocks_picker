@@ -12,7 +12,7 @@
  *  090426 MF,CC  Initial version (#367).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -270,7 +270,7 @@ export function adr(
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('ADR', 'inHigh', inHigh, guardInLen);
   requireLength('ADR', 'inLow', inLow, guardInLen);
-  requireLength('ADR', 'outReal', outReal, guardOutLen);
+  requireOutput('ADR', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64)) {
@@ -315,9 +315,13 @@ export class AdrStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): AdrStream {
+    return new AdrStream(core);
   }
 
   /**
@@ -563,7 +567,7 @@ export function adrOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): AdrStream {
-  const sp = new AdrStream(core);
+  const sp = AdrStream.of(core);
   const retCode = adrOpenImpl(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -584,7 +588,7 @@ export function adrOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): AdrStream {
-  const sp = new AdrStream(core);
+  const sp = AdrStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -705,7 +709,7 @@ export function adrOpenAndFill(
   requireArgument('ADR openAndFill', 'inLow', inLow);
   const guardOutLen = openFillCount('ADR openAndFill', inHigh.length, adrLookback(optInTimePeriod, core));
   requireHistoryLength('ADR openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireLength('ADR openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('ADR openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset)) {

@@ -22,7 +22,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -486,7 +486,7 @@ export function dx(
   requireLength('DX', 'inHigh', inHigh, guardInLen);
   requireLength('DX', 'inLow', inLow, guardInLen);
   requireLength('DX', 'inClose', inClose, guardInLen);
-  requireLength('DX', 'outReal', outReal, guardOutLen);
+  requireOutput('DX', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -540,9 +540,13 @@ export class DxStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): DxStream {
+    return new DxStream(core);
   }
 
   /**
@@ -1117,7 +1121,7 @@ export function dxOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): DxStream {
-  const sp = new DxStream(core);
+  const sp = DxStream.of(core);
   const retCode = dxOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1139,7 +1143,7 @@ export function dxOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): DxStream {
-  const sp = new DxStream(core);
+  const sp = DxStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1266,7 +1270,7 @@ export function dxOpenAndFill(
   const guardOutLen = openFillCount('DX openAndFill', inHigh.length, dxLookback(optInTimePeriod, core));
   requireHistoryLength('DX openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('DX openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('DX openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('DX openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

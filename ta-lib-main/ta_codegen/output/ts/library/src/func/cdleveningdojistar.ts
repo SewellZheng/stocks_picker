@@ -16,7 +16,7 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireReal, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -286,7 +286,7 @@ export function cdleveningdojistar(
   requireLength('CDLEVENINGDOJISTAR', 'inHigh', inHigh, guardInLen);
   requireLength('CDLEVENINGDOJISTAR', 'inLow', inLow, guardInLen);
   requireLength('CDLEVENINGDOJISTAR', 'inClose', inClose, guardInLen);
-  requireLength('CDLEVENINGDOJISTAR', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLEVENINGDOJISTAR', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
@@ -384,9 +384,13 @@ export class CdleveningdojistarStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): CdleveningdojistarStream {
+    return new CdleveningdojistarStream(core);
   }
 
   /**
@@ -794,7 +798,7 @@ export function cdleveningdojistarOpenAndFillInternal(
   outNBElement: MInteger,
   outInteger: Int32Array,
 ): CdleveningdojistarStream {
-  const sp = new CdleveningdojistarStream(core);
+  const sp = CdleveningdojistarStream.of(core);
   const retCode = cdleveningdojistarOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, outInteger, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -817,7 +821,7 @@ export function cdleveningdojistarOpenInternal(
   startIdx: number,
   optInPenetration: number,
 ): CdleveningdojistarStream {
-  const sp = new CdleveningdojistarStream(core);
+  const sp = CdleveningdojistarStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outInteger = new Int32Array(1);
@@ -961,7 +965,7 @@ export function cdleveningdojistarOpenAndFill(
   requireHistoryLength('CDLEVENINGDOJISTAR openAndFill', 'inHigh', inHigh.length, inOpen.length);
   requireHistoryLength('CDLEVENINGDOJISTAR openAndFill', 'inLow', inLow.length, inOpen.length);
   requireHistoryLength('CDLEVENINGDOJISTAR openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireLength('CDLEVENINGDOJISTAR openAndFill', 'outInteger', outInteger, guardOutLen);
+  requireOutput('CDLEVENINGDOJISTAR openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);

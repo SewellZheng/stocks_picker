@@ -18,7 +18,7 @@
  *                and on the bar a large value leaves the window.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -325,7 +325,7 @@ export function linearregSlope(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('LINEARREG_SLOPE', 'inReal', inReal, guardInLen);
-  requireLength('LINEARREG_SLOPE', 'outReal', outReal, guardOutLen);
+  requireOutput('LINEARREG_SLOPE', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('LINEARREG_SLOPE', RetCode.BAD_PARAM);
@@ -388,9 +388,13 @@ export class LinearregSlopeStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): LinearregSlopeStream {
+    return new LinearregSlopeStream(core);
   }
 
   /**
@@ -909,7 +913,7 @@ export function linearregSlopeOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): LinearregSlopeStream {
-  const sp = new LinearregSlopeStream(core);
+  const sp = LinearregSlopeStream.of(core);
   const retCode = linearregSlopeOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -929,7 +933,7 @@ export function linearregSlopeOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): LinearregSlopeStream {
-  const sp = new LinearregSlopeStream(core);
+  const sp = LinearregSlopeStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1024,7 +1028,7 @@ export function linearregSlopeOpenAndFill(
   requireArgument('LINEARREG_SLOPE openAndFill', 'inReal', inReal);
   requireHistory('LINEARREG_SLOPE openAndFill', inReal.length);
   const guardOutLen = openFillCount('LINEARREG_SLOPE openAndFill', inReal.length, linearregSlopeLookback(optInTimePeriod, core));
-  requireLength('LINEARREG_SLOPE openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('LINEARREG_SLOPE openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('LINEARREG_SLOPE openAndFill', RetCode.BAD_PARAM);

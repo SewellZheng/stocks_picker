@@ -11,7 +11,7 @@
  *  082507 MF     Initial Version
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -129,7 +129,7 @@ export function sin(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('SIN', 'inReal', inReal, guardInLen);
-  requireLength('SIN', 'outReal', outReal, guardOutLen);
+  requireOutput('SIN', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('SIN', RetCode.BAD_PARAM);
@@ -163,9 +163,13 @@ export class SinStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SinStream {
+    return new SinStream(core);
   }
 
   /**
@@ -295,7 +299,7 @@ export function sinOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): SinStream {
-  const sp = new SinStream(core);
+  const sp = SinStream.of(core);
   const retCode = sinOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -314,7 +318,7 @@ export function sinOpenInternal(
   inReal: Float64Array,
   startIdx: number,
 ): SinStream {
-  const sp = new SinStream(core);
+  const sp = SinStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -399,7 +403,7 @@ export function sinOpenAndFill(
   requireArgument('SIN openAndFill', 'inReal', inReal);
   requireHistory('SIN openAndFill', inReal.length);
   const guardOutLen = openFillCount('SIN openAndFill', inReal.length, sinLookback(core));
-  requireLength('SIN openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SIN openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('SIN openAndFill', RetCode.BAD_PARAM);

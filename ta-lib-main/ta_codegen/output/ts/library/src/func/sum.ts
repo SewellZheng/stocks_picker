@@ -12,7 +12,7 @@
  *  120802 MF   Template creation.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -193,7 +193,7 @@ export function sum(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('SUM', 'inReal', inReal, guardInLen);
-  requireLength('SUM', 'outReal', outReal, guardOutLen);
+  requireOutput('SUM', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('SUM', RetCode.BAD_PARAM);
@@ -237,9 +237,13 @@ export class SumStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SumStream {
+    return new SumStream(core);
   }
 
   /**
@@ -449,7 +453,7 @@ export function sumOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): SumStream {
-  const sp = new SumStream(core);
+  const sp = SumStream.of(core);
   const retCode = sumOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -469,7 +473,7 @@ export function sumOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): SumStream {
-  const sp = new SumStream(core);
+  const sp = SumStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -564,7 +568,7 @@ export function sumOpenAndFill(
   requireArgument('SUM openAndFill', 'inReal', inReal);
   requireHistory('SUM openAndFill', inReal.length);
   const guardOutLen = openFillCount('SUM openAndFill', inReal.length, sumLookback(optInTimePeriod, core));
-  requireLength('SUM openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SUM openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('SUM openAndFill', RetCode.BAD_PARAM);

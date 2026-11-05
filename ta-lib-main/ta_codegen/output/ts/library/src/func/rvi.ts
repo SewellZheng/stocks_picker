@@ -14,7 +14,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
@@ -537,7 +537,7 @@ export function rvi(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('RVI', 'inReal', inReal, guardInLen);
-  requireLength('RVI', 'outReal', outReal, guardOutLen);
+  requireOutput('RVI', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('RVI', RetCode.BAD_PARAM);
@@ -611,9 +611,13 @@ export class RviStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): RviStream {
+    return new RviStream(core);
   }
 
   /**
@@ -1312,7 +1316,7 @@ export function rviOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): RviStream {
-  const sp = new RviStream(core);
+  const sp = RviStream.of(core);
   const retCode = rviOpenImpl(sp, inReal, startIdx, optInTimePeriod, optInStdDevPeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1333,7 +1337,7 @@ export function rviOpenInternal(
   optInTimePeriod: number,
   optInStdDevPeriod: number,
 ): RviStream {
-  const sp = new RviStream(core);
+  const sp = RviStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -1441,7 +1445,7 @@ export function rviOpenAndFill(
   requireArgument('RVI openAndFill', 'inReal', inReal);
   requireHistory('RVI openAndFill', inReal.length);
   const guardOutLen = openFillCount('RVI openAndFill', inReal.length, rviLookback(optInTimePeriod, optInStdDevPeriod, core));
-  requireLength('RVI openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('RVI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('RVI openAndFill', RetCode.BAD_PARAM);

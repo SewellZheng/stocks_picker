@@ -14,7 +14,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -684,7 +684,7 @@ export function htDcphase(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('HT_DCPHASE', 'inReal', inReal, guardInLen);
-  requireLength('HT_DCPHASE', 'outReal', outReal, guardOutLen);
+  requireOutput('HT_DCPHASE', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('HT_DCPHASE', RetCode.BAD_PARAM);
@@ -820,9 +820,13 @@ export class HtDcphaseStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): HtDcphaseStream {
+    return new HtDcphaseStream(core);
   }
 
   /**
@@ -2321,7 +2325,7 @@ export function htDcphaseOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): HtDcphaseStream {
-  const sp = new HtDcphaseStream(core);
+  const sp = HtDcphaseStream.of(core);
   const retCode = htDcphaseOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -2340,7 +2344,7 @@ export function htDcphaseOpenInternal(
   inReal: Float64Array,
   startIdx: number,
 ): HtDcphaseStream {
-  const sp = new HtDcphaseStream(core);
+  const sp = HtDcphaseStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -2426,7 +2430,7 @@ export function htDcphaseOpenAndFill(
   requireArgument('HT_DCPHASE openAndFill', 'inReal', inReal);
   requireHistory('HT_DCPHASE openAndFill', inReal.length);
   const guardOutLen = openFillCount('HT_DCPHASE openAndFill', inReal.length, htDcphaseLookback(core));
-  requireLength('HT_DCPHASE openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('HT_DCPHASE openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('HT_DCPHASE openAndFill', RetCode.BAD_PARAM);

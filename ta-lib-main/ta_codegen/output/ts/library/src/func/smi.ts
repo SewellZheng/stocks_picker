@@ -15,7 +15,7 @@
  *                any instrument quoted small enough to fall under it.
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -684,8 +684,8 @@ export function smi(
   requireLength('SMI', 'inHigh', inHigh, guardInLen);
   requireLength('SMI', 'inLow', inLow, guardInLen);
   requireLength('SMI', 'inClose', inClose, guardInLen);
-  requireLength('SMI', 'outSMI', outSMI, guardOutLen);
-  requireLength('SMI', 'outSMISignal', outSMISignal, guardOutLen);
+  requireOutput('SMI', 'outSMI', outSMI, guardOutLen, Float64Array);
+  requireOutput('SMI', 'outSMISignal', outSMISignal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -775,9 +775,13 @@ export class SmiStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SmiStream {
+    return new SmiStream(core);
   }
 
   /**
@@ -1746,7 +1750,7 @@ export function smiOpenAndFillInternal(
   outSMI: Float64Array,
   outSMISignal: Float64Array,
 ): SmiStream {
-  const sp = new SmiStream(core);
+  const sp = SmiStream.of(core);
   const retCode = smiOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1771,7 +1775,7 @@ export function smiOpenInternal(
   optInSlowPeriod: number,
   optInSignalPeriod: number,
 ): SmiStream {
-  const sp = new SmiStream(core);
+  const sp = SmiStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outSMI = new Float64Array(1);
@@ -1936,8 +1940,8 @@ export function smiOpenAndFill(
   const guardOutLen = openFillCount('SMI openAndFill', inHigh.length, smiLookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, core));
   requireHistoryLength('SMI openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('SMI openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('SMI openAndFill', 'outSMI', outSMI, guardOutLen);
-  requireLength('SMI openAndFill', 'outSMISignal', outSMISignal, guardOutLen);
+  requireOutput('SMI openAndFill', 'outSMI', outSMI, guardOutLen, Float64Array);
+  requireOutput('SMI openAndFill', 'outSMISignal', outSMISignal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

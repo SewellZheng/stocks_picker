@@ -16,7 +16,7 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
@@ -308,7 +308,7 @@ export function swakGauss(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('SWAK_GAUSS', 'inReal', inReal, guardInLen);
-  requireLength('SWAK_GAUSS', 'outReal', outReal, guardOutLen);
+  requireOutput('SWAK_GAUSS', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
     throw failure('SWAK_GAUSS', RetCode.BAD_PARAM);
@@ -354,9 +354,13 @@ export class SwakGaussStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): SwakGaussStream {
+    return new SwakGaussStream(core);
   }
 
   /**
@@ -654,7 +658,7 @@ export function swakGaussOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): SwakGaussStream {
-  const sp = new SwakGaussStream(core);
+  const sp = SwakGaussStream.of(core);
   const retCode = swakGaussOpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -674,7 +678,7 @@ export function swakGaussOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): SwakGaussStream {
-  const sp = new SwakGaussStream(core);
+  const sp = SwakGaussStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -774,7 +778,7 @@ export function swakGaussOpenAndFill(
   requireArgument('SWAK_GAUSS openAndFill', 'inReal', inReal);
   requireHistory('SWAK_GAUSS openAndFill', inReal.length);
   const guardOutLen = openFillCount('SWAK_GAUSS openAndFill', inReal.length, swakGaussLookback(optInTimePeriod, core));
-  requireLength('SWAK_GAUSS openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('SWAK_GAUSS openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
     throw streamFailure('SWAK_GAUSS openAndFill', RetCode.BAD_PARAM);

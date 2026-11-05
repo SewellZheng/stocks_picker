@@ -15,7 +15,7 @@
  *  102326 MF,CC  #554 rare reset, zero run as a mask, output first.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -238,7 +238,7 @@ export function rvol(
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
   requireLength('RVOL', 'inVolume', inVolume, guardInLen);
-  requireLength('RVOL', 'outReal', outReal, guardOutLen);
+  requireOutput('RVOL', 'outReal', outReal, guardOutLen, Float64Array);
   const inVolumeF64 = float64(inVolume);
   if (overlapsPartly(outReal, inVolumeF64)) {
     throw failure('RVOL', RetCode.BAD_PARAM);
@@ -284,9 +284,13 @@ export class RvolStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): RvolStream {
+    return new RvolStream(core);
   }
 
   /**
@@ -544,7 +548,7 @@ export function rvolOpenAndFillInternal(
   outNBElement: MInteger,
   outReal: Float64Array,
 ): RvolStream {
-  const sp = new RvolStream(core);
+  const sp = RvolStream.of(core);
   const retCode = rvolOpenImpl(sp, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -564,7 +568,7 @@ export function rvolOpenInternal(
   startIdx: number,
   optInTimePeriod: number,
 ): RvolStream {
-  const sp = new RvolStream(core);
+  const sp = RvolStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outReal = new Float64Array(1);
@@ -660,7 +664,7 @@ export function rvolOpenAndFill(
   requireArgument('RVOL openAndFill', 'inVolume', inVolume);
   requireHistory('RVOL openAndFill', inVolume.length);
   const guardOutLen = openFillCount('RVOL openAndFill', inVolume.length, rvolLookback(optInTimePeriod, core));
-  requireLength('RVOL openAndFill', 'outReal', outReal, guardOutLen);
+  requireOutput('RVOL openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inVolumeF64 = float64(inVolume);
   if ((outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset)) {
     throw streamFailure('RVOL openAndFill', RetCode.BAD_PARAM);

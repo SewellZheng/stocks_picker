@@ -16,7 +16,7 @@
  *                average.
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
@@ -572,8 +572,8 @@ export function wavetrend(
   requireLength('WAVETREND', 'inHigh', inHigh, guardInLen);
   requireLength('WAVETREND', 'inLow', inLow, guardInLen);
   requireLength('WAVETREND', 'inClose', inClose, guardInLen);
-  requireLength('WAVETREND', 'outWT1', outWT1, guardOutLen);
-  requireLength('WAVETREND', 'outWT2', outWT2, guardOutLen);
+  requireOutput('WAVETREND', 'outWT1', outWT1, guardOutLen, Float64Array);
+  requireOutput('WAVETREND', 'outWT2', outWT2, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -645,9 +645,13 @@ export class WavetrendStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): WavetrendStream {
+    return new WavetrendStream(core);
   }
 
   /**
@@ -1330,7 +1334,7 @@ export function wavetrendOpenAndFillInternal(
   outWT1: Float64Array,
   outWT2: Float64Array,
 ): WavetrendStream {
-  const sp = new WavetrendStream(core);
+  const sp = WavetrendStream.of(core);
   const retCode = wavetrendOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, outBegIdx, outNBElement, outWT1, outWT2, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -1354,7 +1358,7 @@ export function wavetrendOpenInternal(
   optInAveragePeriod: number,
   optInSignalPeriod: number,
 ): WavetrendStream {
-  const sp = new WavetrendStream(core);
+  const sp = WavetrendStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outWT1 = new Float64Array(1);
@@ -1506,8 +1510,8 @@ export function wavetrendOpenAndFill(
   const guardOutLen = openFillCount('WAVETREND openAndFill', inHigh.length, wavetrendLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core));
   requireHistoryLength('WAVETREND openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('WAVETREND openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('WAVETREND openAndFill', 'outWT1', outWT1, guardOutLen);
-  requireLength('WAVETREND openAndFill', 'outWT2', outWT2, guardOutLen);
+  requireOutput('WAVETREND openAndFill', 'outWT1', outWT1, guardOutLen, Float64Array);
+  requireOutput('WAVETREND openAndFill', 'outWT2', outWT2, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);

@@ -13,7 +13,7 @@
  */
 
 import { MAType, MATypes } from '../enums.ts';
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, streamFailure } from '../runtime/checks.ts';
+import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
@@ -331,9 +331,9 @@ export function kdj(
   requireLength('KDJ', 'inHigh', inHigh, guardInLen);
   requireLength('KDJ', 'inLow', inLow, guardInLen);
   requireLength('KDJ', 'inClose', inClose, guardInLen);
-  requireLength('KDJ', 'outK', outK, guardOutLen);
-  requireLength('KDJ', 'outD', outD, guardOutLen);
-  requireLength('KDJ', 'outJ', outJ, guardOutLen);
+  requireOutput('KDJ', 'outK', outK, guardOutLen, Float64Array);
+  requireOutput('KDJ', 'outD', outD, guardOutLen, Float64Array);
+  requireOutput('KDJ', 'outJ', outJ, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
@@ -385,9 +385,13 @@ export class KdjStream {
   /** @internal */
   outRangeCount: number = 0;
 
-  /** @internal */
-  constructor(core: Core) {
+  private constructor(core: Core) {
     this.core = core;
+  }
+
+  /** @internal */
+  static of(core: Core): KdjStream {
+    return new KdjStream(core);
   }
 
   /**
@@ -664,7 +668,7 @@ export function kdjOpenAndFillInternal(
   outD: Float64Array,
   outJ: Float64Array,
 ): KdjStream {
-  const sp = new KdjStream(core);
+  const sp = KdjStream.of(core);
   const retCode = kdjOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, outK, outD, outJ, 1);
   sp.outRangeBegIdx = outBegIdx.value;
   sp.outRangeCount = outNBElement.value;
@@ -690,7 +694,7 @@ export function kdjOpenInternal(
   optInSlowD_Period: number,
   optInSlowD_MAType: number,
 ): KdjStream {
-  const sp = new KdjStream(core);
+  const sp = KdjStream.of(core);
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
   const sink_outK = new Float64Array(1);
@@ -875,9 +879,9 @@ export function kdjOpenAndFill(
   const guardOutLen = openFillCount('KDJ openAndFill', inHigh.length, kdjLookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType as MAType, optInSlowD_Period, optInSlowD_MAType as MAType, core));
   requireHistoryLength('KDJ openAndFill', 'inLow', inLow.length, inHigh.length);
   requireHistoryLength('KDJ openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireLength('KDJ openAndFill', 'outK', outK, guardOutLen);
-  requireLength('KDJ openAndFill', 'outD', outD, guardOutLen);
-  requireLength('KDJ openAndFill', 'outJ', outJ, guardOutLen);
+  requireOutput('KDJ openAndFill', 'outK', outK, guardOutLen, Float64Array);
+  requireOutput('KDJ openAndFill', 'outD', outD, guardOutLen, Float64Array);
+  requireOutput('KDJ openAndFill', 'outJ', outJ, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
