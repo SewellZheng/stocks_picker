@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -44,17 +44,17 @@ import { InputFlags, InputType, OptInputType, OutputType } from './flags.ts';
 /** The OHLCV components of a price input. Omit any the input's `flags` do not name. */
 export interface PriceInput {
   /** Open prices. */
-  readonly open?: ArrayLike<number>;
+  readonly open?: ArrayLike<number> | undefined;
   /** High prices. */
-  readonly high?: ArrayLike<number>;
+  readonly high?: ArrayLike<number> | undefined;
   /** Low prices. */
-  readonly low?: ArrayLike<number>;
+  readonly low?: ArrayLike<number> | undefined;
   /** Close prices. */
-  readonly close?: ArrayLike<number>;
+  readonly close?: ArrayLike<number> | undefined;
   /** Volumes. */
-  readonly volume?: ArrayLike<number>;
+  readonly volume?: ArrayLike<number> | undefined;
   /** Open interest. */
-  readonly openInterest?: ArrayLike<number>;
+  readonly openInterest?: ArrayLike<number> | undefined;
 }
 
 const COMPONENTS = [
@@ -92,7 +92,7 @@ function unsetValue(o: OptInputInfo): number {
  *
  * Every setter checks its argument against the function's row before it writes,
  * so a rejected call leaves the holder as it was. A rejection throws
- * {@link TALibError}: `TA_BAD_PARAM` for an index out of range or a missing or
+ * `TALibError`: `TA_BAD_PARAM` for an index out of range or a missing or
  * malformed value, `TA_INVALID_PARAM_HOLDER_TYPE` for a slot of another kind.
  * An unset optional parameter takes its default.
  *
@@ -179,11 +179,17 @@ export class ParamHolder {
    * `Core.INTEGER_DEFAULT` selects the default; a real domain takes any number,
    * and `Core.REAL_DEFAULT` selects the default.
    *
-   * @param idx - The parameter's position in `FuncInfo.optInputs`.
+   * @param slot - The parameter's position in `FuncInfo.optInputs`, or its `key`.
    * @param value - The parameter's value, or the domain's default sentinel.
+   * @throws `TALibError` `TA_BAD_PARAM` for a position out of range or a key that
+   *   names no parameter of this function.
    */
-  setOptInput(idx: number, value: number): this {
+  setOptInput(slot: number | string, value: number): this {
     const name = this.info.name;
+    const idx = typeof slot === 'string' ? this.info.optInputs.findIndex((o) => o.key === slot) : slot;
+    if (idx < 0 && typeof slot === 'string') {
+      throw bad(RetCode.BAD_PARAM, `${name}: no optional parameter keyed ${JSON.stringify(slot)}`);
+    }
     checkIndex(name, 'optInput', idx, this.info.optInputs.length);
     const type = this.info.optInputs[idx].type;
     if (type === OptInputType.INTEGER_RANGE || type === OptInputType.INTEGER_LIST) {
@@ -241,12 +247,14 @@ export class ParamHolder {
    * Calls the function over `[startIdx, endIdx]` through its public batch form,
    * which then throws exactly as a direct call does.
    *
-   * @param startIdx - First bar of the requested range (inclusive).
-   * @param endIdx - Last bar of the requested range (inclusive).
-   * @throws {@link TALibError} `TA_INPUT_NOT_ALL_INITIALIZE` or
+   * @param startIdx - First bar of the requested range (inclusive); 0 when omitted.
+   * @param endIdx - Last bar of the requested range (inclusive); when omitted, the
+   *   last bar of the first bound input (of its first consumed component for a
+   *   price input), as the typed call defaults it.
+   * @throws `TALibError` `TA_INPUT_NOT_ALL_INITIALIZE` or
    *   `TA_OUTPUT_NOT_ALL_INITIALIZE` for an unbound input or output.
    */
-  call(startIdx: number, endIdx: number): OutRange {
+  call(startIdx = 0, endIdx?: number): OutRange {
     const name = this.info.name;
     for (let i = 0; i < this.info.inputs.length; i++) {
       const bound = this.info.inputs[i].type === InputType.PRICE ? this.prices[i] !== null : this.inputs[i] !== null;
@@ -258,6 +266,14 @@ export class ParamHolder {
       if (this.outputs[i] === null) {
         throw new TALibError(RetCode.OUTPUT_NOT_ALL_INITIALIZE, `${name}: output ${i} is not set`);
       }
+    }
+    if (endIdx === undefined) {
+      const first = this.info.inputs[0]?.type === InputType.PRICE ? this.prices[0]?.find((c) => c !== undefined) : this.inputs[0];
+      const length = first?.length ?? 0;
+      if (length === 0) {
+        throw new TALibError(RetCode.BAD_PARAM, `${name}: input 0 is empty`);
+      }
+      endIdx = length - 1;
     }
     return this.thunks.call(this, startIdx, endIdx);
   }

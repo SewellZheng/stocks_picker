@@ -4,8 +4,10 @@
 mod common;
 
 mod abstract_rows_suite;
+mod added_in_suite;
 mod alt_suite;
 mod arg_order_suite;
+mod attributes_suite;
 mod c_hygiene_suite;
 mod c_render_statement_suite;
 mod candle_range_suite;
@@ -17,8 +19,10 @@ mod divisor_guard_suite;
 mod eager_select_suite;
 mod doc_emphasis_suite;
 mod enums_suite;
+mod examples_suite;
 mod fma_suite;
 mod indicator_variants_suite;
+mod input_domain_suite;
 mod integration_test;
 mod internal_error_id_suite;
 mod java_render_statement_suite;

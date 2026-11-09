@@ -72,6 +72,7 @@ static void bench_tracked_free(void *p) {
 #include "ta_ADR.c"
 #include "ta_ADX.c"
 #include "ta_ADXR.c"
+#include "ta_ALLIGATOR.c"
 #include "ta_ALMA.c"
 #include "ta_AO.c"
 #include "ta_APO.c"
@@ -257,12 +258,14 @@ static void bench_tracked_free(void *p) {
 #include "ta_RVOL.c"
 #include "ta_SAR.c"
 #include "ta_SAREXT.c"
+#include "ta_SHARPE.c"
 #include "ta_SI.c"
 #include "ta_SIN.c"
 #include "ta_SINH.c"
 #include "ta_SKEW.c"
 #include "ta_SMA.c"
 #include "ta_SMI.c"
+#include "ta_SORTINO.c"
 #include "ta_SQRT.c"
 #include "ta_SQZMOM.c"
 #include "ta_STC.c"
@@ -1106,6 +1109,87 @@ static void bench_stream_all(const char *filter, int iters) {
             g_sink += acc + nb;
             if( st ) { g_ta_track = 0; TA_ADXR_Close(st); }
             bench_stream_row("ADXR", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
+        }
+        fflush(stdout);
+    }
+    if( func_matches(filter, "ALLIGATOR") ) {
+        long long best_b = 0, best_u = -1, best_p = -1;
+        int begIdx = 0, nb = 0;
+        size_t handle_bytes = 0;
+        double acc = 0.0;
+        const int optInJawPeriod = bench_opaque_int(13);
+        const int optInJawShift = bench_opaque_int(8);
+        const int optInTeethPeriod = bench_opaque_int(8);
+        const int optInTeethShift = bench_opaque_int(5);
+        const int optInLipsPeriod = bench_opaque_int(5);
+        const int optInLipsShift = bench_opaque_int(3);
+        int lb = TA_ALLIGATOR_Lookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
+        bench_rt_reserve((long long)lb + iters);
+        for( int pass = 0; pass < 3; pass++ ) {
+            int t = lb < 0 ? 0 : lb;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                g_rt_high[t] = g_high[it & BENCH_MASK];
+                g_rt_low[t] = g_low[it & BENCH_MASK];
+                TA_ALLIGATOR(t, t, g_rt_high, g_rt_low, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &begIdx, &nb, g_outBuf0, g_outBuf1, g_outBuf2);
+                acc += g_outBuf0[0];
+                acc += g_outBuf1[0];
+                acc += g_outBuf2[0];
+                t++;
+            }
+            long long el = get_nanotime() - t0;
+            if( !best_b || el < best_b ) best_b = el;
+        }
+        TA_ALLIGATOR_Stream *st = NULL;
+            double v0 = 0.0;
+            double v1 = 0.0;
+            double v2 = 0.0;
+        g_trk_reset(); g_ta_track = 1;
+        TA_RetCode orc = TA_ALLIGATOR_Open(&st, g_high, g_low, g_nPoints, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &v0, &v1, &v2);
+        g_ta_track = 0; handle_bytes = g_ta_live_bytes;
+        if( orc == TA_SUCCESS && st ) {
+            int blk = (iters >= 64) ? 32 : 1;
+            int nblk = iters / blk; int npk = nblk * blk; if( npk < 1 ) npk = 1;
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long t0 = get_nanotime();
+                for( int it = 0; it < iters; it++ ) {
+                    TA_ALLIGATOR_Update(st, g_high[it & BENCH_MASK], g_low[it & BENCH_MASK], &v0, &v1, &v2);
+                    acc += v0;
+                    acc += v1;
+                    acc += v2;
+                }
+                long long tu = get_nanotime() - t0;
+                if( best_u < 0 || tu < best_u ) best_u = tu;
+            }
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long tp = 0;
+                for( int b = 0; b < nblk; b++ ) {
+                    long long t0 = get_nanotime();
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_ALLIGATOR_Peek(st, g_high[it & BENCH_MASK], g_low[it & BENCH_MASK], &v0, &v1, &v2);
+                        acc += v0;
+                        acc += v1;
+                        acc += v2;
+                    }
+                    tp += get_nanotime() - t0;
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_ALLIGATOR_Update(st, g_high[it & BENCH_MASK], g_low[it & BENCH_MASK], &v0, &v1, &v2);
+                        acc += v0;
+                        acc += v1;
+                        acc += v2;
+                    }
+                }
+                if( best_p < 0 || tp < best_p ) best_p = tp;
+            }
+            g_sink += acc + nb;
+            TA_ALLIGATOR_Close(st);
+            bench_stream_row("ALLIGATOR", orc, best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+        } else {
+            g_sink += acc + nb;
+            if( st ) { g_ta_track = 0; TA_ALLIGATOR_Close(st); }
+            bench_stream_row("ALLIGATOR", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -13655,6 +13739,73 @@ static void bench_stream_all(const char *filter, int iters) {
         }
         fflush(stdout);
     }
+    if( func_matches(filter, "SHARPE") ) {
+        long long best_b = 0, best_u = -1, best_p = -1;
+        int begIdx = 0, nb = 0;
+        size_t handle_bytes = 0;
+        double acc = 0.0;
+        const int optInTimePeriod = bench_opaque_int(g_period > 0 ? g_period : 20);
+        const double optInRiskFreeRate = bench_opaque_double(0.000000000000000);
+        const double optInAnnualization = bench_opaque_double(252.000000000000000);
+        int lb = TA_SHARPE_Lookback(optInTimePeriod, optInRiskFreeRate, optInAnnualization);
+        bench_rt_reserve((long long)lb + iters);
+        for( int pass = 0; pass < 3; pass++ ) {
+            int t = lb < 0 ? 0 : lb;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                g_rt_close[t] = g_close[it & BENCH_MASK];
+                TA_SHARPE(t, t, g_rt_close, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &begIdx, &nb, g_outBuf0);
+                acc += g_outBuf0[0];
+                t++;
+            }
+            long long el = get_nanotime() - t0;
+            if( !best_b || el < best_b ) best_b = el;
+        }
+        TA_SHARPE_Stream *st = NULL;
+            double v0 = 0.0;
+        g_trk_reset(); g_ta_track = 1;
+        TA_RetCode orc = TA_SHARPE_Open(&st, g_close, g_nPoints, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &v0);
+        g_ta_track = 0; handle_bytes = g_ta_live_bytes;
+        if( orc == TA_SUCCESS && st ) {
+            int blk = (iters >= 64) ? 32 : 1;
+            int nblk = iters / blk; int npk = nblk * blk; if( npk < 1 ) npk = 1;
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long t0 = get_nanotime();
+                for( int it = 0; it < iters; it++ ) {
+                    TA_SHARPE_Update(st, g_close[it & BENCH_MASK], &v0);
+                    acc += v0;
+                }
+                long long tu = get_nanotime() - t0;
+                if( best_u < 0 || tu < best_u ) best_u = tu;
+            }
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long tp = 0;
+                for( int b = 0; b < nblk; b++ ) {
+                    long long t0 = get_nanotime();
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_SHARPE_Peek(st, g_close[it & BENCH_MASK], &v0);
+                        acc += v0;
+                    }
+                    tp += get_nanotime() - t0;
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_SHARPE_Update(st, g_close[it & BENCH_MASK], &v0);
+                        acc += v0;
+                    }
+                }
+                if( best_p < 0 || tp < best_p ) best_p = tp;
+            }
+            g_sink += acc + nb;
+            TA_SHARPE_Close(st);
+            bench_stream_row("SHARPE", orc, best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+        } else {
+            g_sink += acc + nb;
+            if( st ) { g_ta_track = 0; TA_SHARPE_Close(st); }
+            bench_stream_row("SHARPE", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
+        }
+        fflush(stdout);
+    }
     if( func_matches(filter, "SI") ) {
         long long best_b = 0, best_u = -1, best_p = -1;
         int begIdx = 0, nb = 0;
@@ -14053,6 +14204,73 @@ static void bench_stream_all(const char *filter, int iters) {
             g_sink += acc + nb;
             if( st ) { g_ta_track = 0; TA_SMI_Close(st); }
             bench_stream_row("SMI", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
+        }
+        fflush(stdout);
+    }
+    if( func_matches(filter, "SORTINO") ) {
+        long long best_b = 0, best_u = -1, best_p = -1;
+        int begIdx = 0, nb = 0;
+        size_t handle_bytes = 0;
+        double acc = 0.0;
+        const int optInTimePeriod = bench_opaque_int(g_period > 0 ? g_period : 20);
+        const double optInMAR = bench_opaque_double(0.000000000000000);
+        const double optInAnnualization = bench_opaque_double(252.000000000000000);
+        int lb = TA_SORTINO_Lookback(optInTimePeriod, optInMAR, optInAnnualization);
+        bench_rt_reserve((long long)lb + iters);
+        for( int pass = 0; pass < 3; pass++ ) {
+            int t = lb < 0 ? 0 : lb;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                g_rt_close[t] = g_close[it & BENCH_MASK];
+                TA_SORTINO(t, t, g_rt_close, optInTimePeriod, optInMAR, optInAnnualization, &begIdx, &nb, g_outBuf0);
+                acc += g_outBuf0[0];
+                t++;
+            }
+            long long el = get_nanotime() - t0;
+            if( !best_b || el < best_b ) best_b = el;
+        }
+        TA_SORTINO_Stream *st = NULL;
+            double v0 = 0.0;
+        g_trk_reset(); g_ta_track = 1;
+        TA_RetCode orc = TA_SORTINO_Open(&st, g_close, g_nPoints, optInTimePeriod, optInMAR, optInAnnualization, &v0);
+        g_ta_track = 0; handle_bytes = g_ta_live_bytes;
+        if( orc == TA_SUCCESS && st ) {
+            int blk = (iters >= 64) ? 32 : 1;
+            int nblk = iters / blk; int npk = nblk * blk; if( npk < 1 ) npk = 1;
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long t0 = get_nanotime();
+                for( int it = 0; it < iters; it++ ) {
+                    TA_SORTINO_Update(st, g_close[it & BENCH_MASK], &v0);
+                    acc += v0;
+                }
+                long long tu = get_nanotime() - t0;
+                if( best_u < 0 || tu < best_u ) best_u = tu;
+            }
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long tp = 0;
+                for( int b = 0; b < nblk; b++ ) {
+                    long long t0 = get_nanotime();
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_SORTINO_Peek(st, g_close[it & BENCH_MASK], &v0);
+                        acc += v0;
+                    }
+                    tp += get_nanotime() - t0;
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_SORTINO_Update(st, g_close[it & BENCH_MASK], &v0);
+                        acc += v0;
+                    }
+                }
+                if( best_p < 0 || tp < best_p ) best_p = tp;
+            }
+            g_sink += acc + nb;
+            TA_SORTINO_Close(st);
+            bench_stream_row("SORTINO", orc, best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+        } else {
+            g_sink += acc + nb;
+            if( st ) { g_ta_track = 0; TA_SORTINO_Close(st); }
+            bench_stream_row("SORTINO", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }
@@ -17330,6 +17548,90 @@ static void bench_stream_all_ctx(const char *filter, int iters) {
         }
         fflush(stdout);
     }
+    if( func_matches(filter, "ALLIGATOR") ) {
+        long long best_b = 0, best_u = -1, best_p = -1;
+        int begIdx = 0, nb = 0;
+        size_t handle_bytes = 0;
+        double acc = 0.0;
+        const int optInJawPeriod = bench_opaque_int(13);
+        const int optInJawShift = bench_opaque_int(8);
+        const int optInTeethPeriod = bench_opaque_int(8);
+        const int optInTeethShift = bench_opaque_int(5);
+        const int optInLipsPeriod = bench_opaque_int(5);
+        const int optInLipsShift = bench_opaque_int(3);
+        int lb = TA_ALLIGATOR_Lookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
+        bench_rt_reserve((long long)lb + iters);
+        for( int pass = 0; pass < 3; pass++ ) {
+            int t = lb < 0 ? 0 : lb;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                g_rt_high[t] = g_high[it & BENCH_MASK];
+                g_rt_low[t] = g_low[it & BENCH_MASK];
+                TA_ALLIGATOR(t, t, g_rt_high, g_rt_low, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &begIdx, &nb, g_outBuf0, g_outBuf1, g_outBuf2);
+                acc += g_outBuf0[0];
+                acc += g_outBuf1[0];
+                acc += g_outBuf2[0];
+                bench_context();
+                t++;
+            }
+            long long el = get_nanotime() - t0;
+            if( !best_b || el < best_b ) best_b = el;
+        }
+        TA_ALLIGATOR_Stream *st = NULL;
+            double v0 = 0.0;
+            double v1 = 0.0;
+            double v2 = 0.0;
+        g_trk_reset(); g_ta_track = 1;
+        TA_RetCode orc = TA_ALLIGATOR_Open(&st, g_high, g_low, g_nPoints, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &v0, &v1, &v2);
+        g_ta_track = 0; handle_bytes = g_ta_live_bytes;
+        if( orc == TA_SUCCESS && st ) {
+            int blk = (iters >= 64) ? 32 : 1;
+            int nblk = iters / blk; int npk = nblk * blk; if( npk < 1 ) npk = 1;
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long t0 = get_nanotime();
+                for( int it = 0; it < iters; it++ ) {
+                    TA_ALLIGATOR_Update(st, g_high[it & BENCH_MASK], g_low[it & BENCH_MASK], &v0, &v1, &v2);
+                    acc += v0;
+                    acc += v1;
+                    acc += v2;
+                    bench_context();
+                }
+                long long tu = get_nanotime() - t0;
+                if( best_u < 0 || tu < best_u ) best_u = tu;
+            }
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long tp = 0;
+                for( int b = 0; b < nblk; b++ ) {
+                    long long t0 = get_nanotime();
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_ALLIGATOR_Peek(st, g_high[it & BENCH_MASK], g_low[it & BENCH_MASK], &v0, &v1, &v2);
+                        acc += v0;
+                        acc += v1;
+                        acc += v2;
+                        bench_context();
+                    }
+                    tp += get_nanotime() - t0;
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_ALLIGATOR_Update(st, g_high[it & BENCH_MASK], g_low[it & BENCH_MASK], &v0, &v1, &v2);
+                        acc += v0;
+                        acc += v1;
+                        acc += v2;
+                    }
+                }
+                if( best_p < 0 || tp < best_p ) best_p = tp;
+            }
+            g_sink += acc + nb;
+            TA_ALLIGATOR_Close(st);
+            bench_stream_row("ALLIGATOR", orc, best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+        } else {
+            g_sink += acc + nb;
+            if( st ) { g_ta_track = 0; TA_ALLIGATOR_Close(st); }
+            bench_stream_row("ALLIGATOR", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
+        }
+        fflush(stdout);
+    }
     if( func_matches(filter, "ALMA") ) {
         long long best_b = 0, best_u = -1, best_p = -1;
         int begIdx = 0, nb = 0;
@@ -30434,6 +30736,76 @@ static void bench_stream_all_ctx(const char *filter, int iters) {
         }
         fflush(stdout);
     }
+    if( func_matches(filter, "SHARPE") ) {
+        long long best_b = 0, best_u = -1, best_p = -1;
+        int begIdx = 0, nb = 0;
+        size_t handle_bytes = 0;
+        double acc = 0.0;
+        const int optInTimePeriod = bench_opaque_int(g_period > 0 ? g_period : 20);
+        const double optInRiskFreeRate = bench_opaque_double(0.000000000000000);
+        const double optInAnnualization = bench_opaque_double(252.000000000000000);
+        int lb = TA_SHARPE_Lookback(optInTimePeriod, optInRiskFreeRate, optInAnnualization);
+        bench_rt_reserve((long long)lb + iters);
+        for( int pass = 0; pass < 3; pass++ ) {
+            int t = lb < 0 ? 0 : lb;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                g_rt_close[t] = g_close[it & BENCH_MASK];
+                TA_SHARPE(t, t, g_rt_close, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &begIdx, &nb, g_outBuf0);
+                acc += g_outBuf0[0];
+                bench_context();
+                t++;
+            }
+            long long el = get_nanotime() - t0;
+            if( !best_b || el < best_b ) best_b = el;
+        }
+        TA_SHARPE_Stream *st = NULL;
+            double v0 = 0.0;
+        g_trk_reset(); g_ta_track = 1;
+        TA_RetCode orc = TA_SHARPE_Open(&st, g_close, g_nPoints, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &v0);
+        g_ta_track = 0; handle_bytes = g_ta_live_bytes;
+        if( orc == TA_SUCCESS && st ) {
+            int blk = (iters >= 64) ? 32 : 1;
+            int nblk = iters / blk; int npk = nblk * blk; if( npk < 1 ) npk = 1;
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long t0 = get_nanotime();
+                for( int it = 0; it < iters; it++ ) {
+                    TA_SHARPE_Update(st, g_close[it & BENCH_MASK], &v0);
+                    acc += v0;
+                    bench_context();
+                }
+                long long tu = get_nanotime() - t0;
+                if( best_u < 0 || tu < best_u ) best_u = tu;
+            }
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long tp = 0;
+                for( int b = 0; b < nblk; b++ ) {
+                    long long t0 = get_nanotime();
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_SHARPE_Peek(st, g_close[it & BENCH_MASK], &v0);
+                        acc += v0;
+                        bench_context();
+                    }
+                    tp += get_nanotime() - t0;
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_SHARPE_Update(st, g_close[it & BENCH_MASK], &v0);
+                        acc += v0;
+                    }
+                }
+                if( best_p < 0 || tp < best_p ) best_p = tp;
+            }
+            g_sink += acc + nb;
+            TA_SHARPE_Close(st);
+            bench_stream_row("SHARPE", orc, best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+        } else {
+            g_sink += acc + nb;
+            if( st ) { g_ta_track = 0; TA_SHARPE_Close(st); }
+            bench_stream_row("SHARPE", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
+        }
+        fflush(stdout);
+    }
     if( func_matches(filter, "SI") ) {
         long long best_b = 0, best_u = -1, best_p = -1;
         int begIdx = 0, nb = 0;
@@ -30850,6 +31222,76 @@ static void bench_stream_all_ctx(const char *filter, int iters) {
             g_sink += acc + nb;
             if( st ) { g_ta_track = 0; TA_SMI_Close(st); }
             bench_stream_row("SMI", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
+        }
+        fflush(stdout);
+    }
+    if( func_matches(filter, "SORTINO") ) {
+        long long best_b = 0, best_u = -1, best_p = -1;
+        int begIdx = 0, nb = 0;
+        size_t handle_bytes = 0;
+        double acc = 0.0;
+        const int optInTimePeriod = bench_opaque_int(g_period > 0 ? g_period : 20);
+        const double optInMAR = bench_opaque_double(0.000000000000000);
+        const double optInAnnualization = bench_opaque_double(252.000000000000000);
+        int lb = TA_SORTINO_Lookback(optInTimePeriod, optInMAR, optInAnnualization);
+        bench_rt_reserve((long long)lb + iters);
+        for( int pass = 0; pass < 3; pass++ ) {
+            int t = lb < 0 ? 0 : lb;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                g_rt_close[t] = g_close[it & BENCH_MASK];
+                TA_SORTINO(t, t, g_rt_close, optInTimePeriod, optInMAR, optInAnnualization, &begIdx, &nb, g_outBuf0);
+                acc += g_outBuf0[0];
+                bench_context();
+                t++;
+            }
+            long long el = get_nanotime() - t0;
+            if( !best_b || el < best_b ) best_b = el;
+        }
+        TA_SORTINO_Stream *st = NULL;
+            double v0 = 0.0;
+        g_trk_reset(); g_ta_track = 1;
+        TA_RetCode orc = TA_SORTINO_Open(&st, g_close, g_nPoints, optInTimePeriod, optInMAR, optInAnnualization, &v0);
+        g_ta_track = 0; handle_bytes = g_ta_live_bytes;
+        if( orc == TA_SUCCESS && st ) {
+            int blk = (iters >= 64) ? 32 : 1;
+            int nblk = iters / blk; int npk = nblk * blk; if( npk < 1 ) npk = 1;
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long t0 = get_nanotime();
+                for( int it = 0; it < iters; it++ ) {
+                    TA_SORTINO_Update(st, g_close[it & BENCH_MASK], &v0);
+                    acc += v0;
+                    bench_context();
+                }
+                long long tu = get_nanotime() - t0;
+                if( best_u < 0 || tu < best_u ) best_u = tu;
+            }
+            for( int pass = 0; pass < 3; pass++ ) {
+                long long tp = 0;
+                for( int b = 0; b < nblk; b++ ) {
+                    long long t0 = get_nanotime();
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_SORTINO_Peek(st, g_close[it & BENCH_MASK], &v0);
+                        acc += v0;
+                        bench_context();
+                    }
+                    tp += get_nanotime() - t0;
+                    for( int j = 0; j < blk; j++ ) {
+                        int it = b * blk + j;
+                        TA_SORTINO_Update(st, g_close[it & BENCH_MASK], &v0);
+                        acc += v0;
+                    }
+                }
+                if( best_p < 0 || tp < best_p ) best_p = tp;
+            }
+            g_sink += acc + nb;
+            TA_SORTINO_Close(st);
+            bench_stream_row("SORTINO", orc, best_b/(double)iters, best_u/(double)iters, best_p/(double)npk, lb, handle_bytes);
+        } else {
+            g_sink += acc + nb;
+            if( st ) { g_ta_track = 0; TA_SORTINO_Close(st); }
+            bench_stream_row("SORTINO", orc, best_b/(double)iters, -1.0, -1.0, lb, 0);
         }
         fflush(stdout);
     }

@@ -58,6 +58,7 @@
  *  022005 AC     Creation
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
+ *  110626 MF,CC  Opt out of the range-type copy, which slows this body
  */
 
 TA_LIB_API int TA_CDLUNIQUE3RIVER_Lookback( void )
@@ -377,22 +378,10 @@ static void TA_CDLUNIQUE3RIVER_StepImpl( struct TA_CDLUNIQUE3RIVER_Stream *sp, d
    }
 }
 
-static TA_RetCode TA_CDLUNIQUE3RIVER_OpenImpl( struct TA_CDLUNIQUE3RIVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_CDLUNIQUE3RIVER_OpenBody( struct TA_CDLUNIQUE3RIVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_CDLUNIQUE3RIVER_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -458,22 +447,15 @@ static TA_RetCode TA_CDLUNIQUE3RIVER_OpenImpl( struct TA_CDLUNIQUE3RIVER_Stream 
       outIdx = 0;
       do
       {
-         if( ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 && /* black */
-             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == -1 && /* 2nd: black */
-             ((inClose[i] >= inOpen[i]) ? 1 : -1) == 1 )           /* white */
+         if( (((!(inClose[i - 2] >= inOpen[i - 2])) + /* black */
+             (!(inClose[i - 1] >= inOpen[i - 1])) +   /* 2nd: black */
+             (inClose[i] >= inOpen[i])) == 3) )       /* white */
          {
-            if( inClose[i - 1] > inClose[i - 2] &&
-                inOpen[i - 1] <= inOpen[i - 2] &&  /* harami */
-                inLow[i - 1] < inLow[i - 2] &&     /* lower low */
-                inOpen[i] > inLow[i - 1] &&        /* open not lower */
-                fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2) && /* 1st: long */
-                fabs(inClose[i] - inOpen[i]) < TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i) ) /* 3rd: short */
-            {
-               outInteger[outIdx++ * outStride] = 100;
-            } else 
-            {
-               outInteger[outIdx++ * outStride] = 0;
-            }
+            outInteger[outIdx++ * outStride] = ((100) & -(int)(((inClose[i - 1] > inClose[i - 2]) & (inOpen[i - 1] <= inOpen[i - 2]) & /* harami */
+                (inLow[i - 1] < inLow[i - 2]) & /* lower low */
+                (inOpen[i] > inLow[i - 1]) &    /* open not lower */
+                (fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2)) & /* 1st: long */
+                (fabs(inClose[i] - inOpen[i]) < TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i))))); /* 3rd: short */
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -535,6 +517,38 @@ static TA_RetCode TA_CDLUNIQUE3RIVER_OpenImpl( struct TA_CDLUNIQUE3RIVER_Stream 
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_CDLUNIQUE3RIVER_OpenFillFrame( struct TA_CDLUNIQUE3RIVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   return TA_CDLUNIQUE3RIVER_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDLUNIQUE3RIVER_OpenSinkFrame( struct TA_CDLUNIQUE3RIVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   int sink_outInteger = 0;
+   TA_RetCode retCode = TA_CDLUNIQUE3RIVER_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, &sink_outInteger, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outInteger ) *outInteger = sink_outInteger;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_CDLUNIQUE3RIVER_OpenImpl( struct TA_CDLUNIQUE3RIVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_CDLUNIQUE3RIVER_OpenFillFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger ) : TA_CDLUNIQUE3RIVER_OpenSinkFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_CDLUNIQUE3RIVER_OpenInternal( struct TA_CDLUNIQUE3RIVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outInteger )
 {
@@ -554,7 +568,6 @@ TA_LIB_API TA_RetCode TA_CDLUNIQUE3RIVER_Open( TA_CDLUNIQUE3RIVER_Stream **strea
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLUNIQUE3RIVER_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
@@ -564,7 +577,6 @@ TA_LIB_API TA_RetCode TA_CDLUNIQUE3RIVER_OpenAndFill( TA_CDLUNIQUE3RIVER_Stream 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;

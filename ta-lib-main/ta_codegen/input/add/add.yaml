@@ -5,9 +5,13 @@ flags: [stream]
 inputs:
   - name: inReal0
     type: real
+    series: sine
+    domain: [-10, 10]
   - name: inReal1
     type: real
+    series: ramp
+    domain: [-5, 5]
 outputs:
   - name: outReal
     type: real
-    flags: [line]
+    flags: [line, zero, positive, negative]

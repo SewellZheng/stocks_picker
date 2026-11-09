@@ -17,4 +17,5 @@ optional_inputs:
 outputs:
   - name: outReal
     type: real
-    flags: [line]
+    flags: [line, zero, positive]
+    levels: [38.2, 61.8]

@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -15,24 +49,14 @@
  *  102326 MF,CC  #554 rare reset, zero run as a mask.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 
-/**
- * Number of leading input bars {@link cmf} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Number of bars in the window (default 20; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function cmfLookback(optInTimePeriod: number, core: Core = Core.DEFAULT): number {
-  void core;
+/** @internal */
+export function cmfLookbackPositional(optInTimePeriod: number, _core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -44,22 +68,9 @@ export function cmfLookback(optInTimePeriod: number, core: Core = Core.DEFAULT):
   return optInTimePeriod - 1;
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link cmf}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Number of bars in the window (default 20; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function cmfDisplayShift(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (cmfLookback(optInTimePeriod, core) < 0) {
+/** @internal */
+export function cmfDisplayShiftPositional(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (cmfLookbackPositional(optInTimePeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
@@ -230,22 +241,160 @@ export function cmfImpl(
   return RetCode.SUCCESS;
 }
 
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000']] as const;
+
+/** @internal */
+export function cmfPositional(
+  startIdx: number,
+  endIdx: number,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  inVolume: ArrayLike<number>,
+  optInTimePeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): OutRange {
+  startIdx = requireInt32('CMF', 'startIdx', startIdx);
+  endIdx = requireInt32('CMF', 'endIdx', endIdx);
+  optInTimePeriod = requireInt32('CMF', 'timePeriod', optInTimePeriod);
+  requireIndexRange('CMF', startIdx, endIdx);
+  const guardLookback = cmfLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CMF', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardStart = clampedStart('CMF', startIdx, guardLookback);
+  const guardInLen = endIdx + 1;
+  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+  requireLength('CMF', 'prices.high', inHigh, guardInLen);
+  requireLength('CMF', 'prices.low', inLow, guardInLen);
+  requireLength('CMF', 'prices.close', inClose, guardInLen);
+  requireLength('CMF', 'prices.volume', inVolume, guardInLen);
+  requireOutput('CMF', 'outReal', outReal, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  const inVolumeF64 = float64(inVolume);
+  if (overlapsPartly(outReal, inHighF64)) {
+    throw sharedMemory('CMF', 'outReal', 'prices.high');
+  }
+  if (overlapsPartly(outReal, inLowF64)) {
+    throw sharedMemory('CMF', 'outReal', 'prices.low');
+  }
+  if (overlapsPartly(outReal, inCloseF64)) {
+    throw sharedMemory('CMF', 'outReal', 'prices.close');
+  }
+  if (overlapsPartly(outReal, inVolumeF64)) {
+    throw sharedMemory('CMF', 'outReal', 'prices.volume');
+  }
+  const outBegIdx = new MInteger();
+  const outNBElement = new MInteger();
+  const retCode = cmfImpl(core, startIdx, endIdx, inHighF64, inLowF64, inCloseF64, inVolumeF64, optInTimePeriod, outBegIdx, outNBElement, outReal);
+  if (retCode !== RetCode.SUCCESS) {
+    throw failure('CMF', retCode);
+  }
+  return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
 /**
- * Chaikin Money Flow: over a trailing window of `optInTimePeriod` bars, the sum of
- * each bar's money flow volume divided by the sum of its volume. The result is a
- * ratio in `[-1, +1]`. A bar's money flow volume is its volume scaled by where the
- * close sat inside the bar's range: a close at the high contributes the full
- * volume, a close at the low contributes minus the full volume, and a close at the
- * midpoint contributes nothing. Summing that over a window and dividing by the
- * window's volume answers "over these N bars, what share of the traded volume
- * closed near the top of its range?" Above zero is accumulation, below zero is
- * distribution, and the distance from zero measures conviction. Because the
- * divisor is the window's own volume, the output is comparable across instruments
- * and across time in a way a raw accumulation total is not. Created by Marc
- * Chaikin, who also authored the [`AD`](https://ta-lib.org/functions/ad) line this
- * shares its per-bar multiplier with. CMF is that same multiplier summed over a
- * fixed window and normalised, where AD accumulates it from the start of the
- * series without bound.
+ * Options of {@link cmf}, {@link cmfLookback}, {@link cmfDisplayShift},
+ * {@link cmfOpen} and {@link cmfOpenAndFill}. Every key is optional: an omitted or
+ * `undefined` key takes its default, and a call ignores the keys it has no use
+ * for.
+ */
+export interface CmfOptions {
+  /**
+   * Number of bars in the window (default 20; range 2 to 100000;
+   * `Core.INTEGER_DEFAULT` selects the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link cmf} returns, and {@link cmfOpenAndFill} with its stream. */
+export interface CmfResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Chaikin money flow, in the range -1 to +1. `values[k]` is the value at input bar
+   * `begIdx + k`.
+   */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link cmf} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CmfOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function cmfLookback(options?: CmfOptions): number {
+  const o = optionsOf('CMF lookback', options);
+  return cmfLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), coreOf('CMF lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link cmf}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CmfOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function cmfDisplayShift(outputIdx: number, options?: CmfOptions): number {
+  const o = optionsOf('CMF displayShift', options);
+  return cmfDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('CMF displayShift', o.core));
+}
+
+/**
+ * Chaikin Money Flow: over a trailing window of `timePeriod` bars, the sum of each
+ * bar's money flow volume divided by the sum of its volume. The result is a ratio
+ * in `[-1, +1]`. A bar's money flow volume is its volume scaled by where the close
+ * sat inside the bar's range: a close at the high contributes the full volume, a
+ * close at the low contributes minus the full volume, and a close at the midpoint
+ * contributes nothing. Summing that over a window and dividing by the window's
+ * volume answers "over these N bars, what share of the traded volume closed near
+ * the top of its range?" Above zero is accumulation, below zero is distribution,
+ * and the distance from zero measures conviction. Because the divisor is the
+ * window's own volume, the output is comparable across instruments and across time
+ * in a way a raw accumulation total is not. Created by Marc Chaikin, who also
+ * authored the [`AD`](https://ta-lib.org/functions/ad) line this shares its
+ * per-bar multiplier with. CMF is that same multiplier summed over a fixed window
+ * and normalised, where AD accumulates it from the start of the series without
+ * bound.
  *
  * Formula and more info at
  * [ta-lib.org/functions/cmf](https://ta-lib.org/functions/cmf).
@@ -269,94 +418,63 @@ export function cmfImpl(
  * - The default period of 20 follows the original write-up, which describes 20 or
  *   21 bars.
  *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link cmfLookback} is a success with
- * `count` 0.
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link cmfLookback} is a success with empty outputs.
  *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inHigh - High price of each bar.
- * @param inLow - Low price of each bar.
- * @param inClose - Close price of each bar.
- * @param inVolume - Volume of each bar.
- * @param optInTimePeriod - Number of bars in the window (default 20; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - Chaikin money flow, in the range -1 to +1. Must hold the values
- *   produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `high`: High price of
+ *   each bar. `low`: Low price of each bar. `close`: Close price of each bar.
+ *   `volume`: Volume of each bar.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link CmfOptions}.
+ * @returns `begIdx` and the values; see {@link CmfResult}. Each output is a view
+ *   of its buffer, the caller's or a new one.
  * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
  *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output
- *   or an output sharing memory with a `Float64Array` input it is not. Checked
- *   before anything is written.
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
  *
  * @example
  * ```ts
  * import { cmf } from 'ta-lib';
  *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const volume = Float64Array.from({ length: 252 }, (_, i) =>
- *   10000 + 100 * i + 2000 * Math.sin(0.3 * i));
- * const out = new Float64Array(high.length);
- * const { begIdx, count } = cmf(
- *   0, high.length - 1,
- *   high, low, close, volume,
- *   20,
- *   out,
- * );
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ * const close = new Float64Array(252); // your data, oldest first
+ * const volume = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = cmf({ high, low, close, volume }, {
+ *   timePeriod: 20,
+ * });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
  * ```
  * @see [`ad`](https://ta-lib.org/functions/ad)
  * @see [`adosc`](https://ta-lib.org/functions/adosc)
  * @see [`mfi`](https://ta-lib.org/functions/mfi)
  * @see [`obv`](https://ta-lib.org/functions/obv)
  */
-export function cmf(
-  startIdx: number,
-  endIdx: number,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  inVolume: ArrayLike<number>,
-  optInTimePeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): OutRange {
-  startIdx = requireInt32('CMF', 'startIdx', startIdx);
-  endIdx = requireInt32('CMF', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('CMF', 'optInTimePeriod', optInTimePeriod);
-  requireIndexRange('CMF', startIdx, endIdx);
-  const guardStart = clampedStart('CMF', startIdx, cmfLookback(optInTimePeriod, core));
-  const guardInLen = endIdx + 1;
-  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('CMF', 'inHigh', inHigh, guardInLen);
-  requireLength('CMF', 'inLow', inLow, guardInLen);
-  requireLength('CMF', 'inClose', inClose, guardInLen);
-  requireLength('CMF', 'inVolume', inVolume, guardInLen);
-  requireOutput('CMF', 'outReal', outReal, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  const inVolumeF64 = float64(inVolume);
-  if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64) || overlapsPartly(outReal, inCloseF64) || overlapsPartly(outReal, inVolumeF64)) {
-    throw failure('CMF', RetCode.BAD_PARAM);
+export function cmf(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume: ArrayLike<number>; openInterest?: ArrayLike<number> | undefined }, options?: CmfOptions): CmfResult {
+  requireArgument('CMF', 'prices', prices);
+  const o = optionsOf('CMF', options);
+  if (o.endIdx === undefined) {
+    requireSeries('CMF', 'prices.high', prices.high);
+    requireSeries('CMF', 'prices.low', prices.low);
+    requireSeries('CMF', 'prices.close', prices.close);
+    requireSeries('CMF', 'prices.volume', prices.volume);
   }
-  const outBegIdx = new MInteger();
-  const outNBElement = new MInteger();
-  const retCode = cmfImpl(core, startIdx, endIdx, inHighF64, inLowF64, inCloseF64, inVolumeF64, optInTimePeriod, outBegIdx, outNBElement, outReal);
-  if (retCode !== RetCode.SUCCESS) {
-    throw failure('CMF', retCode);
-  }
-  return new OutRange(outBegIdx.value, outNBElement.value);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CMF', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.high.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, cmfLookbackPositional(optInTimePeriod, core), prices.high, prices.low, prices.close, prices.volume);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = cmfPositional(startIdx, endIdx, prices.high, prices.low, prices.close, prices.volume, optInTimePeriod, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -424,7 +542,7 @@ export class CmfStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CMF advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CMF advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -432,23 +550,23 @@ export class CmfStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
-   * @param inVolume - The bar's `inVolume` value: Volume of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
+   * @param volume - The bar's `volume` value: Volume of each bar.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inHigh: number, inLow: number, inClose: number, inVolume: number): number {
+  update(high: number, low: number, close: number, volume: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CMF update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CMF update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose) || !Number.isFinite(inVolume)) {
-      throw nonFiniteBar('CMF update', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : !Number.isFinite(inClose) ? 'inClose' : 'inVolume');
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close) || !Number.isFinite(volume)) {
+      throw nonFiniteBar('CMF update', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : !Number.isFinite(close) ? 'close' : 'volume');
     }
-    cmfStepImpl(this, inHigh, inLow, inClose, inVolume);
+    cmfStepImpl(this, high, low, close, volume);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -456,55 +574,61 @@ export class CmfStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
-   * @param inVolume - The bar's `inVolume` value: Volume of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
+   * @param volume - The bar's `volume` value: Volume of each bar.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inHigh: number, inLow: number, inClose: number, inVolume: number): number {
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose) || !Number.isFinite(inVolume)) {
-      throw nonFiniteBar('CMF peek', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : !Number.isFinite(inClose) ? 'inClose' : 'inVolume');
+  peek(high: number, low: number, close: number, volume: number): number {
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close) || !Number.isFinite(volume)) {
+      throw nonFiniteBar('CMF peek', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : !Number.isFinite(close) ? 'close' : 'volume');
     }
     const sp = this;
-    let high = 0;
-    let low = 0;
-    let close = 0;
-    let tmp = 0;
-    let mfv = 0;
-    let liveVol = 0;
-    let cur_outReal = 0;
-    let nullRun = sp.nullRun;
-    let sumMFV = sp.sumMFV;
-    let sumVol = sp.sumVol;
-    sumMFV -= sp.cb_mfv_flow[sp.mfv_Idx];
-    sumVol -= sp.cb_mfv_volume[sp.mfv_Idx];
-    high = inHigh;
-    low = inLow;
-    close = inClose;
-    tmp = high - low;
-    if (tmp > 0.0) {
-      mfv = (close - low - (high - close)) / tmp * inVolume;
-    } else {
-      mfv = 0.0;
+    const inHigh = high;
+    const inLow = low;
+    const inClose = close;
+    const inVolume = volume;
+    {
+      let high = 0;
+      let low = 0;
+      let close = 0;
+      let tmp = 0;
+      let mfv = 0;
+      let liveVol = 0;
+      let cur_outReal = 0;
+      let nullRun = sp.nullRun;
+      let sumMFV = sp.sumMFV;
+      let sumVol = sp.sumVol;
+      sumMFV -= sp.cb_mfv_flow[sp.mfv_Idx];
+      sumVol -= sp.cb_mfv_volume[sp.mfv_Idx];
+      high = inHigh;
+      low = inLow;
+      close = inClose;
+      tmp = high - low;
+      if (tmp > 0.0) {
+        mfv = (close - low - (high - close)) / tmp * inVolume;
+      } else {
+        mfv = 0.0;
+      }
+      sumMFV += mfv;
+      sumVol += inVolume;
+      liveVol = (!(Math.abs(inVolume) <= 0.0) ? 1 : 0);
+      nullRun = (nullRun + 1) & (liveVol - 1);
+      if (nullRun >= sp.optInTimePeriod) {
+        nullRun = sp.optInTimePeriod;
+        sumMFV = 0.0;
+        sumVol = 0.0;
+        cur_outReal = 0.0;
+      } else if (sumVol > 0.0) {
+        cur_outReal = sumMFV / sumVol;
+      } else {
+        cur_outReal = 0.0;
+      }
+      return cur_outReal;
     }
-    sumMFV += mfv;
-    sumVol += inVolume;
-    liveVol = (!(Math.abs(inVolume) <= 0.0) ? 1 : 0);
-    nullRun = (nullRun + 1) & (liveVol - 1);
-    if (nullRun >= sp.optInTimePeriod) {
-      nullRun = sp.optInTimePeriod;
-      sumMFV = 0.0;
-      sumVol = 0.0;
-      cur_outReal = 0.0;
-    } else if (sumVol > 0.0) {
-      cur_outReal = sumMFV / sumVol;
-    } else {
-      cur_outReal = 0.0;
-    }
-    return cur_outReal;
   }
 
   /** The value at the last bar this stream counted; `peek` does not change it. */
@@ -608,9 +732,6 @@ function cmfOpenImpl(
   let maxIdx_mfv = (50) - 1;
   const historyLen = inHigh.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -622,7 +743,7 @@ function cmfOpenImpl(
   } else if (optInTimePeriod < 2 || optInTimePeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -782,7 +903,10 @@ export function cmfOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CMF openAndFill', inHigh.length, startIdx, cmfLookback(optInTimePeriod, core));
+    throw insufficientHistory('CMF openAndFill', inHigh.length, startIdx, cmfLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && cmfLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('CMF openAndFill', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('CMF openAndFill', retCode);
 }
@@ -808,32 +932,107 @@ export function cmfOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CMF open', inHigh.length, startIdx, cmfLookback(optInTimePeriod, core));
+    throw insufficientHistory('CMF open', inHigh.length, startIdx, cmfLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && cmfLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('CMF open', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('CMF open', retCode);
+}
+
+/** @internal */
+export function cmfOpenPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  inVolume: ArrayLike<number>,
+  optInTimePeriod: number,
+  core: Core = Core.DEFAULT,
+): CmfStream {
+  optInTimePeriod = requireInt32('CMF open', 'timePeriod', optInTimePeriod);
+  requireArgument('CMF open', 'prices.high', inHigh);
+  requireHistory('CMF open', 'prices.high', inHigh.length);
+  requireArgument('CMF open', 'prices.low', inLow);
+  requireArgument('CMF open', 'prices.close', inClose);
+  requireArgument('CMF open', 'prices.volume', inVolume);
+  requireHistoryLength('CMF open', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('CMF open', 'prices.close', inClose.length, inHigh.length);
+  requireHistoryLength('CMF open', 'prices.volume', inVolume.length, inHigh.length);
+  return cmfOpenInternal(core, float64(inHigh), float64(inLow), float64(inClose), float64(inVolume), 0, optInTimePeriod);
+}
+
+/** @internal */
+export function cmfOpenAndFillPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  inVolume: ArrayLike<number>,
+  optInTimePeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): CmfStream {
+  optInTimePeriod = requireInt32('CMF openAndFill', 'timePeriod', optInTimePeriod);
+  requireArgument('CMF openAndFill', 'prices.high', inHigh);
+  requireHistory('CMF openAndFill', 'prices.high', inHigh.length);
+  requireArgument('CMF openAndFill', 'prices.low', inLow);
+  requireArgument('CMF openAndFill', 'prices.close', inClose);
+  requireArgument('CMF openAndFill', 'prices.volume', inVolume);
+  const guardLookback = cmfLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CMF openAndFill', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardOutLen = openFillCount('CMF openAndFill', inHigh.length, guardLookback);
+  requireHistoryLength('CMF openAndFill', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('CMF openAndFill', 'prices.close', inClose.length, inHigh.length);
+  requireHistoryLength('CMF openAndFill', 'prices.volume', inVolume.length, inHigh.length);
+  requireOutput('CMF openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  const inVolumeF64 = float64(inVolume);
+  if (outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('CMF openAndFill', 'outReal', 'prices.high');
+  }
+  if (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('CMF openAndFill', 'outReal', 'prices.low');
+  }
+  if (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('CMF openAndFill', 'outReal', 'prices.close');
+  }
+  if (outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset) {
+    throw sharedMemory('CMF openAndFill', 'outReal', 'prices.volume');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inHighF64)) {
+    throw sharedMemory('CMF openAndFill', 'outReal', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inLowF64)) {
+    throw sharedMemory('CMF openAndFill', 'outReal', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inCloseF64)) {
+    throw sharedMemory('CMF openAndFill', 'outReal', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inVolumeF64)) {
+    throw sharedMemory('CMF openAndFill', 'outReal', 'prices.volume');
+  }
+  return cmfOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, inVolumeF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
 }
 
 /**
  * Opens a live CMF stream over the warm-up history: `value()` starts at the last
  * history bar, bit-identical to {@link cmf} there.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param inVolume - Warm-up history. Volume of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Number of bars in the window (default 20; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar. `close`: Close
+ *   price of each bar. `volume`: Volume of each bar.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CmfOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `cmfLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or histories of different lengths.
+ *   than `cmfLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a parameter outside its range or
+ *   histories of different lengths.
  *
  * @example
  * ```ts
@@ -847,59 +1046,40 @@ export function cmfOpenInternal(
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
  * const volume = Float64Array.from({ length: 252 }, (_, i) =>
  *   10000 + 100 * i + 2000 * Math.sin(0.3 * i));
- * const stream = cmfOpen(high, low, close, volume, 20);
+ * const stream = cmfOpen({ high, low, close, volume }, { timePeriod: 20 });
  * const peeked = stream.peek(101.4, 99.1, 100.9, 12345); // a forming bar: commits nothing
  * const updated = stream.update(101.4, 99.1, 100.9, 12345); // the bar closes
  * ```
  */
-export function cmfOpen(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  inVolume: ArrayLike<number>,
-  optInTimePeriod: number,
-  core: Core = Core.DEFAULT,
-): CmfStream {
-  optInTimePeriod = requireInt32('CMF open', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('CMF open', 'inHigh', inHigh);
-  requireHistory('CMF open', inHigh.length);
-  requireArgument('CMF open', 'inLow', inLow);
-  requireArgument('CMF open', 'inClose', inClose);
-  requireArgument('CMF open', 'inVolume', inVolume);
-  requireHistoryLength('CMF open', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('CMF open', 'inClose', inClose.length, inHigh.length);
-  requireHistoryLength('CMF open', 'inVolume', inVolume.length, inHigh.length);
-  return cmfOpenInternal(core, float64(inHigh), float64(inLow), float64(inClose), float64(inVolume), 0, optInTimePeriod);
+export function cmfOpen(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume: ArrayLike<number>; openInterest?: ArrayLike<number> | undefined }, options?: CmfOptions): CmfStream {
+  requireArgument('CMF open', 'prices', prices);
+  const o = optionsOf('CMF open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CMF open', o.core);
+  return cmfOpenPositional(prices.high, prices.low, prices.close, prices.volume, optInTimePeriod, core);
 }
 
 /**
- * {@link cmfOpen} that also fills the outputs over the whole history in the same
- * pass, bit-identically to {@link cmf}. The range written is the stream's
- * `outRange()`.
+ * {@link cmfOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link cmf}.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param inVolume - Warm-up history. Volume of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Number of bars in the window (default 20; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - Chaikin money flow, in the range -1 to +1. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar. `close`: Close
+ *   price of each bar. `volume`: Volume of each bar.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link CmfOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link cmf} returns them; the range is the stream's
+ *   `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `cmfLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range, histories of different lengths or an output too
- *   short or starting where another output or a `Float64Array` input starts, or, on
- *   a history long enough to open, one sharing memory with another output or a
- *   `Float64Array` input.
+ *   than `cmfLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a parameter outside its range,
+ *   histories of different lengths or a buffer too short, of the wrong type or
+ *   starting where another buffer or a `Float64Array` input starts, or, on a history
+ *   long enough to open, one sharing memory with another buffer or a `Float64Array`
+ *   input.
  *
  * @example
  * ```ts
@@ -913,41 +1093,20 @@ export function cmfOpen(
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
  * const volume = Float64Array.from({ length: 252 }, (_, i) =>
  *   10000 + 100 * i + 2000 * Math.sin(0.3 * i));
- * const out = new Float64Array(high.length);
- * const stream = cmfOpenAndFill(high, low, close, volume, 20, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = cmfOpenAndFill({ high, low, close, volume }, {
+ *   timePeriod: 20,
+ * });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function cmfOpenAndFill(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  inVolume: ArrayLike<number>,
-  optInTimePeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): CmfStream {
-  optInTimePeriod = requireInt32('CMF openAndFill', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('CMF openAndFill', 'inHigh', inHigh);
-  requireHistory('CMF openAndFill', inHigh.length);
-  requireArgument('CMF openAndFill', 'inLow', inLow);
-  requireArgument('CMF openAndFill', 'inClose', inClose);
-  requireArgument('CMF openAndFill', 'inVolume', inVolume);
-  const guardOutLen = openFillCount('CMF openAndFill', inHigh.length, cmfLookback(optInTimePeriod, core));
-  requireHistoryLength('CMF openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('CMF openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireHistoryLength('CMF openAndFill', 'inVolume', inVolume.length, inHigh.length);
-  requireOutput('CMF openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  const inVolumeF64 = float64(inVolume);
-  if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) || (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset) || (outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset)) {
-    throw streamFailure('CMF openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outReal, inHighF64) || overlaps(outReal, inLowF64) || overlaps(outReal, inCloseF64) || overlaps(outReal, inVolumeF64))) {
-    throw streamFailure('CMF openAndFill', RetCode.BAD_PARAM);
-  }
-  return cmfOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, inVolumeF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
+export function cmfOpenAndFill(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume: ArrayLike<number>; openInterest?: ArrayLike<number> | undefined }, options?: CmfOptions): CmfResult & { stream: CmfStream } {
+  requireArgument('CMF openAndFill', 'prices', prices);
+  const o = optionsOf('CMF openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CMF openAndFill', o.core);
+  const capacity = fillCapacity(cmfLookbackPositional(optInTimePeriod, core), prices.high, prices.low, prices.close, prices.volume);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = cmfOpenAndFillPositional(prices.high, prices.low, prices.close, prices.volume, optInTimePeriod, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }

@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -12,26 +46,16 @@
  *  090426 MF,CC  Initial version (#347).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
-import { emaLookback } from './ema.ts';
+import { emaLookbackPositional } from './ema.ts';
 
-/**
- * Number of leading input bars {@link zlema} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Number of bars in the exponential average; the de-lag
- *   distance derives from it (default 30; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function zlemaLookback(optInTimePeriod: number, core: Core = Core.DEFAULT): number {
+/** @internal */
+export function zlemaLookbackPositional(optInTimePeriod: number, core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -43,26 +67,12 @@ export function zlemaLookback(optInTimePeriod: number, core: Core = Core.DEFAULT
   /* ZLEMA owns no TA_FUNC_UNST_ id. It borrows EMA's through this call, which
    * is why zlema.yaml must not declare `unstable_period`.
    */
-  return (((optInTimePeriod - 1) / 2) | 0) + emaLookback(optInTimePeriod, core);
+  return (((optInTimePeriod - 1) / 2) | 0) + emaLookbackPositional(optInTimePeriod, core);
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link zlema}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Number of bars in the exponential average; the de-lag
- *   distance derives from it (default 30; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function zlemaDisplayShift(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (zlemaLookback(optInTimePeriod, core) < 0) {
+/** @internal */
+export function zlemaDisplayShiftPositional(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (zlemaLookbackPositional(optInTimePeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
@@ -117,7 +127,7 @@ export function zlemaImpl(
    * twice, which is 5e-12 relative where 2c - l cancels.
    */
   lag = (((optInTimePeriod - 1) / 2) | 0);
-  lookbackTotal = zlemaLookback(optInTimePeriod, core);
+  lookbackTotal = zlemaLookbackPositional(optInTimePeriod, core);
   /* Move up the start index if there is not
    * enough initial data.
    */
@@ -178,6 +188,126 @@ export function zlemaImpl(
   return RetCode.SUCCESS;
 }
 
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 1, 100000, 'in 1..100000']] as const;
+
+/** @internal */
+export function zlemaPositional(
+  startIdx: number,
+  endIdx: number,
+  inReal: ArrayLike<number>,
+  optInTimePeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): OutRange {
+  startIdx = requireInt32('ZLEMA', 'startIdx', startIdx);
+  endIdx = requireInt32('ZLEMA', 'endIdx', endIdx);
+  optInTimePeriod = requireInt32('ZLEMA', 'timePeriod', optInTimePeriod);
+  requireIndexRange('ZLEMA', startIdx, endIdx);
+  const guardLookback = zlemaLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('ZLEMA', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardStart = clampedStart('ZLEMA', startIdx, guardLookback);
+  const guardInLen = endIdx + 1;
+  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+  requireLength('ZLEMA', 'real', inReal, guardInLen);
+  requireOutput('ZLEMA', 'outReal', outReal, guardOutLen, Float64Array);
+  const inRealF64 = float64(inReal);
+  if (overlapsPartly(outReal, inRealF64)) {
+    throw sharedMemory('ZLEMA', 'outReal', 'real');
+  }
+  const outBegIdx = new MInteger();
+  const outNBElement = new MInteger();
+  const retCode = zlemaImpl(core, startIdx, endIdx, inRealF64, optInTimePeriod, outBegIdx, outNBElement, outReal);
+  if (retCode !== RetCode.SUCCESS) {
+    throw failure('ZLEMA', retCode);
+  }
+  return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link zlema}, {@link zlemaLookback}, {@link zlemaDisplayShift},
+ * {@link zlemaOpen} and {@link zlemaOpenAndFill}. Every key is optional: an
+ * omitted or `undefined` key takes its default, and a call ignores the keys it has
+ * no use for.
+ */
+export interface ZlemaOptions {
+  /**
+   * Number of bars in the exponential average; the de-lag distance derives from it
+   * (default 30; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link zlema} returns, and {@link zlemaOpenAndFill} with its stream. */
+export interface ZlemaResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Zero-lag exponential moving average of the input. `values[k]` is the value at
+   * input bar `begIdx + k`.
+   */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link zlema} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link ZlemaOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function zlemaLookback(options?: ZlemaOptions): number {
+  const o = optionsOf('ZLEMA lookback', options);
+  return zlemaLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), coreOf('ZLEMA lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link zlema}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link ZlemaOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function zlemaDisplayShift(outputIdx: number, options?: ZlemaOptions): number {
+  const o = optionsOf('ZLEMA displayShift', options);
+  return zlemaDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('ZLEMA displayShift', o.core));
+}
+
 /**
  * Zero-Lag Exponential Moving Average: an
  * [`EMA`](https://ta-lib.org/functions/ema) applied not to price but to a
@@ -188,8 +318,8 @@ export function zlemaImpl(
  * EMA that turns sooner: crossings of price and average, and changes in its slope,
  * arrive earlier than the equivalent EMA signal, and its overshoot after a spike
  * is a property of the filter rather than a move in the market. ZLEMA is also
- * selectable as a moving-average type (`TA_MAType_ZLEMA`) wherever an
- * `optInMAType` parameter is accepted ([`MA`](https://ta-lib.org/functions/ma),
+ * selectable as a moving-average type (`MAType.ZLEMA`) wherever an `maType`
+ * parameter is accepted ([`MA`](https://ta-lib.org/functions/ma),
  * [`BBANDS`](https://ta-lib.org/functions/bbands),
  * [`STOCH`](https://ta-lib.org/functions/stoch),
  * [`MACDEXT`](https://ta-lib.org/functions/macdext), ...).
@@ -226,41 +356,36 @@ export function zlemaImpl(
  *   Tulip Indicators seeds from a single raw price and so emits its first value
  *   earlier and converges to these values only after many bars.
  * - ZLEMA inherits EMA's unstable period rather than owning one:
- *   `TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)` moves ZLEMA's first output too.
+ *   `CoreBuilder.unstablePeriod(FuncUnstId.EMA, ...)` moves ZLEMA's first output
+ *   too.
  * - A period of 1 performs no smoothing: the output is a copy of the input.
  *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link zlemaLookback} is a success with
- * `count` 0.
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link zlemaLookback} is a success with empty outputs.
  *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inReal - Source price series, close by convention.
- * @param optInTimePeriod - Number of bars in the exponential average; the de-lag
- *   distance derives from it (default 30; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param outReal - Zero-lag exponential moving average of the input. Must hold the
- *   values produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
+ * @param real - Source price series, close by convention.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link ZlemaOptions}.
+ * @returns `begIdx` and the values; see {@link ZlemaResult}. Each output is a view
+ *   of its buffer, the caller's or a new one.
  * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
  *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output
- *   or an output sharing memory with a `Float64Array` input it is not. Checked
- *   before anything is written.
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
  *
  * @example
  * ```ts
  * import { zlema } from 'ta-lib';
  *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(data.length);
- * const { begIdx, count } = zlema(0, data.length - 1, data, 30, out);
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const series = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = zlema(series, { timePeriod: 30 });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
  * ```
  * @see [`ema`](https://ta-lib.org/functions/ema)
  * @see [`dema`](https://ta-lib.org/functions/dema)
@@ -268,34 +393,19 @@ export function zlemaImpl(
  * @see [`hma`](https://ta-lib.org/functions/hma)
  * @see [`ma`](https://ta-lib.org/functions/ma)
  */
-export function zlema(
-  startIdx: number,
-  endIdx: number,
-  inReal: ArrayLike<number>,
-  optInTimePeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): OutRange {
-  startIdx = requireInt32('ZLEMA', 'startIdx', startIdx);
-  endIdx = requireInt32('ZLEMA', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('ZLEMA', 'optInTimePeriod', optInTimePeriod);
-  requireIndexRange('ZLEMA', startIdx, endIdx);
-  const guardStart = clampedStart('ZLEMA', startIdx, zlemaLookback(optInTimePeriod, core));
-  const guardInLen = endIdx + 1;
-  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('ZLEMA', 'inReal', inReal, guardInLen);
-  requireOutput('ZLEMA', 'outReal', outReal, guardOutLen, Float64Array);
-  const inRealF64 = float64(inReal);
-  if (overlapsPartly(outReal, inRealF64)) {
-    throw failure('ZLEMA', RetCode.BAD_PARAM);
+export function zlema(real: ArrayLike<number>, options?: ZlemaOptions): ZlemaResult {
+  const o = optionsOf('ZLEMA', options);
+  if (o.endIdx === undefined) {
+    requireSeries('ZLEMA', 'real', real);
   }
-  const outBegIdx = new MInteger();
-  const outNBElement = new MInteger();
-  const retCode = zlemaImpl(core, startIdx, endIdx, inRealF64, optInTimePeriod, outBegIdx, outNBElement, outReal);
-  if (retCode !== RetCode.SUCCESS) {
-    throw failure('ZLEMA', retCode);
-  }
-  return new OutRange(outBegIdx.value, outNBElement.value);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('ZLEMA', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? real.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, zlemaLookbackPositional(optInTimePeriod, core), real);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = zlemaPositional(startIdx, endIdx, real, optInTimePeriod, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -359,7 +469,7 @@ export class ZlemaStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('ZLEMA advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('ZLEMA advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -367,21 +477,20 @@ export class ZlemaStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inReal - The bar's `inReal` value: Source price series, close by
-   *   convention.
+   * @param real - The bar's `real` value: Source price series, close by convention.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inReal: number): number {
+  update(real: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('ZLEMA update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('ZLEMA update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inReal)) {
-      throw nonFiniteBar('ZLEMA update', 'inReal');
+    if (!Number.isFinite(real)) {
+      throw nonFiniteBar('ZLEMA update', 'real');
     }
-    zlemaStepImpl(this, inReal);
+    zlemaStepImpl(this, real);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -389,17 +498,17 @@ export class ZlemaStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inReal - The bar's `inReal` value: Source price series, close by
-   *   convention.
+   * @param real - The bar's `real` value: Source price series, close by convention.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inReal: number): number {
-    if (!Number.isFinite(inReal)) {
-      throw nonFiniteBar('ZLEMA peek', 'inReal');
+  peek(real: number): number {
+    if (!Number.isFinite(real)) {
+      throw nonFiniteBar('ZLEMA peek', 'real');
     }
     const sp = this;
+    const inReal = real;
     let cur_outReal = 0;
     let prevMA = sp.prevMA;
     let pkSlot0 = -1;
@@ -484,9 +593,6 @@ function zlemaOpenImpl(
   let lookbackTotal = 0;
   const historyLen = inReal.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -495,13 +601,13 @@ function zlemaOpenImpl(
   } else if (optInTimePeriod < 1 || optInTimePeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
   }
   if (optInTimePeriod === 1) {
-    let fillLb = zlemaLookback(optInTimePeriod, core);
+    let fillLb = zlemaLookbackPositional(optInTimePeriod, core);
     if (startIdx > fillLb) {
       fillLb = startIdx;
     }
@@ -541,7 +647,7 @@ function zlemaOpenImpl(
    * twice, which is 5e-12 relative where 2c - l cancels.
    */
   lag = (((optInTimePeriod - 1) / 2) | 0);
-  lookbackTotal = zlemaLookback(optInTimePeriod, core);
+  lookbackTotal = zlemaLookbackPositional(optInTimePeriod, core);
   /* Move up the start index if there is not
    * enough initial data.
    */
@@ -619,7 +725,10 @@ export function zlemaOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('ZLEMA openAndFill', inReal.length, startIdx, zlemaLookback(optInTimePeriod, core));
+    throw insufficientHistory('ZLEMA openAndFill', inReal.length, startIdx, zlemaLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && zlemaLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('ZLEMA openAndFill', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('ZLEMA openAndFill', retCode);
 }
@@ -642,102 +751,121 @@ export function zlemaOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('ZLEMA open', inReal.length, startIdx, zlemaLookback(optInTimePeriod, core));
+    throw insufficientHistory('ZLEMA open', inReal.length, startIdx, zlemaLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && zlemaLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('ZLEMA open', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('ZLEMA open', retCode);
+}
+
+/** @internal */
+export function zlemaOpenPositional(
+  inReal: ArrayLike<number>,
+  optInTimePeriod: number,
+  core: Core = Core.DEFAULT,
+): ZlemaStream {
+  optInTimePeriod = requireInt32('ZLEMA open', 'timePeriod', optInTimePeriod);
+  requireArgument('ZLEMA open', 'real', inReal);
+  requireHistory('ZLEMA open', 'real', inReal.length);
+  return zlemaOpenInternal(core, float64(inReal), 0, optInTimePeriod);
+}
+
+/** @internal */
+export function zlemaOpenAndFillPositional(
+  inReal: ArrayLike<number>,
+  optInTimePeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): ZlemaStream {
+  optInTimePeriod = requireInt32('ZLEMA openAndFill', 'timePeriod', optInTimePeriod);
+  requireArgument('ZLEMA openAndFill', 'real', inReal);
+  requireHistory('ZLEMA openAndFill', 'real', inReal.length);
+  const guardLookback = zlemaLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('ZLEMA openAndFill', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardOutLen = openFillCount('ZLEMA openAndFill', inReal.length, guardLookback);
+  requireOutput('ZLEMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
+  const inRealF64 = float64(inReal);
+  if (outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset) {
+    throw sharedMemory('ZLEMA openAndFill', 'outReal', 'real');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inRealF64)) {
+    throw sharedMemory('ZLEMA openAndFill', 'outReal', 'real');
+  }
+  return zlemaOpenAndFillInternal(core, inRealF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
 }
 
 /**
  * Opens a live ZLEMA stream over the warm-up history: `value()` starts at the last
  * history bar, bit-identical to {@link zlema} there.
  *
- * @param inReal - Warm-up history. Source price series, close by convention.
- * @param optInTimePeriod - Number of bars in the exponential average; the de-lag
- *   distance derives from it (default 30; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param real - Warm-up history. Source price series, close by convention.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link ZlemaOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `zlemaLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32 or a
- *   parameter outside its range.
+ *   than `zlemaLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32 or a parameter outside its
+ *   range.
  *
  * @example
  * ```ts
  * import { zlemaOpen } from 'ta-lib';
  *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
+ * const series = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i));
- * const stream = zlemaOpen(data, 30);
+ * const stream = zlemaOpen(series, { timePeriod: 30 });
  * const peeked = stream.peek(100.9); // a forming bar: commits nothing
  * const updated = stream.update(100.9); // the bar closes
  * ```
  */
-export function zlemaOpen(
-  inReal: ArrayLike<number>,
-  optInTimePeriod: number,
-  core: Core = Core.DEFAULT,
-): ZlemaStream {
-  optInTimePeriod = requireInt32('ZLEMA open', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('ZLEMA open', 'inReal', inReal);
-  requireHistory('ZLEMA open', inReal.length);
-  return zlemaOpenInternal(core, float64(inReal), 0, optInTimePeriod);
+export function zlemaOpen(real: ArrayLike<number>, options?: ZlemaOptions): ZlemaStream {
+  const o = optionsOf('ZLEMA open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('ZLEMA open', o.core);
+  return zlemaOpenPositional(real, optInTimePeriod, core);
 }
 
 /**
- * {@link zlemaOpen} that also fills the outputs over the whole history in the same
- * pass, bit-identically to {@link zlema}. The range written is the stream's
- * `outRange()`.
+ * {@link zlemaOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link zlema}.
  *
- * @param inReal - Warm-up history. Source price series, close by convention.
- * @param optInTimePeriod - Number of bars in the exponential average; the de-lag
- *   distance derives from it (default 30; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param outReal - Zero-lag exponential moving average of the input. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param real - Warm-up history. Source price series, close by convention.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link ZlemaOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link zlema} returns them; the range is the stream's
+ *   `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `zlemaLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or an output too short or starting where another
- *   output or a `Float64Array` input starts, or, on a history long enough to open,
- *   one sharing memory with another output or a `Float64Array` input.
+ *   than `zlemaLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32, a parameter outside its range
+ *   or a buffer too short, of the wrong type or starting where another buffer or a
+ *   `Float64Array` input starts, or, on a history long enough to open, one sharing
+ *   memory with another buffer or a `Float64Array` input.
  *
  * @example
  * ```ts
  * import { zlemaOpenAndFill } from 'ta-lib';
  *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
+ * const series = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(data.length);
- * const stream = zlemaOpenAndFill(data, 30, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = zlemaOpenAndFill(series, { timePeriod: 30 });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function zlemaOpenAndFill(
-  inReal: ArrayLike<number>,
-  optInTimePeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): ZlemaStream {
-  optInTimePeriod = requireInt32('ZLEMA openAndFill', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('ZLEMA openAndFill', 'inReal', inReal);
-  requireHistory('ZLEMA openAndFill', inReal.length);
-  const guardOutLen = openFillCount('ZLEMA openAndFill', inReal.length, zlemaLookback(optInTimePeriod, core));
-  requireOutput('ZLEMA openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
-  const inRealF64 = float64(inReal);
-  if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
-    throw streamFailure('ZLEMA openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outReal, inRealF64))) {
-    throw streamFailure('ZLEMA openAndFill', RetCode.BAD_PARAM);
-  }
-  return zlemaOpenAndFillInternal(core, inRealF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
+export function zlemaOpenAndFill(real: ArrayLike<number>, options?: ZlemaOptions): ZlemaResult & { stream: ZlemaStream } {
+  const o = optionsOf('ZLEMA openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('ZLEMA openAndFill', o.core);
+  const capacity = fillCapacity(zlemaLookbackPositional(optInTimePeriod, core), real);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = zlemaOpenAndFillPositional(real, optInTimePeriod, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /** @internal */

@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -36,14 +36,17 @@
 
 import { RetCode, TALibError } from '../runtime/errors.ts';
 
+/** The keys {@link getRuntimeInfo} answers. */
+export type RuntimeInfoKey = 'vmath.transcendental' | 'count.initialize' | 'count.shutdown';
+
 /**
  * Run-time state of this library, by key: the TypeScript analog of C's
  * `TA_GetRuntimeInfo()`. The keys: https://ta-lib.org/spec/abstract/#runtime-info.
  *
- * @param key - One of the keys above.
- * @throws {@link TALibError} `TA_BAD_PARAM` for an unknown key.
+ * @param key - One of the keys above; any other string is rejected at run time.
+ * @throws `TALibError` with code `TA_BAD_PARAM` for an unknown key.
  */
-export function getRuntimeInfo(key: string): number {
+export function getRuntimeInfo(key: RuntimeInfoKey | (string & {})): number {
   switch (key) {
     case 'vmath.transcendental':
     case 'count.initialize':

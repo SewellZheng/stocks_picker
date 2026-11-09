@@ -82,7 +82,7 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_AC_SignalPeriod =
 };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_AC_Default =
-                               { TA_Output_Real, "outReal", TA_OUT_HISTO };
+                               { TA_Output_Real, "outReal", TA_OUT_HISTO | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 static const TA_InputParameterInfo    *TA_AC_Inputs[]    =
 {
@@ -147,6 +147,9 @@ DEF_FUNCTION( ACCBANDS,
 /* ACCBANDS END */
 
 /* ACOS BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ACOS_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_ACOS_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -155,7 +158,7 @@ static const TA_InputParameterInfo    *TA_ACOS_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ACOS_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ACOS_Default,
   NULL
 };
 
@@ -170,6 +173,9 @@ DEF_FUNCTION( ACOS,
 /* ACOS END */
 
 /* AD BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_AD_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_AD_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HLCV,
@@ -178,7 +184,7 @@ static const TA_InputParameterInfo    *TA_AD_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_AD_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_AD_Default,
   NULL
 };
 
@@ -193,6 +199,9 @@ DEF_FUNCTION( AD,
 /* AD END */
 
 /* ADD BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ADD_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_ADD_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real0,
@@ -202,7 +211,7 @@ static const TA_InputParameterInfo    *TA_ADD_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ADD_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ADD_Default,
   NULL
 };
 
@@ -245,6 +254,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_ADOSC_SlowPeriod =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ADOSC_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_ADOSC_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HLCV,
@@ -253,7 +265,7 @@ static const TA_InputParameterInfo    *TA_ADOSC_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ADOSC_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ADOSC_Default,
   NULL
 };
 
@@ -271,6 +283,9 @@ DEF_FUNCTION( ADOSC,
 /* ADOSC END */
 
 /* ADR BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ADR_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_ADR_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HL,
@@ -279,7 +294,7 @@ static const TA_InputParameterInfo    *TA_ADR_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ADR_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ADR_Default,
   NULL
 };
 
@@ -296,6 +311,9 @@ DEF_FUNCTION( ADR,
 /* ADR END */
 
 /* ADX BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ADX_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_ADX_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HLC,
@@ -304,7 +322,7 @@ static const TA_InputParameterInfo    *TA_ADX_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ADX_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ADX_Default,
   NULL
 };
 
@@ -313,14 +331,18 @@ static const TA_OptInputParameterInfo *TA_ADX_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( ADX,
-              TA_GroupId_MomentumIndicators,
-              "Average Directional Movement Index",
-              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( ADX,
+                         TA_GroupId_MomentumIndicators,
+                         "Average Directional Movement Index",
+                         TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outReal\":{\"levels\":[25]}}}"
+                       );
 /* ADX END */
 
 /* ADXR BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ADXR_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_ADXR_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HLC,
@@ -329,7 +351,7 @@ static const TA_InputParameterInfo    *TA_ADXR_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ADXR_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ADXR_Default,
   NULL
 };
 
@@ -338,12 +360,165 @@ static const TA_OptInputParameterInfo *TA_ADXR_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( ADXR,
-              TA_GroupId_MomentumIndicators,
-              "Average Directional Movement Index Rating",
-              TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( ADXR,
+                         TA_GroupId_MomentumIndicators,
+                         "Average Directional Movement Index Rating",
+                         TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outReal\":{\"levels\":[25]}}}"
+                       );
 /* ADXR END */
+
+/* ALLIGATOR BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ALLIGATOR_JawPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInJawPeriod",
+   0,
+
+   "Jaw Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   13,
+   "Time period for the jaw line",
+
+   NULL
+};
+
+static const TA_IntegerRange TA_DEF_ALLIGATOR_JawShift =
+{
+   0,
+   100000,
+   0,
+   30,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ALLIGATOR_JawShift =
+{
+   TA_OptInput_IntegerRange,
+   "optInJawShift",
+   0,
+
+   "Jaw Shift",
+   (const void *)&TA_DEF_ALLIGATOR_JawShift,
+   8,
+   "Bars ahead the jaw line is drawn",
+
+   NULL
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ALLIGATOR_TeethPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTeethPeriod",
+   0,
+
+   "Teeth Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   8,
+   "Time period for the teeth line",
+
+   NULL
+};
+
+static const TA_IntegerRange TA_DEF_ALLIGATOR_TeethShift =
+{
+   0,
+   100000,
+   0,
+   30,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ALLIGATOR_TeethShift =
+{
+   TA_OptInput_IntegerRange,
+   "optInTeethShift",
+   0,
+
+   "Teeth Shift",
+   (const void *)&TA_DEF_ALLIGATOR_TeethShift,
+   5,
+   "Bars ahead the teeth line is drawn",
+
+   NULL
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ALLIGATOR_LipsPeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInLipsPeriod",
+   0,
+
+   "Lips Period",
+   (const void *)&TA_DEF_TimePeriod_Positive,
+   5,
+   "Time period for the lips line",
+
+   NULL
+};
+
+static const TA_IntegerRange TA_DEF_ALLIGATOR_LipsShift =
+{
+   0,
+   100000,
+   0,
+   30,
+   1
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_ALLIGATOR_LipsShift =
+{
+   TA_OptInput_IntegerRange,
+   "optInLipsShift",
+   0,
+
+   "Lips Shift",
+   (const void *)&TA_DEF_ALLIGATOR_LipsShift,
+   3,
+   "Bars ahead the lips line is drawn",
+
+   NULL
+};
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ALLIGATOR_outJaw =
+                               { TA_Output_Real, "outJaw", TA_OUT_LINE | TA_OUT_DISPLAY_SHIFT };
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ALLIGATOR_outTeeth =
+                               { TA_Output_Real, "outTeeth", TA_OUT_LINE | TA_OUT_DISPLAY_SHIFT };
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ALLIGATOR_outLips =
+                               { TA_Output_Real, "outLips", TA_OUT_LINE | TA_OUT_DISPLAY_SHIFT };
+
+static const TA_InputParameterInfo    *TA_ALLIGATOR_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Price_HL,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_ALLIGATOR_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real_ALLIGATOR_outJaw,
+  &TA_DEF_UI_Output_Real_ALLIGATOR_outTeeth,
+  &TA_DEF_UI_Output_Real_ALLIGATOR_outLips,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_ALLIGATOR_OptInputs[] =
+{ &TA_DEF_UI_D_ALLIGATOR_JawPeriod,
+  &TA_DEF_UI_D_ALLIGATOR_JawShift,
+  &TA_DEF_UI_D_ALLIGATOR_TeethPeriod,
+  &TA_DEF_UI_D_ALLIGATOR_TeethShift,
+  &TA_DEF_UI_D_ALLIGATOR_LipsPeriod,
+  &TA_DEF_UI_D_ALLIGATOR_LipsShift,
+  NULL
+};
+
+DEF_FUNCTION( ALLIGATOR,
+              TA_GroupId_OverlapStudies,
+              "Williams Alligator",
+              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM | TA_FUNC_FLG_DISPLAY_SHIFT
+             );
+/* ALLIGATOR END */
 
 /* ALMA BEGIN */
 static const TA_OptInputParameterInfo TA_DEF_UI_D_ALMA_TimePeriod =
@@ -464,7 +639,7 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_AO_SlowPeriod =
 };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_AO_Default =
-                               { TA_Output_Real, "outReal", TA_OUT_HISTO };
+                               { TA_Output_Real, "outReal", TA_OUT_HISTO | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 static const TA_InputParameterInfo    *TA_AO_Inputs[]    =
 {
@@ -506,6 +681,9 @@ const TA_OptInputParameterInfo TA_DEF_UI_D_APO_MAType =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_APO_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_APO_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -514,7 +692,7 @@ static const TA_InputParameterInfo    *TA_APO_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_APO_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_APO_Default,
   NULL
 };
 
@@ -534,10 +712,10 @@ DEF_FUNCTION( APO,
 
 /* AROON BEGIN */
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_AROON_outAroonDown =
-                               { TA_Output_Real, "outAroonDown", TA_OUT_DASH_LINE };
+                               { TA_Output_Real, "outAroonDown", TA_OUT_DASH_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_AROON_outAroonUp =
-                               { TA_Output_Real, "outAroonUp", TA_OUT_LINE };
+                               { TA_Output_Real, "outAroonUp", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
 
 static const TA_InputParameterInfo    *TA_AROON_Inputs[]    =
 {
@@ -557,14 +735,18 @@ static const TA_OptInputParameterInfo *TA_AROON_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( AROON,
-              TA_GroupId_MomentumIndicators,
-              "Aroon",
-              TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( AROON,
+                         TA_GroupId_MomentumIndicators,
+                         "Aroon",
+                         TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outAroonUp\":{\"levels\":[30,70]}}}"
+                       );
 /* AROON END */
 
 /* AROONOSC BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_AROONOSC_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_AROONOSC_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HL,
@@ -573,7 +755,7 @@ static const TA_InputParameterInfo    *TA_AROONOSC_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_AROONOSC_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_AROONOSC_Default,
   NULL
 };
 
@@ -614,6 +796,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_ASI_LimitMove =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ASI_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_ASI_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_OHLC,
@@ -622,7 +807,7 @@ static const TA_InputParameterInfo    *TA_ASI_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ASI_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ASI_Default,
   NULL
 };
 
@@ -639,6 +824,9 @@ DEF_FUNCTION( ASI,
 /* ASI END */
 
 /* ASIN BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ASIN_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_ASIN_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -647,7 +835,7 @@ static const TA_InputParameterInfo    *TA_ASIN_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ASIN_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ASIN_Default,
   NULL
 };
 
@@ -662,6 +850,9 @@ DEF_FUNCTION( ASIN,
 /* ASIN END */
 
 /* ATAN BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ATAN_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_ATAN_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -670,7 +861,7 @@ static const TA_InputParameterInfo    *TA_ATAN_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ATAN_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ATAN_Default,
   NULL
 };
 
@@ -685,6 +876,9 @@ DEF_FUNCTION( ATAN,
 /* ATAN END */
 
 /* ATR BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_ATR_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_ATR_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HLC,
@@ -693,7 +887,7 @@ static const TA_InputParameterInfo    *TA_ATR_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_ATR_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_ATR_Default,
   NULL
 };
 
@@ -730,7 +924,7 @@ static const TA_OptInputParameterInfo *TA_AVGDEV_OptInputs[] =
 DEF_FUNCTION( AVGDEV,
               TA_GroupId_PriceTransform,
               "Average Deviation",
-              TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM
+              TA_FUNC_FLG_STREAM
              );
 /* AVGDEV END */
 
@@ -772,6 +966,7 @@ const TA_FuncDef *TA_DEF_TableA[] =
    ADD_TO_TABLE(ADR),
    ADD_TO_TABLE(ADX),
    ADD_TO_TABLE(ADXR),
+   ADD_TO_TABLE(ALLIGATOR),
    ADD_TO_TABLE(ALMA),
    ADD_TO_TABLE(AO),
    ADD_TO_TABLE(APO),

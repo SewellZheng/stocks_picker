@@ -647,7 +647,7 @@ static TA_RetCode TA_APO_StepImpl( struct TA_APO_Stream *sp, double inReal, doub
    return TA_SUCCESS;
 }
 
-static TA_RetCode TA_APO_OpenImpl( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_APO_OpenBody( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_APO_Stream *sp;
    int endIdx;
@@ -657,30 +657,6 @@ static TA_RetCode TA_APO_OpenImpl( struct TA_APO_Stream **stream, const double i
    double *sc_outReal;
    TA_MA_Stream *sub0;
    TA_MA_Stream *sub1;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
-      optInFastPeriod = 12;
-   else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInSlowPeriod == TA_INTEGER_DEFAULT )
-      optInSlowPeriod = 26;
-   else if( (int)optInSlowPeriod < 2 || (int)optInSlowPeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
-      optInMAType = 1;
-   else if( (int)optInMAType < TA_MATYPE_MIN || (int)optInMAType > TA_MATYPE_MAX )
-      return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -812,6 +788,50 @@ static TA_RetCode TA_APO_OpenImpl( struct TA_APO_Stream **stream, const double i
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_APO_OpenFillFrame( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_APO_OpenBody( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_APO_OpenSinkFrame( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   double sink_outReal = 0;
+   TA_RetCode retCode = TA_APO_OpenBody( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outReal ) *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_APO_OpenImpl( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
+      optInFastPeriod = 12;
+   else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( (int)optInSlowPeriod == TA_INTEGER_DEFAULT )
+      optInSlowPeriod = 26;
+   else if( (int)optInSlowPeriod < 2 || (int)optInSlowPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
+      optInMAType = 1;
+   else if( (int)optInMAType < TA_MATYPE_MIN || (int)optInMAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_APO_OpenFillFrame( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal ) : TA_APO_OpenSinkFrame( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_APO_OpenInternal( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, double *outReal )
 {
@@ -831,7 +851,6 @@ TA_LIB_API TA_RetCode TA_APO_Open( TA_APO_Stream **stream, const double inReal[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_APO_OpenInternal( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outReal );
@@ -841,7 +860,6 @@ TA_LIB_API TA_RetCode TA_APO_OpenAndFill( TA_APO_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;

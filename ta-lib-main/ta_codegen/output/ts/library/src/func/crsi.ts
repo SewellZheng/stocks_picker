@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -12,31 +46,17 @@
  *  092226 MF,CC  Initial version (#431).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
-import { PercentrankStream, percentrank, percentrankLookback, percentrankOpenAndFillInternal } from './percentrank.ts';
-import { RocpStream, rocp, rocpLookback, rocpOpenAndFillInternal } from './rocp.ts';
-import { RsiStream, rsi, rsiLookback, rsiOpenAndFillInternal } from './rsi.ts';
+import { PercentrankStream, percentrankLookbackPositional, percentrankOpenAndFillInternal, percentrankPositional } from './percentrank.ts';
+import { RocpStream, rocpLookbackPositional, rocpOpenAndFillInternal, rocpPositional } from './rocp.ts';
+import { RsiStream, rsiLookbackPositional, rsiOpenAndFillInternal, rsiPositional } from './rsi.ts';
 
-/**
- * Number of leading input bars {@link crsi} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Period of the RSI of the closes (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInStreakPeriod - Period of the RSI of the up/down streak (default 2;
- *   range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRankPeriod - Number of earlier one-bar returns each return is ranked
- *   against (default 100; range 2 to 10000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function crsiLookback(optInTimePeriod: number, optInStreakPeriod: number, optInRankPeriod: number, core: Core = Core.DEFAULT): number {
+/** @internal */
+export function crsiLookbackPositional(optInTimePeriod: number, optInStreakPeriod: number, optInRankPeriod: number, core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -62,33 +82,15 @@ export function crsiLookback(optInTimePeriod: number, optInStreakPeriod: number,
     return -1;
   }
   let retValue = 0;
-  retValue = rsiLookback(optInTimePeriod, core);
-  retValue = (retValue > (rsiLookback(optInStreakPeriod, core) + 1) ? retValue : (rsiLookback(optInStreakPeriod, core) + 1));
-  retValue = (retValue > (percentrankLookback(optInRankPeriod, core) + rocpLookback(1, core)) ? retValue : (percentrankLookback(optInRankPeriod, core) + rocpLookback(1, core)));
+  retValue = rsiLookbackPositional(optInTimePeriod, core);
+  retValue = (retValue > (rsiLookbackPositional(optInStreakPeriod, core) + 1) ? retValue : (rsiLookbackPositional(optInStreakPeriod, core) + 1));
+  retValue = (retValue > (percentrankLookbackPositional(optInRankPeriod, core) + rocpLookbackPositional(1, core)) ? retValue : (percentrankLookbackPositional(optInRankPeriod, core) + rocpLookbackPositional(1, core)));
   return retValue;
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link crsi}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Period of the RSI of the closes (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInStreakPeriod - Period of the RSI of the up/down streak (default 2;
- *   range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRankPeriod - Number of earlier one-bar returns each return is ranked
- *   against (default 100; range 2 to 10000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function crsiDisplayShift(optInTimePeriod: number, optInStreakPeriod: number, optInRankPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (crsiLookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core) < 0) {
+/** @internal */
+export function crsiDisplayShiftPositional(optInTimePeriod: number, optInStreakPeriod: number, optInRankPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
@@ -150,7 +152,7 @@ export function crsiImpl(
   }
   outBegIdx.value = 0;
   outNBElement.value = 0;
-  lookbackTotal = crsiLookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core);
+  lookbackTotal = crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core);
   if (lookbackTotal > endIdx) {
     return RetCode.SUCCESS;
   }
@@ -163,8 +165,8 @@ export function crsiImpl(
    */
   anchorIdx = startIdx - lookbackTotal;
   tempStreak = new Float64Array(endIdx - anchorIdx);
-  tempRSI = new Float64Array(endIdx - anchorIdx - rsiLookback(optInTimePeriod, core) + 1);
-  tempStreakRSI = new Float64Array(endIdx - anchorIdx - rsiLookback(optInStreakPeriod, core));
+  tempRSI = new Float64Array(endIdx - anchorIdx - rsiLookbackPositional(optInTimePeriod, core) + 1);
+  tempStreakRSI = new Float64Array(endIdx - anchorIdx - rsiLookbackPositional(optInStreakPeriod, core));
   streak = 0.0;
   prevClose = inReal[anchorIdx];
   outIdx = 0;
@@ -182,17 +184,17 @@ export function crsiImpl(
     prevClose = close;
     today += 1;
   }
-  const _xr0 = rsi(0, outIdx - 1, tempStreak, optInStreakPeriod, tempStreakRSI, core);
+  const _xr0 = rsiPositional(0, outIdx - 1, tempStreak, optInStreakPeriod, tempStreakRSI, core);
   tempBegIdx.value = _xr0.begIdx;
   streakNb.value = _xr0.count;
-  const _xr1 = rsi(anchorIdx + rsiLookback(optInTimePeriod, core), endIdx, inReal, optInTimePeriod, tempRSI, core);
+  const _xr1 = rsiPositional(anchorIdx + rsiLookbackPositional(optInTimePeriod, core), endIdx, inReal, optInTimePeriod, tempRSI, core);
   tempBegIdx.value = _xr1.begIdx;
   rsiNb.value = _xr1.count;
   /* The streak is consumed: its buffer holds the returns. */
-  const _xr2 = rocp(startIdx - optInRankPeriod, endIdx, inReal, 1, tempStreak, core);
+  const _xr2 = rocpPositional(startIdx - optInRankPeriod, endIdx, inReal, 1, tempStreak, core);
   tempBegIdx.value = _xr2.begIdx;
   rocNb.value = _xr2.count;
-  const _xr3 = percentrank(0, rocNb.value - 1, tempStreak, optInRankPeriod, outReal, core);
+  const _xr3 = percentrankPositional(0, rocNb.value - 1, tempStreak, optInRankPeriod, outReal, core);
   outBegIdx.value = _xr3.begIdx;
   outNBElement.value = _xr3.count;
   offsetRSI = rsiNb.value - outNBElement.value;
@@ -204,72 +206,10 @@ export function crsiImpl(
   return RetCode.SUCCESS;
 }
 
-/**
- * Connors RSI: a 0 to 100 oscillator, the plain average of three short-term
- * momentum readings on that same scale. The first is Wilder's RSI of the closes
- * over `optInTimePeriod` bars. The second is an RSI over `optInStreakPeriod` bars
- * of the up/down streak, the signed length of the current run of higher or lower
- * closes (+3 after three higher closes in a row, -2 after two lower ones); an
- * unchanged close resets the streak to 0. The third is the percent rank of the
- * bar's one-bar return, (close - previous close) / previous close, among the
- * `optInRankPeriod` returns before it: the percentage of them strictly below it.
- * High readings mark a short-term overbought market and low readings an oversold
- * one.
- *
- * Formula and more info at
- * [ta-lib.org/functions/crsi](https://ta-lib.org/functions/crsi).
- *
- * **Notes**
- * - CRSI has no unstable period of its own: both RSI legs take `TA_FUNC_UNST_RSI`.
- *   They start warming up on the first bar the call reads (the streak's RSI one
- *   bar later, the streak being a change), so a leg that needs fewer bars than the
- *   lookback warms up over the spare ones.
- * - Finite input is a precondition. A NaN close does not propagate: the output
- *   stays finite and no error is reported, but the values that follow it are
- *   wrong.
- *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link crsiLookback} is a success with
- * `count` 0.
- *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inReal - Close price series.
- * @param optInTimePeriod - Period of the RSI of the closes (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInStreakPeriod - Period of the RSI of the up/down streak (default 2;
- *   range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRankPeriod - Number of earlier one-bar returns each return is ranked
- *   against (default 100; range 2 to 10000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param outReal - The averaged reading, 0 to 100. Must hold the values produced
- *   and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
- * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
- *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output
- *   or an output sharing memory with a `Float64Array` input it is not. Checked
- *   before anything is written.
- *
- * @example
- * ```ts
- * import { crsi } from 'ta-lib';
- *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(data.length);
- * const { begIdx, count } = crsi(0, data.length - 1, data, 3, 2, 100, out);
- * // out[k] is the value at bar begIdx + k, for k < count
- * ```
- * @see [`rsi`](https://ta-lib.org/functions/rsi)
- * @see [`percentrank`](https://ta-lib.org/functions/percentrank)
- * @see [`stochrsi`](https://ta-lib.org/functions/stochrsi)
- */
-export function crsi(
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000'], ['streakPeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000'], ['rankPeriod', Core.INTEGER_DEFAULT, 2, 10000, 'in 2..10000']] as const;
+
+/** @internal */
+export function crsiPositional(
   startIdx: number,
   endIdx: number,
   inReal: ArrayLike<number>,
@@ -281,18 +221,22 @@ export function crsi(
 ): OutRange {
   startIdx = requireInt32('CRSI', 'startIdx', startIdx);
   endIdx = requireInt32('CRSI', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('CRSI', 'optInTimePeriod', optInTimePeriod);
-  optInStreakPeriod = requireInt32('CRSI', 'optInStreakPeriod', optInStreakPeriod);
-  optInRankPeriod = requireInt32('CRSI', 'optInRankPeriod', optInRankPeriod);
+  optInTimePeriod = requireInt32('CRSI', 'timePeriod', optInTimePeriod);
+  optInStreakPeriod = requireInt32('CRSI', 'streakPeriod', optInStreakPeriod);
+  optInRankPeriod = requireInt32('CRSI', 'rankPeriod', optInRankPeriod);
   requireIndexRange('CRSI', startIdx, endIdx);
-  const guardStart = clampedStart('CRSI', startIdx, crsiLookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core));
+  const guardLookback = crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CRSI', PARAM_RANGES, optInTimePeriod, optInStreakPeriod, optInRankPeriod);
+  }
+  const guardStart = clampedStart('CRSI', startIdx, guardLookback);
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('CRSI', 'inReal', inReal, guardInLen);
+  requireLength('CRSI', 'real', inReal, guardInLen);
   requireOutput('CRSI', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
   if (overlapsPartly(outReal, inRealF64)) {
-    throw failure('CRSI', RetCode.BAD_PARAM);
+    throw sharedMemory('CRSI', 'outReal', 'real');
   }
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
@@ -301,6 +245,174 @@ export function crsi(
     throw failure('CRSI', retCode);
   }
   return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link crsi}, {@link crsiLookback}, {@link crsiDisplayShift},
+ * {@link crsiOpen} and {@link crsiOpenAndFill}. Every key is optional: an omitted
+ * or `undefined` key takes its default, and a call ignores the keys it has no use
+ * for.
+ */
+export interface CrsiOptions {
+  /**
+   * Period of the RSI of the closes (default 3; range 2 to 100000;
+   * `Core.INTEGER_DEFAULT` selects the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * Period of the RSI of the up/down streak (default 2; range 2 to 100000;
+   * `Core.INTEGER_DEFAULT` selects the default).
+   */
+  streakPeriod?: number | undefined;
+  /**
+   * Number of earlier one-bar returns each return is ranked against (default 100;
+   * range 2 to 10000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  rankPeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link crsi} returns, and {@link crsiOpenAndFill} with its stream. */
+export interface CrsiResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * The averaged reading, 0 to 100. `values[k]` is the value at input bar
+   * `begIdx + k`.
+   */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link crsi} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CrsiOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function crsiLookback(options?: CrsiOptions): number {
+  const o = optionsOf('CRSI lookback', options);
+  return crsiLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), orDefault(o.streakPeriod, Core.INTEGER_DEFAULT), orDefault(o.rankPeriod, Core.INTEGER_DEFAULT), coreOf('CRSI lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link crsi}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CrsiOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function crsiDisplayShift(outputIdx: number, options?: CrsiOptions): number {
+  const o = optionsOf('CRSI displayShift', options);
+  return crsiDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), orDefault(o.streakPeriod, Core.INTEGER_DEFAULT), orDefault(o.rankPeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('CRSI displayShift', o.core));
+}
+
+/**
+ * Connors RSI: a 0 to 100 oscillator, the plain average of three short-term
+ * momentum readings on that same scale. The first is Wilder's RSI of the closes
+ * over `timePeriod` bars. The second is an RSI over `streakPeriod` bars of the
+ * up/down streak, the signed length of the current run of higher or lower closes
+ * (+3 after three higher closes in a row, -2 after two lower ones); an unchanged
+ * close resets the streak to 0. The third is the percent rank of the bar's one-bar
+ * return, (close - previous close) / previous close, among the `rankPeriod`
+ * returns before it: the percentage of them strictly below it. High readings mark
+ * a short-term overbought market and low readings an oversold one.
+ *
+ * Formula and more info at
+ * [ta-lib.org/functions/crsi](https://ta-lib.org/functions/crsi).
+ *
+ * **Notes**
+ * - CRSI has no unstable period of its own: both RSI legs take `FuncUnstId.RSI`.
+ *   They start warming up on the first bar the call reads (the streak's RSI one
+ *   bar later, the streak being a change), so a leg that needs fewer bars than the
+ *   lookback warms up over the spare ones.
+ * - Finite input is a precondition. A NaN close does not propagate: the output
+ *   stays finite and no error is reported, but the values that follow it are
+ *   wrong.
+ *
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link crsiLookback} is a success with empty outputs.
+ *
+ * @param real - Close price series.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link CrsiOptions}.
+ * @returns `begIdx` and the values; see {@link CrsiResult}. Each output is a view
+ *   of its buffer, the caller's or a new one.
+ * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
+ *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
+ *
+ * @example
+ * ```ts
+ * import { crsi } from 'ta-lib';
+ *
+ * const series = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = crsi(series, {
+ *   timePeriod: 3,
+ *   streakPeriod: 2,
+ *   rankPeriod: 100,
+ * });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+ * ```
+ * @see [`rsi`](https://ta-lib.org/functions/rsi)
+ * @see [`percentrank`](https://ta-lib.org/functions/percentrank)
+ * @see [`stochrsi`](https://ta-lib.org/functions/stochrsi)
+ */
+export function crsi(real: ArrayLike<number>, options?: CrsiOptions): CrsiResult {
+  const o = optionsOf('CRSI', options);
+  if (o.endIdx === undefined) {
+    requireSeries('CRSI', 'real', real);
+  }
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInStreakPeriod = orDefault(o.streakPeriod, Core.INTEGER_DEFAULT);
+  const optInRankPeriod = orDefault(o.rankPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CRSI', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? real.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core), real);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = crsiPositional(startIdx, endIdx, real, optInTimePeriod, optInStreakPeriod, optInRankPeriod, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -368,7 +480,7 @@ export class CrsiStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CRSI advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CRSI advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -376,20 +488,20 @@ export class CrsiStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inReal - The bar's `inReal` value: Close price series.
+   * @param real - The bar's `real` value: Close price series.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inReal: number): number {
+  update(real: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CRSI update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CRSI update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inReal)) {
-      throw nonFiniteBar('CRSI update', 'inReal');
+    if (!Number.isFinite(real)) {
+      throw nonFiniteBar('CRSI update', 'real');
     }
-    crsiStepImpl(this, inReal);
+    crsiStepImpl(this, real);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -397,16 +509,17 @@ export class CrsiStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inReal - The bar's `inReal` value: Close price series.
+   * @param real - The bar's `real` value: Close price series.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inReal: number): number {
-    if (!Number.isFinite(inReal)) {
-      throw nonFiniteBar('CRSI peek', 'inReal');
+  peek(real: number): number {
+    if (!Number.isFinite(real)) {
+      throw nonFiniteBar('CRSI peek', 'real');
     }
     const sp = this;
+    const inReal = real;
     let cur_tempStreak = 0;
     let cur_tempStreakRSI = 0;
     let cur_tempRSI = 0;
@@ -515,9 +628,6 @@ function crsiOpenImpl(
   let streak = 0;
   const historyLen = inReal.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -536,18 +646,18 @@ function crsiOpenImpl(
   } else if (optInRankPeriod < 2 || optInRankPeriod > 10000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
   }
-  if (historyLen < crsiLookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core) + 1) {
+  if (historyLen < crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core) + 1) {
     return RetCode.INSUFFICIENT_HISTORY;
   }
   const sc_outReal = outStride === 1 ? outReal : new Float64Array(historyLen);
   outBegIdx.value = 0;
   outNBElement.value = 0;
-  lookbackTotal = crsiLookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core);
+  lookbackTotal = crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core);
   if (lookbackTotal > endIdx) {
     return RetCode.INSUFFICIENT_HISTORY;
   }
@@ -560,8 +670,8 @@ function crsiOpenImpl(
    */
   anchorIdx = startIdx - lookbackTotal;
   tempStreak = new Float64Array(endIdx - anchorIdx);
-  tempRSI = new Float64Array(endIdx - anchorIdx - rsiLookback(optInTimePeriod, core) + 1);
-  tempStreakRSI = new Float64Array(endIdx - anchorIdx - rsiLookback(optInStreakPeriod, core));
+  tempRSI = new Float64Array(endIdx - anchorIdx - rsiLookbackPositional(optInTimePeriod, core) + 1);
+  tempStreakRSI = new Float64Array(endIdx - anchorIdx - rsiLookbackPositional(optInStreakPeriod, core));
   streak = 0.0;
   prevClose = inReal[anchorIdx];
   outIdx = 0;
@@ -580,7 +690,7 @@ function crsiOpenImpl(
     today += 1;
   }
   const sub0 = rsiOpenAndFillInternal(core, tempStreak.slice(0, (outIdx - 1) + 1), 0, optInStreakPeriod, tempBegIdx, streakNb, tempStreakRSI);
-  const sub1 = rsiOpenAndFillInternal(core, inReal, anchorIdx + rsiLookback(optInTimePeriod, core), optInTimePeriod, tempBegIdx, rsiNb, tempRSI);
+  const sub1 = rsiOpenAndFillInternal(core, inReal, anchorIdx + rsiLookbackPositional(optInTimePeriod, core), optInTimePeriod, tempBegIdx, rsiNb, tempRSI);
   /* The streak is consumed: its buffer holds the returns. */
   const sub2 = rocpOpenAndFillInternal(core, inReal, startIdx - optInRankPeriod, 1, tempBegIdx, rocNb, tempStreak);
   const sub3 = percentrankOpenAndFillInternal(core, tempStreak.slice(0, (rocNb.value - 1) + 1), 0, optInRankPeriod, outBegIdx, outNBElement, sc_outReal);
@@ -626,7 +736,10 @@ export function crsiOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CRSI openAndFill', inReal.length, startIdx, crsiLookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core));
+    throw insufficientHistory('CRSI openAndFill', inReal.length, startIdx, crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core) < 0) {
+    throw rejectedParams('CRSI openAndFill', PARAM_RANGES, optInTimePeriod, optInStreakPeriod, optInRankPeriod);
   }
   throw streamFailure('CRSI openAndFill', retCode);
 }
@@ -651,96 +764,32 @@ export function crsiOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CRSI open', inReal.length, startIdx, crsiLookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core));
+    throw insufficientHistory('CRSI open', inReal.length, startIdx, crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core) < 0) {
+    throw rejectedParams('CRSI open', PARAM_RANGES, optInTimePeriod, optInStreakPeriod, optInRankPeriod);
   }
   throw streamFailure('CRSI open', retCode);
 }
 
-/**
- * Opens a live CRSI stream over the warm-up history: `value()` starts at the last
- * history bar, bit-identical to {@link crsi} there.
- *
- * @param inReal - Warm-up history. Close price series.
- * @param optInTimePeriod - Period of the RSI of the closes (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInStreakPeriod - Period of the RSI of the up/down streak (default 2;
- *   range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRankPeriod - Number of earlier one-bar returns each return is ranked
- *   against (default 100; range 2 to 10000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
- * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `crsiLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32 or a
- *   parameter outside its range.
- *
- * @example
- * ```ts
- * import { crsiOpen } from 'ta-lib';
- *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i));
- * const stream = crsiOpen(data, 3, 2, 100);
- * const peeked = stream.peek(100.9); // a forming bar: commits nothing
- * const updated = stream.update(100.9); // the bar closes
- * ```
- */
-export function crsiOpen(
+/** @internal */
+export function crsiOpenPositional(
   inReal: ArrayLike<number>,
   optInTimePeriod: number,
   optInStreakPeriod: number,
   optInRankPeriod: number,
   core: Core = Core.DEFAULT,
 ): CrsiStream {
-  optInTimePeriod = requireInt32('CRSI open', 'optInTimePeriod', optInTimePeriod);
-  optInStreakPeriod = requireInt32('CRSI open', 'optInStreakPeriod', optInStreakPeriod);
-  optInRankPeriod = requireInt32('CRSI open', 'optInRankPeriod', optInRankPeriod);
-  requireArgument('CRSI open', 'inReal', inReal);
-  requireHistory('CRSI open', inReal.length);
+  optInTimePeriod = requireInt32('CRSI open', 'timePeriod', optInTimePeriod);
+  optInStreakPeriod = requireInt32('CRSI open', 'streakPeriod', optInStreakPeriod);
+  optInRankPeriod = requireInt32('CRSI open', 'rankPeriod', optInRankPeriod);
+  requireArgument('CRSI open', 'real', inReal);
+  requireHistory('CRSI open', 'real', inReal.length);
   return crsiOpenInternal(core, float64(inReal), 0, optInTimePeriod, optInStreakPeriod, optInRankPeriod);
 }
 
-/**
- * {@link crsiOpen} that also fills the outputs over the whole history in the same
- * pass, bit-identically to {@link crsi}. The range written is the stream's
- * `outRange()`.
- *
- * @param inReal - Warm-up history. Close price series.
- * @param optInTimePeriod - Period of the RSI of the closes (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInStreakPeriod - Period of the RSI of the up/down streak (default 2;
- *   range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRankPeriod - Number of earlier one-bar returns each return is ranked
- *   against (default 100; range 2 to 10000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param outReal - The averaged reading, 0 to 100. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
- * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `crsiLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or an output too short or starting where another
- *   output or a `Float64Array` input starts, or, on a history long enough to open,
- *   one sharing memory with another output or a `Float64Array` input.
- *
- * @example
- * ```ts
- * import { crsiOpenAndFill } from 'ta-lib';
- *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(data.length);
- * const stream = crsiOpenAndFill(data, 3, 2, 100, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
- * ```
- */
-export function crsiOpenAndFill(
+/** @internal */
+export function crsiOpenAndFillPositional(
   inReal: ArrayLike<number>,
   optInTimePeriod: number,
   optInStreakPeriod: number,
@@ -748,19 +797,105 @@ export function crsiOpenAndFill(
   outReal: Float64Array,
   core: Core = Core.DEFAULT,
 ): CrsiStream {
-  optInTimePeriod = requireInt32('CRSI openAndFill', 'optInTimePeriod', optInTimePeriod);
-  optInStreakPeriod = requireInt32('CRSI openAndFill', 'optInStreakPeriod', optInStreakPeriod);
-  optInRankPeriod = requireInt32('CRSI openAndFill', 'optInRankPeriod', optInRankPeriod);
-  requireArgument('CRSI openAndFill', 'inReal', inReal);
-  requireHistory('CRSI openAndFill', inReal.length);
-  const guardOutLen = openFillCount('CRSI openAndFill', inReal.length, crsiLookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core));
+  optInTimePeriod = requireInt32('CRSI openAndFill', 'timePeriod', optInTimePeriod);
+  optInStreakPeriod = requireInt32('CRSI openAndFill', 'streakPeriod', optInStreakPeriod);
+  optInRankPeriod = requireInt32('CRSI openAndFill', 'rankPeriod', optInRankPeriod);
+  requireArgument('CRSI openAndFill', 'real', inReal);
+  requireHistory('CRSI openAndFill', 'real', inReal.length);
+  const guardLookback = crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CRSI openAndFill', PARAM_RANGES, optInTimePeriod, optInStreakPeriod, optInRankPeriod);
+  }
+  const guardOutLen = openFillCount('CRSI openAndFill', inReal.length, guardLookback);
   requireOutput('CRSI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
-  if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
-    throw streamFailure('CRSI openAndFill', RetCode.BAD_PARAM);
+  if (outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset) {
+    throw sharedMemory('CRSI openAndFill', 'outReal', 'real');
   }
-  if (guardOutLen > 0 && (overlaps(outReal, inRealF64))) {
-    throw streamFailure('CRSI openAndFill', RetCode.BAD_PARAM);
+  if (guardOutLen > 0 && overlaps(outReal, inRealF64)) {
+    throw sharedMemory('CRSI openAndFill', 'outReal', 'real');
   }
   return crsiOpenAndFillInternal(core, inRealF64, 0, optInTimePeriod, optInStreakPeriod, optInRankPeriod, new MInteger(), new MInteger(), outReal);
+}
+
+/**
+ * Opens a live CRSI stream over the warm-up history: `value()` starts at the last
+ * history bar, bit-identical to {@link crsi} there.
+ *
+ * @param real - Warm-up history. Close price series.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CrsiOptions}.
+ * @returns The stream, positioned on the last history bar.
+ * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
+ *   than `crsiLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32 or a parameter outside its range.
+ *
+ * @example
+ * ```ts
+ * import { crsiOpen } from 'ta-lib';
+ *
+ * const series = Float64Array.from({ length: 252 }, (_, i) =>
+ *   100 + 10 * Math.sin(0.1 * i));
+ * const stream = crsiOpen(series, {
+ *   timePeriod: 3,
+ *   streakPeriod: 2,
+ *   rankPeriod: 100,
+ * });
+ * const peeked = stream.peek(100.9); // a forming bar: commits nothing
+ * const updated = stream.update(100.9); // the bar closes
+ * ```
+ */
+export function crsiOpen(real: ArrayLike<number>, options?: CrsiOptions): CrsiStream {
+  const o = optionsOf('CRSI open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInStreakPeriod = orDefault(o.streakPeriod, Core.INTEGER_DEFAULT);
+  const optInRankPeriod = orDefault(o.rankPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CRSI open', o.core);
+  return crsiOpenPositional(real, optInTimePeriod, optInStreakPeriod, optInRankPeriod, core);
+}
+
+/**
+ * {@link crsiOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link crsi}.
+ *
+ * @param real - Warm-up history. Close price series.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link CrsiOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link crsi} returns them; the range is the stream's
+ *   `outRange()`.
+ * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
+ *   than `crsiLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a parameter outside its range or a
+ *   buffer too short, of the wrong type or starting where another buffer or a
+ *   `Float64Array` input starts, or, on a history long enough to open, one sharing
+ *   memory with another buffer or a `Float64Array` input.
+ *
+ * @example
+ * ```ts
+ * import { crsiOpenAndFill } from 'ta-lib';
+ *
+ * const series = Float64Array.from({ length: 252 }, (_, i) =>
+ *   100 + 10 * Math.sin(0.1 * i));
+ * const { stream, begIdx, values } = crsiOpenAndFill(series, {
+ *   timePeriod: 3,
+ *   streakPeriod: 2,
+ *   rankPeriod: 100,
+ * });
+ * // values[k] is the value at bar begIdx + k
+ * ```
+ */
+export function crsiOpenAndFill(real: ArrayLike<number>, options?: CrsiOptions): CrsiResult & { stream: CrsiStream } {
+  const o = optionsOf('CRSI openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInStreakPeriod = orDefault(o.streakPeriod, Core.INTEGER_DEFAULT);
+  const optInRankPeriod = orDefault(o.rankPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CRSI openAndFill', o.core);
+  const capacity = fillCapacity(crsiLookbackPositional(optInTimePeriod, optInStreakPeriod, optInRankPeriod, core), real);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = crsiOpenAndFillPositional(real, optInTimePeriod, optInStreakPeriod, optInRankPeriod, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }

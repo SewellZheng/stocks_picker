@@ -74,6 +74,7 @@ that names no indicator.
 | `backends/{c,rust,java,csharp,ts}_stream.rs` | The streaming emitters, each rendering the *same* backend-neutral analysis from `streaming.rs`. A new backend means writing only its emitter |
 | `backends/rust_doc.rs`, `csharp_doc.rs`, `ts_doc.rs` | Per-language rendering of each function's canonical `<name>.md` |
 | `backends/ir_cleanup.rs` | Backend-selected, length-preserving IR passes between the streaming decision and rendering |
+| `attributes` | The attribute keys (`levels`, ...): one row per key, and the canonical JSON form of a value |
 | `backends/abstract_rows.rs` | The backend-neutral `ta_abstract` row model, rendered by Rust, Java, C# and TS — but deliberately not by C (below) |
 | `backends/{rust,java,csharp,ts}_metadata.rs`, `java_abstract.rs` | The per-language introspection registries |
 | `backends/ta_abstract_c.rs` | C's `ta_abstract` layer: tables, frames, group index, runtime API |
@@ -212,7 +213,8 @@ params. No generic `<T: TaFloat>`, no `f32` variants.
 | `pub(crate) fn <n>_impl(...) -> RetCode` | The body. Keeps C's shape — a code plus `&mut outBegIdx` / `&mut outNBElement` — because that is what the transcribed bodies are written against, and it is where the FMA dispatch sits. Not a cross-call target |
 | `fn <n>_private(...)` | Only where the definition declares one; extra pre-computed params, no validation prologue. No shipped indicator declares one — the construct is carried by the `SYNTH4` gate fixture |
 
-Cross-indicator calls target the **public** wrapper, as in C, Java, C# and TS. `?` is
+Cross-indicator calls target the **public** wrapper, as in C, Java and C# (in TS,
+its checked positional form `<n>Positional`). `?` is
 unavailable at those sites (the caller returns a bare `RetCode`), so
 `render_cross_indicator_call` drops the two out-meta arguments, binds the
 returned range with a `match`, assigns both out-params from it, and sets

@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -15,28 +49,14 @@
  *  100526 MF,CC  Rebuild trigger compares magnitudes (#483).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 
-/**
- * Number of leading input bars {@link rogerssatchell} consumes before its first
- * value: the index of the first bar with a value when the whole series is
- * requested.
- *
- * @param optInTimePeriod - Number of bars in the window. `n = 1` is the paper's
- *   own single-bar estimator (default 10; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAnnualization - Periods per year. Pass 1 for the per-bar figure
- *   (default 252; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function rogerssatchellLookback(optInTimePeriod: number, optInAnnualization: number, core: Core = Core.DEFAULT): number {
-  void core;
+/** @internal */
+export function rogerssatchellLookbackPositional(optInTimePeriod: number, optInAnnualization: number, _core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -56,25 +76,9 @@ export function rogerssatchellLookback(optInTimePeriod: number, optInAnnualizati
   return optInTimePeriod - 1;
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link rogerssatchell}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Number of bars in the window. `n = 1` is the paper's
- *   own single-bar estimator (default 10; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAnnualization - Periods per year. Pass 1 for the per-bar figure
- *   (default 252; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function rogerssatchellDisplayShift(optInTimePeriod: number, optInAnnualization: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (rogerssatchellLookback(optInTimePeriod, optInAnnualization, core) < 0) {
+/** @internal */
+export function rogerssatchellDisplayShiftPositional(optInTimePeriod: number, optInAnnualization: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
@@ -270,77 +274,10 @@ export function rogerssatchellImpl(
   return RetCode.SUCCESS;
 }
 
-/**
- * Rogers-Satchell volatility: a range-based estimator that reads one bar's open,
- * high, low and close as a single unbiased estimate of that bar's variance, then
- * reports the root of the mean over the last `n` bars, scaled to periods per year.
- * What separates it from the other range estimators is that it is unbiased
- * **whatever the drift**. A bar that opens at its low and closes at its high has
- * travelled in one direction and dispersed nothing around that path, and this
- * estimator reads it as exactly zero, where Parkinson and Garman-Klass read a wide
- * range as volatility. The price of that is a blind spot of its own: the estimator
- * has no close-to-open term, so overnight gaps are invisible to it. Read the
- * output as a fraction in log-return units, not price units and not percent. At an
- * `optInAnnualization` of 252 it is an annualised figure for daily bars; pass 1 to
- * leave the per-bar figure, 52 for weekly bars, 12 for monthly.
- *
- * Formula and more info at
- * [ta-lib.org/functions/rogerssatchell](https://ta-lib.org/functions/rogerssatchell).
- *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link rogerssatchellLookback} is a success
- * with `count` 0.
- *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inOpen - Open price of each bar.
- * @param inHigh - High price of each bar.
- * @param inLow - Low price of each bar.
- * @param inClose - Close price of each bar.
- * @param optInTimePeriod - Number of bars in the window. `n = 1` is the paper's
- *   own single-bar estimator (default 10; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAnnualization - Periods per year. Pass 1 for the per-bar figure
- *   (default 252; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param outReal - Estimated volatility, in log-return units. Must hold the values
- *   produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
- * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
- *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   real parameter that is not a number, a parameter outside its range, an array too
- *   short for the range, an empty output or an output sharing memory with a
- *   `Float64Array` input it is not. Checked before anything is written.
- *
- * @example
- * ```ts
- * import { rogerssatchell } from 'ta-lib';
- *
- * const open = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i - 0.05));
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const out = new Float64Array(open.length);
- * const { begIdx, count } = rogerssatchell(
- *   0, open.length - 1,
- *   open, high, low, close,
- *   10, 252,
- *   out,
- * );
- * // out[k] is the value at bar begIdx + k, for k < count
- * ```
- * @see [`atr`](https://ta-lib.org/functions/atr)
- * @see [`natr`](https://ta-lib.org/functions/natr)
- * @see [`var_`](https://ta-lib.org/functions/var)
- */
-export function rogerssatchell(
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 1, 100000, 'in 1..100000'], ['annualization', Core.REAL_DEFAULT, 0e0, Core.REAL_MAX, 'in 0..3e37']] as const;
+
+/** @internal */
+export function rogerssatchellPositional(
   startIdx: number,
   endIdx: number,
   inOpen: ArrayLike<number>,
@@ -354,23 +291,36 @@ export function rogerssatchell(
 ): OutRange {
   startIdx = requireInt32('ROGERSSATCHELL', 'startIdx', startIdx);
   endIdx = requireInt32('ROGERSSATCHELL', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('ROGERSSATCHELL', 'optInTimePeriod', optInTimePeriod);
-  optInAnnualization = requireReal('ROGERSSATCHELL', 'optInAnnualization', optInAnnualization);
+  optInTimePeriod = requireInt32('ROGERSSATCHELL', 'timePeriod', optInTimePeriod);
+  optInAnnualization = requireReal('ROGERSSATCHELL', 'annualization', optInAnnualization);
   requireIndexRange('ROGERSSATCHELL', startIdx, endIdx);
-  const guardStart = clampedStart('ROGERSSATCHELL', startIdx, rogerssatchellLookback(optInTimePeriod, optInAnnualization, core));
+  const guardLookback = rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('ROGERSSATCHELL', PARAM_RANGES, optInTimePeriod, optInAnnualization);
+  }
+  const guardStart = clampedStart('ROGERSSATCHELL', startIdx, guardLookback);
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('ROGERSSATCHELL', 'inOpen', inOpen, guardInLen);
-  requireLength('ROGERSSATCHELL', 'inHigh', inHigh, guardInLen);
-  requireLength('ROGERSSATCHELL', 'inLow', inLow, guardInLen);
-  requireLength('ROGERSSATCHELL', 'inClose', inClose, guardInLen);
+  requireLength('ROGERSSATCHELL', 'prices.open', inOpen, guardInLen);
+  requireLength('ROGERSSATCHELL', 'prices.high', inHigh, guardInLen);
+  requireLength('ROGERSSATCHELL', 'prices.low', inLow, guardInLen);
+  requireLength('ROGERSSATCHELL', 'prices.close', inClose, guardInLen);
   requireOutput('ROGERSSATCHELL', 'outReal', outReal, guardOutLen, Float64Array);
   const inOpenF64 = float64(inOpen);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
-  if (overlapsPartly(outReal, inOpenF64) || overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64) || overlapsPartly(outReal, inCloseF64)) {
-    throw failure('ROGERSSATCHELL', RetCode.BAD_PARAM);
+  if (overlapsPartly(outReal, inOpenF64)) {
+    throw sharedMemory('ROGERSSATCHELL', 'outReal', 'prices.open');
+  }
+  if (overlapsPartly(outReal, inHighF64)) {
+    throw sharedMemory('ROGERSSATCHELL', 'outReal', 'prices.high');
+  }
+  if (overlapsPartly(outReal, inLowF64)) {
+    throw sharedMemory('ROGERSSATCHELL', 'outReal', 'prices.low');
+  }
+  if (overlapsPartly(outReal, inCloseF64)) {
+    throw sharedMemory('ROGERSSATCHELL', 'outReal', 'prices.close');
   }
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
@@ -379,6 +329,176 @@ export function rogerssatchell(
     throw failure('ROGERSSATCHELL', retCode);
   }
   return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link rogerssatchell}, {@link rogerssatchellLookback},
+ * {@link rogerssatchellDisplayShift}, {@link rogerssatchellOpen} and
+ * {@link rogerssatchellOpenAndFill}. Every key is optional: an omitted or
+ * `undefined` key takes its default, and a call ignores the keys it has no use
+ * for.
+ */
+export interface RogerssatchellOptions {
+  /**
+   * Number of bars in the window. `n = 1` is the paper's own single-bar estimator
+   * (default 10; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * Periods per year. Pass 1 for the per-bar figure (default 252; minimum 0;
+   * `Core.REAL_DEFAULT` selects the default).
+   */
+  annualization?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/**
+ * What {@link rogerssatchell} returns, and {@link rogerssatchellOpenAndFill} with
+ * its stream.
+ */
+export interface RogerssatchellResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Estimated volatility, in log-return units. `values[k]` is the value at input bar
+   * `begIdx + k`.
+   */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link rogerssatchell} consumes before its first
+ * value: the index of the first bar with a value when the whole series is
+ * requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link RogerssatchellOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function rogerssatchellLookback(options?: RogerssatchellOptions): number {
+  const o = optionsOf('ROGERSSATCHELL lookback', options);
+  return rogerssatchellLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), orDefault(o.annualization, Core.REAL_DEFAULT), coreOf('ROGERSSATCHELL lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link rogerssatchell}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link RogerssatchellOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function rogerssatchellDisplayShift(outputIdx: number, options?: RogerssatchellOptions): number {
+  const o = optionsOf('ROGERSSATCHELL displayShift', options);
+  return rogerssatchellDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), orDefault(o.annualization, Core.REAL_DEFAULT), outputIdx, coreOf('ROGERSSATCHELL displayShift', o.core));
+}
+
+/**
+ * Rogers-Satchell volatility: a range-based estimator that reads one bar's open,
+ * high, low and close as a single unbiased estimate of that bar's variance, then
+ * reports the root of the mean over the last `n` bars, scaled to periods per year.
+ * What separates it from the other range estimators is that it is unbiased
+ * **whatever the drift**. A bar that opens at its low and closes at its high has
+ * travelled in one direction and dispersed nothing around that path, and this
+ * estimator reads it as exactly zero, where Parkinson and Garman-Klass read a wide
+ * range as volatility. The price of that is a blind spot of its own: the estimator
+ * has no close-to-open term, so overnight gaps are invisible to it. Read the
+ * output as a fraction in log-return units, not price units and not percent. At an
+ * `annualization` of 252 it is an annualised figure for daily bars; pass 1 to
+ * leave the per-bar figure, 52 for weekly bars, 12 for monthly.
+ *
+ * Formula and more info at
+ * [ta-lib.org/functions/rogerssatchell](https://ta-lib.org/functions/rogerssatchell).
+ *
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link rogerssatchellLookback} is a success with empty outputs.
+ *
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `open`: Open price of
+ *   each bar. `high`: High price of each bar. `low`: Low price of each bar. `close`:
+ *   Close price of each bar.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link RogerssatchellOptions}.
+ * @returns `begIdx` and the values; see {@link RogerssatchellResult}. Each output
+ *   is a view of its buffer, the caller's or a new one.
+ * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
+ *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a real parameter that is not a
+ *   number, a parameter outside its range, an input too short for the range, a
+ *   buffer that is empty, too short or of the wrong type or a buffer sharing memory
+ *   with a `Float64Array` input it is not. Checked before anything is written.
+ *
+ * @example
+ * ```ts
+ * import { rogerssatchell } from 'ta-lib';
+ *
+ * const open = new Float64Array(252); // your data, oldest first
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ * const close = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = rogerssatchell({ open, high, low, close }, {
+ *   timePeriod: 10,
+ *   annualization: 252,
+ * });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+ * ```
+ * @see [`atr`](https://ta-lib.org/functions/atr)
+ * @see [`natr`](https://ta-lib.org/functions/natr)
+ * @see [`var_`](https://ta-lib.org/functions/var)
+ */
+export function rogerssatchell(prices: { open: ArrayLike<number>; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: RogerssatchellOptions): RogerssatchellResult {
+  requireArgument('ROGERSSATCHELL', 'prices', prices);
+  const o = optionsOf('ROGERSSATCHELL', options);
+  if (o.endIdx === undefined) {
+    requireSeries('ROGERSSATCHELL', 'prices.open', prices.open);
+    requireSeries('ROGERSSATCHELL', 'prices.high', prices.high);
+    requireSeries('ROGERSSATCHELL', 'prices.low', prices.low);
+    requireSeries('ROGERSSATCHELL', 'prices.close', prices.close);
+  }
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInAnnualization = orDefault(o.annualization, Core.REAL_DEFAULT);
+  const core = coreOf('ROGERSSATCHELL', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.open.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core), prices.open, prices.high, prices.low, prices.close);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = rogerssatchellPositional(startIdx, endIdx, prices.open, prices.high, prices.low, prices.close, optInTimePeriod, optInAnnualization, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -449,7 +569,7 @@ export class RogerssatchellStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('ROGERSSATCHELL advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('ROGERSSATCHELL advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -457,23 +577,23 @@ export class RogerssatchellStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inOpen - The bar's `inOpen` value: Open price of each bar.
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
+   * @param open - The bar's `open` value: Open price of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inOpen: number, inHigh: number, inLow: number, inClose: number): number {
+  update(open: number, high: number, low: number, close: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('ROGERSSATCHELL update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('ROGERSSATCHELL update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inOpen) || !Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('ROGERSSATCHELL update', !Number.isFinite(inOpen) ? 'inOpen' : !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+    if (!Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('ROGERSSATCHELL update', !Number.isFinite(open) ? 'open' : !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
-    rogerssatchellStepImpl(this, inOpen, inHigh, inLow, inClose);
+    rogerssatchellStepImpl(this, open, high, low, close);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -481,19 +601,23 @@ export class RogerssatchellStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inOpen - The bar's `inOpen` value: Open price of each bar.
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
+   * @param open - The bar's `open` value: Open price of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inOpen: number, inHigh: number, inLow: number, inClose: number): number {
-    if (!Number.isFinite(inOpen) || !Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('ROGERSSATCHELL peek', !Number.isFinite(inOpen) ? 'inOpen' : !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+  peek(open: number, high: number, low: number, close: number): number {
+    if (!Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('ROGERSSATCHELL peek', !Number.isFinite(open) ? 'open' : !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
     const sp = this;
+    const inOpen = open;
+    const inHigh = high;
+    const inLow = low;
+    const inClose = close;
     let o = 0;
     let h = 0;
     let l = 0;
@@ -720,9 +844,6 @@ function rogerssatchellOpenImpl(
   let maxIdx_termRing = (32) - 1;
   const historyLen = inOpen.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -739,7 +860,7 @@ function rogerssatchellOpenImpl(
   } else if (!(optInAnnualization >= 0e0 && optInAnnualization <= Core.REAL_MAX)) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -917,7 +1038,10 @@ export function rogerssatchellOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('ROGERSSATCHELL openAndFill', inOpen.length, startIdx, rogerssatchellLookback(optInTimePeriod, optInAnnualization, core));
+    throw insufficientHistory('ROGERSSATCHELL openAndFill', inOpen.length, startIdx, rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core) < 0) {
+    throw rejectedParams('ROGERSSATCHELL openAndFill', PARAM_RANGES, optInTimePeriod, optInAnnualization);
   }
   throw streamFailure('ROGERSSATCHELL openAndFill', retCode);
 }
@@ -944,36 +1068,112 @@ export function rogerssatchellOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('ROGERSSATCHELL open', inOpen.length, startIdx, rogerssatchellLookback(optInTimePeriod, optInAnnualization, core));
+    throw insufficientHistory('ROGERSSATCHELL open', inOpen.length, startIdx, rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core) < 0) {
+    throw rejectedParams('ROGERSSATCHELL open', PARAM_RANGES, optInTimePeriod, optInAnnualization);
   }
   throw streamFailure('ROGERSSATCHELL open', retCode);
+}
+
+/** @internal */
+export function rogerssatchellOpenPositional(
+  inOpen: ArrayLike<number>,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  optInTimePeriod: number,
+  optInAnnualization: number,
+  core: Core = Core.DEFAULT,
+): RogerssatchellStream {
+  optInTimePeriod = requireInt32('ROGERSSATCHELL open', 'timePeriod', optInTimePeriod);
+  optInAnnualization = requireReal('ROGERSSATCHELL open', 'annualization', optInAnnualization);
+  requireArgument('ROGERSSATCHELL open', 'prices.open', inOpen);
+  requireHistory('ROGERSSATCHELL open', 'prices.open', inOpen.length);
+  requireArgument('ROGERSSATCHELL open', 'prices.high', inHigh);
+  requireArgument('ROGERSSATCHELL open', 'prices.low', inLow);
+  requireArgument('ROGERSSATCHELL open', 'prices.close', inClose);
+  requireHistoryLength('ROGERSSATCHELL open', 'prices.high', inHigh.length, inOpen.length);
+  requireHistoryLength('ROGERSSATCHELL open', 'prices.low', inLow.length, inOpen.length);
+  requireHistoryLength('ROGERSSATCHELL open', 'prices.close', inClose.length, inOpen.length);
+  return rogerssatchellOpenInternal(core, float64(inOpen), float64(inHigh), float64(inLow), float64(inClose), 0, optInTimePeriod, optInAnnualization);
+}
+
+/** @internal */
+export function rogerssatchellOpenAndFillPositional(
+  inOpen: ArrayLike<number>,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  optInTimePeriod: number,
+  optInAnnualization: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): RogerssatchellStream {
+  optInTimePeriod = requireInt32('ROGERSSATCHELL openAndFill', 'timePeriod', optInTimePeriod);
+  optInAnnualization = requireReal('ROGERSSATCHELL openAndFill', 'annualization', optInAnnualization);
+  requireArgument('ROGERSSATCHELL openAndFill', 'prices.open', inOpen);
+  requireHistory('ROGERSSATCHELL openAndFill', 'prices.open', inOpen.length);
+  requireArgument('ROGERSSATCHELL openAndFill', 'prices.high', inHigh);
+  requireArgument('ROGERSSATCHELL openAndFill', 'prices.low', inLow);
+  requireArgument('ROGERSSATCHELL openAndFill', 'prices.close', inClose);
+  const guardLookback = rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('ROGERSSATCHELL openAndFill', PARAM_RANGES, optInTimePeriod, optInAnnualization);
+  }
+  const guardOutLen = openFillCount('ROGERSSATCHELL openAndFill', inOpen.length, guardLookback);
+  requireHistoryLength('ROGERSSATCHELL openAndFill', 'prices.high', inHigh.length, inOpen.length);
+  requireHistoryLength('ROGERSSATCHELL openAndFill', 'prices.low', inLow.length, inOpen.length);
+  requireHistoryLength('ROGERSSATCHELL openAndFill', 'prices.close', inClose.length, inOpen.length);
+  requireOutput('ROGERSSATCHELL openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
+  const inOpenF64 = float64(inOpen);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  if (outReal.buffer === inOpenF64.buffer && outReal.byteOffset === inOpenF64.byteOffset) {
+    throw sharedMemory('ROGERSSATCHELL openAndFill', 'outReal', 'prices.open');
+  }
+  if (outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('ROGERSSATCHELL openAndFill', 'outReal', 'prices.high');
+  }
+  if (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('ROGERSSATCHELL openAndFill', 'outReal', 'prices.low');
+  }
+  if (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('ROGERSSATCHELL openAndFill', 'outReal', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inOpenF64)) {
+    throw sharedMemory('ROGERSSATCHELL openAndFill', 'outReal', 'prices.open');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inHighF64)) {
+    throw sharedMemory('ROGERSSATCHELL openAndFill', 'outReal', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inLowF64)) {
+    throw sharedMemory('ROGERSSATCHELL openAndFill', 'outReal', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inCloseF64)) {
+    throw sharedMemory('ROGERSSATCHELL openAndFill', 'outReal', 'prices.close');
+  }
+  return rogerssatchellOpenAndFillInternal(core, inOpenF64, inHighF64, inLowF64, inCloseF64, 0, optInTimePeriod, optInAnnualization, new MInteger(), new MInteger(), outReal);
 }
 
 /**
  * Opens a live ROGERSSATCHELL stream over the warm-up history: `value()` starts at
  * the last history bar, bit-identical to {@link rogerssatchell} there.
  *
- * @param inOpen - Warm-up history. Open price of each bar. Every history has the
- *   same length.
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Number of bars in the window. `n = 1` is the paper's
- *   own single-bar estimator (default 10; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAnnualization - Periods per year. Pass 1 for the per-bar figure
- *   (default 252; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `open`: Open price of each bar. `high`: High price of each bar. `low`: Low price
+ *   of each bar. `close`: Close price of each bar.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link RogerssatchellOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `rogerssatchellLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for
- *   an empty one, and `TA_BAD_PARAM` for an integer parameter that is not an int32,
- *   a real parameter that is not a number, a parameter outside its range or
- *   histories of different lengths.
+ *   than `rogerssatchellLookback(...) + 1` bars, an empty one included, and
+ *   `TA_BAD_PARAM` for options that are not an object, a `core` that is not a
+ *   `Core`, an absent input, an integer parameter that is not an int32, a real
+ *   parameter that is not a number, a parameter outside its range or histories of
+ *   different lengths.
  *
  * @example
  * ```ts
@@ -987,64 +1187,44 @@ export function rogerssatchellOpenInternal(
  *   99 + 10 * Math.sin(0.1 * i));
  * const close = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const stream = rogerssatchellOpen(open, high, low, close, 10, 252);
+ * const stream = rogerssatchellOpen({ open, high, low, close }, {
+ *   timePeriod: 10,
+ *   annualization: 252,
+ * });
  * const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
  * const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
  * ```
  */
-export function rogerssatchellOpen(
-  inOpen: ArrayLike<number>,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  optInTimePeriod: number,
-  optInAnnualization: number,
-  core: Core = Core.DEFAULT,
-): RogerssatchellStream {
-  optInTimePeriod = requireInt32('ROGERSSATCHELL open', 'optInTimePeriod', optInTimePeriod);
-  optInAnnualization = requireReal('ROGERSSATCHELL open', 'optInAnnualization', optInAnnualization);
-  requireArgument('ROGERSSATCHELL open', 'inOpen', inOpen);
-  requireHistory('ROGERSSATCHELL open', inOpen.length);
-  requireArgument('ROGERSSATCHELL open', 'inHigh', inHigh);
-  requireArgument('ROGERSSATCHELL open', 'inLow', inLow);
-  requireArgument('ROGERSSATCHELL open', 'inClose', inClose);
-  requireHistoryLength('ROGERSSATCHELL open', 'inHigh', inHigh.length, inOpen.length);
-  requireHistoryLength('ROGERSSATCHELL open', 'inLow', inLow.length, inOpen.length);
-  requireHistoryLength('ROGERSSATCHELL open', 'inClose', inClose.length, inOpen.length);
-  return rogerssatchellOpenInternal(core, float64(inOpen), float64(inHigh), float64(inLow), float64(inClose), 0, optInTimePeriod, optInAnnualization);
+export function rogerssatchellOpen(prices: { open: ArrayLike<number>; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: RogerssatchellOptions): RogerssatchellStream {
+  requireArgument('ROGERSSATCHELL open', 'prices', prices);
+  const o = optionsOf('ROGERSSATCHELL open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInAnnualization = orDefault(o.annualization, Core.REAL_DEFAULT);
+  const core = coreOf('ROGERSSATCHELL open', o.core);
+  return rogerssatchellOpenPositional(prices.open, prices.high, prices.low, prices.close, optInTimePeriod, optInAnnualization, core);
 }
 
 /**
- * {@link rogerssatchellOpen} that also fills the outputs over the whole history in
- * the same pass, bit-identically to {@link rogerssatchell}. The range written is
- * the stream's `outRange()`.
+ * {@link rogerssatchellOpen} that also computes the outputs over the whole history
+ * in the same pass, bit-identically to {@link rogerssatchell}.
  *
- * @param inOpen - Warm-up history. Open price of each bar. Every history has the
- *   same length.
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Number of bars in the window. `n = 1` is the paper's
- *   own single-bar estimator (default 10; range 1 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAnnualization - Periods per year. Pass 1 for the per-bar figure
- *   (default 252; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param outReal - Estimated volatility, in log-return units. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `open`: Open price of each bar. `high`: High price of each bar. `low`: Low price
+ *   of each bar. `close`: Close price of each bar.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link RogerssatchellOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link rogerssatchell} returns them; the range is the
+ *   stream's `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `rogerssatchellLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for
- *   an empty one, and `TA_BAD_PARAM` for an integer parameter that is not an int32,
- *   a real parameter that is not a number, a parameter outside its range, histories
- *   of different lengths or an output too short or starting where another output or
- *   a `Float64Array` input starts, or, on a history long enough to open, one sharing
- *   memory with another output or a `Float64Array` input.
+ *   than `rogerssatchellLookback(...) + 1` bars, an empty one included, and
+ *   `TA_BAD_PARAM` for options that are not an object, a `core` that is not a
+ *   `Core`, an absent input, an integer parameter that is not an int32, a real
+ *   parameter that is not a number, a parameter outside its range, histories of
+ *   different lengths or a buffer too short, of the wrong type or starting where
+ *   another buffer or a `Float64Array` input starts, or, on a history long enough to
+ *   open, one sharing memory with another buffer or a `Float64Array` input.
  *
  * @example
  * ```ts
@@ -1058,43 +1238,22 @@ export function rogerssatchellOpen(
  *   99 + 10 * Math.sin(0.1 * i));
  * const close = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const out = new Float64Array(open.length);
- * const stream = rogerssatchellOpenAndFill(open, high, low, close, 10, 252, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = rogerssatchellOpenAndFill({ open, high, low, close }, {
+ *   timePeriod: 10,
+ *   annualization: 252,
+ * });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function rogerssatchellOpenAndFill(
-  inOpen: ArrayLike<number>,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  optInTimePeriod: number,
-  optInAnnualization: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): RogerssatchellStream {
-  optInTimePeriod = requireInt32('ROGERSSATCHELL openAndFill', 'optInTimePeriod', optInTimePeriod);
-  optInAnnualization = requireReal('ROGERSSATCHELL openAndFill', 'optInAnnualization', optInAnnualization);
-  requireArgument('ROGERSSATCHELL openAndFill', 'inOpen', inOpen);
-  requireHistory('ROGERSSATCHELL openAndFill', inOpen.length);
-  requireArgument('ROGERSSATCHELL openAndFill', 'inHigh', inHigh);
-  requireArgument('ROGERSSATCHELL openAndFill', 'inLow', inLow);
-  requireArgument('ROGERSSATCHELL openAndFill', 'inClose', inClose);
-  const guardOutLen = openFillCount('ROGERSSATCHELL openAndFill', inOpen.length, rogerssatchellLookback(optInTimePeriod, optInAnnualization, core));
-  requireHistoryLength('ROGERSSATCHELL openAndFill', 'inHigh', inHigh.length, inOpen.length);
-  requireHistoryLength('ROGERSSATCHELL openAndFill', 'inLow', inLow.length, inOpen.length);
-  requireHistoryLength('ROGERSSATCHELL openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireOutput('ROGERSSATCHELL openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
-  const inOpenF64 = float64(inOpen);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  if ((outReal.buffer === inOpenF64.buffer && outReal.byteOffset === inOpenF64.byteOffset) || (outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) || (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset)) {
-    throw streamFailure('ROGERSSATCHELL openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outReal, inOpenF64) || overlaps(outReal, inHighF64) || overlaps(outReal, inLowF64) || overlaps(outReal, inCloseF64))) {
-    throw streamFailure('ROGERSSATCHELL openAndFill', RetCode.BAD_PARAM);
-  }
-  return rogerssatchellOpenAndFillInternal(core, inOpenF64, inHighF64, inLowF64, inCloseF64, 0, optInTimePeriod, optInAnnualization, new MInteger(), new MInteger(), outReal);
+export function rogerssatchellOpenAndFill(prices: { open: ArrayLike<number>; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: RogerssatchellOptions): RogerssatchellResult & { stream: RogerssatchellStream } {
+  requireArgument('ROGERSSATCHELL openAndFill', 'prices', prices);
+  const o = optionsOf('ROGERSSATCHELL openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInAnnualization = orDefault(o.annualization, Core.REAL_DEFAULT);
+  const core = coreOf('ROGERSSATCHELL openAndFill', o.core);
+  const capacity = fillCapacity(rogerssatchellLookbackPositional(optInTimePeriod, optInAnnualization, core), prices.open, prices.high, prices.low, prices.close);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = rogerssatchellOpenAndFillPositional(prices.open, prices.high, prices.low, prices.close, optInTimePeriod, optInAnnualization, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }

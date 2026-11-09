@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -96,26 +96,23 @@ import {
 } from 'ta-lib';
 
 test('CDL2CROWS: cdl2crows example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdl2crows(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdl2crows({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDL2CROWS: cdl2crowsOpen example', () => {
@@ -127,7 +124,7 @@ test('CDL2CROWS: cdl2crowsOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdl2crowsOpen(open, high, low, close);
+  const stream = cdl2crowsOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -146,41 +143,37 @@ test('CDL2CROWS: cdl2crowsOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdl2crowsOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdl2crowsOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdl2crows(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdl2crows({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDL3BLACKCROWS: cdl3blackcrows example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdl3blackcrows(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdl3blackcrows({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDL3BLACKCROWS: cdl3blackcrowsOpen example', () => {
@@ -192,7 +185,7 @@ test('CDL3BLACKCROWS: cdl3blackcrowsOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdl3blackcrowsOpen(open, high, low, close);
+  const stream = cdl3blackcrowsOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -211,45 +204,37 @@ test('CDL3BLACKCROWS: cdl3blackcrowsOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdl3blackcrowsOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdl3blackcrowsOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdl3blackcrows(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdl3blackcrows({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDL3INSIDE: cdl3inside example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdl3inside(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdl3inside({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDL3INSIDE: cdl3insideOpen example', () => {
@@ -261,7 +246,7 @@ test('CDL3INSIDE: cdl3insideOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdl3insideOpen(open, high, low, close);
+  const stream = cdl3insideOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -280,41 +265,37 @@ test('CDL3INSIDE: cdl3insideOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdl3insideOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdl3insideOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdl3inside(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdl3inside({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDL3LINESTRIKE: cdl3linestrike example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdl3linestrike(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdl3linestrike({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDL3LINESTRIKE: cdl3linestrikeOpen example', () => {
@@ -326,7 +307,7 @@ test('CDL3LINESTRIKE: cdl3linestrikeOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdl3linestrikeOpen(open, high, low, close);
+  const stream = cdl3linestrikeOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -345,45 +326,37 @@ test('CDL3LINESTRIKE: cdl3linestrikeOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdl3linestrikeOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdl3linestrikeOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdl3linestrike(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdl3linestrike({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDL3OUTSIDE: cdl3outside example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdl3outside(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdl3outside({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDL3OUTSIDE: cdl3outsideOpen example', () => {
@@ -395,7 +368,7 @@ test('CDL3OUTSIDE: cdl3outsideOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdl3outsideOpen(open, high, low, close);
+  const stream = cdl3outsideOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -414,41 +387,37 @@ test('CDL3OUTSIDE: cdl3outsideOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdl3outsideOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdl3outsideOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdl3outside(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdl3outside({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDL3STARSINSOUTH: cdl3starsinsouth example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdl3starsinsouth(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdl3starsinsouth({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDL3STARSINSOUTH: cdl3starsinsouthOpen example', () => {
@@ -460,7 +429,7 @@ test('CDL3STARSINSOUTH: cdl3starsinsouthOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdl3starsinsouthOpen(open, high, low, close);
+  const stream = cdl3starsinsouthOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -479,45 +448,37 @@ test('CDL3STARSINSOUTH: cdl3starsinsouthOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdl3starsinsouthOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdl3starsinsouthOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdl3starsinsouth(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdl3starsinsouth({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDL3WHITESOLDIERS: cdl3whitesoldiers example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdl3whitesoldiers(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdl3whitesoldiers({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDL3WHITESOLDIERS: cdl3whitesoldiersOpen example', () => {
@@ -529,7 +490,7 @@ test('CDL3WHITESOLDIERS: cdl3whitesoldiersOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdl3whitesoldiersOpen(open, high, low, close);
+  const stream = cdl3whitesoldiersOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -548,46 +509,39 @@ test('CDL3WHITESOLDIERS: cdl3whitesoldiersOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdl3whitesoldiersOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdl3whitesoldiersOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdl3whitesoldiers(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdl3whitesoldiers({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLABANDONEDBABY: cdlabandonedbaby example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlabandonedbaby(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlabandonedbaby({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLABANDONEDBABY: cdlabandonedbabyOpen example', () => {
@@ -599,7 +553,9 @@ test('CDLABANDONEDBABY: cdlabandonedbabyOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlabandonedbabyOpen(open, high, low, close, 0.3);
+  const stream = cdlabandonedbabyOpen({ open, high, low, close }, {
+    penetration: 0.3,
+  });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -618,46 +574,41 @@ test('CDLABANDONEDBABY: cdlabandonedbabyOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlabandonedbabyOpenAndFill(open, high, low, close, 0.3, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlabandonedbabyOpenAndFill({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlabandonedbaby(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlabandonedbaby({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLADVANCEBLOCK: cdladvanceblock example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdladvanceblock(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdladvanceblock({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLADVANCEBLOCK: cdladvanceblockOpen example', () => {
@@ -669,7 +620,7 @@ test('CDLADVANCEBLOCK: cdladvanceblockOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdladvanceblockOpen(open, high, low, close);
+  const stream = cdladvanceblockOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -688,45 +639,37 @@ test('CDLADVANCEBLOCK: cdladvanceblockOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdladvanceblockOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdladvanceblockOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdladvanceblock(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdladvanceblock({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLBELTHOLD: cdlbelthold example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlbelthold(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlbelthold({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLBELTHOLD: cdlbeltholdOpen example', () => {
@@ -738,7 +681,7 @@ test('CDLBELTHOLD: cdlbeltholdOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlbeltholdOpen(open, high, low, close);
+  const stream = cdlbeltholdOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -757,41 +700,37 @@ test('CDLBELTHOLD: cdlbeltholdOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlbeltholdOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlbeltholdOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlbelthold(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlbelthold({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLBREAKAWAY: cdlbreakaway example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlbreakaway(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlbreakaway({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLBREAKAWAY: cdlbreakawayOpen example', () => {
@@ -803,7 +742,7 @@ test('CDLBREAKAWAY: cdlbreakawayOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlbreakawayOpen(open, high, low, close);
+  const stream = cdlbreakawayOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -822,45 +761,37 @@ test('CDLBREAKAWAY: cdlbreakawayOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlbreakawayOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlbreakawayOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlbreakaway(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlbreakaway({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLCLOSINGMARUBOZU: cdlclosingmarubozu example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlclosingmarubozu(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlclosingmarubozu({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLCLOSINGMARUBOZU: cdlclosingmarubozuOpen example', () => {
@@ -872,7 +803,7 @@ test('CDLCLOSINGMARUBOZU: cdlclosingmarubozuOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlclosingmarubozuOpen(open, high, low, close);
+  const stream = cdlclosingmarubozuOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -891,45 +822,37 @@ test('CDLCLOSINGMARUBOZU: cdlclosingmarubozuOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlclosingmarubozuOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlclosingmarubozuOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlclosingmarubozu(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlclosingmarubozu({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLCONCEALBABYSWALL: cdlconcealbabyswall example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlconcealbabyswall(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlconcealbabyswall({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLCONCEALBABYSWALL: cdlconcealbabyswallOpen example', () => {
@@ -941,7 +864,7 @@ test('CDLCONCEALBABYSWALL: cdlconcealbabyswallOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlconcealbabyswallOpen(open, high, low, close);
+  const stream = cdlconcealbabyswallOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -960,45 +883,37 @@ test('CDLCONCEALBABYSWALL: cdlconcealbabyswallOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlconcealbabyswallOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlconcealbabyswallOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlconcealbabyswall(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlconcealbabyswall({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLCOUNTERATTACK: cdlcounterattack example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlcounterattack(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlcounterattack({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLCOUNTERATTACK: cdlcounterattackOpen example', () => {
@@ -1010,7 +925,7 @@ test('CDLCOUNTERATTACK: cdlcounterattackOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlcounterattackOpen(open, high, low, close);
+  const stream = cdlcounterattackOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1029,46 +944,39 @@ test('CDLCOUNTERATTACK: cdlcounterattackOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlcounterattackOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlcounterattackOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlcounterattack(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlcounterattack({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLDARKCLOUDCOVER: cdldarkcloudcover example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdldarkcloudcover(
-    0, open.length - 1,
-    open, high, low, close,
-    0.5,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdldarkcloudcover({ open, high, low, close }, {
+    penetration: 0.5,
+  });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLDARKCLOUDCOVER: cdldarkcloudcoverOpen example', () => {
@@ -1080,7 +988,9 @@ test('CDLDARKCLOUDCOVER: cdldarkcloudcoverOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdldarkcloudcoverOpen(open, high, low, close, 0.5);
+  const stream = cdldarkcloudcoverOpen({ open, high, low, close }, {
+    penetration: 0.5,
+  });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1099,46 +1009,41 @@ test('CDLDARKCLOUDCOVER: cdldarkcloudcoverOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdldarkcloudcoverOpenAndFill(open, high, low, close, 0.5, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdldarkcloudcoverOpenAndFill({ open, high, low, close }, {
+    penetration: 0.5,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdldarkcloudcover(
-    0, open.length - 1,
-    open, high, low, close,
-    0.5,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdldarkcloudcover({ open, high, low, close }, {
+    penetration: 0.5,
+  });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLDOJI: cdldoji example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdldoji(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdldoji({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLDOJI: cdldojiOpen example', () => {
@@ -1150,7 +1055,7 @@ test('CDLDOJI: cdldojiOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdldojiOpen(open, high, low, close);
+  const stream = cdldojiOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1169,41 +1074,37 @@ test('CDLDOJI: cdldojiOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdldojiOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdldojiOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdldoji(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdldoji({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLDOJISTAR: cdldojistar example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdldojistar(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdldojistar({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLDOJISTAR: cdldojistarOpen example', () => {
@@ -1215,7 +1116,7 @@ test('CDLDOJISTAR: cdldojistarOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdldojistarOpen(open, high, low, close);
+  const stream = cdldojistarOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1234,41 +1135,37 @@ test('CDLDOJISTAR: cdldojistarOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdldojistarOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdldojistarOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdldojistar(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdldojistar({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLDRAGONFLYDOJI: cdldragonflydoji example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdldragonflydoji(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdldragonflydoji({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLDRAGONFLYDOJI: cdldragonflydojiOpen example', () => {
@@ -1280,7 +1177,7 @@ test('CDLDRAGONFLYDOJI: cdldragonflydojiOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdldragonflydojiOpen(open, high, low, close);
+  const stream = cdldragonflydojiOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1299,45 +1196,37 @@ test('CDLDRAGONFLYDOJI: cdldragonflydojiOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdldragonflydojiOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdldragonflydojiOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdldragonflydoji(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdldragonflydoji({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLENGULFING: cdlengulfing example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlengulfing(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlengulfing({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, -80, 0, 80, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, -80, 0, 80, 100].includes(v)));
 });
 
 test('CDLENGULFING: cdlengulfingOpen example', () => {
@@ -1349,7 +1238,7 @@ test('CDLENGULFING: cdlengulfingOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlengulfingOpen(open, high, low, close);
+  const stream = cdlengulfingOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1368,46 +1257,39 @@ test('CDLENGULFING: cdlengulfingOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlengulfingOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlengulfingOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlengulfing(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlengulfing({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLEVENINGDOJISTAR: cdleveningdojistar example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdleveningdojistar(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdleveningdojistar({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLEVENINGDOJISTAR: cdleveningdojistarOpen example', () => {
@@ -1419,7 +1301,9 @@ test('CDLEVENINGDOJISTAR: cdleveningdojistarOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdleveningdojistarOpen(open, high, low, close, 0.3);
+  const stream = cdleveningdojistarOpen({ open, high, low, close }, {
+    penetration: 0.3,
+  });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1438,47 +1322,43 @@ test('CDLEVENINGDOJISTAR: cdleveningdojistarOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdleveningdojistarOpenAndFill(open, high, low, close, 0.3, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdleveningdojistarOpenAndFill({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdleveningdojistar(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdleveningdojistar({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLEVENINGSTAR: cdleveningstar example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdleveningstar(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdleveningstar({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLEVENINGSTAR: cdleveningstarOpen example', () => {
@@ -1490,7 +1370,9 @@ test('CDLEVENINGSTAR: cdleveningstarOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdleveningstarOpen(open, high, low, close, 0.3);
+  const stream = cdleveningstarOpen({ open, high, low, close }, {
+    penetration: 0.3,
+  });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1509,46 +1391,39 @@ test('CDLEVENINGSTAR: cdleveningstarOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdleveningstarOpenAndFill(open, high, low, close, 0.3, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdleveningstarOpenAndFill({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdleveningstar(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdleveningstar({ open, high, low, close }, { penetration: 0.3 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLGAPSIDESIDEWHITE: cdlgapsidesidewhite example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlgapsidesidewhite(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlgapsidesidewhite({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLGAPSIDESIDEWHITE: cdlgapsidesidewhiteOpen example', () => {
@@ -1560,7 +1435,7 @@ test('CDLGAPSIDESIDEWHITE: cdlgapsidesidewhiteOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlgapsidesidewhiteOpen(open, high, low, close);
+  const stream = cdlgapsidesidewhiteOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1579,45 +1454,37 @@ test('CDLGAPSIDESIDEWHITE: cdlgapsidesidewhiteOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlgapsidesidewhiteOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlgapsidesidewhiteOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlgapsidesidewhite(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlgapsidesidewhite({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLGRAVESTONEDOJI: cdlgravestonedoji example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlgravestonedoji(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlgravestonedoji({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLGRAVESTONEDOJI: cdlgravestonedojiOpen example', () => {
@@ -1629,7 +1496,7 @@ test('CDLGRAVESTONEDOJI: cdlgravestonedojiOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlgravestonedojiOpen(open, high, low, close);
+  const stream = cdlgravestonedojiOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1648,45 +1515,37 @@ test('CDLGRAVESTONEDOJI: cdlgravestonedojiOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlgravestonedojiOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlgravestonedojiOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlgravestonedoji(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlgravestonedoji({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLHAMMER: cdlhammer example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlhammer(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlhammer({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLHAMMER: cdlhammerOpen example', () => {
@@ -1698,7 +1557,7 @@ test('CDLHAMMER: cdlhammerOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlhammerOpen(open, high, low, close);
+  const stream = cdlhammerOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1717,41 +1576,37 @@ test('CDLHAMMER: cdlhammerOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlhammerOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlhammerOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlhammer(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlhammer({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLHANGINGMAN: cdlhangingman example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlhangingman(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlhangingman({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLHANGINGMAN: cdlhangingmanOpen example', () => {
@@ -1763,7 +1618,7 @@ test('CDLHANGINGMAN: cdlhangingmanOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlhangingmanOpen(open, high, low, close);
+  const stream = cdlhangingmanOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1782,45 +1637,37 @@ test('CDLHANGINGMAN: cdlhangingmanOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlhangingmanOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlhangingmanOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlhangingman(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlhangingman({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLHARAMI: cdlharami example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlharami(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlharami({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, -80, 0, 80, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, -80, 0, 80, 100].includes(v)));
 });
 
 test('CDLHARAMI: cdlharamiOpen example', () => {
@@ -1832,7 +1679,7 @@ test('CDLHARAMI: cdlharamiOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlharamiOpen(open, high, low, close);
+  const stream = cdlharamiOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1851,41 +1698,37 @@ test('CDLHARAMI: cdlharamiOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlharamiOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlharamiOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlharami(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlharami({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLHARAMICROSS: cdlharamicross example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlharamicross(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlharamicross({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, -80, 0, 80, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, -80, 0, 80, 100].includes(v)));
 });
 
 test('CDLHARAMICROSS: cdlharamicrossOpen example', () => {
@@ -1897,7 +1740,7 @@ test('CDLHARAMICROSS: cdlharamicrossOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlharamicrossOpen(open, high, low, close);
+  const stream = cdlharamicrossOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1916,45 +1759,37 @@ test('CDLHARAMICROSS: cdlharamicrossOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlharamicrossOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlharamicrossOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlharamicross(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlharamicross({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLHIGHWAVE: cdlhighwave example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlhighwave(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlhighwave({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLHIGHWAVE: cdlhighwaveOpen example', () => {
@@ -1966,7 +1801,7 @@ test('CDLHIGHWAVE: cdlhighwaveOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlhighwaveOpen(open, high, low, close);
+  const stream = cdlhighwaveOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -1985,41 +1820,37 @@ test('CDLHIGHWAVE: cdlhighwaveOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlhighwaveOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlhighwaveOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlhighwave(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlhighwave({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLHIKKAKE: cdlhikkake example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlhikkake(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlhikkake({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-200, -100, 0, 100, 200].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-200, -100, 0, 100, 200].includes(v)));
 });
 
 test('CDLHIKKAKE: cdlhikkakeOpen example', () => {
@@ -2031,7 +1862,7 @@ test('CDLHIKKAKE: cdlhikkakeOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlhikkakeOpen(open, high, low, close);
+  const stream = cdlhikkakeOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2050,41 +1881,37 @@ test('CDLHIKKAKE: cdlhikkakeOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlhikkakeOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlhikkakeOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlhikkake(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlhikkake({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLHIKKAKEMOD: cdlhikkakemod example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlhikkakemod(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlhikkakemod({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-200, -100, 0, 100, 200].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-200, -100, 0, 100, 200].includes(v)));
 });
 
 test('CDLHIKKAKEMOD: cdlhikkakemodOpen example', () => {
@@ -2096,7 +1923,7 @@ test('CDLHIKKAKEMOD: cdlhikkakemodOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlhikkakemodOpen(open, high, low, close);
+  const stream = cdlhikkakemodOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2115,45 +1942,37 @@ test('CDLHIKKAKEMOD: cdlhikkakemodOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlhikkakemodOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlhikkakemodOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlhikkakemod(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlhikkakemod({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLHOMINGPIGEON: cdlhomingpigeon example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlhomingpigeon(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlhomingpigeon({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLHOMINGPIGEON: cdlhomingpigeonOpen example', () => {
@@ -2165,7 +1984,7 @@ test('CDLHOMINGPIGEON: cdlhomingpigeonOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlhomingpigeonOpen(open, high, low, close);
+  const stream = cdlhomingpigeonOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2184,45 +2003,37 @@ test('CDLHOMINGPIGEON: cdlhomingpigeonOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlhomingpigeonOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlhomingpigeonOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlhomingpigeon(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlhomingpigeon({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLIDENTICAL3CROWS: cdlidentical3crows example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlidentical3crows(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlidentical3crows({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLIDENTICAL3CROWS: cdlidentical3crowsOpen example', () => {
@@ -2234,7 +2045,7 @@ test('CDLIDENTICAL3CROWS: cdlidentical3crowsOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlidentical3crowsOpen(open, high, low, close);
+  const stream = cdlidentical3crowsOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2253,45 +2064,37 @@ test('CDLIDENTICAL3CROWS: cdlidentical3crowsOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlidentical3crowsOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlidentical3crowsOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlidentical3crows(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlidentical3crows({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLINNECK: cdlinneck example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlinneck(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlinneck({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLINNECK: cdlinneckOpen example', () => {
@@ -2303,7 +2106,7 @@ test('CDLINNECK: cdlinneckOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlinneckOpen(open, high, low, close);
+  const stream = cdlinneckOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2322,41 +2125,37 @@ test('CDLINNECK: cdlinneckOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlinneckOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlinneckOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlinneck(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlinneck({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLINVERTEDHAMMER: cdlinvertedhammer example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlinvertedhammer(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlinvertedhammer({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLINVERTEDHAMMER: cdlinvertedhammerOpen example', () => {
@@ -2368,7 +2167,7 @@ test('CDLINVERTEDHAMMER: cdlinvertedhammerOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlinvertedhammerOpen(open, high, low, close);
+  const stream = cdlinvertedhammerOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2387,45 +2186,37 @@ test('CDLINVERTEDHAMMER: cdlinvertedhammerOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlinvertedhammerOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlinvertedhammerOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlinvertedhammer(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlinvertedhammer({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLKICKING: cdlkicking example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlkicking(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlkicking({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLKICKING: cdlkickingOpen example', () => {
@@ -2437,7 +2228,7 @@ test('CDLKICKING: cdlkickingOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlkickingOpen(open, high, low, close);
+  const stream = cdlkickingOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2456,41 +2247,37 @@ test('CDLKICKING: cdlkickingOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlkickingOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlkickingOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlkicking(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlkicking({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLKICKINGBYLENGTH: cdlkickingbylength example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlkickingbylength(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlkickingbylength({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLKICKINGBYLENGTH: cdlkickingbylengthOpen example', () => {
@@ -2502,7 +2289,7 @@ test('CDLKICKINGBYLENGTH: cdlkickingbylengthOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlkickingbylengthOpen(open, high, low, close);
+  const stream = cdlkickingbylengthOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2521,45 +2308,37 @@ test('CDLKICKINGBYLENGTH: cdlkickingbylengthOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlkickingbylengthOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlkickingbylengthOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlkickingbylength(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlkickingbylength({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLLADDERBOTTOM: cdlladderbottom example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlladderbottom(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlladderbottom({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLLADDERBOTTOM: cdlladderbottomOpen example', () => {
@@ -2571,7 +2350,7 @@ test('CDLLADDERBOTTOM: cdlladderbottomOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlladderbottomOpen(open, high, low, close);
+  const stream = cdlladderbottomOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2590,45 +2369,37 @@ test('CDLLADDERBOTTOM: cdlladderbottomOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlladderbottomOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlladderbottomOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlladderbottom(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlladderbottom({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLLONGLEGGEDDOJI: cdllongleggeddoji example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdllongleggeddoji(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdllongleggeddoji({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLLONGLEGGEDDOJI: cdllongleggeddojiOpen example', () => {
@@ -2640,7 +2411,7 @@ test('CDLLONGLEGGEDDOJI: cdllongleggeddojiOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdllongleggeddojiOpen(open, high, low, close);
+  const stream = cdllongleggeddojiOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2659,45 +2430,37 @@ test('CDLLONGLEGGEDDOJI: cdllongleggeddojiOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdllongleggeddojiOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdllongleggeddojiOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdllongleggeddoji(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdllongleggeddoji({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLLONGLINE: cdllongline example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdllongline(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdllongline({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLLONGLINE: cdllonglineOpen example', () => {
@@ -2709,7 +2472,7 @@ test('CDLLONGLINE: cdllonglineOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdllonglineOpen(open, high, low, close);
+  const stream = cdllonglineOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2728,41 +2491,37 @@ test('CDLLONGLINE: cdllonglineOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdllonglineOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdllonglineOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdllongline(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdllongline({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLMARUBOZU: cdlmarubozu example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlmarubozu(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlmarubozu({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLMARUBOZU: cdlmarubozuOpen example', () => {
@@ -2774,7 +2533,7 @@ test('CDLMARUBOZU: cdlmarubozuOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlmarubozuOpen(open, high, low, close);
+  const stream = cdlmarubozuOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2793,41 +2552,37 @@ test('CDLMARUBOZU: cdlmarubozuOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlmarubozuOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlmarubozuOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlmarubozu(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlmarubozu({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLMATCHINGLOW: cdlmatchinglow example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlmatchinglow(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlmatchinglow({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLMATCHINGLOW: cdlmatchinglowOpen example', () => {
@@ -2839,7 +2594,7 @@ test('CDLMATCHINGLOW: cdlmatchinglowOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlmatchinglowOpen(open, high, low, close);
+  const stream = cdlmatchinglowOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2858,46 +2613,39 @@ test('CDLMATCHINGLOW: cdlmatchinglowOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlmatchinglowOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlmatchinglowOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlmatchinglow(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlmatchinglow({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLMATHOLD: cdlmathold example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlmathold(
-    0, open.length - 1,
-    open, high, low, close,
-    0.5,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlmathold({ open, high, low, close }, {
+    penetration: 0.5,
+  });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLMATHOLD: cdlmatholdOpen example', () => {
@@ -2909,7 +2657,7 @@ test('CDLMATHOLD: cdlmatholdOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlmatholdOpen(open, high, low, close, 0.5);
+  const stream = cdlmatholdOpen({ open, high, low, close }, { penetration: 0.5 });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2928,47 +2676,41 @@ test('CDLMATHOLD: cdlmatholdOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlmatholdOpenAndFill(open, high, low, close, 0.5, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlmatholdOpenAndFill({ open, high, low, close }, {
+    penetration: 0.5,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlmathold(
-    0, open.length - 1,
-    open, high, low, close,
-    0.5,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlmathold({ open, high, low, close }, { penetration: 0.5 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLMORNINGDOJISTAR: cdlmorningdojistar example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlmorningdojistar(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlmorningdojistar({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLMORNINGDOJISTAR: cdlmorningdojistarOpen example', () => {
@@ -2980,7 +2722,9 @@ test('CDLMORNINGDOJISTAR: cdlmorningdojistarOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlmorningdojistarOpen(open, high, low, close, 0.3);
+  const stream = cdlmorningdojistarOpen({ open, high, low, close }, {
+    penetration: 0.3,
+  });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -2999,47 +2743,43 @@ test('CDLMORNINGDOJISTAR: cdlmorningdojistarOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlmorningdojistarOpenAndFill(open, high, low, close, 0.3, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlmorningdojistarOpenAndFill({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlmorningdojistar(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlmorningdojistar({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLMORNINGSTAR: cdlmorningstar example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlmorningstar(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlmorningstar({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLMORNINGSTAR: cdlmorningstarOpen example', () => {
@@ -3051,7 +2791,9 @@ test('CDLMORNINGSTAR: cdlmorningstarOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlmorningstarOpen(open, high, low, close, 0.3);
+  const stream = cdlmorningstarOpen({ open, high, low, close }, {
+    penetration: 0.3,
+  });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3070,46 +2812,39 @@ test('CDLMORNINGSTAR: cdlmorningstarOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlmorningstarOpenAndFill(open, high, low, close, 0.3, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlmorningstarOpenAndFill({ open, high, low, close }, {
+    penetration: 0.3,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlmorningstar(
-    0, open.length - 1,
-    open, high, low, close,
-    0.3,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlmorningstar({ open, high, low, close }, { penetration: 0.3 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLONNECK: cdlonneck example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlonneck(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlonneck({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLONNECK: cdlonneckOpen example', () => {
@@ -3121,7 +2856,7 @@ test('CDLONNECK: cdlonneckOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlonneckOpen(open, high, low, close);
+  const stream = cdlonneckOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3140,41 +2875,37 @@ test('CDLONNECK: cdlonneckOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlonneckOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlonneckOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlonneck(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlonneck({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLPIERCING: cdlpiercing example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlpiercing(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlpiercing({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLPIERCING: cdlpiercingOpen example', () => {
@@ -3186,7 +2917,7 @@ test('CDLPIERCING: cdlpiercingOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlpiercingOpen(open, high, low, close);
+  const stream = cdlpiercingOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3205,41 +2936,37 @@ test('CDLPIERCING: cdlpiercingOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlpiercingOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlpiercingOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlpiercing(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlpiercing({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLRICKSHAWMAN: cdlrickshawman example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlrickshawman(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlrickshawman({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLRICKSHAWMAN: cdlrickshawmanOpen example', () => {
@@ -3251,7 +2978,7 @@ test('CDLRICKSHAWMAN: cdlrickshawmanOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlrickshawmanOpen(open, high, low, close);
+  const stream = cdlrickshawmanOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3270,45 +2997,37 @@ test('CDLRICKSHAWMAN: cdlrickshawmanOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlrickshawmanOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlrickshawmanOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlrickshawman(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlrickshawman({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLRISEFALL3METHODS: cdlrisefall3methods example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlrisefall3methods(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlrisefall3methods({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLRISEFALL3METHODS: cdlrisefall3methodsOpen example', () => {
@@ -3320,7 +3039,7 @@ test('CDLRISEFALL3METHODS: cdlrisefall3methodsOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlrisefall3methodsOpen(open, high, low, close);
+  const stream = cdlrisefall3methodsOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3339,45 +3058,37 @@ test('CDLRISEFALL3METHODS: cdlrisefall3methodsOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlrisefall3methodsOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlrisefall3methodsOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlrisefall3methods(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlrisefall3methods({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLSEPARATINGLINES: cdlseparatinglines example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlseparatinglines(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlseparatinglines({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLSEPARATINGLINES: cdlseparatinglinesOpen example', () => {
@@ -3389,7 +3100,7 @@ test('CDLSEPARATINGLINES: cdlseparatinglinesOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlseparatinglinesOpen(open, high, low, close);
+  const stream = cdlseparatinglinesOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3408,45 +3119,37 @@ test('CDLSEPARATINGLINES: cdlseparatinglinesOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlseparatinglinesOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlseparatinglinesOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlseparatinglines(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlseparatinglines({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLSHOOTINGSTAR: cdlshootingstar example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlshootingstar(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlshootingstar({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLSHOOTINGSTAR: cdlshootingstarOpen example', () => {
@@ -3458,7 +3161,7 @@ test('CDLSHOOTINGSTAR: cdlshootingstarOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlshootingstarOpen(open, high, low, close);
+  const stream = cdlshootingstarOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3477,45 +3180,37 @@ test('CDLSHOOTINGSTAR: cdlshootingstarOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlshootingstarOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlshootingstarOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlshootingstar(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlshootingstar({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLSHORTLINE: cdlshortline example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlshortline(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlshortline({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLSHORTLINE: cdlshortlineOpen example', () => {
@@ -3527,7 +3222,7 @@ test('CDLSHORTLINE: cdlshortlineOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlshortlineOpen(open, high, low, close);
+  const stream = cdlshortlineOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3546,45 +3241,37 @@ test('CDLSHORTLINE: cdlshortlineOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlshortlineOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlshortlineOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlshortline(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlshortline({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLSPINNINGTOP: cdlspinningtop example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlspinningtop(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlspinningtop({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLSPINNINGTOP: cdlspinningtopOpen example', () => {
@@ -3596,7 +3283,7 @@ test('CDLSPINNINGTOP: cdlspinningtopOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlspinningtopOpen(open, high, low, close);
+  const stream = cdlspinningtopOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3615,45 +3302,37 @@ test('CDLSPINNINGTOP: cdlspinningtopOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlspinningtopOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlspinningtopOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlspinningtop(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlspinningtop({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLSTALLEDPATTERN: cdlstalledpattern example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlstalledpattern(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlstalledpattern({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLSTALLEDPATTERN: cdlstalledpatternOpen example', () => {
@@ -3665,7 +3344,7 @@ test('CDLSTALLEDPATTERN: cdlstalledpatternOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlstalledpatternOpen(open, high, low, close);
+  const stream = cdlstalledpatternOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3684,45 +3363,37 @@ test('CDLSTALLEDPATTERN: cdlstalledpatternOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlstalledpatternOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlstalledpatternOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlstalledpattern(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlstalledpattern({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLSTICKSANDWICH: cdlsticksandwich example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlsticksandwich(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlsticksandwich({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLSTICKSANDWICH: cdlsticksandwichOpen example', () => {
@@ -3734,7 +3405,7 @@ test('CDLSTICKSANDWICH: cdlsticksandwichOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlsticksandwichOpen(open, high, low, close);
+  const stream = cdlsticksandwichOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3753,45 +3424,37 @@ test('CDLSTICKSANDWICH: cdlsticksandwichOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlsticksandwichOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlsticksandwichOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlsticksandwich(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlsticksandwich({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLTAKURI: cdltakuri example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdltakuri(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdltakuri({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLTAKURI: cdltakuriOpen example', () => {
@@ -3803,7 +3466,7 @@ test('CDLTAKURI: cdltakuriOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdltakuriOpen(open, high, low, close);
+  const stream = cdltakuriOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3822,41 +3485,37 @@ test('CDLTAKURI: cdltakuriOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdltakuriOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdltakuriOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdltakuri(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdltakuri({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLTASUKIGAP: cdltasukigap example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdltasukigap(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdltasukigap({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLTASUKIGAP: cdltasukigapOpen example', () => {
@@ -3868,7 +3527,7 @@ test('CDLTASUKIGAP: cdltasukigapOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdltasukigapOpen(open, high, low, close);
+  const stream = cdltasukigapOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3887,45 +3546,37 @@ test('CDLTASUKIGAP: cdltasukigapOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdltasukigapOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdltasukigapOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdltasukigap(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdltasukigap({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLTHRUSTING: cdlthrusting example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlthrusting(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlthrusting({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLTHRUSTING: cdlthrustingOpen example', () => {
@@ -3937,7 +3588,7 @@ test('CDLTHRUSTING: cdlthrustingOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlthrustingOpen(open, high, low, close);
+  const stream = cdlthrustingOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -3956,45 +3607,37 @@ test('CDLTHRUSTING: cdlthrustingOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlthrustingOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlthrustingOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlthrusting(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlthrusting({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLTRISTAR: cdltristar example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdltristar(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdltristar({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLTRISTAR: cdltristarOpen example', () => {
@@ -4006,7 +3649,7 @@ test('CDLTRISTAR: cdltristarOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdltristarOpen(open, high, low, close);
+  const stream = cdltristarOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -4025,41 +3668,37 @@ test('CDLTRISTAR: cdltristarOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdltristarOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdltristarOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdltristar(0, open.length - 1, open, high, low, close, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdltristar({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLUNIQUE3RIVER: cdlunique3river example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlunique3river(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlunique3river({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [0, 100].includes(v)));
 });
 
 test('CDLUNIQUE3RIVER: cdlunique3riverOpen example', () => {
@@ -4071,7 +3710,7 @@ test('CDLUNIQUE3RIVER: cdlunique3riverOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlunique3riverOpen(open, high, low, close);
+  const stream = cdlunique3riverOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -4090,45 +3729,37 @@ test('CDLUNIQUE3RIVER: cdlunique3riverOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlunique3riverOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlunique3riverOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlunique3river(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlunique3river({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLUPSIDEGAP2CROWS: cdlupsidegap2crows example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlupsidegap2crows(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlupsidegap2crows({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0].includes(v)));
 });
 
 test('CDLUPSIDEGAP2CROWS: cdlupsidegap2crowsOpen example', () => {
@@ -4140,7 +3771,7 @@ test('CDLUPSIDEGAP2CROWS: cdlupsidegap2crowsOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlupsidegap2crowsOpen(open, high, low, close);
+  const stream = cdlupsidegap2crowsOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -4159,45 +3790,37 @@ test('CDLUPSIDEGAP2CROWS: cdlupsidegap2crowsOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlupsidegap2crowsOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlupsidegap2crowsOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlupsidegap2crows(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlupsidegap2crows({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CDLXSIDEGAP3METHODS: cdlxsidegap3methods example', () => {
-  const open = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i - 0.05));
-  const high = Float64Array.from({ length: 252 }, (_, i) =>
-    101 + 10 * Math.sin(0.1 * i));
-  const low = Float64Array.from({ length: 252 }, (_, i) =>
-    99 + 10 * Math.sin(0.1 * i));
-  const close = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const { begIdx, count } = cdlxsidegap3methods(
-    0, open.length - 1,
-    open, high, low, close,
-    out,
-  );
-  // out[k] is the value at bar begIdx + k, for k < count
+  const open = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) open[i] = 100 + 10 * Math.sin(0.1 * i - 0.05);
+  const high = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) high[i] = 101 + 10 * Math.sin(0.1 * i);
+  const low = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) low[i] = 99 + 10 * Math.sin(0.1 * i);
+  const close = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) close[i] = 100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i);
 
+  const { begIdx, values } = cdlxsidegap3methods({ open, high, low, close });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
   assert.equal(begIdx + count, open.length);
   // a pattern output writes only the values its flags declare
-  assert.ok(out.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
+  assert.ok(values.subarray(0, count).every((v) => [-100, 0, 100].includes(v)));
 });
 
 test('CDLXSIDEGAP3METHODS: cdlxsidegap3methodsOpen example', () => {
@@ -4209,7 +3832,7 @@ test('CDLXSIDEGAP3METHODS: cdlxsidegap3methodsOpen example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const stream = cdlxsidegap3methodsOpen(open, high, low, close);
+  const stream = cdlxsidegap3methodsOpen({ open, high, low, close });
   const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
   const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
 
@@ -4228,20 +3851,15 @@ test('CDLXSIDEGAP3METHODS: cdlxsidegap3methodsOpenAndFill example', () => {
     99 + 10 * Math.sin(0.1 * i));
   const close = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
-  const out = new Int32Array(open.length);
-  const stream = cdlxsidegap3methodsOpenAndFill(open, high, low, close, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cdlxsidegap3methodsOpenAndFill({ open, high, low, close });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(open.length);
-  const batch = cdlxsidegap3methods(
-    0, open.length - 1,
-    open, high, low, close,
-    batchOut,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cdlxsidegap3methods({ open, high, low, close });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });

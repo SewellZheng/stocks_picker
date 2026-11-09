@@ -347,13 +347,10 @@
       int i = 0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 ) {
-         return RetCode.OUT_OF_RANGE_START_INDEX;
-      }
       if( historyLen > INDEX_MAX + 1 ) {
          return RetCode.OUT_OF_RANGE_END_INDEX;
       }
-      if( startIdx > endIdx ) {
+      if( startIdx >= historyLen ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
          return RetCode.INSUFFICIENT_HISTORY;
@@ -389,10 +386,10 @@
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      RetCode retCode = coshOpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
-      sp.outRangeBegIdx = outBegIdx.value;
-      sp.outRangeCount = outNBElement.value;
+      RetCode retCode = coshOpenImpl(sp, inReal, startIdx + 1 < inReal.length ? inReal.length - 1 : startIdx, outBegIdx, outNBElement, sink_outReal, 0);
       if( retCode == RetCode.SUCCESS ) {
+         sp.outRangeBegIdx = Math.max(startIdx, coshLookback());
+         sp.outRangeCount = inReal.length - sp.outRangeBegIdx;
          return sp;
       }
       if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
@@ -406,10 +403,8 @@
     * to {@link Core#cosh} at that bar.
     * <p>The history must hold at least {@code coshLookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. An EMPTY history throws
-    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
-    * names no bar — and a null argument {@link IllegalArgumentException},
-    * both ahead of everything above.
+    * thrown, an empty history included. A null argument throws
+    * {@link IllegalArgumentException}, ahead of everything above.
     */
    public CoshStream coshOpen( double inReal[] )
    {

@@ -87,6 +87,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_PERCENTB_NbDevDn =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PERCENTB_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_PERCENTB_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -95,7 +98,7 @@ static const TA_InputParameterInfo    *TA_PERCENTB_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PERCENTB_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PERCENTB_Default,
   NULL
 };
 
@@ -107,11 +110,12 @@ static const TA_OptInputParameterInfo *TA_PERCENTB_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( PERCENTB,
-              TA_GroupId_VolatilityIndicators,
-              "Bollinger Bands %B",
-              TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( PERCENTB,
+                         TA_GroupId_VolatilityIndicators,
+                         "Bollinger Bands %B",
+                         TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outReal\":{\"levels\":[0,1]}}}"
+                       );
 /* PERCENTB END */
 
 /* PERCENTILE BEGIN */
@@ -211,6 +215,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_PERCENTRANK_TimePeriod =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PERCENTRANK_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_PERCENTRANK_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -219,7 +226,7 @@ static const TA_InputParameterInfo    *TA_PERCENTRANK_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PERCENTRANK_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PERCENTRANK_Default,
   NULL
 };
 
@@ -236,6 +243,9 @@ DEF_FUNCTION( PERCENTRANK,
 /* PERCENTRANK END */
 
 /* PLUS_DI BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PLUS_DI_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_PLUS_DI_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HLC,
@@ -244,7 +254,7 @@ static const TA_InputParameterInfo    *TA_PLUS_DI_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PLUS_DI_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PLUS_DI_Default,
   NULL
 };
 
@@ -261,6 +271,9 @@ DEF_FUNCTION( PLUS_DI,
 /* PLUS_DI END */
 
 /* PLUS_DM BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PLUS_DM_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_PLUS_DM_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HL,
@@ -269,7 +282,7 @@ static const TA_InputParameterInfo    *TA_PLUS_DM_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PLUS_DM_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PLUS_DM_Default,
   NULL
 };
 
@@ -300,6 +313,9 @@ const TA_OptInputParameterInfo TA_DEF_UI_D_PPO_MAType =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PPO_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_PPO_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -308,7 +324,7 @@ static const TA_InputParameterInfo    *TA_PPO_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PPO_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PPO_Default,
   NULL
 };
 
@@ -355,6 +371,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_PSO_EMAPeriod =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PSO_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_PSO_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HLC,
@@ -363,7 +382,7 @@ static const TA_InputParameterInfo    *TA_PSO_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PSO_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PSO_Default,
   NULL
 };
 
@@ -373,14 +392,18 @@ static const TA_OptInputParameterInfo *TA_PSO_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( PSO,
-              TA_GroupId_MomentumIndicators,
-              "Premier Stochastic Oscillator",
-              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_USES_TRANSCENDENTAL
-             );
+DEF_FUNCTION_ATTRIBUTES( PSO,
+                         TA_GroupId_MomentumIndicators,
+                         "Premier Stochastic Oscillator",
+                         TA_FUNC_FLG_STREAM | TA_FUNC_FLG_USES_TRANSCENDENTAL,
+                         "{\"outputs\":{\"outReal\":{\"levels\":[-0.9,-0.2,0.2,0.9]}}}"
+                       );
 /* PSO END */
 
 /* PVI BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PVI_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_PVI_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_CV,
@@ -389,7 +412,7 @@ static const TA_InputParameterInfo    *TA_PVI_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PVI_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PVI_Default,
   NULL
 };
 
@@ -418,6 +441,9 @@ const TA_OptInputParameterInfo TA_DEF_UI_D_PVO_MAType =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PVO_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_PVO_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_V,
@@ -426,7 +452,7 @@ static const TA_InputParameterInfo    *TA_PVO_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PVO_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PVO_Default,
   NULL
 };
 
@@ -445,6 +471,9 @@ DEF_FUNCTION( PVO,
 /* PVO END */
 
 /* PVT BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_PVT_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_PVT_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_CV,
@@ -453,7 +482,7 @@ static const TA_InputParameterInfo    *TA_PVT_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_PVT_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_PVT_Default,
   NULL
 };
 

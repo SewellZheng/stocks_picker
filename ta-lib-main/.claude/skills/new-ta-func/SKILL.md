@@ -251,11 +251,13 @@ formatted `  - NAME: Human name, short clause (#NNN)`.
 ```bash
 scripts/build.py format          # regen-check runs `format --check` first and hard-fails
 scripts/build.py generate        # FULL, unfiltered — writes what --func= skipped
+scripts/build.py refdata         # the page's reference CSV + chart (then regenerates); --check is the gate
 scripts/build.py servers         # note: this runs generate-servers only, not generate
 scripts/build.py libraries       # the jar asserts your function is on the packaged Core
 cd bin && ./ta_regtest --function=<NAME>              # your hand-written legs
 cd bin && ./ta_regtest --codegen --function=<NAME>    # + the sweep and server_verify, all four languages
 cd bin && ./ta_regtest --xlang-hash --function=<NAME> # the same compare over the seeded fuzz corpus
+scripts/sync.py                  # ABI.manifest + sources digest; regen-check skips it, abi.py check gates it
 scripts/build.py check-source-lists
 scripts/build.py regen-check     # THE PR GATE: regenerating must change nothing
 scripts/build.py clippy          # -D warnings over BOTH crates, incl. the generated one

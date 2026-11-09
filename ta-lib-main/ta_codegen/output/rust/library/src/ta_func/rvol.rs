@@ -255,16 +255,17 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
+    /// let volume = vec![0.0; 252]; // your data, oldest first
+    /// # let volume: Vec<f64> = (0..252)
+    /// #     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
-    /// let out_range = core.rvol(0, volume.len() - 1, &volume, 20, &mut out)?;
-    /// assert!(out_range.count > 0);
-    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.rvol(0, volume.len() - 1, &volume, 20, &mut out)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(out[..range.count].iter().all(|v| !v.is_nan()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -393,9 +394,6 @@ impl Core {
     pub(crate) fn rvol_open_impl(
         &self, inVolume: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<RvolStream, RetCode> {
-        if inVolume.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inVolume.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -405,13 +403,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inVolume.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut periodTotal: f64 = 0.0_f64;
@@ -517,15 +515,14 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -558,7 +555,7 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -578,9 +575,6 @@ impl Core {
     pub fn rvol_open_and_fill(
         &self, inVolume: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(RvolStream, OutRange), RetCode> {
-        if inVolume.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inVolume.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

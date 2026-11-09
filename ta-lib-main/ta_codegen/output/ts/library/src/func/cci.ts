@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -35,24 +69,14 @@
  *                identical-price window holds a changed sum (#560).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 
-/**
- * Number of leading input bars {@link cci} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Number of bars in the averaging/deviation window
- *   (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function cciLookback(optInTimePeriod: number, core: Core = Core.DEFAULT): number {
-  void core;
+/** @internal */
+export function cciLookbackPositional(optInTimePeriod: number, _core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -64,22 +88,9 @@ export function cciLookback(optInTimePeriod: number, core: Core = Core.DEFAULT):
   return optInTimePeriod - 1;
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link cci}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Number of bars in the averaging/deviation window
- *   (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function cciDisplayShift(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (cciLookback(optInTimePeriod, core) < 0) {
+/** @internal */
+export function cciDisplayShiftPositional(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (cciLookbackPositional(optInTimePeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
@@ -278,57 +289,10 @@ export function cciImpl(
   return RetCode.SUCCESS;
 }
 
-/**
- * Commodity Channel Index: measures the current typical price relative to its
- * simple moving average, scaled by mean absolute deviation. Momentum oscillator
- * flagging overbought/oversold extremes. CCI > +100 overbought; CCI \< -100
- * oversold.
- *
- * Formula and more info at
- * [ta-lib.org/functions/cci](https://ta-lib.org/functions/cci).
- *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link cciLookback} is a success with
- * `count` 0.
- *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inHigh - High price of each bar.
- * @param inLow - Low price of each bar.
- * @param inClose - Close price of each bar.
- * @param optInTimePeriod - Number of bars in the averaging/deviation window
- *   (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - CCI value per bar. Must hold the values produced and never be
- *   empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
- * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
- *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output
- *   or an output sharing memory with a `Float64Array` input it is not. Checked
- *   before anything is written.
- *
- * @example
- * ```ts
- * import { cci } from 'ta-lib';
- *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const out = new Float64Array(high.length);
- * const { begIdx, count } = cci(0, high.length - 1, high, low, close, 14, out);
- * // out[k] is the value at bar begIdx + k, for k < count
- * ```
- * @see [`typprice`](https://ta-lib.org/functions/typprice)
- * @see [`sma`](https://ta-lib.org/functions/sma)
- */
-export function cci(
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000']] as const;
+
+/** @internal */
+export function cciPositional(
   startIdx: number,
   endIdx: number,
   inHigh: ArrayLike<number>,
@@ -340,20 +304,30 @@ export function cci(
 ): OutRange {
   startIdx = requireInt32('CCI', 'startIdx', startIdx);
   endIdx = requireInt32('CCI', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('CCI', 'optInTimePeriod', optInTimePeriod);
+  optInTimePeriod = requireInt32('CCI', 'timePeriod', optInTimePeriod);
   requireIndexRange('CCI', startIdx, endIdx);
-  const guardStart = clampedStart('CCI', startIdx, cciLookback(optInTimePeriod, core));
+  const guardLookback = cciLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CCI', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardStart = clampedStart('CCI', startIdx, guardLookback);
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('CCI', 'inHigh', inHigh, guardInLen);
-  requireLength('CCI', 'inLow', inLow, guardInLen);
-  requireLength('CCI', 'inClose', inClose, guardInLen);
+  requireLength('CCI', 'prices.high', inHigh, guardInLen);
+  requireLength('CCI', 'prices.low', inLow, guardInLen);
+  requireLength('CCI', 'prices.close', inClose, guardInLen);
   requireOutput('CCI', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
-  if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64) || overlapsPartly(outReal, inCloseF64)) {
-    throw failure('CCI', RetCode.BAD_PARAM);
+  if (overlapsPartly(outReal, inHighF64)) {
+    throw sharedMemory('CCI', 'outReal', 'prices.high');
+  }
+  if (overlapsPartly(outReal, inLowF64)) {
+    throw sharedMemory('CCI', 'outReal', 'prices.low');
+  }
+  if (overlapsPartly(outReal, inCloseF64)) {
+    throw sharedMemory('CCI', 'outReal', 'prices.close');
   }
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
@@ -362,6 +336,147 @@ export function cci(
     throw failure('CCI', retCode);
   }
   return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link cci}, {@link cciLookback}, {@link cciDisplayShift},
+ * {@link cciOpen} and {@link cciOpenAndFill}. Every key is optional: an omitted or
+ * `undefined` key takes its default, and a call ignores the keys it has no use
+ * for.
+ */
+export interface CciOptions {
+  /**
+   * Number of bars in the averaging/deviation window (default 14; range 2 to 100000;
+   * `Core.INTEGER_DEFAULT` selects the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link cci} returns, and {@link cciOpenAndFill} with its stream. */
+export interface CciResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /** CCI value per bar. `values[k]` is the value at input bar `begIdx + k`. */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link cci} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CciOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function cciLookback(options?: CciOptions): number {
+  const o = optionsOf('CCI lookback', options);
+  return cciLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), coreOf('CCI lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link cci}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CciOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function cciDisplayShift(outputIdx: number, options?: CciOptions): number {
+  const o = optionsOf('CCI displayShift', options);
+  return cciDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('CCI displayShift', o.core));
+}
+
+/**
+ * Commodity Channel Index: measures the current typical price relative to its
+ * simple moving average, scaled by mean absolute deviation. Momentum oscillator
+ * flagging overbought/oversold extremes. CCI > +100 overbought; CCI \< -100
+ * oversold.
+ *
+ * Formula and more info at
+ * [ta-lib.org/functions/cci](https://ta-lib.org/functions/cci).
+ *
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link cciLookback} is a success with empty outputs.
+ *
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `high`: High price of
+ *   each bar. `low`: Low price of each bar. `close`: Close price of each bar.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link CciOptions}.
+ * @returns `begIdx` and the values; see {@link CciResult}. Each output is a view
+ *   of its buffer, the caller's or a new one.
+ * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
+ *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
+ *
+ * @example
+ * ```ts
+ * import { cci } from 'ta-lib';
+ *
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ * const close = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = cci({ high, low, close }, { timePeriod: 14 });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+ * ```
+ * @see [`typprice`](https://ta-lib.org/functions/typprice)
+ * @see [`sma`](https://ta-lib.org/functions/sma)
+ */
+export function cci(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CciOptions): CciResult {
+  requireArgument('CCI', 'prices', prices);
+  const o = optionsOf('CCI', options);
+  if (o.endIdx === undefined) {
+    requireSeries('CCI', 'prices.high', prices.high);
+    requireSeries('CCI', 'prices.low', prices.low);
+    requireSeries('CCI', 'prices.close', prices.close);
+  }
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CCI', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.high.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, cciLookbackPositional(optInTimePeriod, core), prices.high, prices.low, prices.close);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = cciPositional(startIdx, endIdx, prices.high, prices.low, prices.close, optInTimePeriod, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -431,7 +546,7 @@ export class CciStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CCI advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CCI advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -439,22 +554,22 @@ export class CciStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inHigh: number, inLow: number, inClose: number): number {
+  update(high: number, low: number, close: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CCI update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CCI update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('CCI update', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('CCI update', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
-    cciStepImpl(this, inHigh, inLow, inClose);
+    cciStepImpl(this, high, low, close);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -462,18 +577,21 @@ export class CciStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inHigh: number, inLow: number, inClose: number): number {
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('CCI peek', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+  peek(high: number, low: number, close: number): number {
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('CCI peek', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
     const sp = this;
+    const inHigh = high;
+    const inLow = low;
+    const inClose = close;
     let tempReal = 0;
     let tempReal2 = 0;
     let tempReal3 = 0;
@@ -708,9 +826,6 @@ function cciOpenImpl(
   let maxIdx_circBuffer = (30) - 1;
   const historyLen = inHigh.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -722,7 +837,7 @@ function cciOpenImpl(
   } else if (optInTimePeriod < 2 || optInTimePeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -910,7 +1025,10 @@ export function cciOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CCI openAndFill', inHigh.length, startIdx, cciLookback(optInTimePeriod, core));
+    throw insufficientHistory('CCI openAndFill', inHigh.length, startIdx, cciLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && cciLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('CCI openAndFill', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('CCI openAndFill', retCode);
 }
@@ -935,30 +1053,94 @@ export function cciOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CCI open', inHigh.length, startIdx, cciLookback(optInTimePeriod, core));
+    throw insufficientHistory('CCI open', inHigh.length, startIdx, cciLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && cciLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('CCI open', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('CCI open', retCode);
+}
+
+/** @internal */
+export function cciOpenPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  optInTimePeriod: number,
+  core: Core = Core.DEFAULT,
+): CciStream {
+  optInTimePeriod = requireInt32('CCI open', 'timePeriod', optInTimePeriod);
+  requireArgument('CCI open', 'prices.high', inHigh);
+  requireHistory('CCI open', 'prices.high', inHigh.length);
+  requireArgument('CCI open', 'prices.low', inLow);
+  requireArgument('CCI open', 'prices.close', inClose);
+  requireHistoryLength('CCI open', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('CCI open', 'prices.close', inClose.length, inHigh.length);
+  return cciOpenInternal(core, float64(inHigh), float64(inLow), float64(inClose), 0, optInTimePeriod);
+}
+
+/** @internal */
+export function cciOpenAndFillPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  optInTimePeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): CciStream {
+  optInTimePeriod = requireInt32('CCI openAndFill', 'timePeriod', optInTimePeriod);
+  requireArgument('CCI openAndFill', 'prices.high', inHigh);
+  requireHistory('CCI openAndFill', 'prices.high', inHigh.length);
+  requireArgument('CCI openAndFill', 'prices.low', inLow);
+  requireArgument('CCI openAndFill', 'prices.close', inClose);
+  const guardLookback = cciLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CCI openAndFill', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardOutLen = openFillCount('CCI openAndFill', inHigh.length, guardLookback);
+  requireHistoryLength('CCI openAndFill', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('CCI openAndFill', 'prices.close', inClose.length, inHigh.length);
+  requireOutput('CCI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  if (outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('CCI openAndFill', 'outReal', 'prices.high');
+  }
+  if (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('CCI openAndFill', 'outReal', 'prices.low');
+  }
+  if (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('CCI openAndFill', 'outReal', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inHighF64)) {
+    throw sharedMemory('CCI openAndFill', 'outReal', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inLowF64)) {
+    throw sharedMemory('CCI openAndFill', 'outReal', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inCloseF64)) {
+    throw sharedMemory('CCI openAndFill', 'outReal', 'prices.close');
+  }
+  return cciOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
 }
 
 /**
  * Opens a live CCI stream over the warm-up history: `value()` starts at the last
  * history bar, bit-identical to {@link cci} there.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Number of bars in the averaging/deviation window
- *   (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar. `close`: Close
+ *   price of each bar.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CciOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `cciLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or histories of different lengths.
+ *   than `cciLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a parameter outside its range or
+ *   histories of different lengths.
  *
  * @example
  * ```ts
@@ -970,53 +1152,40 @@ export function cciOpenInternal(
  *   99 + 10 * Math.sin(0.1 * i));
  * const close = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const stream = cciOpen(high, low, close, 14);
+ * const stream = cciOpen({ high, low, close }, { timePeriod: 14 });
  * const peeked = stream.peek(101.4, 99.1, 100.9); // a forming bar: commits nothing
  * const updated = stream.update(101.4, 99.1, 100.9); // the bar closes
  * ```
  */
-export function cciOpen(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  optInTimePeriod: number,
-  core: Core = Core.DEFAULT,
-): CciStream {
-  optInTimePeriod = requireInt32('CCI open', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('CCI open', 'inHigh', inHigh);
-  requireHistory('CCI open', inHigh.length);
-  requireArgument('CCI open', 'inLow', inLow);
-  requireArgument('CCI open', 'inClose', inClose);
-  requireHistoryLength('CCI open', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('CCI open', 'inClose', inClose.length, inHigh.length);
-  return cciOpenInternal(core, float64(inHigh), float64(inLow), float64(inClose), 0, optInTimePeriod);
+export function cciOpen(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CciOptions): CciStream {
+  requireArgument('CCI open', 'prices', prices);
+  const o = optionsOf('CCI open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CCI open', o.core);
+  return cciOpenPositional(prices.high, prices.low, prices.close, optInTimePeriod, core);
 }
 
 /**
- * {@link cciOpen} that also fills the outputs over the whole history in the same
- * pass, bit-identically to {@link cci}. The range written is the stream's
- * `outRange()`.
+ * {@link cciOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link cci}.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Number of bars in the averaging/deviation window
- *   (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - CCI value per bar. Must hold `historyLen - lookback` values and
- *   share no memory with an input or another output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar. `close`: Close
+ *   price of each bar.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link CciOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link cci} returns them; the range is the stream's
+ *   `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `cciLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range, histories of different lengths or an output too
- *   short or starting where another output or a `Float64Array` input starts, or, on
- *   a history long enough to open, one sharing memory with another output or a
- *   `Float64Array` input.
+ *   than `cciLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a parameter outside its range,
+ *   histories of different lengths or a buffer too short, of the wrong type or
+ *   starting where another buffer or a `Float64Array` input starts, or, on a history
+ *   long enough to open, one sharing memory with another buffer or a `Float64Array`
+ *   input.
  *
  * @example
  * ```ts
@@ -1028,37 +1197,20 @@ export function cciOpen(
  *   99 + 10 * Math.sin(0.1 * i));
  * const close = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const out = new Float64Array(high.length);
- * const stream = cciOpenAndFill(high, low, close, 14, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = cciOpenAndFill({ high, low, close }, {
+ *   timePeriod: 14,
+ * });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function cciOpenAndFill(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  optInTimePeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): CciStream {
-  optInTimePeriod = requireInt32('CCI openAndFill', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('CCI openAndFill', 'inHigh', inHigh);
-  requireHistory('CCI openAndFill', inHigh.length);
-  requireArgument('CCI openAndFill', 'inLow', inLow);
-  requireArgument('CCI openAndFill', 'inClose', inClose);
-  const guardOutLen = openFillCount('CCI openAndFill', inHigh.length, cciLookback(optInTimePeriod, core));
-  requireHistoryLength('CCI openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('CCI openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireOutput('CCI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) || (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset)) {
-    throw streamFailure('CCI openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outReal, inHighF64) || overlaps(outReal, inLowF64) || overlaps(outReal, inCloseF64))) {
-    throw streamFailure('CCI openAndFill', RetCode.BAD_PARAM);
-  }
-  return cciOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
+export function cciOpenAndFill(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CciOptions): CciResult & { stream: CciStream } {
+  requireArgument('CCI openAndFill', 'prices', prices);
+  const o = optionsOf('CCI openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CCI openAndFill', o.core);
+  const capacity = fillCapacity(cciLookbackPositional(optInTimePeriod, core), prices.high, prices.low, prices.close);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = cciOpenAndFillPositional(prices.high, prices.low, prices.close, optInTimePeriod, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }

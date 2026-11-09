@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -16,30 +50,16 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, streamFailure } from '../runtime/checks.ts';
+import { badSink, batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireReal, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma, fmaSlow } from '../runtime/fma.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
-import { atrLookback } from './atr.ts';
+import { atrLookbackPositional } from './atr.ts';
 
-/**
- * Number of leading input bars {@link cksp} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Window of the highest high and lowest low, and
- *   smoothing period of the Average True Range (default 10; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param optInMultiplier - Multiplier applied to the Average True Range to offset
- *   the first stops (default 1; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param optInStopPeriod - Window over which each first stop takes its extreme
- *   (default 9; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function ckspLookback(optInTimePeriod: number, optInMultiplier: number, optInStopPeriod: number, core: Core = Core.DEFAULT): number {
+/** @internal */
+export function ckspLookbackPositional(optInTimePeriod: number, optInMultiplier: number, optInStopPeriod: number, core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -73,30 +93,12 @@ export function ckspLookback(optInTimePeriod: number, optInMultiplier: number, o
    * was that much closer to its seed: the first difference two starts show
    * is the smaller for it, and an Auto level is held against that one.
    */
-  return atrLookback(optInTimePeriod, core) + optInStopPeriod - 1 + ((core.unstableCount(FuncUnstId.ATR, 1, 1) != core.unstableCount(FuncUnstId.ATR, 0, 0)) ? (core.unstableCount(FuncUnstId.ATR, optInStopPeriod - 1, optInStopPeriod - 1) - core.unstableCount(FuncUnstId.ATR, 0, 0)) : 0);
+  return atrLookbackPositional(optInTimePeriod, core) + optInStopPeriod - 1 + ((core.unstableCount(FuncUnstId.ATR, 1, 1) != core.unstableCount(FuncUnstId.ATR, 0, 0)) ? (core.unstableCount(FuncUnstId.ATR, optInStopPeriod - 1, optInStopPeriod - 1) - core.unstableCount(FuncUnstId.ATR, 0, 0)) : 0);
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link cksp}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Window of the highest high and lowest low, and
- *   smoothing period of the Average True Range (default 10; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param optInMultiplier - Multiplier applied to the Average True Range to offset
- *   the first stops (default 1; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param optInStopPeriod - Window over which each first stop takes its extreme
- *   (default 9; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function ckspDisplayShift(optInTimePeriod: number, optInMultiplier: number, optInStopPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (ckspLookback(optInTimePeriod, optInMultiplier, optInStopPeriod, core) < 0) {
+/** @internal */
+export function ckspDisplayShiftPositional(optInTimePeriod: number, optInMultiplier: number, optInStopPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 2) {
@@ -185,7 +187,7 @@ export function ckspImpl(
   }
   outBegIdx.value = 0;
   outNBElement.value = 0;
-  lookbackTotal = ckspLookback(optInTimePeriod, optInMultiplier, optInStopPeriod, core);
+  lookbackTotal = ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -600,6 +602,180 @@ export function ckspImpl(
   return RetCode.SUCCESS;
 }
 
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000'], ['multiplier', Core.REAL_DEFAULT, 0e0, Core.REAL_MAX, 'in 0..3e37'], ['stopPeriod', Core.INTEGER_DEFAULT, 1, 100000, 'in 1..100000']] as const;
+
+/** @internal */
+export function ckspPositional(
+  startIdx: number,
+  endIdx: number,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  optInTimePeriod: number,
+  optInMultiplier: number,
+  optInStopPeriod: number,
+  outHighStop: Float64Array,
+  outLowStop: Float64Array,
+  core: Core = Core.DEFAULT,
+): OutRange {
+  startIdx = requireInt32('CKSP', 'startIdx', startIdx);
+  endIdx = requireInt32('CKSP', 'endIdx', endIdx);
+  optInTimePeriod = requireInt32('CKSP', 'timePeriod', optInTimePeriod);
+  optInMultiplier = requireReal('CKSP', 'multiplier', optInMultiplier);
+  optInStopPeriod = requireInt32('CKSP', 'stopPeriod', optInStopPeriod);
+  requireIndexRange('CKSP', startIdx, endIdx);
+  const guardLookback = ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CKSP', PARAM_RANGES, optInTimePeriod, optInMultiplier, optInStopPeriod);
+  }
+  const guardStart = clampedStart('CKSP', startIdx, guardLookback);
+  const guardInLen = endIdx + 1;
+  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+  requireLength('CKSP', 'prices.high', inHigh, guardInLen);
+  requireLength('CKSP', 'prices.low', inLow, guardInLen);
+  requireLength('CKSP', 'prices.close', inClose, guardInLen);
+  requireOutput('CKSP', 'outHighStop', outHighStop, guardOutLen, Float64Array);
+  requireOutput('CKSP', 'outLowStop', outLowStop, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  if (overlapsPartly(outHighStop, inHighF64)) {
+    throw sharedMemory('CKSP', 'outHighStop', 'prices.high');
+  }
+  if (overlapsPartly(outHighStop, inLowF64)) {
+    throw sharedMemory('CKSP', 'outHighStop', 'prices.low');
+  }
+  if (overlapsPartly(outHighStop, inCloseF64)) {
+    throw sharedMemory('CKSP', 'outHighStop', 'prices.close');
+  }
+  if (overlapsPartly(outLowStop, inHighF64)) {
+    throw sharedMemory('CKSP', 'outLowStop', 'prices.high');
+  }
+  if (overlapsPartly(outLowStop, inLowF64)) {
+    throw sharedMemory('CKSP', 'outLowStop', 'prices.low');
+  }
+  if (overlapsPartly(outLowStop, inCloseF64)) {
+    throw sharedMemory('CKSP', 'outLowStop', 'prices.close');
+  }
+  if (overlaps(outHighStop, outLowStop)) {
+    throw sharedMemory('CKSP', 'outHighStop', 'outLowStop');
+  }
+  const outBegIdx = new MInteger();
+  const outNBElement = new MInteger();
+  const retCode = ckspImpl(core, startIdx, endIdx, inHighF64, inLowF64, inCloseF64, optInTimePeriod, optInMultiplier, optInStopPeriod, outBegIdx, outNBElement, outHighStop, outLowStop);
+  if (retCode !== RetCode.SUCCESS) {
+    throw failure('CKSP', retCode);
+  }
+  return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link cksp}, {@link ckspLookback}, {@link ckspDisplayShift},
+ * {@link ckspOpen} and {@link ckspOpenAndFill}. Every key is optional: an omitted
+ * or `undefined` key takes its default, and a call ignores the keys it has no use
+ * for.
+ */
+export interface CkspOptions {
+  /**
+   * Window of the highest high and lowest low, and smoothing period of the Average
+   * True Range (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the
+   * default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * Multiplier applied to the Average True Range to offset the first stops (default
+   * 1; minimum 0; `Core.REAL_DEFAULT` selects the default).
+   */
+  multiplier?: number | undefined;
+  /**
+   * Window over which each first stop takes its extreme (default 9; range 1 to
+   * 100000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  stopPeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `outHighStop`, written from index 0 and allocated when omitted. It
+   * must hold the values produced (for a batch call the input length always
+   * suffices, for an `OpenAndFill` `historyLen - lookback`), and share no memory
+   * with another buffer or with an input; a batch call may compute in place over a
+   * `Float64Array` input of the same length.
+   */
+  outHighStop?: Float64Array<ArrayBuffer> | undefined;
+  /**
+   * Buffer for `outLowStop`, written from index 0 and allocated when omitted. It
+   * must hold the values produced (for a batch call the input length always
+   * suffices, for an `OpenAndFill` `historyLen - lookback`), and share no memory
+   * with another buffer or with an input; a batch call may compute in place over a
+   * `Float64Array` input of the same length.
+   */
+  outLowStop?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link cksp} returns, and {@link ckspOpenAndFill} with its stream. */
+export interface CkspResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Highest of the recent first high stops; usually plotted as the short stop.
+   * `outHighStop[k]` is the value at input bar `begIdx + k`.
+   */
+  outHighStop: Float64Array<ArrayBuffer>;
+  /**
+   * Lowest of the recent first low stops; usually plotted as the long stop.
+   * `outLowStop[k]` is the value at input bar `begIdx + k`.
+   */
+  outLowStop: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link cksp} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CkspOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function ckspLookback(options?: CkspOptions): number {
+  const o = optionsOf('CKSP lookback', options);
+  return ckspLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), orDefault(o.multiplier, Core.REAL_DEFAULT), orDefault(o.stopPeriod, Core.INTEGER_DEFAULT), coreOf('CKSP lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link cksp}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CkspOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function ckspDisplayShift(outputIdx: number, options?: CkspOptions): number {
+  const o = optionsOf('CKSP displayShift', options);
+  return ckspDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), orDefault(o.multiplier, Core.REAL_DEFAULT), orDefault(o.stopPeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('CKSP displayShift', o.core));
+}
+
 /**
  * Chande and Kroll's two-line volatility stop. The highest high is offset down,
  * and the lowest low up, by a multiple of the Average True Range, and each line
@@ -626,62 +802,44 @@ export function ckspImpl(
  * - A stop period of 1 leaves the first stops unchanged, which is the Chandelier
  *   Exit on both sides.
  * - Both lines inherit the Average True Range's warm-up, so a caller who wants
- *   them converged sets `TA_FUNC_UNST_ATR`, exactly as when calling that function
+ *   them converged sets `FuncUnstId.ATR`, exactly as when calling that function
  *   directly.
  *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link ckspLookback} is a success with
- * `count` 0.
+ * `outHighStop[k]` is the value at input bar `begIdx + k`; every output is exactly
+ * as long as the number of values written, and nothing is padded. A range that
+ * ends before {@link ckspLookback} is a success with empty outputs.
  *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inHigh - High price of each bar.
- * @param inLow - Low price of each bar.
- * @param inClose - Close price of each bar.
- * @param optInTimePeriod - Window of the highest high and lowest low, and
- *   smoothing period of the Average True Range (default 10; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param optInMultiplier - Multiplier applied to the Average True Range to offset
- *   the first stops (default 1; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param optInStopPeriod - Window over which each first stop takes its extreme
- *   (default 9; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outHighStop - Highest of the recent first high stops; usually plotted as
- *   the short stop. Must hold the values produced and never be empty; the input
- *   length always suffices.
- * @param outLowStop - Lowest of the recent first low stops; usually plotted as the
- *   long stop. Must hold the values produced and never be empty; the input length
- *   always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `high`: High price of
+ *   each bar. `low`: Low price of each bar. `close`: Close price of each bar.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link CkspOptions}.
+ * @returns `begIdx` and the values; see {@link CkspResult}. Each output is a view
+ *   of its buffer, the caller's or a new one.
  * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
  *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   real parameter that is not a number, a parameter outside its range, an array too
- *   short for the range, an empty output, two outputs sharing memory or an output
- *   sharing memory with a `Float64Array` input it is not. Checked before anything is
- *   written.
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a real parameter that is not a
+ *   number, a parameter outside its range, an input too short for the range, a
+ *   buffer that is empty, too short or of the wrong type, two buffers sharing memory
+ *   or a buffer sharing memory with a `Float64Array` input it is not. Checked before
+ *   anything is written.
  *
  * @example
  * ```ts
  * import { cksp } from 'ta-lib';
  *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const highStop = new Float64Array(high.length);
- * const lowStop = new Float64Array(high.length);
- * const { begIdx, count } = cksp(
- *   0, high.length - 1,
- *   high, low, close,
- *   10, 1, 9,
- *   highStop, lowStop,
- * );
- * // highStop[k] is the value at bar begIdx + k, for k < count
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ * const close = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, outHighStop, outLowStop } = cksp({ high, low, close }, {
+ *   timePeriod: 10,
+ *   multiplier: 1,
+ *   stopPeriod: 9,
+ * });
+ * console.log(outHighStop.length + ' values from bar ' + begIdx + '; last outHighStop = ' + outHighStop[outHighStop.length - 1]);
  * ```
  * @see [`atr`](https://ta-lib.org/functions/atr)
  * @see [`max`](https://ta-lib.org/functions/max)
@@ -690,46 +848,25 @@ export function ckspImpl(
  * @see [`kc`](https://ta-lib.org/functions/kc)
  * @see [`donchian`](https://ta-lib.org/functions/donchian)
  */
-export function cksp(
-  startIdx: number,
-  endIdx: number,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  optInTimePeriod: number,
-  optInMultiplier: number,
-  optInStopPeriod: number,
-  outHighStop: Float64Array,
-  outLowStop: Float64Array,
-  core: Core = Core.DEFAULT,
-): OutRange {
-  startIdx = requireInt32('CKSP', 'startIdx', startIdx);
-  endIdx = requireInt32('CKSP', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('CKSP', 'optInTimePeriod', optInTimePeriod);
-  optInMultiplier = requireReal('CKSP', 'optInMultiplier', optInMultiplier);
-  optInStopPeriod = requireInt32('CKSP', 'optInStopPeriod', optInStopPeriod);
-  requireIndexRange('CKSP', startIdx, endIdx);
-  const guardStart = clampedStart('CKSP', startIdx, ckspLookback(optInTimePeriod, optInMultiplier, optInStopPeriod, core));
-  const guardInLen = endIdx + 1;
-  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('CKSP', 'inHigh', inHigh, guardInLen);
-  requireLength('CKSP', 'inLow', inLow, guardInLen);
-  requireLength('CKSP', 'inClose', inClose, guardInLen);
-  requireOutput('CKSP', 'outHighStop', outHighStop, guardOutLen, Float64Array);
-  requireOutput('CKSP', 'outLowStop', outLowStop, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  if (overlapsPartly(outHighStop, inHighF64) || overlapsPartly(outHighStop, inLowF64) || overlapsPartly(outHighStop, inCloseF64) || overlapsPartly(outLowStop, inHighF64) || overlapsPartly(outLowStop, inLowF64) || overlapsPartly(outLowStop, inCloseF64) || overlaps(outHighStop, outLowStop)) {
-    throw failure('CKSP', RetCode.BAD_PARAM);
+export function cksp(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CkspOptions): CkspResult {
+  requireArgument('CKSP', 'prices', prices);
+  const o = optionsOf('CKSP', options);
+  if (o.endIdx === undefined) {
+    requireSeries('CKSP', 'prices.high', prices.high);
+    requireSeries('CKSP', 'prices.low', prices.low);
+    requireSeries('CKSP', 'prices.close', prices.close);
   }
-  const outBegIdx = new MInteger();
-  const outNBElement = new MInteger();
-  const retCode = ckspImpl(core, startIdx, endIdx, inHighF64, inLowF64, inCloseF64, optInTimePeriod, optInMultiplier, optInStopPeriod, outBegIdx, outNBElement, outHighStop, outLowStop);
-  if (retCode !== RetCode.SUCCESS) {
-    throw failure('CKSP', retCode);
-  }
-  return new OutRange(outBegIdx.value, outNBElement.value);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInMultiplier = orDefault(o.multiplier, Core.REAL_DEFAULT);
+  const optInStopPeriod = orDefault(o.stopPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CKSP', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.high.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core), prices.high, prices.low, prices.close);
+  const outHighStop = o.outHighStop === undefined ? new Float64Array(capacity) : o.outHighStop;
+  const outLowStop = o.outLowStop === undefined ? new Float64Array(capacity) : o.outLowStop;
+  const range = ckspPositional(startIdx, endIdx, prices.high, prices.low, prices.close, optInTimePeriod, optInMultiplier, optInStopPeriod, outHighStop, outLowStop, core);
+  return { begIdx: range.begIdx, outHighStop: outHighStop.subarray(0, range.count), outLowStop: outLowStop.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -839,57 +976,67 @@ export class CkspStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CKSP advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CKSP advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
 
   /**
-   * Commits one closed bar, writing the new values into `out`.
+   * Commits one closed bar and returns its outputs.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
-   * @param out - Receives the bar's outputs.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
+   * @param out - Receives the outputs and is returned; a new {@link CkspOut} when
+   *   omitted.
+   * @returns `out`, or the new sink.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
-   *   finite, before anything moves. `TALibError` with code
-   *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
+   *   finite, or a sink that is not an object, `null` included, before anything moves.
+   *   `TALibError` with code `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached
+   *   bar `Core.INDEX_MAX`.
    */
-  update(inHigh: number, inLow: number, inClose: number, out: CkspOut): void {
+  update(high: number, low: number, close: number, out?: CkspOut): CkspOut {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CKSP update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CKSP update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (typeof out !== 'object' || out === null) {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('CKSP update', 'CkspOut');
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('CKSP update', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('CKSP update', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
-    ckspStepImpl(this, inHigh, inLow, inClose);
+    ckspStepImpl(this, high, low, close);
     this.outRangeCount++;
-    out.highStop = this.cur_outHighStop;
-    out.lowStop = this.cur_outLowStop;
+    if (out === undefined) {
+      out = new CkspOut();
+    }
+    out.outHighStop = this.cur_outHighStop;
+    out.outLowStop = this.cur_outLowStop;
+    return out;
   }
 
   /**
-   * Writes into `out` what the next `update` with the same bar would write,
-   * committing nothing.
+   * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
-   * @param out - Receives the bar's outputs.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
+   * @param out - Receives the outputs and is returned; a new {@link CkspOut} when
+   *   omitted.
+   * @returns `out`, or the new sink, as `update` would fill it.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
-   *   finite.
+   *   finite, or a sink that is not an object, `null` included.
    */
-  peek(inHigh: number, inLow: number, inClose: number, out: CkspOut): void {
-    if (typeof out !== 'object' || out === null) {
+  peek(high: number, low: number, close: number, out?: CkspOut): CkspOut {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('CKSP peek', 'CkspOut');
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('CKSP peek', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('CKSP peek', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
     const sp = this;
+    const inHigh = high;
+    const inLow = low;
     let val2 = 0;
     let val3 = 0;
     let greatest = 0;
@@ -986,21 +1133,33 @@ export class CkspStream {
     }
     cur_outHighStop = highest;
     cur_outLowStop = lowest;
-    out.highStop = cur_outHighStop;
-    out.lowStop = cur_outLowStop;
+    if (out === undefined) {
+      out = new CkspOut();
+    }
+    out.outHighStop = cur_outHighStop;
+    out.outLowStop = cur_outLowStop;
+    return out;
   }
 
   /**
-   * The value at the last bar this stream counted; `peek` does not change it.
+   * The outputs at the last bar this stream counted; `peek` does not change them.
    *
-   * @param out - Receives the outputs.
+   * @param out - Receives the outputs and is returned; a new {@link CkspOut} when
+   *   omitted.
+   * @returns `out`, or the new sink.
+   * @throws `TALibError` with code `TA_BAD_PARAM` for a sink that is not an object,
+   *   `null` included.
    */
-  value(out: CkspOut): void {
-    if (typeof out !== 'object' || out === null) {
+  value(out?: CkspOut): CkspOut {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('CKSP value', 'CkspOut');
     }
-    out.highStop = this.cur_outHighStop;
-    out.lowStop = this.cur_outLowStop;
+    if (out === undefined) {
+      out = new CkspOut();
+    }
+    out.outHighStop = this.cur_outHighStop;
+    out.outLowStop = this.cur_outLowStop;
+    return out;
   }
 
   /**
@@ -1049,14 +1208,15 @@ export class CkspStream {
 }
 
 /**
- * The outputs of one CKSP bar, written into an object the caller owns and reuses:
- * valid until the next call that writes it.
+ * The outputs of one CKSP bar, as `update`, `peek` and `value` return them. Passed
+ * back to one of them, it is filled and returned again, with no allocation; it
+ * holds its values until the next call that writes it. A new one holds `NaN`.
  */
 export class CkspOut {
   /** Highest of the recent first high stops; usually plotted as the short stop. */
-  highStop: number = 0;
+  outHighStop: number = NaN;
   /** Lowest of the recent first low stops; usually plotted as the long stop. */
-  lowStop: number = 0;
+  outLowStop: number = NaN;
 }
 
 function ckspStepImpl(sp: CkspStream, inHigh: number, inLow: number, inClose: number): void {
@@ -1258,9 +1418,6 @@ function ckspOpenImpl(
   let lowStop = 0;
   const historyLen = inHigh.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -1282,14 +1439,14 @@ function ckspOpenImpl(
   } else if (optInStopPeriod < 1 || optInStopPeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
   }
   outBegIdx.value = 0;
   outNBElement.value = 0;
-  lookbackTotal = ckspLookback(optInTimePeriod, optInMultiplier, optInStopPeriod, core);
+  lookbackTotal = ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -1778,7 +1935,10 @@ export function ckspOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CKSP openAndFill', inHigh.length, startIdx, ckspLookback(optInTimePeriod, optInMultiplier, optInStopPeriod, core));
+    throw insufficientHistory('CKSP openAndFill', inHigh.length, startIdx, ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core) < 0) {
+    throw rejectedParams('CKSP openAndFill', PARAM_RANGES, optInTimePeriod, optInMultiplier, optInStopPeriod);
   }
   throw streamFailure('CKSP openAndFill', retCode);
 }
@@ -1806,55 +1966,16 @@ export function ckspOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CKSP open', inHigh.length, startIdx, ckspLookback(optInTimePeriod, optInMultiplier, optInStopPeriod, core));
+    throw insufficientHistory('CKSP open', inHigh.length, startIdx, ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core) < 0) {
+    throw rejectedParams('CKSP open', PARAM_RANGES, optInTimePeriod, optInMultiplier, optInStopPeriod);
   }
   throw streamFailure('CKSP open', retCode);
 }
 
-/**
- * Opens a live CKSP stream over the warm-up history: `value()` starts at the last
- * history bar, bit-identical to {@link cksp} there.
- *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Window of the highest high and lowest low, and
- *   smoothing period of the Average True Range (default 10; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param optInMultiplier - Multiplier applied to the Average True Range to offset
- *   the first stops (default 1; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param optInStopPeriod - Window over which each first stop takes its extreme
- *   (default 9; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
- * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `ckspLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a real
- *   parameter that is not a number, a parameter outside its range or histories of
- *   different lengths.
- *
- * @example
- * ```ts
- * import { CkspOut, ckspOpen } from 'ta-lib';
- *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const stream = ckspOpen(high, low, close, 10, 1, 9);
- * const peeked = new CkspOut();
- * const updated = new CkspOut();
- * stream.peek(101.4, 99.1, 100.9, peeked); // a forming bar: commits nothing
- * stream.update(101.4, 99.1, 100.9, updated); // the bar closes
- * ```
- */
-export function ckspOpen(
+/** @internal */
+export function ckspOpenPositional(
   inHigh: ArrayLike<number>,
   inLow: ArrayLike<number>,
   inClose: ArrayLike<number>,
@@ -1863,52 +1984,161 @@ export function ckspOpen(
   optInStopPeriod: number,
   core: Core = Core.DEFAULT,
 ): CkspStream {
-  optInTimePeriod = requireInt32('CKSP open', 'optInTimePeriod', optInTimePeriod);
-  optInMultiplier = requireReal('CKSP open', 'optInMultiplier', optInMultiplier);
-  optInStopPeriod = requireInt32('CKSP open', 'optInStopPeriod', optInStopPeriod);
-  requireArgument('CKSP open', 'inHigh', inHigh);
-  requireHistory('CKSP open', inHigh.length);
-  requireArgument('CKSP open', 'inLow', inLow);
-  requireArgument('CKSP open', 'inClose', inClose);
-  requireHistoryLength('CKSP open', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('CKSP open', 'inClose', inClose.length, inHigh.length);
+  optInTimePeriod = requireInt32('CKSP open', 'timePeriod', optInTimePeriod);
+  optInMultiplier = requireReal('CKSP open', 'multiplier', optInMultiplier);
+  optInStopPeriod = requireInt32('CKSP open', 'stopPeriod', optInStopPeriod);
+  requireArgument('CKSP open', 'prices.high', inHigh);
+  requireHistory('CKSP open', 'prices.high', inHigh.length);
+  requireArgument('CKSP open', 'prices.low', inLow);
+  requireArgument('CKSP open', 'prices.close', inClose);
+  requireHistoryLength('CKSP open', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('CKSP open', 'prices.close', inClose.length, inHigh.length);
   return ckspOpenInternal(core, float64(inHigh), float64(inLow), float64(inClose), 0, optInTimePeriod, optInMultiplier, optInStopPeriod);
 }
 
+/** @internal */
+export function ckspOpenAndFillPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  optInTimePeriod: number,
+  optInMultiplier: number,
+  optInStopPeriod: number,
+  outHighStop: Float64Array,
+  outLowStop: Float64Array,
+  core: Core = Core.DEFAULT,
+): CkspStream {
+  optInTimePeriod = requireInt32('CKSP openAndFill', 'timePeriod', optInTimePeriod);
+  optInMultiplier = requireReal('CKSP openAndFill', 'multiplier', optInMultiplier);
+  optInStopPeriod = requireInt32('CKSP openAndFill', 'stopPeriod', optInStopPeriod);
+  requireArgument('CKSP openAndFill', 'prices.high', inHigh);
+  requireHistory('CKSP openAndFill', 'prices.high', inHigh.length);
+  requireArgument('CKSP openAndFill', 'prices.low', inLow);
+  requireArgument('CKSP openAndFill', 'prices.close', inClose);
+  const guardLookback = ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CKSP openAndFill', PARAM_RANGES, optInTimePeriod, optInMultiplier, optInStopPeriod);
+  }
+  const guardOutLen = openFillCount('CKSP openAndFill', inHigh.length, guardLookback);
+  requireHistoryLength('CKSP openAndFill', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('CKSP openAndFill', 'prices.close', inClose.length, inHigh.length);
+  requireOutput('CKSP openAndFill', 'outHighStop', outHighStop, guardOutLen, Float64Array);
+  requireOutput('CKSP openAndFill', 'outLowStop', outLowStop, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  if (outHighStop.buffer === inHighF64.buffer && outHighStop.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('CKSP openAndFill', 'outHighStop', 'prices.high');
+  }
+  if (outHighStop.buffer === inLowF64.buffer && outHighStop.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('CKSP openAndFill', 'outHighStop', 'prices.low');
+  }
+  if (outHighStop.buffer === inCloseF64.buffer && outHighStop.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('CKSP openAndFill', 'outHighStop', 'prices.close');
+  }
+  if (outLowStop.buffer === inHighF64.buffer && outLowStop.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('CKSP openAndFill', 'outLowStop', 'prices.high');
+  }
+  if (outLowStop.buffer === inLowF64.buffer && outLowStop.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('CKSP openAndFill', 'outLowStop', 'prices.low');
+  }
+  if (outLowStop.buffer === inCloseF64.buffer && outLowStop.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('CKSP openAndFill', 'outLowStop', 'prices.close');
+  }
+  if (outHighStop.buffer === outLowStop.buffer && outHighStop.byteOffset === outLowStop.byteOffset) {
+    throw sharedMemory('CKSP openAndFill', 'outHighStop', 'outLowStop');
+  }
+  if (guardOutLen > 0 && overlaps(outHighStop, inHighF64)) {
+    throw sharedMemory('CKSP openAndFill', 'outHighStop', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outHighStop, inLowF64)) {
+    throw sharedMemory('CKSP openAndFill', 'outHighStop', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outHighStop, inCloseF64)) {
+    throw sharedMemory('CKSP openAndFill', 'outHighStop', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outLowStop, inHighF64)) {
+    throw sharedMemory('CKSP openAndFill', 'outLowStop', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outLowStop, inLowF64)) {
+    throw sharedMemory('CKSP openAndFill', 'outLowStop', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outLowStop, inCloseF64)) {
+    throw sharedMemory('CKSP openAndFill', 'outLowStop', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outHighStop, outLowStop)) {
+    throw sharedMemory('CKSP openAndFill', 'outHighStop', 'outLowStop');
+  }
+  return ckspOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, 0, optInTimePeriod, optInMultiplier, optInStopPeriod, new MInteger(), new MInteger(), outHighStop, outLowStop);
+}
+
 /**
- * {@link ckspOpen} that also fills the outputs over the whole history in the same
- * pass, bit-identically to {@link cksp}. The range written is the stream's
- * `outRange()`.
+ * Opens a live CKSP stream over the warm-up history: `value()` starts at the last
+ * history bar, bit-identical to {@link cksp} there.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Window of the highest high and lowest low, and
- *   smoothing period of the Average True Range (default 10; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param optInMultiplier - Multiplier applied to the Average True Range to offset
- *   the first stops (default 1; minimum 0; `Core.REAL_DEFAULT` selects the default).
- * @param optInStopPeriod - Window over which each first stop takes its extreme
- *   (default 9; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outHighStop - Highest of the recent first high stops; usually plotted as
- *   the short stop. Must hold `historyLen - lookback` values and share no memory
- *   with an input or another output.
- * @param outLowStop - Lowest of the recent first low stops; usually plotted as the
- *   long stop. Must hold `historyLen - lookback` values and share no memory with an
- *   input or another output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar. `close`: Close
+ *   price of each bar.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CkspOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `ckspLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a real
- *   parameter that is not a number, a parameter outside its range, histories of
- *   different lengths or an output too short or starting where another output or a
+ *   than `ckspLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a real parameter that is not a
+ *   number, a parameter outside its range or histories of different lengths.
+ *
+ * @example
+ * ```ts
+ * import { ckspOpen } from 'ta-lib';
+ *
+ * const high = Float64Array.from({ length: 252 }, (_, i) =>
+ *   101 + 10 * Math.sin(0.1 * i));
+ * const low = Float64Array.from({ length: 252 }, (_, i) =>
+ *   99 + 10 * Math.sin(0.1 * i));
+ * const close = Float64Array.from({ length: 252 }, (_, i) =>
+ *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
+ * const stream = ckspOpen({ high, low, close }, {
+ *   timePeriod: 10,
+ *   multiplier: 1,
+ *   stopPeriod: 9,
+ * });
+ * const peeked = stream.peek(101.4, 99.1, 100.9); // a forming bar: commits nothing
+ * const updated = stream.update(101.4, 99.1, 100.9); // the bar closes
+ * ```
+ */
+export function ckspOpen(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CkspOptions): CkspStream {
+  requireArgument('CKSP open', 'prices', prices);
+  const o = optionsOf('CKSP open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInMultiplier = orDefault(o.multiplier, Core.REAL_DEFAULT);
+  const optInStopPeriod = orDefault(o.stopPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CKSP open', o.core);
+  return ckspOpenPositional(prices.high, prices.low, prices.close, optInTimePeriod, optInMultiplier, optInStopPeriod, core);
+}
+
+/**
+ * {@link ckspOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link cksp}.
+ *
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar. `close`: Close
+ *   price of each bar.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link CkspOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link cksp} returns them; the range is the stream's
+ *   `outRange()`.
+ * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
+ *   than `ckspLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a real parameter that is not a
+ *   number, a parameter outside its range, histories of different lengths or a
+ *   buffer too short, of the wrong type or starting where another buffer or a
  *   `Float64Array` input starts, or, on a history long enough to open, one sharing
- *   memory with another output or a `Float64Array` input.
+ *   memory with another buffer or a `Float64Array` input.
  *
  * @example
  * ```ts
@@ -1920,44 +2150,30 @@ export function ckspOpen(
  *   99 + 10 * Math.sin(0.1 * i));
  * const close = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const highStop = new Float64Array(high.length);
- * const lowStop = new Float64Array(high.length);
- * const stream = ckspOpenAndFill(high, low, close, 10, 1, 9, highStop, lowStop);
- * const { begIdx, count } = stream.outRange();
- * // highStop[k] is the value at bar begIdx + k, for k < count
+ * const {
+ *   stream,
+ *   begIdx,
+ *   outHighStop,
+ *   outLowStop,
+ * } = ckspOpenAndFill({ high, low, close }, {
+ *   timePeriod: 10,
+ *   multiplier: 1,
+ *   stopPeriod: 9,
+ * });
+ * // outHighStop[k] is the value at bar begIdx + k
  * ```
  */
-export function ckspOpenAndFill(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  optInTimePeriod: number,
-  optInMultiplier: number,
-  optInStopPeriod: number,
-  outHighStop: Float64Array,
-  outLowStop: Float64Array,
-  core: Core = Core.DEFAULT,
-): CkspStream {
-  optInTimePeriod = requireInt32('CKSP openAndFill', 'optInTimePeriod', optInTimePeriod);
-  optInMultiplier = requireReal('CKSP openAndFill', 'optInMultiplier', optInMultiplier);
-  optInStopPeriod = requireInt32('CKSP openAndFill', 'optInStopPeriod', optInStopPeriod);
-  requireArgument('CKSP openAndFill', 'inHigh', inHigh);
-  requireHistory('CKSP openAndFill', inHigh.length);
-  requireArgument('CKSP openAndFill', 'inLow', inLow);
-  requireArgument('CKSP openAndFill', 'inClose', inClose);
-  const guardOutLen = openFillCount('CKSP openAndFill', inHigh.length, ckspLookback(optInTimePeriod, optInMultiplier, optInStopPeriod, core));
-  requireHistoryLength('CKSP openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('CKSP openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireOutput('CKSP openAndFill', 'outHighStop', outHighStop, guardOutLen, Float64Array);
-  requireOutput('CKSP openAndFill', 'outLowStop', outLowStop, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  if ((outHighStop.buffer === inHighF64.buffer && outHighStop.byteOffset === inHighF64.byteOffset) || (outHighStop.buffer === inLowF64.buffer && outHighStop.byteOffset === inLowF64.byteOffset) || (outHighStop.buffer === inCloseF64.buffer && outHighStop.byteOffset === inCloseF64.byteOffset) || (outLowStop.buffer === inHighF64.buffer && outLowStop.byteOffset === inHighF64.byteOffset) || (outLowStop.buffer === inLowF64.buffer && outLowStop.byteOffset === inLowF64.byteOffset) || (outLowStop.buffer === inCloseF64.buffer && outLowStop.byteOffset === inCloseF64.byteOffset) || (outHighStop.buffer === outLowStop.buffer && outHighStop.byteOffset === outLowStop.byteOffset)) {
-    throw streamFailure('CKSP openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outHighStop, inHighF64) || overlaps(outHighStop, inLowF64) || overlaps(outHighStop, inCloseF64) || overlaps(outLowStop, inHighF64) || overlaps(outLowStop, inLowF64) || overlaps(outLowStop, inCloseF64) || overlaps(outHighStop, outLowStop))) {
-    throw streamFailure('CKSP openAndFill', RetCode.BAD_PARAM);
-  }
-  return ckspOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, 0, optInTimePeriod, optInMultiplier, optInStopPeriod, new MInteger(), new MInteger(), outHighStop, outLowStop);
+export function ckspOpenAndFill(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CkspOptions): CkspResult & { stream: CkspStream } {
+  requireArgument('CKSP openAndFill', 'prices', prices);
+  const o = optionsOf('CKSP openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInMultiplier = orDefault(o.multiplier, Core.REAL_DEFAULT);
+  const optInStopPeriod = orDefault(o.stopPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CKSP openAndFill', o.core);
+  const capacity = fillCapacity(ckspLookbackPositional(optInTimePeriod, optInMultiplier, optInStopPeriod, core), prices.high, prices.low, prices.close);
+  const outHighStop = o.outHighStop === undefined ? new Float64Array(capacity) : o.outHighStop;
+  const outLowStop = o.outLowStop === undefined ? new Float64Array(capacity) : o.outLowStop;
+  const stream = ckspOpenAndFillPositional(prices.high, prices.low, prices.close, optInTimePeriod, optInMultiplier, optInStopPeriod, outHighStop, outLowStop, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, outHighStop: outHighStop.subarray(0, range.count), outLowStop: outLowStop.subarray(0, range.count) };
 }

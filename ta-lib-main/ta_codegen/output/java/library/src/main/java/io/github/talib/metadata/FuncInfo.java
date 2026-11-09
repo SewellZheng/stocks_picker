@@ -70,6 +70,19 @@ public record FuncInfo(
     }
 
     /**
+     * Metadata no flag can carry, such as an output's reference levels, as one
+     * JSON object. The same bytes as C's {@code TA_GetFuncAttributes}. Ignore a
+     * key you do not know: a release may add one
+     * (<a href="https://ta-lib.org/spec/abstract/#attributes">keys</a>).
+     *
+     * @return the attributes of the function this record names; {@code "{}"}
+     *         when it has none or names no function
+     */
+    public String attributes() {
+       return Functions.attributesOf(name);
+    }
+
+    /**
      * Begins a call to this function with arguments bound at run time,
      * against {@link Core#DEFAULT}. See {@link ParamHolder}.
      */

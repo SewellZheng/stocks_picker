@@ -160,22 +160,10 @@ static void TA_MULT_StepImpl( struct TA_MULT_Stream *sp, double inReal0, double 
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_MULT_OpenImpl( struct TA_MULT_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_MULT_OpenBody( struct TA_MULT_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_MULT_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -205,16 +193,53 @@ static TA_RetCode TA_MULT_OpenImpl( struct TA_MULT_Stream **stream, const double
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_MULT_OpenFillFrame( struct TA_MULT_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_MULT_OpenBody( stream, inReal0, inReal1, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_MULT_OpenSinkFrame( struct TA_MULT_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   double sink_outReal = 0;
+   TA_RetCode retCode = TA_MULT_OpenBody( stream, inReal0, inReal1, startIdx, historyLen, outBegIdx, outNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outReal ) *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_MULT_OpenImpl( struct TA_MULT_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_MULT_OpenFillFrame( stream, inReal0, inReal1, startIdx, historyLen, outBegIdx, outNBElement, outReal ) : TA_MULT_OpenSinkFrame( stream, inReal0, inReal1, startIdx, historyLen, outBegIdx, outNBElement, outReal );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_MULT_OpenInternal( struct TA_MULT_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, double *outReal )
 {
    TA_RetCode retCode;
+   int begIdx;
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_MULT_OpenImpl( stream, inReal0, inReal1, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_MULT_OpenImpl( stream, inReal0, inReal1, startIdx + 1 < historyLen ? historyLen - 1 : startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
+      begIdx = TA_MULT_Lookback(  );
+      if( begIdx < startIdx ) begIdx = startIdx;
+      (*stream)->outRangeBegIdx = begIdx;
+      (*stream)->outRangeCount = historyLen - begIdx;
       *outReal = sink_outReal;
    }
    return retCode;
@@ -224,7 +249,6 @@ TA_LIB_API TA_RetCode TA_MULT_Open( TA_MULT_Stream **stream, const double inReal
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
    return TA_MULT_OpenInternal( stream, inReal0, inReal1, 0, historyLen, outReal );
@@ -234,7 +258,6 @@ TA_LIB_API TA_RetCode TA_MULT_OpenAndFill( TA_MULT_Stream **stream, const double
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal0 || !inReal1 || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal0 || (const void *)outReal == (const void *)inReal1 ) return TA_BAD_PARAM;

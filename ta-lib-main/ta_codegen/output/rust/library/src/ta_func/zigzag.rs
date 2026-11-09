@@ -317,28 +317,28 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
+    /// let high = vec![0.0; 252]; // your data, oldest first
+    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low = vec![0.0; 252]; // your data, oldest first
+    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let mut zig_zag = vec![0.0; 252];
     /// let mut trend = vec![0i32; 252];
     /// let mut pivot_idx = vec![0i32; 252];
     ///
-    /// let out_range = core.zigzag(
-    ///     0, high.len() - 1, &high, &low, 5.0, 1,
-    ///     &mut zig_zag, &mut trend, &mut pivot_idx,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert!(zig_zag[..out_range.count].iter().all(|v| v.is_finite()));
-    /// assert_eq!(out_range.beg_idx + out_range.count, high.len());
-    /// // the leg is a two-state latch: +1 while it runs up, -1 while it runs down
-    /// assert!(trend[..out_range.count].iter().all(|&v| v == 1 || v == -1));
-    /// // the pivot names a bar at or before the one reporting it, and never moves back
-    /// for (k, &idx) in pivot_idx[..out_range.count].iter().enumerate() {
-    ///     assert!((idx as usize) <= out_range.beg_idx + k);
-    ///     if k > 0 { assert!(idx >= pivot_idx[k - 1]); }
-    /// }
+    /// let core = Core::new();
+    /// let range = core.zigzag(0, high.len() - 1, &high, &low, 5.0, 1,
+    ///                         &mut zig_zag, &mut trend, &mut pivot_idx)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last zig_zag = {}", range.count, range.beg_idx, zig_zag[range.count - 1]);
+    /// # assert!(zig_zag[..range.count].iter().all(|v| v.is_finite()));
+    /// # assert_eq!(range.beg_idx + range.count, high.len());
+    /// # // the leg is a two-state latch: +1 while it runs up, -1 while it runs down
+    /// # assert!(trend[..range.count].iter().all(|&v| v == 1 || v == -1));
+    /// # // the pivot names a bar at or before the one reporting it, and never moves back
+    /// # for (k, &idx) in pivot_idx[..range.count].iter().enumerate() {
+    /// #     assert!((idx as usize) <= range.beg_idx + k);
+    /// #     if k > 0 { assert!(idx >= pivot_idx[k - 1]); }
+    /// # }
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -499,9 +499,6 @@ impl Core {
     pub(crate) fn zigzag_open_impl(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInSensitivity: f64, mut optInMinTrendLength: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outZigZag: &mut [f64], outTrend: &mut [i32], outPivotIdx: &mut [i32], outStride: usize,
     ) -> Result<ZigzagStream, RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -519,13 +516,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut lookbackTotal: usize = 0_usize;
@@ -646,10 +643,9 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -713,9 +709,6 @@ impl Core {
     pub fn zigzag_open_and_fill(
         &self, inHigh: &[f64], inLow: &[f64], mut optInSensitivity: f64, mut optInMinTrendLength: i32, outZigZag: &mut [f64], outTrend: &mut [i32], outPivotIdx: &mut [i32],
     ) -> Result<(ZigzagStream, OutRange), RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

@@ -362,22 +362,23 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
+    /// let high = vec![0.0; 252]; // your data, oldest first
+    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low = vec![0.0; 252]; // your data, oldest first
+    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close = vec![0.0; 252]; // your data, oldest first
+    /// # let close: Vec<f64> = (0..252)
+    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .collect();
     /// let mut plus_vi = vec![0.0; 252];
     /// let mut minus_vi = vec![0.0; 252];
     ///
-    /// let out_range = core.vortex(
-    ///     0, high.len() - 1, &high, &low, &close, 14,
-    ///     &mut plus_vi, &mut minus_vi,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert!(plus_vi[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.vortex(0, high.len() - 1, &high, &low, &close, 14,
+    ///                         &mut plus_vi, &mut minus_vi)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last plus_vi = {}", range.count, range.beg_idx, plus_vi[range.count - 1]);
+    /// # assert!(plus_vi[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -592,9 +593,6 @@ impl Core {
     pub(crate) fn vortex_open_impl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outPlusVI: &mut [f64], outMinusVI: &mut [f64], outStride: usize,
     ) -> Result<VortexStream, RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -607,13 +605,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut outIdx: usize = 0_usize;
@@ -840,10 +838,9 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -910,9 +907,6 @@ impl Core {
     pub fn vortex_open_and_fill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInTimePeriod: i32, outPlusVI: &mut [f64], outMinusVI: &mut [f64],
     ) -> Result<(VortexStream, OutRange), RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

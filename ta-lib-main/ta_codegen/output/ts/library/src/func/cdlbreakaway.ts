@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -16,40 +50,20 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { CandleSettingType, Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 
-/**
- * Number of leading input bars {@link cdlbreakaway} consumes before its first
- * value: the index of the first bar with a value when the whole series is
- * requested.
- *
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function cdlbreakawayLookback(core: Core = Core.DEFAULT): number {
+/** @internal */
+export function cdlbreakawayLookbackPositional(core: Core = Core.DEFAULT): number {
   const BodyLong_avgPeriod = core.candleSettings[CandleSettingType.BODY_LONG].avgPeriod;
   return BodyLong_avgPeriod + 4;
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link cdlbreakaway}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function cdlbreakawayDisplayShift(outputIdx: number, core: Core = Core.DEFAULT): number {
-  void core;
+/** @internal */
+export function cdlbreakawayDisplayShiftPositional(outputIdx: number, _core: Core = Core.DEFAULT): number {
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
     return -2147483648;
   }
@@ -86,7 +100,7 @@ export function cdlbreakawayImpl(
   /* Identify the minimum number of price bar needed
    * to calculate at least one output.
    */
-  lookbackTotal = cdlbreakawayLookback(core);
+  lookbackTotal = cdlbreakawayLookbackPositional(core);
   /* Move up the start index if there is not
    * enough initial data.
    */
@@ -158,6 +172,136 @@ export function cdlbreakawayImpl(
   return RetCode.SUCCESS;
 }
 
+/** @internal */
+export function cdlbreakawayPositional(
+  startIdx: number,
+  endIdx: number,
+  inOpen: ArrayLike<number>,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  outInteger: Int32Array,
+  core: Core = Core.DEFAULT,
+): OutRange {
+  startIdx = requireInt32('CDLBREAKAWAY', 'startIdx', startIdx);
+  endIdx = requireInt32('CDLBREAKAWAY', 'endIdx', endIdx);
+  requireIndexRange('CDLBREAKAWAY', startIdx, endIdx);
+  const guardStart = clampedStart('CDLBREAKAWAY', startIdx, cdlbreakawayLookbackPositional(core));
+  const guardInLen = endIdx + 1;
+  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+  requireLength('CDLBREAKAWAY', 'prices.open', inOpen, guardInLen);
+  requireLength('CDLBREAKAWAY', 'prices.high', inHigh, guardInLen);
+  requireLength('CDLBREAKAWAY', 'prices.low', inLow, guardInLen);
+  requireLength('CDLBREAKAWAY', 'prices.close', inClose, guardInLen);
+  requireOutput('CDLBREAKAWAY', 'outInteger', outInteger, guardOutLen, Int32Array);
+  const inOpenF64 = float64(inOpen);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  if (overlaps(outInteger, inOpenF64)) {
+    throw sharedMemory('CDLBREAKAWAY', 'outInteger', 'prices.open');
+  }
+  if (overlaps(outInteger, inHighF64)) {
+    throw sharedMemory('CDLBREAKAWAY', 'outInteger', 'prices.high');
+  }
+  if (overlaps(outInteger, inLowF64)) {
+    throw sharedMemory('CDLBREAKAWAY', 'outInteger', 'prices.low');
+  }
+  if (overlaps(outInteger, inCloseF64)) {
+    throw sharedMemory('CDLBREAKAWAY', 'outInteger', 'prices.close');
+  }
+  const outBegIdx = new MInteger();
+  const outNBElement = new MInteger();
+  const retCode = cdlbreakawayImpl(core, startIdx, endIdx, inOpenF64, inHighF64, inLowF64, inCloseF64, outBegIdx, outNBElement, outInteger);
+  if (retCode !== RetCode.SUCCESS) {
+    throw failure('CDLBREAKAWAY', retCode);
+  }
+  return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link cdlbreakaway}, {@link cdlbreakawayLookback},
+ * {@link cdlbreakawayDisplayShift}, {@link cdlbreakawayOpen} and
+ * {@link cdlbreakawayOpenAndFill}. Every key is optional: an omitted or
+ * `undefined` key takes its default, and a call ignores the keys it has no use
+ * for.
+ */
+export interface CdlbreakawayOptions {
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input.
+   */
+  outInteger?: Int32Array<ArrayBuffer> | undefined;
+}
+
+/**
+ * What {@link cdlbreakaway} returns, and {@link cdlbreakawayOpenAndFill} with its
+ * stream.
+ */
+export interface CdlbreakawayResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * +100 when the fifth candle is white (bullish breakaway), -100 when it is black
+   * (bearish breakaway), 0 otherwise. `values[k]` is the value at input bar
+   * `begIdx + k`.
+   */
+  values: Int32Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link cdlbreakaway} consumes before its first
+ * value: the index of the first bar with a value when the whole series is
+ * requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CdlbreakawayOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function cdlbreakawayLookback(options?: CdlbreakawayOptions): number {
+  const o = optionsOf('CDLBREAKAWAY lookback', options);
+  return cdlbreakawayLookbackPositional(coreOf('CDLBREAKAWAY lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link cdlbreakaway}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CdlbreakawayOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function cdlbreakawayDisplayShift(outputIdx: number, options?: CdlbreakawayOptions): number {
+  const o = optionsOf('CDLBREAKAWAY displayShift', options);
+  return cdlbreakawayDisplayShiftPositional(outputIdx, coreOf('CDLBREAKAWAY displayShift', o.core));
+}
+
 /**
  * A five-candle reversal pattern: a long first candle, a same-colored second
  * candle that gaps away from it by its real body, two more candles extending the
@@ -175,88 +319,58 @@ export function cdlbreakawayImpl(
  *   random"), while bearish Breakaway reverses 63% of the time overall.
  *   ([thepatternsite.com](https://thepatternsite.com/BullBreakaway.html))
  *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link cdlbreakawayLookback} is a success
- * with `count` 0.
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link cdlbreakawayLookback} is a success with empty outputs.
  *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inOpen - Open price of each bar.
- * @param inHigh - High price of each bar.
- * @param inLow - Low price of each bar.
- * @param inClose - Close price of each bar.
- * @param outInteger - +100 when the fifth candle is white (bullish breakaway),
- *   -100 when it is black (bearish breakaway), 0 otherwise. Must hold the values
- *   produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `open`: Open price of
+ *   each bar. `high`: High price of each bar. `low`: Low price of each bar. `close`:
+ *   Close price of each bar.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link CdlbreakawayOptions}.
+ * @returns `begIdx` and the values; see {@link CdlbreakawayResult}. Each output is
+ *   a view of its buffer, the caller's or a new one.
  * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
  *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, an
- *   array too short for the range, an empty output or an output sharing memory with
- *   a `Float64Array` input it is not. Checked before anything is written.
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an input too short for the range, a buffer that is empty, too short or of
+ *   the wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
  *
  * @example
  * ```ts
  * import { cdlbreakaway } from 'ta-lib';
  *
- * const open = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i - 0.05));
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const out = new Int32Array(open.length);
- * const { begIdx, count } = cdlbreakaway(
- *   0, open.length - 1,
- *   open, high, low, close,
- *   out,
- * );
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const open = new Float64Array(252); // your data, oldest first
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ * const close = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = cdlbreakaway({ open, high, low, close });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
  * ```
  * @see [`cdlgapsidesidewhite`](https://ta-lib.org/functions/cdlgapsidesidewhite)
  * @see [`cdlrisefall3methods`](https://ta-lib.org/functions/cdlrisefall3methods)
  * @see [`cdl3linestrike`](https://ta-lib.org/functions/cdl3linestrike)
  */
-export function cdlbreakaway(
-  startIdx: number,
-  endIdx: number,
-  inOpen: ArrayLike<number>,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  outInteger: Int32Array,
-  core: Core = Core.DEFAULT,
-): OutRange {
-  startIdx = requireInt32('CDLBREAKAWAY', 'startIdx', startIdx);
-  endIdx = requireInt32('CDLBREAKAWAY', 'endIdx', endIdx);
-  requireIndexRange('CDLBREAKAWAY', startIdx, endIdx);
-  const guardStart = clampedStart('CDLBREAKAWAY', startIdx, cdlbreakawayLookback(core));
-  const guardInLen = endIdx + 1;
-  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('CDLBREAKAWAY', 'inOpen', inOpen, guardInLen);
-  requireLength('CDLBREAKAWAY', 'inHigh', inHigh, guardInLen);
-  requireLength('CDLBREAKAWAY', 'inLow', inLow, guardInLen);
-  requireLength('CDLBREAKAWAY', 'inClose', inClose, guardInLen);
-  requireOutput('CDLBREAKAWAY', 'outInteger', outInteger, guardOutLen, Int32Array);
-  const inOpenF64 = float64(inOpen);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  if (overlaps(outInteger, inOpenF64) || overlaps(outInteger, inHighF64) || overlaps(outInteger, inLowF64) || overlaps(outInteger, inCloseF64)) {
-    throw failure('CDLBREAKAWAY', RetCode.BAD_PARAM);
+export function cdlbreakaway(prices: { open: ArrayLike<number>; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CdlbreakawayOptions): CdlbreakawayResult {
+  requireArgument('CDLBREAKAWAY', 'prices', prices);
+  const o = optionsOf('CDLBREAKAWAY', options);
+  if (o.endIdx === undefined) {
+    requireSeries('CDLBREAKAWAY', 'prices.open', prices.open);
+    requireSeries('CDLBREAKAWAY', 'prices.high', prices.high);
+    requireSeries('CDLBREAKAWAY', 'prices.low', prices.low);
+    requireSeries('CDLBREAKAWAY', 'prices.close', prices.close);
   }
-  const outBegIdx = new MInteger();
-  const outNBElement = new MInteger();
-  const retCode = cdlbreakawayImpl(core, startIdx, endIdx, inOpenF64, inHighF64, inLowF64, inCloseF64, outBegIdx, outNBElement, outInteger);
-  if (retCode !== RetCode.SUCCESS) {
-    throw failure('CDLBREAKAWAY', retCode);
-  }
-  return new OutRange(outBegIdx.value, outNBElement.value);
+  const core = coreOf('CDLBREAKAWAY', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.open.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, cdlbreakawayLookbackPositional(core), prices.open, prices.high, prices.low, prices.close);
+  const outInteger = o.outInteger === undefined ? new Int32Array(capacity) : o.outInteger;
+  const range = cdlbreakawayPositional(startIdx, endIdx, prices.open, prices.high, prices.low, prices.close, outInteger, core);
+  return { begIdx: range.begIdx, values: outInteger.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -354,7 +468,7 @@ export class CdlbreakawayStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CDLBREAKAWAY advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CDLBREAKAWAY advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -362,23 +476,23 @@ export class CdlbreakawayStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inOpen - The bar's `inOpen` value: Open price of each bar.
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
+   * @param open - The bar's `open` value: Open price of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inOpen: number, inHigh: number, inLow: number, inClose: number): number {
+  update(open: number, high: number, low: number, close: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CDLBREAKAWAY update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CDLBREAKAWAY update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inOpen) || !Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('CDLBREAKAWAY update', !Number.isFinite(inOpen) ? 'inOpen' : !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+    if (!Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('CDLBREAKAWAY update', !Number.isFinite(open) ? 'open' : !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
-    cdlbreakawayStepImpl(this, inOpen, inHigh, inLow, inClose);
+    cdlbreakawayStepImpl(this, open, high, low, close);
     this.outRangeCount++;
     return this.cur_outInteger;
   }
@@ -386,19 +500,21 @@ export class CdlbreakawayStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inOpen - The bar's `inOpen` value: Open price of each bar.
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
+   * @param open - The bar's `open` value: Open price of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inOpen: number, inHigh: number, inLow: number, inClose: number): number {
-    if (!Number.isFinite(inOpen) || !Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('CDLBREAKAWAY peek', !Number.isFinite(inOpen) ? 'inOpen' : !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+  peek(open: number, high: number, low: number, close: number): number {
+    if (!Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('CDLBREAKAWAY peek', !Number.isFinite(open) ? 'open' : !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
     const sp = this;
+    const inOpen = open;
+    const inClose = close;
     let cur_outInteger = 0;
     const BodyLong_rangeType = sp.cs_BodyLong_rangeType;
     const BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
@@ -551,16 +667,13 @@ function cdlbreakawayOpenImpl(
   let lookbackTotal = 0;
   const historyLen = inOpen.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
   if (inHigh.length !== inOpen.length || inLow.length !== inOpen.length || inClose.length !== inOpen.length) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -571,7 +684,7 @@ function cdlbreakawayOpenImpl(
   /* Identify the minimum number of price bar needed
    * to calculate at least one output.
    */
-  lookbackTotal = cdlbreakawayLookback(core);
+  lookbackTotal = cdlbreakawayLookbackPositional(core);
   /* Move up the start index if there is not
    * enough initial data.
    */
@@ -698,7 +811,7 @@ export function cdlbreakawayOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CDLBREAKAWAY openAndFill', inOpen.length, startIdx, cdlbreakawayLookback(core));
+    throw insufficientHistory('CDLBREAKAWAY openAndFill', inOpen.length, startIdx, cdlbreakawayLookbackPositional(core));
   }
   throw streamFailure('CDLBREAKAWAY openAndFill', retCode);
 }
@@ -723,29 +836,95 @@ export function cdlbreakawayOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CDLBREAKAWAY open', inOpen.length, startIdx, cdlbreakawayLookback(core));
+    throw insufficientHistory('CDLBREAKAWAY open', inOpen.length, startIdx, cdlbreakawayLookbackPositional(core));
   }
   throw streamFailure('CDLBREAKAWAY open', retCode);
+}
+
+/** @internal */
+export function cdlbreakawayOpenPositional(
+  inOpen: ArrayLike<number>,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  core: Core = Core.DEFAULT,
+): CdlbreakawayStream {
+  requireArgument('CDLBREAKAWAY open', 'prices.open', inOpen);
+  requireHistory('CDLBREAKAWAY open', 'prices.open', inOpen.length);
+  requireArgument('CDLBREAKAWAY open', 'prices.high', inHigh);
+  requireArgument('CDLBREAKAWAY open', 'prices.low', inLow);
+  requireArgument('CDLBREAKAWAY open', 'prices.close', inClose);
+  requireHistoryLength('CDLBREAKAWAY open', 'prices.high', inHigh.length, inOpen.length);
+  requireHistoryLength('CDLBREAKAWAY open', 'prices.low', inLow.length, inOpen.length);
+  requireHistoryLength('CDLBREAKAWAY open', 'prices.close', inClose.length, inOpen.length);
+  return cdlbreakawayOpenInternal(core, float64(inOpen), float64(inHigh), float64(inLow), float64(inClose), 0);
+}
+
+/** @internal */
+export function cdlbreakawayOpenAndFillPositional(
+  inOpen: ArrayLike<number>,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  outInteger: Int32Array,
+  core: Core = Core.DEFAULT,
+): CdlbreakawayStream {
+  requireArgument('CDLBREAKAWAY openAndFill', 'prices.open', inOpen);
+  requireHistory('CDLBREAKAWAY openAndFill', 'prices.open', inOpen.length);
+  requireArgument('CDLBREAKAWAY openAndFill', 'prices.high', inHigh);
+  requireArgument('CDLBREAKAWAY openAndFill', 'prices.low', inLow);
+  requireArgument('CDLBREAKAWAY openAndFill', 'prices.close', inClose);
+  const guardOutLen = openFillCount('CDLBREAKAWAY openAndFill', inOpen.length, cdlbreakawayLookbackPositional(core));
+  requireHistoryLength('CDLBREAKAWAY openAndFill', 'prices.high', inHigh.length, inOpen.length);
+  requireHistoryLength('CDLBREAKAWAY openAndFill', 'prices.low', inLow.length, inOpen.length);
+  requireHistoryLength('CDLBREAKAWAY openAndFill', 'prices.close', inClose.length, inOpen.length);
+  requireOutput('CDLBREAKAWAY openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
+  const inOpenF64 = float64(inOpen);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  if (outInteger.buffer === inOpenF64.buffer && outInteger.byteOffset === inOpenF64.byteOffset) {
+    throw sharedMemory('CDLBREAKAWAY openAndFill', 'outInteger', 'prices.open');
+  }
+  if (outInteger.buffer === inHighF64.buffer && outInteger.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('CDLBREAKAWAY openAndFill', 'outInteger', 'prices.high');
+  }
+  if (outInteger.buffer === inLowF64.buffer && outInteger.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('CDLBREAKAWAY openAndFill', 'outInteger', 'prices.low');
+  }
+  if (outInteger.buffer === inCloseF64.buffer && outInteger.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('CDLBREAKAWAY openAndFill', 'outInteger', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outInteger, inOpenF64)) {
+    throw sharedMemory('CDLBREAKAWAY openAndFill', 'outInteger', 'prices.open');
+  }
+  if (guardOutLen > 0 && overlaps(outInteger, inHighF64)) {
+    throw sharedMemory('CDLBREAKAWAY openAndFill', 'outInteger', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outInteger, inLowF64)) {
+    throw sharedMemory('CDLBREAKAWAY openAndFill', 'outInteger', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outInteger, inCloseF64)) {
+    throw sharedMemory('CDLBREAKAWAY openAndFill', 'outInteger', 'prices.close');
+  }
+  return cdlbreakawayOpenAndFillInternal(core, inOpenF64, inHighF64, inLowF64, inCloseF64, 0, new MInteger(), new MInteger(), outInteger);
 }
 
 /**
  * Opens a live CDLBREAKAWAY stream over the warm-up history: `value()` starts at
  * the last history bar, bit-identical to {@link cdlbreakaway} there.
  *
- * @param inOpen - Warm-up history. Open price of each bar. Every history has the
- *   same length.
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `open`: Open price of each bar. `high`: High price of each bar. `low`: Low price
+ *   of each bar. `close`: Close price of each bar.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CdlbreakawayOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `cdlbreakawayLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an
- *   empty one, and `TA_BAD_PARAM` for histories of different lengths.
+ *   than `cdlbreakawayLookback(...) + 1` bars, an empty one included, and
+ *   `TA_BAD_PARAM` for options that are not an object, a `core` that is not a
+ *   `Core`, an absent input or histories of different lengths.
  *
  * @example
  * ```ts
@@ -759,55 +938,38 @@ export function cdlbreakawayOpenInternal(
  *   99 + 10 * Math.sin(0.1 * i));
  * const close = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const stream = cdlbreakawayOpen(open, high, low, close);
+ * const stream = cdlbreakawayOpen({ open, high, low, close });
  * const peeked = stream.peek(100.2, 101.4, 99.1, 100.9); // a forming bar: commits nothing
  * const updated = stream.update(100.2, 101.4, 99.1, 100.9); // the bar closes
  * ```
  */
-export function cdlbreakawayOpen(
-  inOpen: ArrayLike<number>,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  core: Core = Core.DEFAULT,
-): CdlbreakawayStream {
-  requireArgument('CDLBREAKAWAY open', 'inOpen', inOpen);
-  requireHistory('CDLBREAKAWAY open', inOpen.length);
-  requireArgument('CDLBREAKAWAY open', 'inHigh', inHigh);
-  requireArgument('CDLBREAKAWAY open', 'inLow', inLow);
-  requireArgument('CDLBREAKAWAY open', 'inClose', inClose);
-  requireHistoryLength('CDLBREAKAWAY open', 'inHigh', inHigh.length, inOpen.length);
-  requireHistoryLength('CDLBREAKAWAY open', 'inLow', inLow.length, inOpen.length);
-  requireHistoryLength('CDLBREAKAWAY open', 'inClose', inClose.length, inOpen.length);
-  return cdlbreakawayOpenInternal(core, float64(inOpen), float64(inHigh), float64(inLow), float64(inClose), 0);
+export function cdlbreakawayOpen(prices: { open: ArrayLike<number>; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CdlbreakawayOptions): CdlbreakawayStream {
+  requireArgument('CDLBREAKAWAY open', 'prices', prices);
+  const o = optionsOf('CDLBREAKAWAY open', options);
+  const core = coreOf('CDLBREAKAWAY open', o.core);
+  return cdlbreakawayOpenPositional(prices.open, prices.high, prices.low, prices.close, core);
 }
 
 /**
- * {@link cdlbreakawayOpen} that also fills the outputs over the whole history in
- * the same pass, bit-identically to {@link cdlbreakaway}. The range written is the
- * stream's `outRange()`.
+ * {@link cdlbreakawayOpen} that also computes the outputs over the whole history
+ * in the same pass, bit-identically to {@link cdlbreakaway}.
  *
- * @param inOpen - Warm-up history. Open price of each bar. Every history has the
- *   same length.
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param outInteger - +100 when the fifth candle is white (bullish breakaway),
- *   -100 when it is black (bearish breakaway), 0 otherwise. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `open`: Open price of each bar. `high`: High price of each bar. `low`: Low price
+ *   of each bar. `close`: Close price of each bar.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link CdlbreakawayOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link cdlbreakaway} returns them; the range is the
+ *   stream's `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `cdlbreakawayLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an
- *   empty one, and `TA_BAD_PARAM` for histories of different lengths or an output
- *   too short or starting where another output or a `Float64Array` input starts, or,
- *   on a history long enough to open, one sharing memory with another output or a
- *   `Float64Array` input.
+ *   than `cdlbreakawayLookback(...) + 1` bars, an empty one included, and
+ *   `TA_BAD_PARAM` for options that are not an object, a `core` that is not a
+ *   `Core`, an absent input, histories of different lengths or a buffer too short,
+ *   of the wrong type or starting where another buffer or a `Float64Array` input
+ *   starts, or, on a history long enough to open, one sharing memory with another
+ *   buffer or a `Float64Array` input.
  *
  * @example
  * ```ts
@@ -821,39 +983,17 @@ export function cdlbreakawayOpen(
  *   99 + 10 * Math.sin(0.1 * i));
  * const close = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const out = new Int32Array(open.length);
- * const stream = cdlbreakawayOpenAndFill(open, high, low, close, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = cdlbreakawayOpenAndFill({ open, high, low, close });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function cdlbreakawayOpenAndFill(
-  inOpen: ArrayLike<number>,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  outInteger: Int32Array,
-  core: Core = Core.DEFAULT,
-): CdlbreakawayStream {
-  requireArgument('CDLBREAKAWAY openAndFill', 'inOpen', inOpen);
-  requireHistory('CDLBREAKAWAY openAndFill', inOpen.length);
-  requireArgument('CDLBREAKAWAY openAndFill', 'inHigh', inHigh);
-  requireArgument('CDLBREAKAWAY openAndFill', 'inLow', inLow);
-  requireArgument('CDLBREAKAWAY openAndFill', 'inClose', inClose);
-  const guardOutLen = openFillCount('CDLBREAKAWAY openAndFill', inOpen.length, cdlbreakawayLookback(core));
-  requireHistoryLength('CDLBREAKAWAY openAndFill', 'inHigh', inHigh.length, inOpen.length);
-  requireHistoryLength('CDLBREAKAWAY openAndFill', 'inLow', inLow.length, inOpen.length);
-  requireHistoryLength('CDLBREAKAWAY openAndFill', 'inClose', inClose.length, inOpen.length);
-  requireOutput('CDLBREAKAWAY openAndFill', 'outInteger', outInteger, guardOutLen, Int32Array);
-  const inOpenF64 = float64(inOpen);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  if ((outInteger.buffer === inOpenF64.buffer && outInteger.byteOffset === inOpenF64.byteOffset) || (outInteger.buffer === inHighF64.buffer && outInteger.byteOffset === inHighF64.byteOffset) || (outInteger.buffer === inLowF64.buffer && outInteger.byteOffset === inLowF64.byteOffset) || (outInteger.buffer === inCloseF64.buffer && outInteger.byteOffset === inCloseF64.byteOffset)) {
-    throw streamFailure('CDLBREAKAWAY openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outInteger, inOpenF64) || overlaps(outInteger, inHighF64) || overlaps(outInteger, inLowF64) || overlaps(outInteger, inCloseF64))) {
-    throw streamFailure('CDLBREAKAWAY openAndFill', RetCode.BAD_PARAM);
-  }
-  return cdlbreakawayOpenAndFillInternal(core, inOpenF64, inHighF64, inLowF64, inCloseF64, 0, new MInteger(), new MInteger(), outInteger);
+export function cdlbreakawayOpenAndFill(prices: { open: ArrayLike<number>; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CdlbreakawayOptions): CdlbreakawayResult & { stream: CdlbreakawayStream } {
+  requireArgument('CDLBREAKAWAY openAndFill', 'prices', prices);
+  const o = optionsOf('CDLBREAKAWAY openAndFill', options);
+  const core = coreOf('CDLBREAKAWAY openAndFill', o.core);
+  const capacity = fillCapacity(cdlbreakawayLookbackPositional(core), prices.open, prices.high, prices.low, prices.close);
+  const outInteger = o.outInteger === undefined ? new Int32Array(capacity) : o.outInteger;
+  const stream = cdlbreakawayOpenAndFillPositional(prices.open, prices.high, prices.low, prices.close, outInteger, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outInteger.subarray(0, range.count) };
 }

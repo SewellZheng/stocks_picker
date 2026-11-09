@@ -17,6 +17,7 @@
 //! metadata — always present — is injected.
 
 use super::doc_meta::{self, RangeMeta};
+use super::docs_chart::{self, Chart, RefData};
 use crate::ir::{EnumDef, FuncDef, ParamType};
 use crate::stability::{self, Stability};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -32,6 +33,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, root: &Path
     // Stability is derived from the whole call graph (see `crate::stability`), so it must be
     // computed over every function -- `all_funcs` is passed here even on a `--func=X` run.
     let stability = stability::classify(funcs);
+    let releases = Releases::load(root);
 
     let mut funcs: Vec<&FuncDef> = funcs.iter().collect();
     funcs.sort_by(|a, b| a.name.cmp(&b.name));
@@ -39,7 +41,11 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, root: &Path
     // Known function names, for linkifying `## See Also` to sibling pages.
     let known: HashSet<&str> = funcs.iter().map(|f| f.name.as_str()).collect();
 
+    let public_dir = root.join(PUBLIC_FUNCTIONS);
+    std::fs::create_dir_all(&public_dir).expect("create website public/functions");
+
     let mut paged: Vec<&FuncDef> = Vec::new();
+    let mut charted: HashSet<String> = HashSet::new();
     for f in &funcs {
         let dir = f.name.to_lowercase();
         let src = input_base.join(&dir).join(format!("{dir}.md"));
@@ -47,9 +53,24 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, root: &Path
             eprintln!("  docs: no source {dir}/{dir}.md — skipping page");
             continue;
         };
-        let page = transform_page(&body, f, enums, &known, &stability, root);
+        let chart = load_chart(f, &public_dir);
+        if let Some(chart) = &chart {
+            super::write_if_changed_silent(&public_dir.join(format!("{dir}.svg")), &chart.svg);
+            charted.insert(format!("{dir}.svg"));
+        }
+        let page = transform_page(&body, f, enums, &known, &stability, root, &releases, chart.as_ref());
         super::write_if_changed_silent(&out_dir.join(format!("{dir}.md")), &page);
         paged.push(f);
+    }
+    if let Ok(rd) = std::fs::read_dir(&public_dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let is_svg = p.extension().is_some_and(|x| x.eq_ignore_ascii_case("svg"));
+            let fname = e.file_name().to_string_lossy().to_string();
+            if is_svg && !charted.contains(&fname) {
+                let _ = std::fs::remove_file(p);
+            }
+        }
     }
 
     let stability_page = build_stability_page(enums, &stability, &known);
@@ -82,9 +103,75 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, root: &Path
     }
 }
 
+/// Where the per-function reference CSVs (written by `ta_refdata`) and charts live; served
+/// at `/functions/<name>.csv` and `.svg`.
+pub const PUBLIC_FUNCTIONS: &str = "website/src/.vuepress/public/functions";
+
+/// The chart for `func`, or None when its CSV does not exist yet: a new function has no
+/// CSV until the C tool has run over a library that registers it, and that library is
+/// built from files this very run writes, so a missing CSV cannot stop `generate`.
+/// A CSV that exists but does not parse is a defect and does stop it.
+fn load_chart(func: &FuncDef, public_dir: &Path) -> Option<Chart> {
+    let dir = func.name.to_lowercase();
+    let path = public_dir.join(format!("{dir}.csv"));
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        eprintln!("  docs: no {} — page gets no chart; run scripts/build.py refdata", path.display());
+        return None;
+    };
+    let data = RefData::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    Some(docs_chart::render(func, &data))
+}
+
+/// The `## Chart` section: the component tag the site inlines the SVG through, then the
+/// sentence and the links, which is all an agent or a no-JS reader sees.
+/// The drawing description and the flags behind it are detail most readers skip, so the
+/// site folds them; the tag, the links and the fold's text are all an agent's twin shows.
+fn chart_section(func: &FuncDef, chart: &Chart) -> String {
+    const TIP: &str = "The chart is drawn from the function's metadata: the flags and attributes \
+                       the abstract API reports for it and for each output, and the input series its \
+                       reference run declares.";
+    let dir = func.name.to_lowercase();
+    let attr = |s: &str| s.replace('&', "&amp;").replace('"', "&quot;");
+    let (label, alt) = (attr(&chart.label), attr(&chart.sentence));
+    format!(
+        "## Chart\n\n<ta-chart src=\"/functions/{dir}.svg\" ratio=\"{}:{}\" label=\"{label}\" alt=\"{alt}\"></ta-chart>\n\n\
+         ::: details Chart metadata <span class=\"flag-tip\" tabindex=\"0\" role=\"note\" aria-label=\"{TIP}\" data-tip=\"{TIP}\">i</span>\n\n\
+         {}\n\nMetadata flags used: {}\n\n:::\n\n\
+         [Reference data (CSV)](/functions/{dir}.csv) · [Chart (SVG)](/functions/{dir}.svg)\n",
+        chart.width, chart.height, chart.sentence, flags_used_text(chart)
+    )
+}
+
+fn flags_used_text(chart: &Chart) -> String {
+    if chart.flags_used.is_empty() {
+        return "none".to_string();
+    }
+    chart.flags_used.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(" · ")
+}
+
+/// Insert the Chart section right after `## Summary` (or at the top when there is none).
+fn inject_chart(body: &str, func: &FuncDef, chart: &Chart) -> String {
+    let lines: Vec<&str> = body.lines().collect();
+    let at = section_span(&lines, "## Summary").map_or(0, |(_, end)| end);
+    let block = chart_section(func, chart);
+    let mut out = String::new();
+    out.push_str(lines[..at].join("\n").trim_end());
+    if at > 0 {
+        out.push_str("\n\n");
+    }
+    out.push_str(&block);
+    out.push('\n');
+    out.push_str(&lines[at..].join("\n"));
+    if body.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
 /// Prepend SEO front matter (title + description), linkify `## See Also`, replace the
 /// `## Parameters` bullet list with a table carrying the YAML numbers, and add the
-/// generated `## Implementation` section.
+/// generated `## Chart` and `## Implementation` sections.
+#[allow(clippy::too_many_arguments)]
 fn transform_page(
     body: &str,
     func: &FuncDef,
@@ -92,14 +179,21 @@ fn transform_page(
     known: &HashSet<&str>,
     stability: &HashMap<String, Stability>,
     root: &Path,
+    releases: &Releases,
+    chart: Option<&Chart>,
 ) -> String {
     let name = &func.name;
     // Summary is extracted from the untransformed body: it precedes every rewrite.
     let desc = extract_summary(body);
     let injected = inject_parameters(body, func, enums);
+    let injected = match chart {
+        Some(c) => inject_chart(&injected, func, c),
+        None => injected,
+    };
     let injected = link_output_values(&injected, func.is_candlestick());
-    let with_impl = inject_implementation(&injected, func, root);
+    let with_impl = inject_implementation(&injected, func, root, releases);
     let with_flags = inject_flags(&with_impl, func, enums, stability);
+    let with_flags = inject_example(&with_flags, func, enums);
     let linked = linkify_see_also(&with_flags, known);
     let normalized = normalize_function_links(&linked);
     let pruned = strip_empty_sections(&normalized);
@@ -126,8 +220,154 @@ const AFTER_IMPLEMENTATION: [&str; 3] = ["## Aliases", "## See Also", "## Refere
 
 /// Insert the generated `## Implementation` section ahead of the first section that
 /// follows it in the canonical order, or at the end.
-fn inject_implementation(body: &str, func: &FuncDef, root: &Path) -> String {
-    insert_before_later_sections(body, &implementation_section(func, root))
+fn inject_implementation(body: &str, func: &FuncDef, root: &Path, releases: &Releases) -> String {
+    insert_before_later_sections(body, &implementation_section(func, root, releases))
+}
+
+/// The five tabs of the `## Example` section, in site order: tab title, fence language,
+/// and the lines each language's emitter shows (its compiled copy carries more).
+#[allow(clippy::implicit_hasher)]
+#[must_use]
+pub fn example_tabs(
+    func: &FuncDef,
+    enums: &HashMap<String, EnumDef>,
+) -> Option<Vec<(&'static str, &'static str, Vec<String>)>> {
+    Some(vec![
+        ("C", "c", super::c_examples::example(func, enums)?.shown()),
+        ("Rust", "rust", super::rust_doc::example(func, enums)?.shown()),
+        ("Java", "java", super::java_examples::example(func, enums)?.shown()),
+        ("C\\#", "csharp", super::csharp_examples::example(func, enums)?.shown()),
+        ("TypeScript", "ts", super::ts_doc::batch_example(func, enums)?.source()),
+    ])
+}
+
+/// The `## Example` section: one `code-tabs` block, every parameter at its default,
+/// the last computed value printed. None when an input has no example shape.
+#[allow(clippy::implicit_hasher)]
+#[must_use]
+pub fn example_section(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> Option<String> {
+    let mut s = String::from("## Example\n\n::: code-tabs#lang\n");
+    for (title, fence, lines) in example_tabs(func, enums)? {
+        s.push_str(&format!("\n@tab {title}\n\n```{fence}\n"));
+        for line in lines {
+            s.push_str(&line);
+            s.push('\n');
+        }
+        s.push_str("```\n");
+    }
+    s.push_str("\n:::\n");
+    Some(s)
+}
+
+/// Insert the `## Example` section right before `## Implementation`.
+fn inject_example(body: &str, func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String {
+    let Some(block) = example_section(func, enums) else {
+        return body.to_string();
+    };
+    let lines: Vec<&str> = body.lines().collect();
+    let Some(at) = lines.iter().position(|l| l.trim_end() == "## Implementation") else {
+        return body.to_string();
+    };
+    format!("{}\n{block}\n{}\n", lines[..at].join("\n"), lines[at..].join("\n"))
+}
+
+/// From this release on, ta-lib-python ships each function under the C version that added it.
+const WRAPPER_FROM: (u32, u32, u32) = (0, 8, 1);
+
+fn version_key(version: &str) -> (u32, u32, u32) {
+    let mut parts = version.split('.').map(str::parse::<u32>);
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(Ok(a)), Some(Ok(b)), Some(Ok(c)), None) => (a, b, c),
+        _ => panic!("releases.yaml: `{version}` is not a `M.m.p` version"),
+    }
+}
+
+/// ta-lib-python's group page for a function's `group:`.
+fn python_group_slug(group: &str) -> Option<&'static str> {
+    Some(match group {
+        "Overlap Studies" => "overlap_studies",
+        "Momentum Indicators" => "momentum_indicators",
+        "Volume Indicators" => "volume_indicators",
+        "Volatility Indicators" => "volatility_indicators",
+        "Price Transform" => "price_transform",
+        "Cycle Indicators" => "cycle_indicators",
+        "Pattern Recognition" => "pattern_recognition",
+        "Statistic Functions" => "statistic_functions",
+        "Math Transform" => "math_transform",
+        "Math Operators" => "math_operators",
+        _ => return None,
+    })
+}
+
+/// `ta_codegen/input/releases.yaml`, the release each function first shipped in. The row
+/// at `VERSION` is not tagged yet, so its page names no ta-lib-python release: the site
+/// deploys from main at a release, when the wrapper may not have followed.
+pub struct Releases {
+    first: HashMap<String, String>,
+    pending: String,
+}
+
+/// What the ledger says about one function, as page text.
+struct AddedIn {
+    line: String,
+    python: String,
+}
+
+impl Releases {
+    pub fn load(root: &Path) -> Self {
+        let path = root.join("ta_codegen/input/releases.yaml");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        let rows: BTreeMap<String, Vec<String>> = serde_yaml::from_str(&text)
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let pending = std::fs::read_to_string(root.join("VERSION"))
+            .expect("cannot read VERSION")
+            .trim()
+            .to_string();
+        Self::new(rows, pending)
+    }
+
+    pub fn new(rows: BTreeMap<String, Vec<String>>, pending: String) -> Self {
+        let mut first = HashMap::new();
+        for (release, names) in rows {
+            version_key(&release);
+            for name in names {
+                first.insert(name, release.clone());
+            }
+        }
+        Self { first, pending }
+    }
+
+    /// Why `generate` must stop on `func`, if it must; the ledger is a generator input.
+    pub fn check(&self, func: &FuncDef) -> Result<(), String> {
+        self.added_in(func).map(|_| ())
+    }
+
+    fn added_in(&self, func: &FuncDef) -> Result<AddedIn, String> {
+        let name = &func.name;
+        let release = self.first.get(name).ok_or_else(|| {
+            format!("{name}: not in ta_codegen/input/releases.yaml; run scripts/sync.py")
+        })?;
+        let slug = python_group_slug(&func.group).ok_or_else(|| {
+            format!("{name}: group {:?} has no ta-lib-python group page", func.group)
+        })?;
+        let pending = *release == self.pending;
+        let wrapped = !pending && version_key(release) >= WRAPPER_FROM;
+        let line = if wrapped {
+            format!("Added in {release} (ta-lib-python {release}).")
+        } else {
+            format!("Added in {release}.")
+        };
+        let docs = format!(
+            "see [ta-lib-python](https://ta-lib.github.io/ta-lib-python/func_groups/{slug}.html)."
+        );
+        let python = if wrapped {
+            format!("Python: `talib.{name}` (ta-lib-python {release} or later), {docs}")
+        } else {
+            format!("Python: `talib.{name}`, {docs}")
+        };
+        Ok(AddedIn { line, python })
+    }
 }
 
 /// Point a pattern output's value table at the rule that reads it.
@@ -164,16 +404,21 @@ fn has_authored_implementation(body: &str) -> bool {
     body.lines().any(|l| l.trim_end() == "## Implementation")
 }
 
-/// The `## Implementation` section: the input definition, then one row per backend in
-/// [`super::all`], each linking the file that backend writes for this function.
-fn implementation_section(func: &FuncDef, root: &Path) -> String {
+/// The `## Implementation` section: the release that added the function, the input
+/// definition, then one row per backend in [`super::all`], each linking the file that
+/// backend writes for this function, and the wrappers.
+fn implementation_section(func: &FuncDef, root: &Path, releases: &Releases) -> String {
     const REPO: &str = "https://github.com/TA-Lib/ta-lib/blob/main";
+    // Validated up-front by `validate_docs`, before any backend has written a file.
+    let added = releases.added_in(func).unwrap_or_else(|e| panic!("{e}"));
     let dir = func.name.to_lowercase();
     let link = |path: &str| {
         let file = path.rsplit('/').next().unwrap_or(path);
         format!("[`{file}`]({REPO}/{path})")
     };
     let mut s = String::from("## Implementation\n\n");
+    s.push_str(&added.line);
+    s.push_str("\n\n");
     s.push_str(&format!(
         "TA-Lib Definition: {} · {}\n\n",
         link(&format!("ta_codegen/input/{dir}/{dir}.c")),
@@ -187,9 +432,8 @@ fn implementation_section(func: &FuncDef, root: &Path) -> String {
         let rel = rel.to_string_lossy().replace('\\', "/");
         s.push_str(&format!("| {} | {} |\n", backend.label(), link(&rel)));
     }
-    s.push_str(
-        "\nTA-Lib is also available for Python, R and more using a [wrapper](/install/#wrappers).\n",
-    );
+    s.push_str(&format!("\n{}\n", added.python));
+    s.push_str("\nTA-Lib is also available for R and more using a [wrapper](/install/#wrappers).\n");
     s
 }
 
@@ -631,8 +875,12 @@ fn inject_parameters(body: &str, func: &FuncDef, enums: &HashMap<String, EnumDef
 pub fn validate_docs(funcs: &[FuncDef], root: &Path) -> Result<(), Vec<String>> {
     let input_base = root.join("ta_codegen/input");
     let enums = HashMap::new();
+    let releases = Releases::load(root);
     let mut errors = Vec::new();
     for f in funcs {
+        if let Err(e) = releases.check(f) {
+            errors.push(e);
+        }
         let dir = f.name.to_lowercase();
         let src = input_base.join(&dir).join(format!("{dir}.md"));
         // A missing .md is not an error here: `generate` warns and skips the page.
@@ -653,6 +901,13 @@ pub fn validate_docs(funcs: &[FuncDef], root: &Path) -> Result<(), Vec<String>> 
         }
         if let Err(e) = validate_no_bare_urls(&body, f) {
             errors.push(e);
+        }
+        for heading in ["## Chart", "## Example"] {
+            if body.lines().any(|l| l.trim_end() == heading) {
+                errors.push(format!(
+                    "{dir}/{dir}.md: `{heading}` is generated for the website page; delete it from the input"
+                ));
+            }
         }
         if has_authored_implementation(&body) {
             errors.push(format!(
@@ -1348,6 +1603,15 @@ fn build_index(funcs: &[&FuncDef]) -> String {
          formula, inputs, outputs, and links to the {} source.\n",
         labels.join(" / ")
     ));
+    s.push_str(
+        "\n## Reference data\n\n\
+         Each page charts the function at default parameters over one fixed price series (IBM, \
+         daily, 1999, the series `ta_regtest` ships), or over a synthetic input the page names for \
+         the Math Transform and Math Operators functions, and links a CSV of the inputs and every output, \
+         computed by the C library. Running TA-Lib over the CSV's own input columns from its first \
+         row reproduces the output columns. [Compare with a tolerance](/spec/versions/#tolerance) \
+         rather than bit for bit.\n",
+    );
     for (group, fns) in &by_group {
         s.push_str(&format!("\n## {group}\n\n"));
         for f in fns {
@@ -1381,6 +1645,7 @@ mod tests {
             private_extra_params: vec![],
             private_param_init: vec![],
             has_explicit_private: false,
+            opt_outs: vec![],
             header_comments: vec![],
             doc: None,
             streaming: false,
@@ -1406,6 +1671,8 @@ mod tests {
                 group: 0,
                 component: *c,
             }),
+            series: crate::ir::Series::Price,
+            domain: None,
         })
         .collect();
         f
@@ -1460,6 +1727,7 @@ mod tests {
                 name: (*n).to_string(),
                 param_type: ParamType::Real,
                 flags: vec![],
+                levels: Vec::new(),
             })
             .collect();
         f
@@ -1476,6 +1744,7 @@ mod tests {
                 name: (*n).to_string(),
                 param_type: ParamType::Integer,
                 flags: flags.iter().map(|s| (*s).to_string()).collect(),
+                levels: Vec::new(),
             })
             .collect();
         f
@@ -1616,6 +1885,7 @@ mod tests {
                 c_name: format!("TA_MAType_{n}"),
                 name: (*n).to_string(),
                 value: *v,
+                reserved: false,
             })
             .collect();
         let mut m = HashMap::new();
@@ -1656,7 +1926,8 @@ mod tests {
     #[test]
     fn implementation_rows_come_from_the_backend_registry() {
         let root = Path::new("/r");
-        let section = implementation_section(&func("SMA", vec![]), root);
+        let releases = Releases::new(BTreeMap::from([("0.4.0".to_string(), vec!["SMA".to_string()])]), "0.8.4".into());
+        let section = implementation_section(&func("SMA", vec![]), root, &releases);
         for backend in super::super::all() {
             let row = format!("| {} | [`{}`]", backend.label(), backend.file_name(&func("SMA", vec![])));
             assert!(section.contains(&row), "missing {row}:\n{section}");

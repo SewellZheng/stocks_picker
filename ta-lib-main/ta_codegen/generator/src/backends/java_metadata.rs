@@ -533,6 +533,13 @@ fn output_flags_class() -> String {
                  {@code ParamHolder.displayShift} reports. The values are never shifted.",
             ),
             ("PATTERN_WEAK", 0x0000_8000, "Level 80 occurs too: a weaker form of the pattern, on the same bar."),
+            ("BAR_INDEX", 0x0001_0000, "The value is an absolute index into the input arrays."),
+            (
+                "SEGMENTED",
+                0x0002_0000,
+                "A line whose segments restart wherever the function's integer output changes \
+                 value: never connect across a change.",
+            ),
         ],
         &[("NULLABLE", 0x0000_2000)],
         &[("PATTERN_STRENGTH", "PATTERN_CONFIRM")],
@@ -654,6 +661,19 @@ fn function_info_record() -> String {
          \x20   }\n\
          \n\
          \x20   /**\n\
+         \x20    * Metadata no flag can carry, such as an output's reference levels, as one\n\
+         \x20    * JSON object. The same bytes as C's {@code TA_GetFuncAttributes}. Ignore a\n\
+         \x20    * key you do not know: a release may add one\n\
+         \x20    * (<a href=\"https://ta-lib.org/spec/abstract/#attributes\">keys</a>).\n\
+         \x20    *\n\
+         \x20    * @return the attributes of the function this record names; {@code \"{}\"}\n\
+         \x20    *         when it has none or names no function\n\
+         \x20    */\n\
+         \x20   public String attributes() {\n\
+         \x20      return Functions.attributesOf(name);\n\
+         \x20   }\n\
+         \n\
+         \x20   /**\n\
          \x20    * Begins a call to this function with arguments bound at run time,\n\
          \x20    * against {@link Core#DEFAULT}. See {@link ParamHolder}.\n\
          \x20    */\n\
@@ -713,7 +733,20 @@ fn functions_registry(rows: &[FuncRow]) -> String {
          \x20   private Functions() { }\n\n",
     );
 
+    // Not a FuncInfo component: that would change the record's public constructor.
+    s.push_str("   private static final Map<String, String> ATTRIBUTES = Map.ofEntries(\n");
+    let attributed: Vec<&FuncRow> = rows.iter().filter(|r| r.attributes != "{}").collect();
+    for (i, row) in attributed.iter().enumerate() {
+        let sep = if i + 1 == attributed.len() { "" } else { "," };
+        let _ = writeln!(s, "      Map.entry({}, {}){sep}", js(&row.name), js(&row.attributes));
+    }
+    s.push_str("   );\n\n");
     s.push_str("   private static final Map<String, FuncInfo> BY_NAME = build();\n\n");
+    s.push_str(
+        "   static String attributesOf(String name) {\n\
+         \x20     return name == null ? \"{}\" : ATTRIBUTES.getOrDefault(name, \"{}\");\n\
+         \x20  }\n\n",
+    );
     s.push_str(
         "   /** Every function, in canonical name order. */\n\
          \x20  public static List<FuncInfo> all() {\n\
@@ -871,7 +904,7 @@ fn emit_function_factory(s: &mut String, f: &FuncRow) {
     }
 
     if f.outputs.is_empty() {
-        s.push_str("         List.of());\n");
+        s.push_str("         List.of()");
     } else {
         s.push_str("         List.of(\n");
         for (i, out) in f.outputs.iter().enumerate() {
@@ -884,9 +917,9 @@ fn emit_function_factory(s: &mut String, f: &FuncRow) {
                 out.flags
             );
         }
-        s.push_str("         ));\n");
+        s.push_str("         )");
     }
-    s.push_str("   }\n\n");
+    s.push_str(");\n   }\n\n");
 }
 
 fn input_type_name(kind: InputKind) -> &'static str {

@@ -85,6 +85,9 @@ final class Dispatch {
          case "ADXR":
             return core.adxr(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOutput(0));
+         case "ALLIGATOR":
+            return core.alligator(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5), h.realOutput(0), h.realOutput(1), h.realOutput(2));
          case "ALMA":
             return core.alma(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOpt(2), h.realOutput(0));
@@ -643,6 +646,9 @@ final class Dispatch {
          case "SAREXT":
             return core.sarext(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.realOpt(0), h.realOpt(1), h.realOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), h.realOpt(6), h.realOpt(7), h.realOutput(0));
+         case "SHARPE":
+            return core.sharpe(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOpt(2), h.realOutput(0));
          case "SI":
             return core.si(
                startIdx, endIdx, h.price(0, 0), h.price(0, 1), h.price(0, 2), h.price(0, 3), h.realOpt(0), h.realOutput(0));
@@ -661,6 +667,9 @@ final class Dispatch {
          case "SMI":
             return core.smi(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.realOutput(0), h.realOutput(1));
+         case "SORTINO":
+            return core.sortino(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOpt(2), h.realOutput(0));
          case "SQRT":
             return core.sqrt(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
@@ -807,6 +816,8 @@ final class Dispatch {
             return core.adxLookback(h.intOpt(0));
          case "ADXR":
             return core.adxrLookback(h.intOpt(0));
+         case "ALLIGATOR":
+            return core.alligatorLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5));
          case "ALMA":
             return core.almaLookback(h.intOpt(0), h.realOpt(1), h.realOpt(2));
          case "AO":
@@ -1179,6 +1190,8 @@ final class Dispatch {
             return core.sarLookback(h.realOpt(0), h.realOpt(1));
          case "SAREXT":
             return core.sarextLookback(h.realOpt(0), h.realOpt(1), h.realOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), h.realOpt(6), h.realOpt(7));
+         case "SHARPE":
+            return core.sharpeLookback(h.intOpt(0), h.realOpt(1), h.realOpt(2));
          case "SI":
             return core.siLookback(h.realOpt(0));
          case "SIN":
@@ -1191,6 +1204,8 @@ final class Dispatch {
             return core.smaLookback(h.intOpt(0));
          case "SMI":
             return core.smiLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3));
+         case "SORTINO":
+            return core.sortinoLookback(h.intOpt(0), h.realOpt(1), h.realOpt(2));
          case "SQRT":
             return core.sqrtLookback();
          case "SQZMOM":
@@ -1295,6 +1310,8 @@ final class Dispatch {
             return core.adxDisplayShift(h.intOpt(0), outputIdx);
          case "ADXR":
             return core.adxrDisplayShift(h.intOpt(0), outputIdx);
+         case "ALLIGATOR":
+            return core.alligatorDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.intOpt(4), h.intOpt(5), outputIdx);
          case "ALMA":
             return core.almaDisplayShift(h.intOpt(0), h.realOpt(1), h.realOpt(2), outputIdx);
          case "AO":
@@ -1667,6 +1684,8 @@ final class Dispatch {
             return core.sarDisplayShift(h.realOpt(0), h.realOpt(1), outputIdx);
          case "SAREXT":
             return core.sarextDisplayShift(h.realOpt(0), h.realOpt(1), h.realOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), h.realOpt(6), h.realOpt(7), outputIdx);
+         case "SHARPE":
+            return core.sharpeDisplayShift(h.intOpt(0), h.realOpt(1), h.realOpt(2), outputIdx);
          case "SI":
             return core.siDisplayShift(h.realOpt(0), outputIdx);
          case "SIN":
@@ -1679,6 +1698,8 @@ final class Dispatch {
             return core.smaDisplayShift(h.intOpt(0), outputIdx);
          case "SMI":
             return core.smiDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), outputIdx);
+         case "SORTINO":
+            return core.sortinoDisplayShift(h.intOpt(0), h.realOpt(1), h.realOpt(2), outputIdx);
          case "SQRT":
             return core.sqrtDisplayShift(outputIdx);
          case "SQZMOM":

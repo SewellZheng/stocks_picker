@@ -270,22 +270,10 @@ static void TA_TRANGE_StepImpl( struct TA_TRANGE_Stream *sp, double inHigh, doub
    sp->lag1_inClose = inClose;
 }
 
-static TA_RetCode TA_TRANGE_OpenImpl( struct TA_TRANGE_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_TRANGE_OpenBody( struct TA_TRANGE_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_TRANGE_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -364,6 +352,38 @@ static TA_RetCode TA_TRANGE_OpenImpl( struct TA_TRANGE_Stream **stream, const do
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_TRANGE_OpenFillFrame( struct TA_TRANGE_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_TRANGE_OpenBody( stream, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_TRANGE_OpenSinkFrame( struct TA_TRANGE_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   double sink_outReal = 0;
+   TA_RetCode retCode = TA_TRANGE_OpenBody( stream, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outReal ) *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_TRANGE_OpenImpl( struct TA_TRANGE_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_TRANGE_OpenFillFrame( stream, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outReal ) : TA_TRANGE_OpenSinkFrame( stream, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outReal );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_TRANGE_OpenInternal( struct TA_TRANGE_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double *outReal )
 {
@@ -383,7 +403,6 @@ TA_LIB_API TA_RetCode TA_TRANGE_Open( TA_TRANGE_Stream **stream, const double in
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_TRANGE_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, outReal );
@@ -393,7 +412,6 @@ TA_LIB_API TA_RetCode TA_TRANGE_OpenAndFill( TA_TRANGE_Stream **stream, const do
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;

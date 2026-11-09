@@ -598,15 +598,16 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
+    /// let series = vec![0.0; 252]; // your data, oldest first
+    /// # let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let mut sine = vec![0.0; 252];
     /// let mut lead_sine = vec![0.0; 252];
     ///
-    /// let out_range = core.ht_sine(0, data.len() - 1, &data, &mut sine, &mut lead_sine)?;
-    /// assert!(out_range.count > 0);
-    /// assert!(sine[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.ht_sine(0, series.len() - 1, &series, &mut sine, &mut lead_sine)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last sine = {}", range.count, range.beg_idx, sine[range.count - 1]);
+    /// # assert!(sine[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -989,20 +990,17 @@ impl Core {
     fn ht_sine_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outSine: &mut [f64], outLeadSine: &mut [f64], outStride: usize,
     ) -> Result<HtSineStream, RetCode> {
-        if inReal.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let historyLen: usize = inReal.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut outIdx: usize = 0_usize;
@@ -1493,17 +1491,16 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.ht_sine_open(&data).expect("enough history");
+    /// let (mut s, _last) = core.ht_sine_open(&series).expect("enough history");
     /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
     /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
@@ -1532,16 +1529,16 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
     /// let mut batch_sine = vec![0.0; 252];
     /// let mut batch_lead_sine = vec![0.0; 252];
-    /// let batch = core.ht_sine(0, data.len() - 1, &data, &mut batch_sine, &mut batch_lead_sine)?;
+    /// let batch = core.ht_sine(0, series.len() - 1, &series, &mut batch_sine, &mut batch_lead_sine)?;
     ///
     /// let mut sine = vec![0.0; 252];
     /// let mut lead_sine = vec![0.0; 252];
-    /// let (_stream, filled) = core.ht_sine_open_and_fill(&data, &mut sine, &mut lead_sine)?;
+    /// let (_stream, filled) = core.ht_sine_open_and_fill(&series, &mut sine, &mut lead_sine)?;
     ///
     /// assert_eq!(filled.beg_idx, batch.beg_idx);
     /// assert_eq!(filled.count, batch.count);
@@ -1555,9 +1552,6 @@ impl Core {
     pub fn ht_sine_open_and_fill(
         &self, inReal: &[f64], outSine: &mut [f64], outLeadSine: &mut [f64],
     ) -> Result<(HtSineStream, OutRange), RetCode> {
-        if inReal.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

@@ -744,7 +744,6 @@ static TA_FMA_STEP_INLINE TA_RetCode TA_DOSC_OpenImpl( struct TA_DOSC_Stream **s
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -763,7 +762,7 @@ static TA_FMA_STEP_INLINE TA_RetCode TA_DOSC_OpenImpl( struct TA_DOSC_Stream **s
       optInSignalPeriod = 9;
    else if( (int)optInSignalPeriod < 2 || (int)optInSignalPeriod > 100000 )
       return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
+   if( startIdx >= historyLen )
    {
       *outBegIdx = 0;
       *outNBElement = 0;
@@ -1103,7 +1102,6 @@ TA_LIB_API TA_RetCode TA_DOSC_Open( TA_DOSC_Stream **stream, const double inReal
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_FMA_AVAILABLE ? TA_DOSC_OpenSinkFma( stream, inReal, 0, historyLen, optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod, outReal ) : TA_DOSC_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod, outReal );
@@ -1113,7 +1111,6 @@ TA_LIB_API TA_RetCode TA_DOSC_OpenAndFill( TA_DOSC_Stream **stream, const double
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;

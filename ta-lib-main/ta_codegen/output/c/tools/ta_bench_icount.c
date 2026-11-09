@@ -585,6 +585,67 @@ static void icount_ADXR(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_ALLIGATOR(int iters) {
+    const char *nm = "ALLIGATOR";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_ALLIGATOR_Stream *st = NULL;
+    TA_ALLIGATOR_Stream *stf = NULL;
+    double v0 = 0.0;
+    double v1 = 0.0;
+    double v2 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_ALLIGATOR(0, g_nPoints - 1, g_high, g_low, 13, 8, 8, 5, 5, 3, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+    ICOUNT_DUMP("ALLIGATOR/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    acc += g_outBuf2[0];
+
+    ICOUNT_ZERO();
+    rc = TA_ALLIGATOR_OpenAndFill(&stf, g_high, g_low, g_nPoints, 13, 8, 8, 5, 5, 3, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+    ICOUNT_DUMP("ALLIGATOR/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    acc += g_outBuf1[0];
+    acc += g_outBuf2[0];
+    if( stf ) TA_ALLIGATOR_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_ALLIGATOR_Open(&st, g_high, g_low, g_nPoints, 13, 8, 8, 5, 5, 3, &v0, &v1, &v2);
+    ICOUNT_DUMP("ALLIGATOR/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ALLIGATOR_Update(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0, &v1, &v2);
+            acc += v0;
+            acc += v1;
+            acc += v2;
+        }
+        ICOUNT_DUMP("ALLIGATOR/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_ALLIGATOR_Peek(st, g_high[it & ICOUNT_MASK], g_low[it & ICOUNT_MASK], &v0, &v1, &v2);
+            acc += v0;
+            acc += v1;
+            acc += v2;
+        }
+        ICOUNT_DUMP("ALLIGATOR/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_ALLIGATOR_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_ALMA(int iters) {
     const char *nm = "ALMA";
     int outBegIdx = 0, outNBElement = 0;
@@ -10251,6 +10312,57 @@ static void icount_SAREXT(int iters) {
     g_sink += acc + outNBElement;
 }
 
+static void icount_SHARPE(int iters) {
+    const char *nm = "SHARPE";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_SHARPE_Stream *st = NULL;
+    TA_SHARPE_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_SHARPE(0, g_nPoints - 1, g_close, 20, 0.000000000000000, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("SHARPE/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_SHARPE_OpenAndFill(&stf, g_close, g_nPoints, 20, 0.000000000000000, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("SHARPE/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_SHARPE_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_SHARPE_Open(&st, g_close, g_nPoints, 20, 0.000000000000000, 252.000000000000000, &v0);
+    ICOUNT_DUMP("SHARPE/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SHARPE_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("SHARPE/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SHARPE_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("SHARPE/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_SHARPE_Close(st);
+    g_sink += acc + outNBElement;
+}
+
 static void icount_SI(int iters) {
     const char *nm = "SI";
     int outBegIdx = 0, outNBElement = 0;
@@ -10559,6 +10671,57 @@ static void icount_SMI(int iters) {
         icount_row(nm, "peek", 0, rc);
     }
     if( st ) TA_SMI_Close(st);
+    g_sink += acc + outNBElement;
+}
+
+static void icount_SORTINO(int iters) {
+    const char *nm = "SORTINO";
+    int outBegIdx = 0, outNBElement = 0;
+    double acc = 0.0;
+    TA_RetCode rc;
+    TA_SORTINO_Stream *st = NULL;
+    TA_SORTINO_Stream *stf = NULL;
+    double v0 = 0.0;
+
+    ICOUNT_ZERO();
+    rc = TA_SORTINO(0, g_nPoints - 1, g_close, 20, 0.000000000000000, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("SORTINO/batch");
+    icount_row(nm, "batch", 1, rc);
+    acc += g_outBuf0[0];
+
+    ICOUNT_ZERO();
+    rc = TA_SORTINO_OpenAndFill(&stf, g_close, g_nPoints, 20, 0.000000000000000, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+    ICOUNT_DUMP("SORTINO/openfill");
+    icount_row(nm, "openfill", 1, rc);
+    acc += g_outBuf0[0];
+    if( stf ) TA_SORTINO_Close(stf);
+
+    ICOUNT_ZERO();
+    rc = TA_SORTINO_Open(&st, g_close, g_nPoints, 20, 0.000000000000000, 252.000000000000000, &v0);
+    ICOUNT_DUMP("SORTINO/open");
+    icount_row(nm, "open", 1, rc);
+
+    if( rc == TA_SUCCESS && st ) {
+        TA_RetCode src = TA_SUCCESS;
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SORTINO_Update(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("SORTINO/update");
+        icount_row(nm, "update", 1, src);
+        ICOUNT_ZERO();
+        for( int it = 0; it < iters; it++ ) {
+            src = TA_SORTINO_Peek(st, g_close[it & ICOUNT_MASK], &v0);
+            acc += v0;
+        }
+        ICOUNT_DUMP("SORTINO/peek");
+        icount_row(nm, "peek", 1, src);
+    } else {
+        icount_row(nm, "update", 0, rc);
+        icount_row(nm, "peek", 0, rc);
+    }
+    if( st ) TA_SORTINO_Close(st);
     g_sink += acc + outNBElement;
 }
 
@@ -12606,6 +12769,7 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "ADR") ) { icount_ADR(iters); fflush(stdout); }
     if( func_matches(filter, "ADX") ) { icount_ADX(iters); fflush(stdout); }
     if( func_matches(filter, "ADXR") ) { icount_ADXR(iters); fflush(stdout); }
+    if( func_matches(filter, "ALLIGATOR") ) { icount_ALLIGATOR(iters); fflush(stdout); }
     if( func_matches(filter, "ALMA") ) { icount_ALMA(iters); fflush(stdout); }
     if( func_matches(filter, "AO") ) { icount_AO(iters); fflush(stdout); }
     if( func_matches(filter, "APO") ) { icount_APO(iters); fflush(stdout); }
@@ -12792,12 +12956,14 @@ static void icount_all(const char *filter, int iters) {
     if( func_matches(filter, "RVOL") ) { icount_RVOL(iters); fflush(stdout); }
     if( func_matches(filter, "SAR") ) { icount_SAR(iters); fflush(stdout); }
     if( func_matches(filter, "SAREXT") ) { icount_SAREXT(iters); fflush(stdout); }
+    if( func_matches(filter, "SHARPE") ) { icount_SHARPE(iters); fflush(stdout); }
     if( func_matches(filter, "SI") ) { icount_SI(iters); fflush(stdout); }
     if( func_matches(filter, "SIN") ) { icount_SIN(iters); fflush(stdout); }
     if( func_matches(filter, "SINH") ) { icount_SINH(iters); fflush(stdout); }
     if( func_matches(filter, "SKEW") ) { icount_SKEW(iters); fflush(stdout); }
     if( func_matches(filter, "SMA") ) { icount_SMA(iters); fflush(stdout); }
     if( func_matches(filter, "SMI") ) { icount_SMI(iters); fflush(stdout); }
+    if( func_matches(filter, "SORTINO") ) { icount_SORTINO(iters); fflush(stdout); }
     if( func_matches(filter, "SQRT") ) { icount_SQRT(iters); fflush(stdout); }
     if( func_matches(filter, "SQZMOM") ) { icount_SQZMOM(iters); fflush(stdout); }
     if( func_matches(filter, "STC") ) { icount_STC(iters); fflush(stdout); }

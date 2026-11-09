@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -45,7 +45,7 @@
  *  110126 MF,CC  First Version
  */
 
-import { FuncUnstId } from '../enums.ts';
+import { FuncUnstId, FuncUnstIds } from '../enums.ts';
 import { RetCode, TALibError } from './errors.ts';
 
 /** The candle attribute a {@link CandleSetting} describes; C's order. */
@@ -77,9 +77,7 @@ export type RangeType = (typeof RangeType)[keyof typeof RangeType];
 const INDEX_MAX = 100000000;
 const UNSTABLE_AUTO_PREC_4 = INDEX_MAX + 4;
 const UNSTABLE_AUTO_PREC_8 = INDEX_MAX + 8;
-const CANDLE_SETTING_COUNT = CandleSettingType.ALL_CANDLE_SETTINGS;
-const FUNC_UNST_COUNT =
-  Math.max(...Object.values(FuncUnstId).filter((id) => id !== FuncUnstId.ALL)) + 1;
+const FUNC_UNST_COUNT = FuncUnstIds.Count;
 
 /** One candlestick threshold: `factor` times the average of `rangeType` over `avgPeriod` previous candles. */
 export class CandleSetting {
@@ -111,6 +109,7 @@ const DEFAULT_CANDLE_SETTINGS: readonly CandleSetting[] = [
   new CandleSetting(CandleSettingType.FAR, RangeType.HIGH_LOW, 5, 0.6),
   new CandleSetting(CandleSettingType.EQUAL, RangeType.HIGH_LOW, 5, 0.05),
 ];
+const CANDLE_SETTING_COUNT = DEFAULT_CANDLE_SETTINGS.length;
 
 function badParam(message: string): TALibError {
   return new TALibError(RetCode.BAD_PARAM, message);
@@ -125,7 +124,7 @@ function isCandleSlot(settingType: number): boolean {
 }
 
 /**
- * Configures a {@link Core}. A rejected call throws {@link TALibError}
+ * Configures a {@link Core}. A rejected call throws `TALibError`
  * `TA_BAD_PARAM`, as C's setter returns it, and writes nothing.
  */
 export class CoreBuilder {
@@ -158,7 +157,12 @@ export class CoreBuilder {
    * Overrides one candlestick setting. `avgPeriod` is in 0 to
    * {@link Core.INDEX_MAX}, and `factor` is finite and not negative.
    */
-  candleSetting(settingType: CandleSettingType, rangeType: RangeType, avgPeriod: number, factor: number): this {
+  candleSetting(
+    settingType: Exclude<CandleSettingType, typeof CandleSettingType.ALL_CANDLE_SETTINGS>,
+    rangeType: RangeType,
+    avgPeriod: number,
+    factor: number,
+  ): this {
     if (!isCandleSlot(settingType)) {
       throw badParam(`candleSetting: ${settingType} is not a single CandleSettingType`);
     }
@@ -208,14 +212,22 @@ export class CoreBuilder {
 export class Core {
   /** Selects a real optional parameter's default; C's `TA_REAL_DEFAULT`. */
   static readonly REAL_DEFAULT = -4e37;
+  /** Lowest value a real optional parameter may take; C's `TA_REAL_MIN`. */
   static readonly REAL_MIN = -3e37;
+  /** Highest value a real optional parameter may take; C's `TA_REAL_MAX`. */
   static readonly REAL_MAX = 3e37;
   /** Selects an integer optional parameter's default; C's `TA_INTEGER_DEFAULT`. */
   static readonly INTEGER_DEFAULT = -2147483648;
+  /** Lowest value an integer optional parameter may take; C's `TA_INTEGER_MIN`. */
   static readonly INTEGER_MIN = -2147483647;
+  /** Highest value an integer optional parameter may take; C's `TA_INTEGER_MAX`. */
   static readonly INTEGER_MAX = 2147483647;
   /** Largest `startIdx` or `endIdx`. It bounds the API domain, not accuracy. */
   static readonly INDEX_MAX = INDEX_MAX;
+  /** What a lookback answers for a rejected parameter. */
+  static readonly LOOKBACK_INVALID = -1;
+  /** What a display shift answers for a rejected parameter or output index; C's `INT_MIN`. */
+  static readonly DISPLAY_SHIFT_INVALID = -2147483648;
   /** Auto unstable period: discard output until its first 4 significant digits no longer depend on where the data starts. */
   static readonly UNSTABLE_AUTO_PREC_4 = UNSTABLE_AUTO_PREC_4;
   /** As {@link Core.UNSTABLE_AUTO_PREC_4}, to 8 significant digits. */
@@ -229,8 +241,15 @@ export class Core {
   /** @internal Indexed by `CandleSettingType`. */
   readonly candleSettings: readonly CandleSetting[];
 
-  /** `new Core(b)` is `b.build()`; `new Core()` has the defaults of {@link Core.DEFAULT}. */
+  /**
+   * `new Core(b)` is `b.build()`; `new Core()` has the defaults of {@link Core.DEFAULT}.
+   *
+   * @throws `TALibError` with code `TA_BAD_PARAM` when `builder` is not a `CoreBuilder`.
+   */
   constructor(builder: CoreBuilder = new CoreBuilder()) {
+    if (!(builder instanceof CoreBuilder)) {
+      throw badParam('Core: builder is not a CoreBuilder');
+    }
     // Frozen because `readonly` binds TypeScript callers only. An Int32Array
     // cannot be frozen.
     this.unstablePeriods = Object.freeze(Array.from(builder.unstablePeriods));
@@ -238,6 +257,7 @@ export class Core {
     Object.freeze(this);
   }
 
+  /** A builder with the defaults of {@link Core.DEFAULT}. */
   static builder(): CoreBuilder {
     return new CoreBuilder();
   }
@@ -252,12 +272,24 @@ export class Core {
     return builder;
   }
 
-  /** The unstable period set for `id`. `FuncUnstId.ALL` names no single function and is rejected. */
-  unstablePeriod(id: FuncUnstId): number {
+  /** The unstable period set for one function. */
+  unstablePeriod(id: Exclude<FuncUnstId, typeof FuncUnstId.ALL>): number {
     if (!isIntIn(id, 0, FUNC_UNST_COUNT - 1)) {
       throw badParam(`unstablePeriod: ${id} is not a single FuncUnstId`);
     }
     return this.unstablePeriods[id];
+  }
+
+  /**
+   * The candle setting stored for one attribute.
+   *
+   * @throws `TALibError` with code `TA_BAD_PARAM` for the wildcard or a value that is not a `CandleSettingType`.
+   */
+  candleSetting(settingType: Exclude<CandleSettingType, typeof CandleSettingType.ALL_CANDLE_SETTINGS>): CandleSetting {
+    if (!isCandleSlot(settingType)) {
+      throw badParam(`candleSetting: ${settingType} is not a single CandleSettingType`);
+    }
+    return this.candleSettings[settingType];
   }
 
   /** @internal The count for one call: the stored one, or under an Auto level that level's count. */

@@ -497,7 +497,6 @@ static TA_FMA_STEP_INLINE TA_RetCode TA_T3_OpenImpl( struct TA_T3_Stream **strea
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -508,7 +507,7 @@ static TA_FMA_STEP_INLINE TA_RetCode TA_T3_OpenImpl( struct TA_T3_Stream **strea
       optInVFactor = 0.7;
    else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) )
       return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
+   if( startIdx >= historyLen )
    {
       *outBegIdx = 0;
       *outNBElement = 0;
@@ -767,7 +766,6 @@ TA_LIB_API TA_RetCode TA_T3_Open( TA_T3_Stream **stream, const double inReal[], 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_FMA_AVAILABLE ? TA_T3_OpenSinkFma( stream, inReal, 0, historyLen, optInTimePeriod, optInVFactor, outReal ) : TA_T3_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInVFactor, outReal );
@@ -777,7 +775,6 @@ TA_LIB_API TA_RetCode TA_T3_OpenAndFill( TA_T3_Stream **stream, const double inR
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;

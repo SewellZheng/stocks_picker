@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -19,25 +53,14 @@
  *                output.
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 
-/**
- * Number of leading input bars {@link midprice} consumes before its first value:
- * the index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Window length over which the high/low extremes are
- *   taken (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function midpriceLookback(optInTimePeriod: number, core: Core = Core.DEFAULT): number {
-  void core;
+/** @internal */
+export function midpriceLookbackPositional(optInTimePeriod: number, _core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -49,23 +72,9 @@ export function midpriceLookback(optInTimePeriod: number, core: Core = Core.DEFA
   return optInTimePeriod - 1;
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link midprice}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Window length over which the high/low extremes are
- *   taken (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function midpriceDisplayShift(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (midpriceLookback(optInTimePeriod, core) < 0) {
+/** @internal */
+export function midpriceDisplayShiftPositional(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (midpriceLookbackPositional(optInTimePeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
@@ -260,54 +269,10 @@ export function midpriceImpl(
   return RetCode.SUCCESS;
 }
 
-/**
- * Midpoint of the price range over a rolling window: the average of the highest
- * high and lowest low across the last optInTimePeriod bars. An overlap-study line
- * plotted on price.
- *
- * Formula and more info at
- * [ta-lib.org/functions/midprice](https://ta-lib.org/functions/midprice).
- *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link midpriceLookback} is a success with
- * `count` 0.
- *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inHigh - High price of each bar.
- * @param inLow - Low price of each bar.
- * @param optInTimePeriod - Window length over which the high/low extremes are
- *   taken (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param outReal - Midpoint of the period's high/low extremes. Must hold the
- *   values produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
- * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
- *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output
- *   or an output sharing memory with a `Float64Array` input it is not. Checked
- *   before anything is written.
- *
- * @example
- * ```ts
- * import { midprice } from 'ta-lib';
- *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(high.length);
- * const { begIdx, count } = midprice(0, high.length - 1, high, low, 14, out);
- * // out[k] is the value at bar begIdx + k, for k < count
- * ```
- * @see [`midpoint`](https://ta-lib.org/functions/midpoint)
- * @see [`medprice`](https://ta-lib.org/functions/medprice)
- */
-export function midprice(
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000']] as const;
+
+/** @internal */
+export function midpricePositional(
   startIdx: number,
   endIdx: number,
   inHigh: ArrayLike<number>,
@@ -318,18 +283,25 @@ export function midprice(
 ): OutRange {
   startIdx = requireInt32('MIDPRICE', 'startIdx', startIdx);
   endIdx = requireInt32('MIDPRICE', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('MIDPRICE', 'optInTimePeriod', optInTimePeriod);
+  optInTimePeriod = requireInt32('MIDPRICE', 'timePeriod', optInTimePeriod);
   requireIndexRange('MIDPRICE', startIdx, endIdx);
-  const guardStart = clampedStart('MIDPRICE', startIdx, midpriceLookback(optInTimePeriod, core));
+  const guardLookback = midpriceLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('MIDPRICE', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardStart = clampedStart('MIDPRICE', startIdx, guardLookback);
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('MIDPRICE', 'inHigh', inHigh, guardInLen);
-  requireLength('MIDPRICE', 'inLow', inLow, guardInLen);
+  requireLength('MIDPRICE', 'prices.high', inHigh, guardInLen);
+  requireLength('MIDPRICE', 'prices.low', inLow, guardInLen);
   requireOutput('MIDPRICE', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
-  if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64)) {
-    throw failure('MIDPRICE', RetCode.BAD_PARAM);
+  if (overlapsPartly(outReal, inHighF64)) {
+    throw sharedMemory('MIDPRICE', 'outReal', 'prices.high');
+  }
+  if (overlapsPartly(outReal, inLowF64)) {
+    throw sharedMemory('MIDPRICE', 'outReal', 'prices.low');
   }
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
@@ -338,6 +310,147 @@ export function midprice(
     throw failure('MIDPRICE', retCode);
   }
   return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link midprice}, {@link midpriceLookback},
+ * {@link midpriceDisplayShift}, {@link midpriceOpen} and
+ * {@link midpriceOpenAndFill}. Every key is optional: an omitted or `undefined`
+ * key takes its default, and a call ignores the keys it has no use for.
+ */
+export interface MidpriceOptions {
+  /**
+   * Window length over which the high/low extremes are taken (default 14; range 2 to
+   * 100000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link midprice} returns, and {@link midpriceOpenAndFill} with its stream. */
+export interface MidpriceResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Midpoint of the period's high/low extremes. `values[k]` is the value at input
+   * bar `begIdx + k`.
+   */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link midprice} consumes before its first value:
+ * the index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link MidpriceOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function midpriceLookback(options?: MidpriceOptions): number {
+  const o = optionsOf('MIDPRICE lookback', options);
+  return midpriceLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), coreOf('MIDPRICE lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link midprice}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link MidpriceOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function midpriceDisplayShift(outputIdx: number, options?: MidpriceOptions): number {
+  const o = optionsOf('MIDPRICE displayShift', options);
+  return midpriceDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('MIDPRICE displayShift', o.core));
+}
+
+/**
+ * Midpoint of the price range over a rolling window: the average of the highest
+ * high and lowest low across the last timePeriod bars. An overlap-study line
+ * plotted on price.
+ *
+ * Formula and more info at
+ * [ta-lib.org/functions/midprice](https://ta-lib.org/functions/midprice).
+ *
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link midpriceLookback} is a success with empty outputs.
+ *
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `high`: High price of
+ *   each bar. `low`: Low price of each bar.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link MidpriceOptions}.
+ * @returns `begIdx` and the values; see {@link MidpriceResult}. Each output is a
+ *   view of its buffer, the caller's or a new one.
+ * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
+ *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
+ *
+ * @example
+ * ```ts
+ * import { midprice } from 'ta-lib';
+ *
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = midprice({ high, low }, { timePeriod: 14 });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+ * ```
+ * @see [`midpoint`](https://ta-lib.org/functions/midpoint)
+ * @see [`medprice`](https://ta-lib.org/functions/medprice)
+ */
+export function midprice(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: MidpriceOptions): MidpriceResult {
+  requireArgument('MIDPRICE', 'prices', prices);
+  const o = optionsOf('MIDPRICE', options);
+  if (o.endIdx === undefined) {
+    requireSeries('MIDPRICE', 'prices.high', prices.high);
+    requireSeries('MIDPRICE', 'prices.low', prices.low);
+  }
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('MIDPRICE', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.high.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, midpriceLookbackPositional(optInTimePeriod, core), prices.high, prices.low);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = midpricePositional(startIdx, endIdx, prices.high, prices.low, optInTimePeriod, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -411,7 +524,7 @@ export class MidpriceStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('MIDPRICE advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('MIDPRICE advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -419,21 +532,21 @@ export class MidpriceStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inHigh: number, inLow: number): number {
+  update(high: number, low: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('MIDPRICE update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('MIDPRICE update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow)) {
-      throw nonFiniteBar('MIDPRICE update', !Number.isFinite(inHigh) ? 'inHigh' : 'inLow');
+    if (!Number.isFinite(high) || !Number.isFinite(low)) {
+      throw nonFiniteBar('MIDPRICE update', !Number.isFinite(high) ? 'high' : 'low');
     }
-    midpriceStepImpl(this, inHigh, inLow);
+    midpriceStepImpl(this, high, low);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -441,17 +554,19 @@ export class MidpriceStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inHigh: number, inLow: number): number {
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow)) {
-      throw nonFiniteBar('MIDPRICE peek', !Number.isFinite(inHigh) ? 'inHigh' : 'inLow');
+  peek(high: number, low: number): number {
+    if (!Number.isFinite(high) || !Number.isFinite(low)) {
+      throw nonFiniteBar('MIDPRICE peek', !Number.isFinite(high) ? 'high' : 'low');
     }
     const sp = this;
+    const inHigh = high;
+    const inLow = low;
     let tmpLow = 0;
     let tmpHigh = 0;
     let cur_outReal = 0;
@@ -601,9 +716,6 @@ function midpriceOpenImpl(
   let i = 0;
   const historyLen = inHigh.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -615,7 +727,7 @@ function midpriceOpenImpl(
   } else if (optInTimePeriod < 2 || optInTimePeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -760,7 +872,10 @@ export function midpriceOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('MIDPRICE openAndFill', inHigh.length, startIdx, midpriceLookback(optInTimePeriod, core));
+    throw insufficientHistory('MIDPRICE openAndFill', inHigh.length, startIdx, midpriceLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && midpriceLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('MIDPRICE openAndFill', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('MIDPRICE openAndFill', retCode);
 }
@@ -784,29 +899,80 @@ export function midpriceOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('MIDPRICE open', inHigh.length, startIdx, midpriceLookback(optInTimePeriod, core));
+    throw insufficientHistory('MIDPRICE open', inHigh.length, startIdx, midpriceLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && midpriceLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('MIDPRICE open', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('MIDPRICE open', retCode);
+}
+
+/** @internal */
+export function midpriceOpenPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  optInTimePeriod: number,
+  core: Core = Core.DEFAULT,
+): MidpriceStream {
+  optInTimePeriod = requireInt32('MIDPRICE open', 'timePeriod', optInTimePeriod);
+  requireArgument('MIDPRICE open', 'prices.high', inHigh);
+  requireHistory('MIDPRICE open', 'prices.high', inHigh.length);
+  requireArgument('MIDPRICE open', 'prices.low', inLow);
+  requireHistoryLength('MIDPRICE open', 'prices.low', inLow.length, inHigh.length);
+  return midpriceOpenInternal(core, float64(inHigh), float64(inLow), 0, optInTimePeriod);
+}
+
+/** @internal */
+export function midpriceOpenAndFillPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  optInTimePeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): MidpriceStream {
+  optInTimePeriod = requireInt32('MIDPRICE openAndFill', 'timePeriod', optInTimePeriod);
+  requireArgument('MIDPRICE openAndFill', 'prices.high', inHigh);
+  requireHistory('MIDPRICE openAndFill', 'prices.high', inHigh.length);
+  requireArgument('MIDPRICE openAndFill', 'prices.low', inLow);
+  const guardLookback = midpriceLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('MIDPRICE openAndFill', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardOutLen = openFillCount('MIDPRICE openAndFill', inHigh.length, guardLookback);
+  requireHistoryLength('MIDPRICE openAndFill', 'prices.low', inLow.length, inHigh.length);
+  requireOutput('MIDPRICE openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  if (outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('MIDPRICE openAndFill', 'outReal', 'prices.high');
+  }
+  if (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('MIDPRICE openAndFill', 'outReal', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inHighF64)) {
+    throw sharedMemory('MIDPRICE openAndFill', 'outReal', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inLowF64)) {
+    throw sharedMemory('MIDPRICE openAndFill', 'outReal', 'prices.low');
+  }
+  return midpriceOpenAndFillInternal(core, inHighF64, inLowF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
 }
 
 /**
  * Opens a live MIDPRICE stream over the warm-up history: `value()` starts at the
  * last history bar, bit-identical to {@link midprice} there.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Window length over which the high/low extremes are
- *   taken (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link MidpriceOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `midpriceLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an
- *   empty one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or histories of different lengths.
+ *   than `midpriceLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32, a parameter outside its range
+ *   or histories of different lengths.
  *
  * @example
  * ```ts
@@ -816,50 +982,39 @@ export function midpriceOpenInternal(
  *   101 + 10 * Math.sin(0.1 * i));
  * const low = Float64Array.from({ length: 252 }, (_, i) =>
  *   99 + 10 * Math.sin(0.1 * i));
- * const stream = midpriceOpen(high, low, 14);
+ * const stream = midpriceOpen({ high, low }, { timePeriod: 14 });
  * const peeked = stream.peek(101.4, 99.1); // a forming bar: commits nothing
  * const updated = stream.update(101.4, 99.1); // the bar closes
  * ```
  */
-export function midpriceOpen(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  optInTimePeriod: number,
-  core: Core = Core.DEFAULT,
-): MidpriceStream {
-  optInTimePeriod = requireInt32('MIDPRICE open', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('MIDPRICE open', 'inHigh', inHigh);
-  requireHistory('MIDPRICE open', inHigh.length);
-  requireArgument('MIDPRICE open', 'inLow', inLow);
-  requireHistoryLength('MIDPRICE open', 'inLow', inLow.length, inHigh.length);
-  return midpriceOpenInternal(core, float64(inHigh), float64(inLow), 0, optInTimePeriod);
+export function midpriceOpen(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: MidpriceOptions): MidpriceStream {
+  requireArgument('MIDPRICE open', 'prices', prices);
+  const o = optionsOf('MIDPRICE open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('MIDPRICE open', o.core);
+  return midpriceOpenPositional(prices.high, prices.low, optInTimePeriod, core);
 }
 
 /**
- * {@link midpriceOpen} that also fills the outputs over the whole history in the
- * same pass, bit-identically to {@link midprice}. The range written is the
- * stream's `outRange()`.
+ * {@link midpriceOpen} that also computes the outputs over the whole history in
+ * the same pass, bit-identically to {@link midprice}.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param optInTimePeriod - Window length over which the high/low extremes are
- *   taken (default 14; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the
- *   default).
- * @param outReal - Midpoint of the period's high/low extremes. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link MidpriceOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link midprice} returns them; the range is the
+ *   stream's `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `midpriceLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an
- *   empty one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range, histories of different lengths or an output too
- *   short or starting where another output or a `Float64Array` input starts, or, on
- *   a history long enough to open, one sharing memory with another output or a
- *   `Float64Array` input.
+ *   than `midpriceLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32, a parameter outside its range,
+ *   histories of different lengths or a buffer too short, of the wrong type or
+ *   starting where another buffer or a `Float64Array` input starts, or, on a history
+ *   long enough to open, one sharing memory with another buffer or a `Float64Array`
+ *   input.
  *
  * @example
  * ```ts
@@ -869,33 +1024,20 @@ export function midpriceOpen(
  *   101 + 10 * Math.sin(0.1 * i));
  * const low = Float64Array.from({ length: 252 }, (_, i) =>
  *   99 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(high.length);
- * const stream = midpriceOpenAndFill(high, low, 14, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = midpriceOpenAndFill({ high, low }, {
+ *   timePeriod: 14,
+ * });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function midpriceOpenAndFill(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  optInTimePeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): MidpriceStream {
-  optInTimePeriod = requireInt32('MIDPRICE openAndFill', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('MIDPRICE openAndFill', 'inHigh', inHigh);
-  requireHistory('MIDPRICE openAndFill', inHigh.length);
-  requireArgument('MIDPRICE openAndFill', 'inLow', inLow);
-  const guardOutLen = openFillCount('MIDPRICE openAndFill', inHigh.length, midpriceLookback(optInTimePeriod, core));
-  requireHistoryLength('MIDPRICE openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireOutput('MIDPRICE openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset)) {
-    throw streamFailure('MIDPRICE openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outReal, inHighF64) || overlaps(outReal, inLowF64))) {
-    throw streamFailure('MIDPRICE openAndFill', RetCode.BAD_PARAM);
-  }
-  return midpriceOpenAndFillInternal(core, inHighF64, inLowF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
+export function midpriceOpenAndFill(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: MidpriceOptions): MidpriceResult & { stream: MidpriceStream } {
+  requireArgument('MIDPRICE openAndFill', 'prices', prices);
+  const o = optionsOf('MIDPRICE openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('MIDPRICE openAndFill', o.core);
+  const capacity = fillCapacity(midpriceLookbackPositional(optInTimePeriod, core), prices.high, prices.low);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = midpriceOpenAndFillPositional(prices.high, prices.low, optInTimePeriod, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }

@@ -421,6 +421,7 @@ pub fn generate(
     if let Some(m) = func.alt_marker(crate::ir::Tier::Batch, crate::ir::Lang::C) {
         out.push_str(&format!("/* {m} */\n\n"));
     }
+    let pragma_at = out.len();
     out.push_str(&gen_lookback(func, enums, registry, helpers));
     out.push_str(&gen_display_shift(func, enums, registry, helpers));
 
@@ -442,6 +443,18 @@ pub fn generate(
     }
     // Last, over the finished file: the emitters above place their `(void)x;`
     // before they know what the body will read (see `c_hygiene`).
+    if !func.opt_outs.contains(&crate::ir::OptOut::RangeTypeCopy) {
+        let copied = super::c_candle_defaults::specialize(&out);
+        if copied != out {
+            // gcc's path splitting duplicates a copied loop's latch and turns
+            // its output select back into a mispredicting branch.
+            out = copied;
+            out.insert_str(
+                pragma_at,
+                "#if defined(__GNUC__) && !defined(__clang__)\n#pragma GCC optimize(\"no-split-paths\")\n#endif\n\n",
+            );
+        }
+    }
     super::c_hygiene::scrub_void_casts(&out)
 }
 
@@ -2732,6 +2745,20 @@ fn render_func_call(
         }
     } else if let Some(macro_call) = try_render_candle_macro(fname, args, ctx, registry, helpers) {
         return macro_call;
+    }
+
+    // A candle's colour picks open or close by a near coin flip: the macros
+    // keep it maxsd/minsd, where the inlined `?:` can compile to a branch.
+    match (fname, args) {
+        ("ta_uppershadow", [h, c, o]) => {
+            let r = |e: &Expr| render_expr(e, ctx, registry, helpers);
+            return format!("({} - TA_COLOR_MAX({}, {}))", r(h), r(c), r(o));
+        }
+        ("ta_lowershadow", [l, c, o]) => {
+            let r = |e: &Expr| render_expr(e, ctx, registry, helpers);
+            return format!("(TA_COLOR_MIN({}, {}) - {})", r(c), r(o), r(l));
+        }
+        _ => {}
     }
 
     // Check if this is a call to a helper function that can be inlined

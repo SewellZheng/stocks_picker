@@ -250,8 +250,8 @@ fn no_throwing_sub_call_follows_the_cur_capture_in_a_managed_step() {
         let shipped: std::collections::BTreeSet<&str> =
             with_subs.iter().map(String::as_str).filter(|n| !n.starts_with("synth")).collect();
         let expected: std::collections::BTreeSet<&str> =
-            ["bbands", "ichimoku", "kc", "kdj", "kstext", "macdext", "sqzmom", "stoch", "stochf",
-             "stochrsi"]
+            ["alligator", "bbands", "ichimoku", "kc", "kdj", "kstext", "macdext", "sqzmom",
+             "stoch", "stochf", "stochrsi"]
                 .into_iter()
                 .collect();
         assert_eq!(
@@ -374,7 +374,7 @@ fn no_managed_tape_peek_writes_the_handle_or_the_tape() {
         let needle = match lang {
             "java" => "public double peek(",
             "csharp" => "public double Peek(",
-            _ => "  peek(inReal: number, inPeriods: number): number {",
+            _ => "  peek(real: number, periods: number): number {",
         };
         let peek = body_of(&bank, needle);
         assert!(peek.contains("sp.tape"), "{lang}: MAVP's peek no longer reads the tape");

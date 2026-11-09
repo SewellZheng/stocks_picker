@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -37,582 +37,574 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  MinmaxOut, MinmaxindexOut, add, addOpen, addOpenAndFill, cumsum, cumsumOpen,
-  cumsumOpenAndFill, div, divOpen, divOpenAndFill, max, maxOpen, maxOpenAndFill,
-  maxindex, maxindexOpen, maxindexOpenAndFill, min, minOpen, minOpenAndFill,
-  minindex, minindexOpen, minindexOpenAndFill, minmax, minmaxOpen,
-  minmaxOpenAndFill, minmaxindex, minmaxindexOpen, minmaxindexOpenAndFill, mult,
-  multOpen, multOpenAndFill, sub, subOpen, subOpenAndFill, sum, sumOpen,
-  sumOpenAndFill
+  add, addOpen, addOpenAndFill, cumsum, cumsumOpen, cumsumOpenAndFill, div,
+  divOpen, divOpenAndFill, max, maxOpen, maxOpenAndFill, maxindex, maxindexOpen,
+  maxindexOpenAndFill, min, minOpen, minOpenAndFill, minindex, minindexOpen,
+  minindexOpenAndFill, minmax, minmaxOpen, minmaxOpenAndFill, minmaxindex,
+  minmaxindexOpen, minmaxindexOpenAndFill, mult, multOpen, multOpenAndFill, sub,
+  subOpen, subOpenAndFill, sum, sumOpen, sumOpenAndFill
 } from 'ta-lib';
 
 test('ADD: add example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const out = new Float64Array(data0.length);
-  const { begIdx, count } = add(0, data0.length - 1, data0, data1, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series0 = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series0[i] = 10 * Math.sin(0.1 * i);
+  const series1 = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series1[i] = -5 + 10 * i / 251.0;
 
+  const { begIdx, values } = add(series0, series1);
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data0.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series0.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('ADD: addOpen example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const stream = addOpen(data0, data1);
-  const peeked = stream.peek(100.9, 101.3); // a forming bar: commits nothing
-  const updated = stream.update(100.9, 101.3); // the bar closes
+  const series0 = Float64Array.from({ length: 252 }, (_, i) =>
+    10 * Math.sin(0.1 * i));
+  const series1 = Float64Array.from({ length: 252 }, (_, i) =>
+    -5 + 10 * i / 251.0);
+  const stream = addOpen(series0, series1);
+  const peeked = stream.peek(4.2, 2.1); // a forming bar: commits nothing
+  const updated = stream.update(4.2, 2.1); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data0.length + 1);
+  assert.equal(range.begIdx + range.count, series0.length + 1);
 });
 
 test('ADD: addOpenAndFill example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const out = new Float64Array(data0.length);
-  const stream = addOpenAndFill(data0, data1, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series0 = Float64Array.from({ length: 252 }, (_, i) =>
+    10 * Math.sin(0.1 * i));
+  const series1 = Float64Array.from({ length: 252 }, (_, i) =>
+    -5 + 10 * i / 251.0);
+  const { stream, begIdx, values } = addOpenAndFill(series0, series1);
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data0.length);
-  const batch = add(0, data0.length - 1, data0, data1, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = add(series0, series1);
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('CUMSUM: cumsum example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = cumsum(0, data.length - 1, data, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = cumsum(series);
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('CUMSUM: cumsumOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = cumsumOpen(data);
+  const stream = cumsumOpen(series);
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('CUMSUM: cumsumOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = cumsumOpenAndFill(data, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = cumsumOpenAndFill(series);
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = cumsum(0, data.length - 1, data, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = cumsum(series);
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('DIV: div example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const out = new Float64Array(data0.length);
-  const { begIdx, count } = div(0, data0.length - 1, data0, data1, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series0 = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series0[i] = 10 * Math.sin(0.1 * i);
+  const series1 = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series1[i] = 1 + 5 * i / 251.0;
 
+  const { begIdx, values } = div(series0, series1);
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data0.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series0.length);
+  assert.ok(values.every((v) => !Number.isNaN(v)));
 });
 
 test('DIV: divOpen example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const stream = divOpen(data0, data1);
-  const peeked = stream.peek(100.9, 101.3); // a forming bar: commits nothing
-  const updated = stream.update(100.9, 101.3); // the bar closes
+  const series0 = Float64Array.from({ length: 252 }, (_, i) =>
+    10 * Math.sin(0.1 * i));
+  const series1 = Float64Array.from({ length: 252 }, (_, i) => 1 + 5 * i / 251.0);
+  const stream = divOpen(series0, series1);
+  const peeked = stream.peek(4.2, 4.55); // a forming bar: commits nothing
+  const updated = stream.update(4.2, 4.55); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data0.length + 1);
+  assert.equal(range.begIdx + range.count, series0.length + 1);
 });
 
 test('DIV: divOpenAndFill example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const out = new Float64Array(data0.length);
-  const stream = divOpenAndFill(data0, data1, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series0 = Float64Array.from({ length: 252 }, (_, i) =>
+    10 * Math.sin(0.1 * i));
+  const series1 = Float64Array.from({ length: 252 }, (_, i) => 1 + 5 * i / 251.0);
+  const { stream, begIdx, values } = divOpenAndFill(series0, series1);
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data0.length);
-  const batch = div(0, data0.length - 1, data0, data1, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = div(series0, series1);
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('MAX: max example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = max(0, data.length - 1, data, 30, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = max(series, { timePeriod: 30 });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('MAX: maxOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = maxOpen(data, 30);
+  const stream = maxOpen(series, { timePeriod: 30 });
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('MAX: maxOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = maxOpenAndFill(data, 30, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = maxOpenAndFill(series, { timePeriod: 30 });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = max(0, data.length - 1, data, 30, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = max(series, { timePeriod: 30 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('MAXINDEX: maxindex example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Int32Array(data.length);
-  const { begIdx, count } = maxindex(0, data.length - 1, data, 30, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = maxindex(series, { timePeriod: 30 });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
+  assert.equal(begIdx + count, series.length);
   // every reported index locates the highest value of its 30-bar window
   for (let k = 0; k < count; k++) {
-    const bar = begIdx + k, idx = out[k];
+    const bar = begIdx + k, idx = values[k];
     assert.ok(bar + 1 - 30 <= idx && idx <= bar);
-    assert.ok(data.subarray(bar + 1 - 30, bar + 1).every((v) => v <= data[idx]));
+    assert.ok(series.subarray(bar + 1 - 30, bar + 1).every((v) => v <= series[idx]));
   }
 });
 
 test('MAXINDEX: maxindexOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = maxindexOpen(data, 30);
+  const stream = maxindexOpen(series, { timePeriod: 30 });
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('MAXINDEX: maxindexOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Int32Array(data.length);
-  const stream = maxindexOpenAndFill(data, 30, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = maxindexOpenAndFill(series, {
+    timePeriod: 30,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(data.length);
-  const batch = maxindex(0, data.length - 1, data, 30, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = maxindex(series, { timePeriod: 30 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('MIN: min example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = min(0, data.length - 1, data, 30, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = min(series, { timePeriod: 30 });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('MIN: minOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = minOpen(data, 30);
+  const stream = minOpen(series, { timePeriod: 30 });
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('MIN: minOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = minOpenAndFill(data, 30, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = minOpenAndFill(series, { timePeriod: 30 });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = min(0, data.length - 1, data, 30, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = min(series, { timePeriod: 30 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('MININDEX: minindex example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Int32Array(data.length);
-  const { begIdx, count } = minindex(0, data.length - 1, data, 30, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = minindex(series, { timePeriod: 30 });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
+  assert.equal(begIdx + count, series.length);
   // every reported index locates the lowest value of its 30-bar window
   for (let k = 0; k < count; k++) {
-    const bar = begIdx + k, idx = out[k];
+    const bar = begIdx + k, idx = values[k];
     assert.ok(bar + 1 - 30 <= idx && idx <= bar);
-    assert.ok(data.subarray(bar + 1 - 30, bar + 1).every((v) => v >= data[idx]));
+    assert.ok(series.subarray(bar + 1 - 30, bar + 1).every((v) => v >= series[idx]));
   }
 });
 
 test('MININDEX: minindexOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = minindexOpen(data, 30);
+  const stream = minindexOpen(series, { timePeriod: 30 });
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('MININDEX: minindexOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Int32Array(data.length);
-  const stream = minindexOpenAndFill(data, 30, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = minindexOpenAndFill(series, {
+    timePeriod: 30,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(data.length);
-  const batch = minindex(0, data.length - 1, data, 30, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = minindex(series, { timePeriod: 30 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('MINMAX: minmax example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const min = new Float64Array(data.length);
-  const max = new Float64Array(data.length);
-  const { begIdx, count } = minmax(0, data.length - 1, data, 30, min, max);
-  // min[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, outMin, outMax } = minmax(series, { timePeriod: 30 });
+  console.log(outMin.length + ' values from bar ' + begIdx + '; last outMin = ' + outMin[outMin.length - 1]);
+
+  const count = outMin.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(min.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.equal(outMax.length, count);
+  assert.ok(outMin.every(Number.isFinite));
 });
 
 test('MINMAX: minmaxOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = minmaxOpen(data, 30);
-  const peeked = new MinmaxOut();
-  const updated = new MinmaxOut();
-  stream.peek(100.9, peeked); // a forming bar: commits nothing
-  stream.update(100.9, updated); // the bar closes
+  const stream = minmaxOpen(series, { timePeriod: 30 });
+  const peeked = stream.peek(100.9); // a forming bar: commits nothing
+  const updated = stream.update(100.9); // the bar closes
 
-  assert.ok(Object.is(peeked.min, updated.min));
-  assert.ok(Object.is(peeked.max, updated.max));
+  assert.ok(Object.is(peeked.outMin, updated.outMin));
+  assert.ok(Object.is(peeked.outMax, updated.outMax));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('MINMAX: minmaxOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const min = new Float64Array(data.length);
-  const max = new Float64Array(data.length);
-  const stream = minmaxOpenAndFill(data, 30, min, max);
-  const { begIdx, count } = stream.outRange();
-  // min[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, outMin, outMax } = minmaxOpenAndFill(series, {
+    timePeriod: 30,
+  });
+  // outMin[k] is the value at bar begIdx + k
 
-  const batchMin = new Float64Array(data.length);
-  const batchMax = new Float64Array(data.length);
-  const batch = minmax(0, data.length - 1, data, 30, batchMin, batchMax);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(min[k], batchMin[k]));
-    assert.ok(Object.is(max[k], batchMax[k]));
+  const range = stream.outRange();
+  const batch = minmax(series, { timePeriod: 30 });
+  assert.deepEqual([begIdx, outMin.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, outMin.length], [batch.begIdx, batch.outMin.length]);
+  assert.ok(outMin.length > 0);
+  for (let k = 0; k < outMin.length; k++) {
+    assert.ok(Object.is(outMin[k], batch.outMin[k]));
+    assert.ok(Object.is(outMax[k], batch.outMax[k]));
   }
 });
 
 test('MINMAXINDEX: minmaxindex example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const minIdx = new Int32Array(data.length);
-  const maxIdx = new Int32Array(data.length);
-  const { begIdx, count } = minmaxindex(
-    0, data.length - 1,
-    data,
-    30,
-    minIdx, maxIdx,
-  );
-  // minIdx[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, outMinIdx, outMaxIdx } = minmaxindex(series, {
+    timePeriod: 30,
+  });
+  console.log(outMinIdx.length + ' values from bar ' + begIdx + '; last outMinIdx = ' + outMinIdx[outMinIdx.length - 1]);
+
+  const count = outMinIdx.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
+  assert.equal(begIdx + count, series.length);
+  assert.equal(outMaxIdx.length, count);
   // every reported index locates the lowest value of its 30-bar window
   for (let k = 0; k < count; k++) {
-    const bar = begIdx + k, idx = minIdx[k];
+    const bar = begIdx + k, idx = outMinIdx[k];
     assert.ok(bar + 1 - 30 <= idx && idx <= bar);
-    assert.ok(data.subarray(bar + 1 - 30, bar + 1).every((v) => v >= data[idx]));
+    assert.ok(series.subarray(bar + 1 - 30, bar + 1).every((v) => v >= series[idx]));
   }
   // every reported index locates the highest value of its 30-bar window
   for (let k = 0; k < count; k++) {
-    const bar = begIdx + k, idx = maxIdx[k];
+    const bar = begIdx + k, idx = outMaxIdx[k];
     assert.ok(bar + 1 - 30 <= idx && idx <= bar);
-    assert.ok(data.subarray(bar + 1 - 30, bar + 1).every((v) => v <= data[idx]));
+    assert.ok(series.subarray(bar + 1 - 30, bar + 1).every((v) => v <= series[idx]));
   }
 });
 
 test('MINMAXINDEX: minmaxindexOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = minmaxindexOpen(data, 30);
-  const peeked = new MinmaxindexOut();
-  const updated = new MinmaxindexOut();
-  stream.peek(100.9, peeked); // a forming bar: commits nothing
-  stream.update(100.9, updated); // the bar closes
+  const stream = minmaxindexOpen(series, { timePeriod: 30 });
+  const peeked = stream.peek(100.9); // a forming bar: commits nothing
+  const updated = stream.update(100.9); // the bar closes
 
-  assert.ok(Object.is(peeked.minIdx, updated.minIdx));
-  assert.ok(Object.is(peeked.maxIdx, updated.maxIdx));
+  assert.ok(Object.is(peeked.outMinIdx, updated.outMinIdx));
+  assert.ok(Object.is(peeked.outMaxIdx, updated.outMaxIdx));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('MINMAXINDEX: minmaxindexOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const minIdx = new Int32Array(data.length);
-  const maxIdx = new Int32Array(data.length);
-  const stream = minmaxindexOpenAndFill(data, 30, minIdx, maxIdx);
-  const { begIdx, count } = stream.outRange();
-  // minIdx[k] is the value at bar begIdx + k, for k < count
+  const {
+    stream,
+    begIdx,
+    outMinIdx,
+    outMaxIdx,
+  } = minmaxindexOpenAndFill(series, { timePeriod: 30 });
+  // outMinIdx[k] is the value at bar begIdx + k
 
-  const batchMinIdx = new Int32Array(data.length);
-  const batchMaxIdx = new Int32Array(data.length);
-  const batch = minmaxindex(
-    0, data.length - 1,
-    data,
-    30,
-    batchMinIdx, batchMaxIdx,
-  );
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(minIdx[k], batchMinIdx[k]));
-    assert.ok(Object.is(maxIdx[k], batchMaxIdx[k]));
+  const range = stream.outRange();
+  const batch = minmaxindex(series, { timePeriod: 30 });
+  assert.deepEqual([begIdx, outMinIdx.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, outMinIdx.length], [batch.begIdx, batch.outMinIdx.length]);
+  assert.ok(outMinIdx.length > 0);
+  for (let k = 0; k < outMinIdx.length; k++) {
+    assert.ok(Object.is(outMinIdx[k], batch.outMinIdx[k]));
+    assert.ok(Object.is(outMaxIdx[k], batch.outMaxIdx[k]));
   }
 });
 
 test('MULT: mult example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const out = new Float64Array(data0.length);
-  const { begIdx, count } = mult(0, data0.length - 1, data0, data1, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series0 = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series0[i] = 10 * Math.sin(0.1 * i);
+  const series1 = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series1[i] = -5 + 10 * i / 251.0;
 
+  const { begIdx, values } = mult(series0, series1);
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data0.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series0.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('MULT: multOpen example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const stream = multOpen(data0, data1);
-  const peeked = stream.peek(100.9, 101.3); // a forming bar: commits nothing
-  const updated = stream.update(100.9, 101.3); // the bar closes
+  const series0 = Float64Array.from({ length: 252 }, (_, i) =>
+    10 * Math.sin(0.1 * i));
+  const series1 = Float64Array.from({ length: 252 }, (_, i) =>
+    -5 + 10 * i / 251.0);
+  const stream = multOpen(series0, series1);
+  const peeked = stream.peek(4.2, 2.1); // a forming bar: commits nothing
+  const updated = stream.update(4.2, 2.1); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data0.length + 1);
+  assert.equal(range.begIdx + range.count, series0.length + 1);
 });
 
 test('MULT: multOpenAndFill example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const out = new Float64Array(data0.length);
-  const stream = multOpenAndFill(data0, data1, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series0 = Float64Array.from({ length: 252 }, (_, i) =>
+    10 * Math.sin(0.1 * i));
+  const series1 = Float64Array.from({ length: 252 }, (_, i) =>
+    -5 + 10 * i / 251.0);
+  const { stream, begIdx, values } = multOpenAndFill(series0, series1);
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data0.length);
-  const batch = mult(0, data0.length - 1, data0, data1, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = mult(series0, series1);
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('SUB: sub example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const out = new Float64Array(data0.length);
-  const { begIdx, count } = sub(0, data0.length - 1, data0, data1, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series0 = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series0[i] = 10 * Math.sin(0.1 * i);
+  const series1 = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series1[i] = -5 + 10 * i / 251.0;
 
+  const { begIdx, values } = sub(series0, series1);
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data0.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series0.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('SUB: subOpen example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const stream = subOpen(data0, data1);
-  const peeked = stream.peek(100.9, 101.3); // a forming bar: commits nothing
-  const updated = stream.update(100.9, 101.3); // the bar closes
+  const series0 = Float64Array.from({ length: 252 }, (_, i) =>
+    10 * Math.sin(0.1 * i));
+  const series1 = Float64Array.from({ length: 252 }, (_, i) =>
+    -5 + 10 * i / 251.0);
+  const stream = subOpen(series0, series1);
+  const peeked = stream.peek(4.2, 2.1); // a forming bar: commits nothing
+  const updated = stream.update(4.2, 2.1); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data0.length + 1);
+  assert.equal(range.begIdx + range.count, series0.length + 1);
 });
 
 test('SUB: subOpenAndFill example', () => {
-  const data0 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const data1 = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i + 0.7));
-  const out = new Float64Array(data0.length);
-  const stream = subOpenAndFill(data0, data1, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series0 = Float64Array.from({ length: 252 }, (_, i) =>
+    10 * Math.sin(0.1 * i));
+  const series1 = Float64Array.from({ length: 252 }, (_, i) =>
+    -5 + 10 * i / 251.0);
+  const { stream, begIdx, values } = subOpenAndFill(series0, series1);
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data0.length);
-  const batch = sub(0, data0.length - 1, data0, data1, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = sub(series0, series1);
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('SUM: sum example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = sum(0, data.length - 1, data, 30, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = sum(series, { timePeriod: 30 });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('SUM: sumOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = sumOpen(data, 30);
+  const stream = sumOpen(series, { timePeriod: 30 });
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('SUM: sumOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = sumOpenAndFill(data, 30, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = sumOpenAndFill(series, { timePeriod: 30 });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = sum(0, data.length - 1, data, 30, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = sum(series, { timePeriod: 30 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });

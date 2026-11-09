@@ -458,7 +458,7 @@ static TA_RetCode TA_CRSI_StepImpl( struct TA_CRSI_Stream *sp, double inReal, do
    return TA_SUCCESS;
 }
 
-static TA_RetCode TA_CRSI_OpenImpl( struct TA_CRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInStreakPeriod, int optInRankPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_CRSI_OpenBody( struct TA_CRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInStreakPeriod, int optInRankPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_CRSI_Stream *sp;
    int endIdx;
@@ -470,30 +470,6 @@ static TA_RetCode TA_CRSI_OpenImpl( struct TA_CRSI_Stream **stream, const double
    TA_RSI_Stream *sub1;
    TA_ROCP_Stream *sub2;
    TA_PERCENTRANK_Stream *sub3;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 3;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInStreakPeriod == TA_INTEGER_DEFAULT )
-      optInStreakPeriod = 2;
-   else if( (int)optInStreakPeriod < 2 || (int)optInStreakPeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInRankPeriod == TA_INTEGER_DEFAULT )
-      optInRankPeriod = 100;
-   else if( (int)optInRankPeriod < 2 || (int)optInRankPeriod > 10000 )
-      return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -714,6 +690,50 @@ static TA_RetCode TA_CRSI_OpenImpl( struct TA_CRSI_Stream **stream, const double
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_CRSI_OpenFillFrame( struct TA_CRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInStreakPeriod, int optInRankPeriod, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_CRSI_OpenBody( stream, inReal, startIdx, historyLen, optInTimePeriod, optInStreakPeriod, optInRankPeriod, outBegIdx, outNBElement, outReal, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CRSI_OpenSinkFrame( struct TA_CRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInStreakPeriod, int optInRankPeriod, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   double sink_outReal = 0;
+   TA_RetCode retCode = TA_CRSI_OpenBody( stream, inReal, startIdx, historyLen, optInTimePeriod, optInStreakPeriod, optInRankPeriod, outBegIdx, outNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outReal ) *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_CRSI_OpenImpl( struct TA_CRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInStreakPeriod, int optInRankPeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 3;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( (int)optInStreakPeriod == TA_INTEGER_DEFAULT )
+      optInStreakPeriod = 2;
+   else if( (int)optInStreakPeriod < 2 || (int)optInStreakPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( (int)optInRankPeriod == TA_INTEGER_DEFAULT )
+      optInRankPeriod = 100;
+   else if( (int)optInRankPeriod < 2 || (int)optInRankPeriod > 10000 )
+      return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_CRSI_OpenFillFrame( stream, inReal, startIdx, historyLen, optInTimePeriod, optInStreakPeriod, optInRankPeriod, outBegIdx, outNBElement, outReal ) : TA_CRSI_OpenSinkFrame( stream, inReal, startIdx, historyLen, optInTimePeriod, optInStreakPeriod, optInRankPeriod, outBegIdx, outNBElement, outReal );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_CRSI_OpenInternal( struct TA_CRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInStreakPeriod, int optInRankPeriod, double *outReal )
 {
@@ -733,7 +753,6 @@ TA_LIB_API TA_RetCode TA_CRSI_Open( TA_CRSI_Stream **stream, const double inReal
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_CRSI_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInStreakPeriod, optInRankPeriod, outReal );
@@ -743,7 +762,6 @@ TA_LIB_API TA_RetCode TA_CRSI_OpenAndFill( TA_CRSI_Stream **stream, const double
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;

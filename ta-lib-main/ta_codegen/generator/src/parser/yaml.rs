@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::ir::{FuncDef, Input, OptInput, Output, ParamType, PriceComponent, PriceRef};
+use crate::ir::{FuncDef, Input, OptInput, Output, ParamType, PriceComponent, PriceRef, Series};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +46,9 @@ struct YamlInput {
     param_type: String,
     /// For price inputs: which OHLCV components are used.
     price_components: Option<Vec<String>>,
+    /// For `real` inputs: see `ir::Input::series` and `ir::Input::domain`.
+    series: Option<String>,
+    domain: Option<Vec<f64>>,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +77,7 @@ struct YamlOutput {
     param_type: String,
     #[serde(default)]
     flags: YamlFlags,
+    levels: Option<Vec<f64>>,
 }
 
 fn yaml_val_to_f64(v: &serde_yaml::Value) -> f64 {
@@ -93,6 +97,57 @@ fn yaml_val_to_f64(v: &serde_yaml::Value) -> f64 {
         },
         other => panic!("Unexpected YAML range value: {other:?}"),
     }
+}
+
+/// An input's type and, checked against it, its `series` and `domain: [lo, hi]`
+/// (a `real` input's only; a synthetic series and a domain come together).
+fn parse_input_type(p: &mut YamlInput, path: &Path) -> (ParamType, Series, Option<(f64, f64)>) {
+    let pt = parse_param_type(&p.param_type, p.price_components.take());
+    let series = p.series.take().map_or(Series::Price, |s| {
+        assert!(pt == ParamType::Real, "{}: input `{}`: `series` needs a `real` input", path.display(), p.name);
+        Series::from_token(&s).unwrap_or_else(|| {
+            panic!("{}: input `{}`: `series` is `price`, `ramp` or `sine`, not {s:?}", path.display(), p.name)
+        })
+    });
+    let domain = p.domain.take().map(|d| {
+        assert!(
+            pt == ParamType::Real,
+            "{}: input `{}`: `domain` needs a `real` input",
+            path.display(),
+            p.name
+        );
+        assert!(
+            d.len() == 2 && d[0] < d[1],
+            "{}: input `{}`: `domain` is `[lo, hi]` with lo < hi, not {d:?}",
+            path.display(),
+            p.name
+        );
+        (d[0], d[1])
+    });
+    assert!(
+        (series == Series::Price) == domain.is_none(),
+        "{}: input `{}`: `series: ramp` or `series: sine` and `domain: [lo, hi]` go together",
+        path.display(),
+        p.name
+    );
+    (pt, series, domain)
+}
+
+fn parse_output(p: YamlOutput, path: &Path) -> Output {
+    let param_type = parse_param_type(&p.param_type, None);
+    let levels = p.levels.map_or_else(Vec::new, |v| {
+        assert!(
+            param_type == ParamType::Real,
+            "{}: output `{}`: `levels` needs a `real` output",
+            path.display(),
+            p.name
+        );
+        if let Err(e) = crate::attributes::key("levels").ty.check(&v) {
+            panic!("{}: output `{}`: `levels` is {e}", path.display(), p.name);
+        }
+        v
+    });
+    Output { name: p.name, param_type, flags: p.flags.into_vec(), levels }
 }
 
 fn parse_param_type(s: &str, price_components: Option<Vec<String>>) -> ParamType {
@@ -180,6 +235,17 @@ pub fn check_flags(func: &FuncDef) -> Result<(), Vec<String>> {
         if has("pattern_confirm") && !has("pattern_bull_bear") {
             errs.push(format!("{name}: output `{out}`: `pattern_confirm` needs `pattern_bull_bear`"));
         }
+        if has("bar_index") && !integer {
+            errs.push(format!("{name}: output `{out}`: `bar_index` needs an integer output"));
+        }
+        if has("segmented") {
+            let n_int = func.outputs.iter().filter(|x| x.param_type == ParamType::Integer).count();
+            if integer || n_int != 1 {
+                errs.push(format!(
+                    "{name}: output `{out}`: `segmented` needs a real output in a function with exactly one integer output"
+                ));
+            }
+        }
         if candlestick && integer && sign.is_none() {
             errs.push(format!(
                 "{name}: output `{out}`: an integer output of a candlestick function is a pattern output: \
@@ -230,8 +296,8 @@ pub fn parse_yaml_str(content: &str, path: &Path) -> FuncDef {
     let inputs: Vec<Input> = yaml
         .inputs
         .into_iter()
-        .flat_map(|p| {
-            let pt = parse_param_type(&p.param_type, p.price_components);
+        .flat_map(|mut p| {
+            let (pt, series, domain) = parse_input_type(&mut p, path);
             match pt {
                 ParamType::Price(components) => {
                     let group = next_price_group;
@@ -248,14 +314,13 @@ pub fn parse_yaml_str(content: &str, path: &Path) -> FuncDef {
                                     )
                                 });
                             Input {
-                                name: component.input_name().to_string(),
-                                param_type: ParamType::Real,
                                 price: Some(PriceRef { group, component }),
+                                ..Input::new(component.input_name(), ParamType::Real)
                             }
                         })
                         .collect::<Vec<_>>()
                 }
-                other => vec![Input::new(p.name.clone(), other)],
+                other => vec![Input { name: p.name.clone(), param_type: other, price: None, series, domain }],
             }
         })
         .collect();
@@ -282,11 +347,7 @@ pub fn parse_yaml_str(content: &str, path: &Path) -> FuncDef {
     let outputs: Vec<Output> = yaml
         .outputs
         .into_iter()
-        .map(|p| Output {
-            name: p.name,
-            param_type: parse_param_type(&p.param_type, None),
-            flags: p.flags.into_vec(),
-        })
+        .map(|p| parse_output(p, path))
         .collect();
 
     let mut flags = yaml.flags.into_vec();
@@ -311,6 +372,7 @@ pub fn parse_yaml_str(content: &str, path: &Path) -> FuncDef {
         private_extra_params: vec![],
         private_param_init: vec![],
         has_explicit_private: false,
+        opt_outs: vec![],
         header_comments: vec![],
         doc: None,
         streaming,

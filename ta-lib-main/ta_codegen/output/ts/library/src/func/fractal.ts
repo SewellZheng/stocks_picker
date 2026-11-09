@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -13,27 +47,14 @@
  *  100426 MF,CC  Display shift (#500).
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { badSink, batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 
-/**
- * Number of leading input bars {@link fractal} consumes before its first value:
- * the index of the first bar with a value when the whole series is requested.
- *
- * @param optInLeftBars - Bars before the pivot that it must strictly dominate
- *   (default 2; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRightBars - Bars after the pivot that it must strictly dominate, and
- *   the delay before the verdict is reported (default 2; range 1 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function fractalLookback(optInLeftBars: number, optInRightBars: number, core: Core = Core.DEFAULT): number {
-  void core;
+/** @internal */
+export function fractalLookbackPositional(optInLeftBars: number, optInRightBars: number, _core: Core = Core.DEFAULT): number {
   if ((optInLeftBars | 0) !== optInLeftBars) {
     return -1;
   }
@@ -53,25 +74,9 @@ export function fractalLookback(optInLeftBars: number, optInRightBars: number, c
   return optInLeftBars + optInRightBars;
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link fractal}.
- *
- * The values are never shifted: this describes the drawing only.
- *
- * @param optInLeftBars - Bars before the pivot that it must strictly dominate
- *   (default 2; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRightBars - Bars after the pivot that it must strictly dominate, and
- *   the delay before the verdict is reported (default 2; range 1 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function fractalDisplayShift(optInLeftBars: number, optInRightBars: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (fractalLookback(optInLeftBars, optInRightBars, core) < 0) {
+/** @internal */
+export function fractalDisplayShiftPositional(optInLeftBars: number, optInRightBars: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (fractalLookbackPositional(optInLeftBars, optInRightBars, core) < 0) {
     return -2147483648;
   }
   if (optInLeftBars === Core.INTEGER_DEFAULT) {
@@ -138,7 +143,7 @@ export function fractalImpl(
   }
   outBegIdx.value = 0;
   outNBElement.value = 0;
-  lookbackTotal = fractalLookback(optInLeftBars, optInRightBars, core);
+  lookbackTotal = fractalLookbackPositional(optInLeftBars, optInRightBars, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -192,20 +197,176 @@ export function fractalImpl(
   return RetCode.SUCCESS;
 }
 
+const PARAM_RANGES = [['leftBars', Core.INTEGER_DEFAULT, 1, 100000, 'in 1..100000'], ['rightBars', Core.INTEGER_DEFAULT, 1, 100000, 'in 1..100000']] as const;
+
+/** @internal */
+export function fractalPositional(
+  startIdx: number,
+  endIdx: number,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  optInLeftBars: number,
+  optInRightBars: number,
+  outSwingHigh: Int32Array,
+  outSwingLow: Int32Array,
+  core: Core = Core.DEFAULT,
+): OutRange {
+  startIdx = requireInt32('FRACTAL', 'startIdx', startIdx);
+  endIdx = requireInt32('FRACTAL', 'endIdx', endIdx);
+  optInLeftBars = requireInt32('FRACTAL', 'leftBars', optInLeftBars);
+  optInRightBars = requireInt32('FRACTAL', 'rightBars', optInRightBars);
+  requireIndexRange('FRACTAL', startIdx, endIdx);
+  const guardLookback = fractalLookbackPositional(optInLeftBars, optInRightBars, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('FRACTAL', PARAM_RANGES, optInLeftBars, optInRightBars);
+  }
+  const guardStart = clampedStart('FRACTAL', startIdx, guardLookback);
+  const guardInLen = endIdx + 1;
+  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+  requireLength('FRACTAL', 'prices.high', inHigh, guardInLen);
+  requireLength('FRACTAL', 'prices.low', inLow, guardInLen);
+  requireOutput('FRACTAL', 'outSwingHigh', outSwingHigh, guardOutLen, Int32Array);
+  requireOutput('FRACTAL', 'outSwingLow', outSwingLow, guardOutLen, Int32Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  if (overlaps(outSwingHigh, inHighF64)) {
+    throw sharedMemory('FRACTAL', 'outSwingHigh', 'prices.high');
+  }
+  if (overlaps(outSwingHigh, inLowF64)) {
+    throw sharedMemory('FRACTAL', 'outSwingHigh', 'prices.low');
+  }
+  if (overlaps(outSwingLow, inHighF64)) {
+    throw sharedMemory('FRACTAL', 'outSwingLow', 'prices.high');
+  }
+  if (overlaps(outSwingLow, inLowF64)) {
+    throw sharedMemory('FRACTAL', 'outSwingLow', 'prices.low');
+  }
+  if (overlaps(outSwingHigh, outSwingLow)) {
+    throw sharedMemory('FRACTAL', 'outSwingHigh', 'outSwingLow');
+  }
+  const outBegIdx = new MInteger();
+  const outNBElement = new MInteger();
+  const retCode = fractalImpl(core, startIdx, endIdx, inHighF64, inLowF64, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow);
+  if (retCode !== RetCode.SUCCESS) {
+    throw failure('FRACTAL', retCode);
+  }
+  return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link fractal}, {@link fractalLookback},
+ * {@link fractalDisplayShift}, {@link fractalOpen} and {@link fractalOpenAndFill}.
+ * Every key is optional: an omitted or `undefined` key takes its default, and a
+ * call ignores the keys it has no use for.
+ */
+export interface FractalOptions {
+  /**
+   * Bars before the pivot that it must strictly dominate (default 2; range 1 to
+   * 100000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  leftBars?: number | undefined;
+  /**
+   * Bars after the pivot that it must strictly dominate, and the delay before the
+   * verdict is reported (default 2; range 1 to 100000; `Core.INTEGER_DEFAULT`
+   * selects the default).
+   */
+  rightBars?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `outSwingHigh`, written from index 0 and allocated when omitted. It
+   * must hold the values produced (for a batch call the input length always
+   * suffices, for an `OpenAndFill` `historyLen - lookback`), and share no memory
+   * with another buffer or with an input.
+   */
+  outSwingHigh?: Int32Array<ArrayBuffer> | undefined;
+  /**
+   * Buffer for `outSwingLow`, written from index 0 and allocated when omitted. It
+   * must hold the values produced (for a batch call the input length always
+   * suffices, for an `OpenAndFill` `historyLen - lookback`), and share no memory
+   * with another buffer or with an input.
+   */
+  outSwingLow?: Int32Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link fractal} returns, and {@link fractalOpenAndFill} with its stream. */
+export interface FractalResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * 100 when the bar `rightBars` back is a strict swing high, 0 otherwise.
+   * `outSwingHigh[k]` is the value at input bar `begIdx + k`.
+   */
+  outSwingHigh: Int32Array<ArrayBuffer>;
+  /**
+   * 100 when the bar `rightBars` back is a strict swing low, 0 otherwise.
+   * `outSwingLow[k]` is the value at input bar `begIdx + k`.
+   */
+  outSwingLow: Int32Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link fractal} consumes before its first value:
+ * the index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link FractalOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function fractalLookback(options?: FractalOptions): number {
+  const o = optionsOf('FRACTAL lookback', options);
+  return fractalLookbackPositional(orDefault(o.leftBars, Core.INTEGER_DEFAULT), orDefault(o.rightBars, Core.INTEGER_DEFAULT), coreOf('FRACTAL lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link fractal}.
+ *
+ * The values are never shifted: this describes the drawing only.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link FractalOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function fractalDisplayShift(outputIdx: number, options?: FractalOptions): number {
+  const o = optionsOf('FRACTAL displayShift', options);
+  return fractalDisplayShiftPositional(orDefault(o.leftBars, Core.INTEGER_DEFAULT), orDefault(o.rightBars, Core.INTEGER_DEFAULT), outputIdx, coreOf('FRACTAL displayShift', o.core));
+}
+
 /**
  * Williams Fractal: a causal swing-pivot detector. A bar is a swing high when its
- * high strictly exceeds the highs of the `optInLeftBars` bars before it and the
- * `optInRightBars` bars after it; a swing low is the mirror on the lows. Bill
- * Williams' original is the symmetric five-candle case; independent left and right
- * arms generalise it. The right arm cannot be known until it has closed, so the
- * value is written on the bar that completes the pivot, `optInRightBars` bars
- * after the pivot itself. Each output value therefore describes the bar
- * `optInRightBars` back, not the bar it is written at: a flag at output index `k`
- * names input bar `outBegIdx + k - optInRightBars`, whose price is `inHigh[...]` /
- * `inLow[...]` at that index. The display shift both outputs report,
- * `-optInRightBars`, is that offset: a chart draws each flag that many bars to the
- * left. The two outputs are independent flags rather than one signed value,
- * because an outside bar can be a swing high and a swing low at once.
+ * high strictly exceeds the highs of the `leftBars` bars before it and the
+ * `rightBars` bars after it; a swing low is the mirror on the lows. Bill Williams'
+ * original is the symmetric five-candle case; independent left and right arms
+ * generalise it. The right arm cannot be known until it has closed, so the value
+ * is written on the bar that completes the pivot, `rightBars` bars after the pivot
+ * itself. Each output value therefore describes the bar `rightBars` back, not the
+ * bar it is written at: a flag at output index `k` names input bar
+ * `begIdx + k - rightBars`, whose price is `high[...]` / `low[...]` at that index.
+ * The display shift both outputs report, `-rightBars`, is that offset: a chart
+ * draws each flag that many bars to the left. The two outputs are independent
+ * flags rather than one signed value, because an outside bar can be a swing high
+ * and a swing low at once.
  *
  * Formula and more info at
  * [ta-lib.org/functions/fractal](https://ta-lib.org/functions/fractal).
@@ -220,94 +381,61 @@ export function fractalImpl(
  *   window forces `outSwingHigh` to 0 while leaving `outSwingLow` free to fire
  *   100, and the mirror holds. Only a window flat in both series emits 0 on both.
  *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link fractalLookback} is a success with
- * `count` 0.
+ * `outSwingHigh[k]` is the value at input bar `begIdx + k`; every output is
+ * exactly as long as the number of values written, and nothing is padded. A range
+ * that ends before {@link fractalLookback} is a success with empty outputs.
  *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inHigh - High price series.
- * @param inLow - Low price series.
- * @param optInLeftBars - Bars before the pivot that it must strictly dominate
- *   (default 2; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRightBars - Bars after the pivot that it must strictly dominate, and
- *   the delay before the verdict is reported (default 2; range 1 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outSwingHigh - 100 when the bar `optInRightBars` back is a strict swing
- *   high, 0 otherwise. Must hold the values produced and never be empty; the input
- *   length always suffices.
- * @param outSwingLow - 100 when the bar `optInRightBars` back is a strict swing
- *   low, 0 otherwise. Must hold the values produced and never be empty; the input
- *   length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `high`: High price
+ *   series. `low`: Low price series.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link FractalOptions}.
+ * @returns `begIdx` and the values; see {@link FractalResult}. Each output is a
+ *   view of its buffer, the caller's or a new one.
  * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
  *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output,
- *   two outputs sharing memory or an output sharing memory with a `Float64Array`
- *   input it is not. Checked before anything is written.
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type, two buffers sharing memory or a buffer sharing memory with a
+ *   `Float64Array` input it is not. Checked before anything is written.
  *
  * @example
  * ```ts
  * import { fractal } from 'ta-lib';
  *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const swingHigh = new Int32Array(high.length);
- * const swingLow = new Int32Array(high.length);
- * const { begIdx, count } = fractal(
- *   0, high.length - 1,
- *   high, low,
- *   2, 2,
- *   swingHigh, swingLow,
- * );
- * // swingHigh[k] is the value at bar begIdx + k, for k < count
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, outSwingHigh, outSwingLow } = fractal({ high, low }, {
+ *   leftBars: 2,
+ *   rightBars: 2,
+ * });
+ * console.log(outSwingHigh.length + ' values from bar ' + begIdx + '; last outSwingHigh = ' + outSwingHigh[outSwingHigh.length - 1]);
  * ```
  * @see [`aroon`](https://ta-lib.org/functions/aroon)
  * @see [`maxindex`](https://ta-lib.org/functions/maxindex)
  * @see [`minindex`](https://ta-lib.org/functions/minindex)
  * @see [`minmaxindex`](https://ta-lib.org/functions/minmaxindex)
  */
-export function fractal(
-  startIdx: number,
-  endIdx: number,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  optInLeftBars: number,
-  optInRightBars: number,
-  outSwingHigh: Int32Array,
-  outSwingLow: Int32Array,
-  core: Core = Core.DEFAULT,
-): OutRange {
-  startIdx = requireInt32('FRACTAL', 'startIdx', startIdx);
-  endIdx = requireInt32('FRACTAL', 'endIdx', endIdx);
-  optInLeftBars = requireInt32('FRACTAL', 'optInLeftBars', optInLeftBars);
-  optInRightBars = requireInt32('FRACTAL', 'optInRightBars', optInRightBars);
-  requireIndexRange('FRACTAL', startIdx, endIdx);
-  const guardStart = clampedStart('FRACTAL', startIdx, fractalLookback(optInLeftBars, optInRightBars, core));
-  const guardInLen = endIdx + 1;
-  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('FRACTAL', 'inHigh', inHigh, guardInLen);
-  requireLength('FRACTAL', 'inLow', inLow, guardInLen);
-  requireOutput('FRACTAL', 'outSwingHigh', outSwingHigh, guardOutLen, Int32Array);
-  requireOutput('FRACTAL', 'outSwingLow', outSwingLow, guardOutLen, Int32Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  if (overlaps(outSwingHigh, inHighF64) || overlaps(outSwingHigh, inLowF64) || overlaps(outSwingLow, inHighF64) || overlaps(outSwingLow, inLowF64) || overlaps(outSwingHigh, outSwingLow)) {
-    throw failure('FRACTAL', RetCode.BAD_PARAM);
+export function fractal(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: FractalOptions): FractalResult {
+  requireArgument('FRACTAL', 'prices', prices);
+  const o = optionsOf('FRACTAL', options);
+  if (o.endIdx === undefined) {
+    requireSeries('FRACTAL', 'prices.high', prices.high);
+    requireSeries('FRACTAL', 'prices.low', prices.low);
   }
-  const outBegIdx = new MInteger();
-  const outNBElement = new MInteger();
-  const retCode = fractalImpl(core, startIdx, endIdx, inHighF64, inLowF64, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow);
-  if (retCode !== RetCode.SUCCESS) {
-    throw failure('FRACTAL', retCode);
-  }
-  return new OutRange(outBegIdx.value, outNBElement.value);
+  const optInLeftBars = orDefault(o.leftBars, Core.INTEGER_DEFAULT);
+  const optInRightBars = orDefault(o.rightBars, Core.INTEGER_DEFAULT);
+  const core = coreOf('FRACTAL', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.high.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, fractalLookbackPositional(optInLeftBars, optInRightBars, core), prices.high, prices.low);
+  const outSwingHigh = o.outSwingHigh === undefined ? new Int32Array(capacity) : o.outSwingHigh;
+  const outSwingLow = o.outSwingLow === undefined ? new Int32Array(capacity) : o.outSwingLow;
+  const range = fractalPositional(startIdx, endIdx, prices.high, prices.low, optInLeftBars, optInRightBars, outSwingHigh, outSwingLow, core);
+  return { begIdx: range.begIdx, outSwingHigh: outSwingHigh.subarray(0, range.count), outSwingLow: outSwingLow.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -371,55 +499,65 @@ export class FractalStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('FRACTAL advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('FRACTAL advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
 
   /**
-   * Commits one closed bar, writing the new values into `out`.
+   * Commits one closed bar and returns its outputs.
    *
-   * @param inHigh - The bar's `inHigh` value: High price series.
-   * @param inLow - The bar's `inLow` value: Low price series.
-   * @param out - Receives the bar's outputs.
+   * @param high - The bar's `high` value: High price series.
+   * @param low - The bar's `low` value: Low price series.
+   * @param out - Receives the outputs and is returned; a new {@link FractalOut} when
+   *   omitted.
+   * @returns `out`, or the new sink.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
-   *   finite, before anything moves. `TALibError` with code
-   *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
+   *   finite, or a sink that is not an object, `null` included, before anything moves.
+   *   `TALibError` with code `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached
+   *   bar `Core.INDEX_MAX`.
    */
-  update(inHigh: number, inLow: number, out: FractalOut): void {
+  update(high: number, low: number, out?: FractalOut): FractalOut {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('FRACTAL update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('FRACTAL update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (typeof out !== 'object' || out === null) {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('FRACTAL update', 'FractalOut');
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow)) {
-      throw nonFiniteBar('FRACTAL update', !Number.isFinite(inHigh) ? 'inHigh' : 'inLow');
+    if (!Number.isFinite(high) || !Number.isFinite(low)) {
+      throw nonFiniteBar('FRACTAL update', !Number.isFinite(high) ? 'high' : 'low');
     }
-    fractalStepImpl(this, inHigh, inLow);
+    fractalStepImpl(this, high, low);
     this.outRangeCount++;
-    out.swingHigh = this.cur_outSwingHigh;
-    out.swingLow = this.cur_outSwingLow;
+    if (out === undefined) {
+      out = new FractalOut();
+    }
+    out.outSwingHigh = this.cur_outSwingHigh;
+    out.outSwingLow = this.cur_outSwingLow;
+    return out;
   }
 
   /**
-   * Writes into `out` what the next `update` with the same bar would write,
-   * committing nothing.
+   * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inHigh - The bar's `inHigh` value: High price series.
-   * @param inLow - The bar's `inLow` value: Low price series.
-   * @param out - Receives the bar's outputs.
+   * @param high - The bar's `high` value: High price series.
+   * @param low - The bar's `low` value: Low price series.
+   * @param out - Receives the outputs and is returned; a new {@link FractalOut} when
+   *   omitted.
+   * @returns `out`, or the new sink, as `update` would fill it.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
-   *   finite.
+   *   finite, or a sink that is not an object, `null` included.
    */
-  peek(inHigh: number, inLow: number, out: FractalOut): void {
-    if (typeof out !== 'object' || out === null) {
+  peek(high: number, low: number, out?: FractalOut): FractalOut {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('FRACTAL peek', 'FractalOut');
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow)) {
-      throw nonFiniteBar('FRACTAL peek', !Number.isFinite(inHigh) ? 'inHigh' : 'inLow');
+    if (!Number.isFinite(high) || !Number.isFinite(low)) {
+      throw nonFiniteBar('FRACTAL peek', !Number.isFinite(high) ? 'high' : 'low');
     }
     const sp = this;
+    const inHigh = high;
+    const inLow = low;
     let i = 0;
     let pivotHigh = 0;
     let pivotLow = 0;
@@ -472,21 +610,33 @@ export class FractalStream {
     } else {
       cur_outSwingLow = 0;
     }
-    out.swingHigh = cur_outSwingHigh;
-    out.swingLow = cur_outSwingLow;
+    if (out === undefined) {
+      out = new FractalOut();
+    }
+    out.outSwingHigh = cur_outSwingHigh;
+    out.outSwingLow = cur_outSwingLow;
+    return out;
   }
 
   /**
-   * The value at the last bar this stream counted; `peek` does not change it.
+   * The outputs at the last bar this stream counted; `peek` does not change them.
    *
-   * @param out - Receives the outputs.
+   * @param out - Receives the outputs and is returned; a new {@link FractalOut} when
+   *   omitted.
+   * @returns `out`, or the new sink.
+   * @throws `TALibError` with code `TA_BAD_PARAM` for a sink that is not an object,
+   *   `null` included.
    */
-  value(out: FractalOut): void {
-    if (typeof out !== 'object' || out === null) {
+  value(out?: FractalOut): FractalOut {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('FRACTAL value', 'FractalOut');
     }
-    out.swingHigh = this.cur_outSwingHigh;
-    out.swingLow = this.cur_outSwingLow;
+    if (out === undefined) {
+      out = new FractalOut();
+    }
+    out.outSwingHigh = this.cur_outSwingHigh;
+    out.outSwingLow = this.cur_outSwingLow;
+    return out;
   }
 
   /**
@@ -512,14 +662,15 @@ export class FractalStream {
 }
 
 /**
- * The outputs of one FRACTAL bar, written into an object the caller owns and
- * reuses: valid until the next call that writes it.
+ * The outputs of one FRACTAL bar, as `update`, `peek` and `value` return them.
+ * Passed back to one of them, it is filled and returned again, with no allocation;
+ * it holds its values until the next call that writes it. A new one holds `NaN`.
  */
 export class FractalOut {
-  /** 100 when the bar `optInRightBars` back is a strict swing high, 0 otherwise. */
-  swingHigh: number = 0;
-  /** 100 when the bar `optInRightBars` back is a strict swing low, 0 otherwise. */
-  swingLow: number = 0;
+  /** 100 when the bar `rightBars` back is a strict swing high, 0 otherwise. */
+  outSwingHigh: number = NaN;
+  /** 100 when the bar `rightBars` back is a strict swing low, 0 otherwise. */
+  outSwingLow: number = NaN;
 }
 
 function fractalStepImpl(sp: FractalStream, inHigh: number, inLow: number): void {
@@ -599,9 +750,6 @@ function fractalOpenImpl(
   let tempLow = 0;
   const historyLen = inHigh.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -618,14 +766,14 @@ function fractalOpenImpl(
   } else if (optInRightBars < 1 || optInRightBars > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
   }
   outBegIdx.value = 0;
   outNBElement.value = 0;
-  lookbackTotal = fractalLookback(optInLeftBars, optInRightBars, core);
+  lookbackTotal = fractalLookbackPositional(optInLeftBars, optInRightBars, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -714,7 +862,10 @@ export function fractalOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('FRACTAL openAndFill', inHigh.length, startIdx, fractalLookback(optInLeftBars, optInRightBars, core));
+    throw insufficientHistory('FRACTAL openAndFill', inHigh.length, startIdx, fractalLookbackPositional(optInLeftBars, optInRightBars, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && fractalLookbackPositional(optInLeftBars, optInRightBars, core) < 0) {
+    throw rejectedParams('FRACTAL openAndFill', PARAM_RANGES, optInLeftBars, optInRightBars);
   }
   throw streamFailure('FRACTAL openAndFill', retCode);
 }
@@ -740,93 +891,147 @@ export function fractalOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('FRACTAL open', inHigh.length, startIdx, fractalLookback(optInLeftBars, optInRightBars, core));
+    throw insufficientHistory('FRACTAL open', inHigh.length, startIdx, fractalLookbackPositional(optInLeftBars, optInRightBars, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && fractalLookbackPositional(optInLeftBars, optInRightBars, core) < 0) {
+    throw rejectedParams('FRACTAL open', PARAM_RANGES, optInLeftBars, optInRightBars);
   }
   throw streamFailure('FRACTAL open', retCode);
 }
 
-/**
- * Opens a live FRACTAL stream over the warm-up history: `value()` starts at the
- * last history bar, bit-identical to {@link fractal} there.
- *
- * @param inHigh - Warm-up history. High price series. Every history has the same
- *   length.
- * @param inLow - Warm-up history. Low price series. Every history has the same
- *   length.
- * @param optInLeftBars - Bars before the pivot that it must strictly dominate
- *   (default 2; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRightBars - Bars after the pivot that it must strictly dominate, and
- *   the delay before the verdict is reported (default 2; range 1 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
- * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `fractalLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or histories of different lengths.
- *
- * @example
- * ```ts
- * import { FractalOut, fractalOpen } from 'ta-lib';
- *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const stream = fractalOpen(high, low, 2, 2);
- * const peeked = new FractalOut();
- * const updated = new FractalOut();
- * stream.peek(101.4, 99.1, peeked); // a forming bar: commits nothing
- * stream.update(101.4, 99.1, updated); // the bar closes
- * ```
- */
-export function fractalOpen(
+/** @internal */
+export function fractalOpenPositional(
   inHigh: ArrayLike<number>,
   inLow: ArrayLike<number>,
   optInLeftBars: number,
   optInRightBars: number,
   core: Core = Core.DEFAULT,
 ): FractalStream {
-  optInLeftBars = requireInt32('FRACTAL open', 'optInLeftBars', optInLeftBars);
-  optInRightBars = requireInt32('FRACTAL open', 'optInRightBars', optInRightBars);
-  requireArgument('FRACTAL open', 'inHigh', inHigh);
-  requireHistory('FRACTAL open', inHigh.length);
-  requireArgument('FRACTAL open', 'inLow', inLow);
-  requireHistoryLength('FRACTAL open', 'inLow', inLow.length, inHigh.length);
+  optInLeftBars = requireInt32('FRACTAL open', 'leftBars', optInLeftBars);
+  optInRightBars = requireInt32('FRACTAL open', 'rightBars', optInRightBars);
+  requireArgument('FRACTAL open', 'prices.high', inHigh);
+  requireHistory('FRACTAL open', 'prices.high', inHigh.length);
+  requireArgument('FRACTAL open', 'prices.low', inLow);
+  requireHistoryLength('FRACTAL open', 'prices.low', inLow.length, inHigh.length);
   return fractalOpenInternal(core, float64(inHigh), float64(inLow), 0, optInLeftBars, optInRightBars);
 }
 
+/** @internal */
+export function fractalOpenAndFillPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  optInLeftBars: number,
+  optInRightBars: number,
+  outSwingHigh: Int32Array,
+  outSwingLow: Int32Array,
+  core: Core = Core.DEFAULT,
+): FractalStream {
+  optInLeftBars = requireInt32('FRACTAL openAndFill', 'leftBars', optInLeftBars);
+  optInRightBars = requireInt32('FRACTAL openAndFill', 'rightBars', optInRightBars);
+  requireArgument('FRACTAL openAndFill', 'prices.high', inHigh);
+  requireHistory('FRACTAL openAndFill', 'prices.high', inHigh.length);
+  requireArgument('FRACTAL openAndFill', 'prices.low', inLow);
+  const guardLookback = fractalLookbackPositional(optInLeftBars, optInRightBars, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('FRACTAL openAndFill', PARAM_RANGES, optInLeftBars, optInRightBars);
+  }
+  const guardOutLen = openFillCount('FRACTAL openAndFill', inHigh.length, guardLookback);
+  requireHistoryLength('FRACTAL openAndFill', 'prices.low', inLow.length, inHigh.length);
+  requireOutput('FRACTAL openAndFill', 'outSwingHigh', outSwingHigh, guardOutLen, Int32Array);
+  requireOutput('FRACTAL openAndFill', 'outSwingLow', outSwingLow, guardOutLen, Int32Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  if (outSwingHigh.buffer === inHighF64.buffer && outSwingHigh.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingHigh', 'prices.high');
+  }
+  if (outSwingHigh.buffer === inLowF64.buffer && outSwingHigh.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingHigh', 'prices.low');
+  }
+  if (outSwingLow.buffer === inHighF64.buffer && outSwingLow.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingLow', 'prices.high');
+  }
+  if (outSwingLow.buffer === inLowF64.buffer && outSwingLow.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingLow', 'prices.low');
+  }
+  if (outSwingHigh.buffer === outSwingLow.buffer && outSwingHigh.byteOffset === outSwingLow.byteOffset) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingHigh', 'outSwingLow');
+  }
+  if (guardOutLen > 0 && overlaps(outSwingHigh, inHighF64)) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingHigh', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outSwingHigh, inLowF64)) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingHigh', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outSwingLow, inHighF64)) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingLow', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outSwingLow, inLowF64)) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingLow', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outSwingHigh, outSwingLow)) {
+    throw sharedMemory('FRACTAL openAndFill', 'outSwingHigh', 'outSwingLow');
+  }
+  return fractalOpenAndFillInternal(core, inHighF64, inLowF64, 0, optInLeftBars, optInRightBars, new MInteger(), new MInteger(), outSwingHigh, outSwingLow);
+}
+
 /**
- * {@link fractalOpen} that also fills the outputs over the whole history in the
- * same pass, bit-identically to {@link fractal}. The range written is the stream's
- * `outRange()`.
+ * Opens a live FRACTAL stream over the warm-up history: `value()` starts at the
+ * last history bar, bit-identical to {@link fractal} there.
  *
- * @param inHigh - Warm-up history. High price series. Every history has the same
- *   length.
- * @param inLow - Warm-up history. Low price series. Every history has the same
- *   length.
- * @param optInLeftBars - Bars before the pivot that it must strictly dominate
- *   (default 2; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInRightBars - Bars after the pivot that it must strictly dominate, and
- *   the delay before the verdict is reported (default 2; range 1 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outSwingHigh - 100 when the bar `optInRightBars` back is a strict swing
- *   high, 0 otherwise. Must hold `historyLen - lookback` values and share no memory
- *   with an input or another output.
- * @param outSwingLow - 100 when the bar `optInRightBars` back is a strict swing
- *   low, 0 otherwise. Must hold `historyLen - lookback` values and share no memory
- *   with an input or another output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price series. `low`: Low price series.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link FractalOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `fractalLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range, histories of different lengths or an output too
- *   short or starting where another output or a `Float64Array` input starts, or, on
- *   a history long enough to open, one sharing memory with another output or a
- *   `Float64Array` input.
+ *   than `fractalLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32, a parameter outside its range
+ *   or histories of different lengths.
+ *
+ * @example
+ * ```ts
+ * import { fractalOpen } from 'ta-lib';
+ *
+ * const high = Float64Array.from({ length: 252 }, (_, i) =>
+ *   101 + 10 * Math.sin(0.1 * i));
+ * const low = Float64Array.from({ length: 252 }, (_, i) =>
+ *   99 + 10 * Math.sin(0.1 * i));
+ * const stream = fractalOpen({ high, low }, { leftBars: 2, rightBars: 2 });
+ * const peeked = stream.peek(101.4, 99.1); // a forming bar: commits nothing
+ * const updated = stream.update(101.4, 99.1); // the bar closes
+ * ```
+ */
+export function fractalOpen(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: FractalOptions): FractalStream {
+  requireArgument('FRACTAL open', 'prices', prices);
+  const o = optionsOf('FRACTAL open', options);
+  const optInLeftBars = orDefault(o.leftBars, Core.INTEGER_DEFAULT);
+  const optInRightBars = orDefault(o.rightBars, Core.INTEGER_DEFAULT);
+  const core = coreOf('FRACTAL open', o.core);
+  return fractalOpenPositional(prices.high, prices.low, optInLeftBars, optInRightBars, core);
+}
+
+/**
+ * {@link fractalOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link fractal}.
+ *
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price series. `low`: Low price series.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link FractalOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link fractal} returns them; the range is the
+ *   stream's `outRange()`.
+ * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
+ *   than `fractalLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32, a parameter outside its range,
+ *   histories of different lengths or a buffer too short, of the wrong type or
+ *   starting where another buffer or a `Float64Array` input starts, or, on a history
+ *   long enough to open, one sharing memory with another buffer or a `Float64Array`
+ *   input.
  *
  * @example
  * ```ts
@@ -836,38 +1041,25 @@ export function fractalOpen(
  *   101 + 10 * Math.sin(0.1 * i));
  * const low = Float64Array.from({ length: 252 }, (_, i) =>
  *   99 + 10 * Math.sin(0.1 * i));
- * const swingHigh = new Int32Array(high.length);
- * const swingLow = new Int32Array(high.length);
- * const stream = fractalOpenAndFill(high, low, 2, 2, swingHigh, swingLow);
- * const { begIdx, count } = stream.outRange();
- * // swingHigh[k] is the value at bar begIdx + k, for k < count
+ * const {
+ *   stream,
+ *   begIdx,
+ *   outSwingHigh,
+ *   outSwingLow,
+ * } = fractalOpenAndFill({ high, low }, { leftBars: 2, rightBars: 2 });
+ * // outSwingHigh[k] is the value at bar begIdx + k
  * ```
  */
-export function fractalOpenAndFill(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  optInLeftBars: number,
-  optInRightBars: number,
-  outSwingHigh: Int32Array,
-  outSwingLow: Int32Array,
-  core: Core = Core.DEFAULT,
-): FractalStream {
-  optInLeftBars = requireInt32('FRACTAL openAndFill', 'optInLeftBars', optInLeftBars);
-  optInRightBars = requireInt32('FRACTAL openAndFill', 'optInRightBars', optInRightBars);
-  requireArgument('FRACTAL openAndFill', 'inHigh', inHigh);
-  requireHistory('FRACTAL openAndFill', inHigh.length);
-  requireArgument('FRACTAL openAndFill', 'inLow', inLow);
-  const guardOutLen = openFillCount('FRACTAL openAndFill', inHigh.length, fractalLookback(optInLeftBars, optInRightBars, core));
-  requireHistoryLength('FRACTAL openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireOutput('FRACTAL openAndFill', 'outSwingHigh', outSwingHigh, guardOutLen, Int32Array);
-  requireOutput('FRACTAL openAndFill', 'outSwingLow', outSwingLow, guardOutLen, Int32Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  if ((outSwingHigh.buffer === inHighF64.buffer && outSwingHigh.byteOffset === inHighF64.byteOffset) || (outSwingHigh.buffer === inLowF64.buffer && outSwingHigh.byteOffset === inLowF64.byteOffset) || (outSwingLow.buffer === inHighF64.buffer && outSwingLow.byteOffset === inHighF64.byteOffset) || (outSwingLow.buffer === inLowF64.buffer && outSwingLow.byteOffset === inLowF64.byteOffset) || (outSwingHigh.buffer === outSwingLow.buffer && outSwingHigh.byteOffset === outSwingLow.byteOffset)) {
-    throw streamFailure('FRACTAL openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outSwingHigh, inHighF64) || overlaps(outSwingHigh, inLowF64) || overlaps(outSwingLow, inHighF64) || overlaps(outSwingLow, inLowF64) || overlaps(outSwingHigh, outSwingLow))) {
-    throw streamFailure('FRACTAL openAndFill', RetCode.BAD_PARAM);
-  }
-  return fractalOpenAndFillInternal(core, inHighF64, inLowF64, 0, optInLeftBars, optInRightBars, new MInteger(), new MInteger(), outSwingHigh, outSwingLow);
+export function fractalOpenAndFill(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: FractalOptions): FractalResult & { stream: FractalStream } {
+  requireArgument('FRACTAL openAndFill', 'prices', prices);
+  const o = optionsOf('FRACTAL openAndFill', options);
+  const optInLeftBars = orDefault(o.leftBars, Core.INTEGER_DEFAULT);
+  const optInRightBars = orDefault(o.rightBars, Core.INTEGER_DEFAULT);
+  const core = coreOf('FRACTAL openAndFill', o.core);
+  const capacity = fillCapacity(fractalLookbackPositional(optInLeftBars, optInRightBars, core), prices.high, prices.low);
+  const outSwingHigh = o.outSwingHigh === undefined ? new Int32Array(capacity) : o.outSwingHigh;
+  const outSwingLow = o.outSwingLow === undefined ? new Int32Array(capacity) : o.outSwingLow;
+  const stream = fractalOpenAndFillPositional(prices.high, prices.low, optInLeftBars, optInRightBars, outSwingHigh, outSwingLow, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, outSwingHigh: outSwingHigh.subarray(0, range.count), outSwingLow: outSwingLow.subarray(0, range.count) };
 }

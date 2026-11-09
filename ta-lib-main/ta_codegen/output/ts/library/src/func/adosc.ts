@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -15,27 +49,16 @@
  */
 
 import { FuncUnstId } from '../enums.ts';
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
-import { emaLookback } from './ema.ts';
+import { emaLookbackPositional } from './ema.ts';
 
-/**
- * Number of leading input bars {@link adosc} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInFastPeriod - Period of the fast A/D EMA (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSlowPeriod - Period of the slow A/D EMA (default 10; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function adoscLookback(optInFastPeriod: number, optInSlowPeriod: number, core: Core = Core.DEFAULT): number {
+/** @internal */
+export function adoscLookbackPositional(optInFastPeriod: number, optInSlowPeriod: number, core: Core = Core.DEFAULT): number {
   if ((optInFastPeriod | 0) !== optInFastPeriod) {
     return -1;
   }
@@ -63,27 +86,12 @@ export function adoscLookback(optInFastPeriod: number, optInSlowPeriod: number, 
    * term less a slow one, and the two can cancel in the first outputs: an
    * Auto level is held against what is left.
    */
-  return emaLookback(slowestPeriod, core) + ((core.unstableCount(FuncUnstId.EMA, 1, 1) != core.unstableCount(FuncUnstId.EMA, 0, 0)) ? (core.unstableCount(FuncUnstId.EMA, ((((((15 * (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) | 0) + ((3 * ((((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 64) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 64) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 128) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 128) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 256) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 256) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 512) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 512) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 1024) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 1024) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2048) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2048) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4096) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4096) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8192) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8192) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16384) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16384) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32768) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32768) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 65536) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 65536) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)))) | 0) + 7) / 8) | 0)), ((((((15 * (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) | 0) + ((3 * ((((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 64) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 64) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 128) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 128) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 256) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 256) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 512) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 512) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 1024) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 1024) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2048) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2048) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4096) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4096) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8192) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8192) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16384) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16384) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32768) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32768) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 65536) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 65536) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)))) | 0) + 7) / 8) | 0))) - core.unstableCount(FuncUnstId.EMA, 0, 0)) : 0);
+  return emaLookbackPositional(slowestPeriod, core) + ((core.unstableCount(FuncUnstId.EMA, 1, 1) != core.unstableCount(FuncUnstId.EMA, 0, 0)) ? (core.unstableCount(FuncUnstId.EMA, ((((((15 * (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) | 0) + ((3 * ((((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 64) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 64) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 128) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 128) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 256) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 256) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 512) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 512) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 1024) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 1024) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2048) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2048) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4096) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4096) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8192) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8192) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16384) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16384) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32768) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32768) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 65536) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 65536) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)))) | 0) + 7) / 8) | 0)), ((((((15 * (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) | 0) + ((3 * ((((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 64) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 64) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 128) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 128) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 256) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 256) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 512) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 512) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 1024) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 1024) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2048) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 2048) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4096) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 4096) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8192) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 8192) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16384) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 16384) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32768) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 32768) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)) + (((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 65536) | 0)) < (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) ? ((((optInFastPeriod > optInSlowPeriod ? optInFastPeriod : optInSlowPeriod) / 65536) | 0)) : (optInFastPeriod < optInSlowPeriod ? optInFastPeriod : optInSlowPeriod)))) | 0) + 7) / 8) | 0))) - core.unstableCount(FuncUnstId.EMA, 0, 0)) : 0);
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link adosc}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInFastPeriod - Period of the fast A/D EMA (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSlowPeriod - Period of the slow A/D EMA (default 10; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function adoscDisplayShift(optInFastPeriod: number, optInSlowPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (adoscLookback(optInFastPeriod, optInSlowPeriod, core) < 0) {
+/** @internal */
+export function adoscDisplayShiftPositional(optInFastPeriod: number, optInSlowPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
@@ -160,7 +168,7 @@ export function adoscImpl(
    *     experiment with unusual parameter settings.
    */
   /* Adjust startIdx to account for the lookback period. */
-  lookbackTotal = adoscLookback(optInFastPeriod, optInSlowPeriod, core);
+  lookbackTotal = adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -294,67 +302,10 @@ export function adoscImpl(
   return RetCode.SUCCESS;
 }
 
-/**
- * Chaikin A/D Oscillator: the difference between a fast and a slow EMA of the
- * Accumulation/Distribution line. Highlights momentum in accumulation/distribution
- * volume flow. Positive/rising suggests accumulation; negative/falling suggests
- * distribution.
- *
- * Formula and more info at
- * [ta-lib.org/functions/adosc](https://ta-lib.org/functions/adosc).
- *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link adoscLookback} is a success with
- * `count` 0.
- *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inHigh - High price of each bar.
- * @param inLow - Low price of each bar.
- * @param inClose - Close price of each bar.
- * @param inVolume - Volume of each bar.
- * @param optInFastPeriod - Period of the fast A/D EMA (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSlowPeriod - Period of the slow A/D EMA (default 10; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - Fast-EMA minus slow-EMA of the A/D line. Must hold the values
- *   produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
- * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
- *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output
- *   or an output sharing memory with a `Float64Array` input it is not. Checked
- *   before anything is written.
- *
- * @example
- * ```ts
- * import { adosc } from 'ta-lib';
- *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const volume = Float64Array.from({ length: 252 }, (_, i) =>
- *   10000 + 100 * i + 2000 * Math.sin(0.3 * i));
- * const out = new Float64Array(high.length);
- * const { begIdx, count } = adosc(
- *   0, high.length - 1,
- *   high, low, close, volume,
- *   3, 10,
- *   out,
- * );
- * // out[k] is the value at bar begIdx + k, for k < count
- * ```
- * @see [`ad`](https://ta-lib.org/functions/ad)
- * @see [`ema`](https://ta-lib.org/functions/ema)
- */
-export function adosc(
+const PARAM_RANGES = [['fastPeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000'], ['slowPeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000']] as const;
+
+/** @internal */
+export function adoscPositional(
   startIdx: number,
   endIdx: number,
   inHigh: ArrayLike<number>,
@@ -368,23 +319,36 @@ export function adosc(
 ): OutRange {
   startIdx = requireInt32('ADOSC', 'startIdx', startIdx);
   endIdx = requireInt32('ADOSC', 'endIdx', endIdx);
-  optInFastPeriod = requireInt32('ADOSC', 'optInFastPeriod', optInFastPeriod);
-  optInSlowPeriod = requireInt32('ADOSC', 'optInSlowPeriod', optInSlowPeriod);
+  optInFastPeriod = requireInt32('ADOSC', 'fastPeriod', optInFastPeriod);
+  optInSlowPeriod = requireInt32('ADOSC', 'slowPeriod', optInSlowPeriod);
   requireIndexRange('ADOSC', startIdx, endIdx);
-  const guardStart = clampedStart('ADOSC', startIdx, adoscLookback(optInFastPeriod, optInSlowPeriod, core));
+  const guardLookback = adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('ADOSC', PARAM_RANGES, optInFastPeriod, optInSlowPeriod);
+  }
+  const guardStart = clampedStart('ADOSC', startIdx, guardLookback);
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('ADOSC', 'inHigh', inHigh, guardInLen);
-  requireLength('ADOSC', 'inLow', inLow, guardInLen);
-  requireLength('ADOSC', 'inClose', inClose, guardInLen);
-  requireLength('ADOSC', 'inVolume', inVolume, guardInLen);
+  requireLength('ADOSC', 'prices.high', inHigh, guardInLen);
+  requireLength('ADOSC', 'prices.low', inLow, guardInLen);
+  requireLength('ADOSC', 'prices.close', inClose, guardInLen);
+  requireLength('ADOSC', 'prices.volume', inVolume, guardInLen);
   requireOutput('ADOSC', 'outReal', outReal, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
   const inVolumeF64 = float64(inVolume);
-  if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64) || overlapsPartly(outReal, inCloseF64) || overlapsPartly(outReal, inVolumeF64)) {
-    throw failure('ADOSC', RetCode.BAD_PARAM);
+  if (overlapsPartly(outReal, inHighF64)) {
+    throw sharedMemory('ADOSC', 'outReal', 'prices.high');
+  }
+  if (overlapsPartly(outReal, inLowF64)) {
+    throw sharedMemory('ADOSC', 'outReal', 'prices.low');
+  }
+  if (overlapsPartly(outReal, inCloseF64)) {
+    throw sharedMemory('ADOSC', 'outReal', 'prices.close');
+  }
+  if (overlapsPartly(outReal, inVolumeF64)) {
+    throw sharedMemory('ADOSC', 'outReal', 'prices.volume');
   }
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
@@ -393,6 +357,162 @@ export function adosc(
     throw failure('ADOSC', retCode);
   }
   return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link adosc}, {@link adoscLookback}, {@link adoscDisplayShift},
+ * {@link adoscOpen} and {@link adoscOpenAndFill}. Every key is optional: an
+ * omitted or `undefined` key takes its default, and a call ignores the keys it has
+ * no use for.
+ */
+export interface AdoscOptions {
+  /**
+   * Period of the fast A/D EMA (default 3; range 2 to 100000; `Core.INTEGER_DEFAULT`
+   * selects the default).
+   */
+  fastPeriod?: number | undefined;
+  /**
+   * Period of the slow A/D EMA (default 10; range 2 to 100000;
+   * `Core.INTEGER_DEFAULT` selects the default).
+   */
+  slowPeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link adosc} returns, and {@link adoscOpenAndFill} with its stream. */
+export interface AdoscResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Fast-EMA minus slow-EMA of the A/D line. `values[k]` is the value at input bar
+   * `begIdx + k`.
+   */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link adosc} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link AdoscOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function adoscLookback(options?: AdoscOptions): number {
+  const o = optionsOf('ADOSC lookback', options);
+  return adoscLookbackPositional(orDefault(o.fastPeriod, Core.INTEGER_DEFAULT), orDefault(o.slowPeriod, Core.INTEGER_DEFAULT), coreOf('ADOSC lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link adosc}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link AdoscOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function adoscDisplayShift(outputIdx: number, options?: AdoscOptions): number {
+  const o = optionsOf('ADOSC displayShift', options);
+  return adoscDisplayShiftPositional(orDefault(o.fastPeriod, Core.INTEGER_DEFAULT), orDefault(o.slowPeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('ADOSC displayShift', o.core));
+}
+
+/**
+ * Chaikin A/D Oscillator: the difference between a fast and a slow EMA of the
+ * Accumulation/Distribution line. Highlights momentum in accumulation/distribution
+ * volume flow. Positive/rising suggests accumulation; negative/falling suggests
+ * distribution.
+ *
+ * Formula and more info at
+ * [ta-lib.org/functions/adosc](https://ta-lib.org/functions/adosc).
+ *
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link adoscLookback} is a success with empty outputs.
+ *
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `high`: High price of
+ *   each bar. `low`: Low price of each bar. `close`: Close price of each bar.
+ *   `volume`: Volume of each bar.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link AdoscOptions}.
+ * @returns `begIdx` and the values; see {@link AdoscResult}. Each output is a view
+ *   of its buffer, the caller's or a new one.
+ * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
+ *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
+ *
+ * @example
+ * ```ts
+ * import { adosc } from 'ta-lib';
+ *
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ * const close = new Float64Array(252); // your data, oldest first
+ * const volume = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = adosc({ high, low, close, volume }, {
+ *   fastPeriod: 3,
+ *   slowPeriod: 10,
+ * });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+ * ```
+ * @see [`ad`](https://ta-lib.org/functions/ad)
+ * @see [`ema`](https://ta-lib.org/functions/ema)
+ */
+export function adosc(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume: ArrayLike<number>; openInterest?: ArrayLike<number> | undefined }, options?: AdoscOptions): AdoscResult {
+  requireArgument('ADOSC', 'prices', prices);
+  const o = optionsOf('ADOSC', options);
+  if (o.endIdx === undefined) {
+    requireSeries('ADOSC', 'prices.high', prices.high);
+    requireSeries('ADOSC', 'prices.low', prices.low);
+    requireSeries('ADOSC', 'prices.close', prices.close);
+    requireSeries('ADOSC', 'prices.volume', prices.volume);
+  }
+  const optInFastPeriod = orDefault(o.fastPeriod, Core.INTEGER_DEFAULT);
+  const optInSlowPeriod = orDefault(o.slowPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('ADOSC', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.high.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core), prices.high, prices.low, prices.close, prices.volume);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = adoscPositional(startIdx, endIdx, prices.high, prices.low, prices.close, prices.volume, optInFastPeriod, optInSlowPeriod, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -460,7 +580,7 @@ export class AdoscStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('ADOSC advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('ADOSC advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -468,23 +588,23 @@ export class AdoscStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
-   * @param inVolume - The bar's `inVolume` value: Volume of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
+   * @param volume - The bar's `volume` value: Volume of each bar.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inHigh: number, inLow: number, inClose: number, inVolume: number): number {
+  update(high: number, low: number, close: number, volume: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('ADOSC update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('ADOSC update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose) || !Number.isFinite(inVolume)) {
-      throw nonFiniteBar('ADOSC update', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : !Number.isFinite(inClose) ? 'inClose' : 'inVolume');
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close) || !Number.isFinite(volume)) {
+      throw nonFiniteBar('ADOSC update', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : !Number.isFinite(close) ? 'close' : 'volume');
     }
-    adoscStepImpl(this, inHigh, inLow, inClose, inVolume);
+    adoscStepImpl(this, high, low, close, volume);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -492,66 +612,72 @@ export class AdoscStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inHigh - The bar's `inHigh` value: High price of each bar.
-   * @param inLow - The bar's `inLow` value: Low price of each bar.
-   * @param inClose - The bar's `inClose` value: Close price of each bar.
-   * @param inVolume - The bar's `inVolume` value: Volume of each bar.
+   * @param high - The bar's `high` value: High price of each bar.
+   * @param low - The bar's `low` value: Low price of each bar.
+   * @param close - The bar's `close` value: Close price of each bar.
+   * @param volume - The bar's `volume` value: Volume of each bar.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inHigh: number, inLow: number, inClose: number, inVolume: number): number {
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose) || !Number.isFinite(inVolume)) {
-      throw nonFiniteBar('ADOSC peek', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : !Number.isFinite(inClose) ? 'inClose' : 'inVolume');
+  peek(high: number, low: number, close: number, volume: number): number {
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close) || !Number.isFinite(volume)) {
+      throw nonFiniteBar('ADOSC peek', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : !Number.isFinite(close) ? 'close' : 'volume');
     }
     const sp = this;
-    let high = 0;
-    let low = 0;
-    let close = 0;
-    let tmp = 0;
-    let ad = sp.ad;
-    let cur_outReal = 0;
-    let fastEMA = sp.fastEMA;
-    let slowEMA = sp.slowEMA;
-    high = inHigh;
-    low = inLow;
-    tmp = high - low;
-    close = inClose;
-    if (tmp > 0.0) {
-      ad += (close - low - (high - close)) / tmp * inVolume;
-    }
+    const inHigh = high;
+    const inLow = low;
+    const inClose = close;
+    const inVolume = volume;
     {
-      const _a: number = sp.one_minus_fastk, _b: number = fastEMA, _c: number = sp.fastk * ad;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      fastEMA = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
+      let high = 0;
+      let low = 0;
+      let close = 0;
+      let tmp = 0;
+      let ad = sp.ad;
+      let cur_outReal = 0;
+      let fastEMA = sp.fastEMA;
+      let slowEMA = sp.slowEMA;
+      high = inHigh;
+      low = inLow;
+      tmp = high - low;
+      close = inClose;
+      if (tmp > 0.0) {
+        ad += (close - low - (high - close)) / tmp * inVolume;
+      }
+      {
+        const _a: number = sp.one_minus_fastk, _b: number = fastEMA, _c: number = sp.fastk * ad;
+        const _p = _a * _b;
+        let _t = 134217729 * _a;
+        const _ah = _t - (_t - _a), _al = _a - _ah;
+        _t = 134217729 * _b;
+        const _bh = _t - (_t - _b), _bl = _b - _bh;
+        const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
+        const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
+        const _v = _tl + _pl, _v2 = _v + _v;
+        const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
+        fastEMA = _w && (_pl === 0 || _v === 0) ? _th
+          : _w && _v2 !== (_th + _v2) - _th ? _th + _v
+          : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
+      }
+      {
+        const _a: number = sp.one_minus_slowk, _b: number = slowEMA, _c: number = sp.slowk * ad;
+        const _p = _a * _b;
+        let _t = 134217729 * _a;
+        const _ah = _t - (_t - _a), _al = _a - _ah;
+        _t = 134217729 * _b;
+        const _bh = _t - (_t - _b), _bl = _b - _bh;
+        const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
+        const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
+        const _v = _tl + _pl, _v2 = _v + _v;
+        const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
+        slowEMA = _w && (_pl === 0 || _v === 0) ? _th
+          : _w && _v2 !== (_th + _v2) - _th ? _th + _v
+          : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
+      }
+      cur_outReal = fastEMA - slowEMA;
+      return cur_outReal;
     }
-    {
-      const _a: number = sp.one_minus_slowk, _b: number = slowEMA, _c: number = sp.slowk * ad;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      slowEMA = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
-    cur_outReal = fastEMA - slowEMA;
-    return cur_outReal;
   }
 
   /** The value at the last bar this stream counted; `peek` does not change it. */
@@ -659,9 +785,6 @@ function adoscOpenImpl(
   let ad = 0;
   const historyLen = inHigh.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -678,7 +801,7 @@ function adoscOpenImpl(
   } else if (optInSlowPeriod < 2 || optInSlowPeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -706,7 +829,7 @@ function adoscOpenImpl(
    *     experiment with unusual parameter settings.
    */
   /* Adjust startIdx to account for the lookback period. */
-  lookbackTotal = adoscLookback(optInFastPeriod, optInSlowPeriod, core);
+  lookbackTotal = adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -872,7 +995,10 @@ export function adoscOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('ADOSC openAndFill', inHigh.length, startIdx, adoscLookback(optInFastPeriod, optInSlowPeriod, core));
+    throw insufficientHistory('ADOSC openAndFill', inHigh.length, startIdx, adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core) < 0) {
+    throw rejectedParams('ADOSC openAndFill', PARAM_RANGES, optInFastPeriod, optInSlowPeriod);
   }
   throw streamFailure('ADOSC openAndFill', retCode);
 }
@@ -899,34 +1025,111 @@ export function adoscOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('ADOSC open', inHigh.length, startIdx, adoscLookback(optInFastPeriod, optInSlowPeriod, core));
+    throw insufficientHistory('ADOSC open', inHigh.length, startIdx, adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core) < 0) {
+    throw rejectedParams('ADOSC open', PARAM_RANGES, optInFastPeriod, optInSlowPeriod);
   }
   throw streamFailure('ADOSC open', retCode);
+}
+
+/** @internal */
+export function adoscOpenPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  inVolume: ArrayLike<number>,
+  optInFastPeriod: number,
+  optInSlowPeriod: number,
+  core: Core = Core.DEFAULT,
+): AdoscStream {
+  optInFastPeriod = requireInt32('ADOSC open', 'fastPeriod', optInFastPeriod);
+  optInSlowPeriod = requireInt32('ADOSC open', 'slowPeriod', optInSlowPeriod);
+  requireArgument('ADOSC open', 'prices.high', inHigh);
+  requireHistory('ADOSC open', 'prices.high', inHigh.length);
+  requireArgument('ADOSC open', 'prices.low', inLow);
+  requireArgument('ADOSC open', 'prices.close', inClose);
+  requireArgument('ADOSC open', 'prices.volume', inVolume);
+  requireHistoryLength('ADOSC open', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('ADOSC open', 'prices.close', inClose.length, inHigh.length);
+  requireHistoryLength('ADOSC open', 'prices.volume', inVolume.length, inHigh.length);
+  return adoscOpenInternal(core, float64(inHigh), float64(inLow), float64(inClose), float64(inVolume), 0, optInFastPeriod, optInSlowPeriod);
+}
+
+/** @internal */
+export function adoscOpenAndFillPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  inVolume: ArrayLike<number>,
+  optInFastPeriod: number,
+  optInSlowPeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): AdoscStream {
+  optInFastPeriod = requireInt32('ADOSC openAndFill', 'fastPeriod', optInFastPeriod);
+  optInSlowPeriod = requireInt32('ADOSC openAndFill', 'slowPeriod', optInSlowPeriod);
+  requireArgument('ADOSC openAndFill', 'prices.high', inHigh);
+  requireHistory('ADOSC openAndFill', 'prices.high', inHigh.length);
+  requireArgument('ADOSC openAndFill', 'prices.low', inLow);
+  requireArgument('ADOSC openAndFill', 'prices.close', inClose);
+  requireArgument('ADOSC openAndFill', 'prices.volume', inVolume);
+  const guardLookback = adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('ADOSC openAndFill', PARAM_RANGES, optInFastPeriod, optInSlowPeriod);
+  }
+  const guardOutLen = openFillCount('ADOSC openAndFill', inHigh.length, guardLookback);
+  requireHistoryLength('ADOSC openAndFill', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('ADOSC openAndFill', 'prices.close', inClose.length, inHigh.length);
+  requireHistoryLength('ADOSC openAndFill', 'prices.volume', inVolume.length, inHigh.length);
+  requireOutput('ADOSC openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  const inVolumeF64 = float64(inVolume);
+  if (outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('ADOSC openAndFill', 'outReal', 'prices.high');
+  }
+  if (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('ADOSC openAndFill', 'outReal', 'prices.low');
+  }
+  if (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('ADOSC openAndFill', 'outReal', 'prices.close');
+  }
+  if (outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset) {
+    throw sharedMemory('ADOSC openAndFill', 'outReal', 'prices.volume');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inHighF64)) {
+    throw sharedMemory('ADOSC openAndFill', 'outReal', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inLowF64)) {
+    throw sharedMemory('ADOSC openAndFill', 'outReal', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inCloseF64)) {
+    throw sharedMemory('ADOSC openAndFill', 'outReal', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inVolumeF64)) {
+    throw sharedMemory('ADOSC openAndFill', 'outReal', 'prices.volume');
+  }
+  return adoscOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, inVolumeF64, 0, optInFastPeriod, optInSlowPeriod, new MInteger(), new MInteger(), outReal);
 }
 
 /**
  * Opens a live ADOSC stream over the warm-up history: `value()` starts at the last
  * history bar, bit-identical to {@link adosc} there.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param inVolume - Warm-up history. Volume of each bar. Every history has the
- *   same length.
- * @param optInFastPeriod - Period of the fast A/D EMA (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSlowPeriod - Period of the slow A/D EMA (default 10; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar. `close`: Close
+ *   price of each bar. `volume`: Volume of each bar.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link AdoscOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `adoscLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or histories of different lengths.
+ *   than `adoscLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32, a parameter outside its range
+ *   or histories of different lengths.
  *
  * @example
  * ```ts
@@ -940,63 +1143,44 @@ export function adoscOpenInternal(
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
  * const volume = Float64Array.from({ length: 252 }, (_, i) =>
  *   10000 + 100 * i + 2000 * Math.sin(0.3 * i));
- * const stream = adoscOpen(high, low, close, volume, 3, 10);
+ * const stream = adoscOpen({ high, low, close, volume }, {
+ *   fastPeriod: 3,
+ *   slowPeriod: 10,
+ * });
  * const peeked = stream.peek(101.4, 99.1, 100.9, 12345); // a forming bar: commits nothing
  * const updated = stream.update(101.4, 99.1, 100.9, 12345); // the bar closes
  * ```
  */
-export function adoscOpen(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  inVolume: ArrayLike<number>,
-  optInFastPeriod: number,
-  optInSlowPeriod: number,
-  core: Core = Core.DEFAULT,
-): AdoscStream {
-  optInFastPeriod = requireInt32('ADOSC open', 'optInFastPeriod', optInFastPeriod);
-  optInSlowPeriod = requireInt32('ADOSC open', 'optInSlowPeriod', optInSlowPeriod);
-  requireArgument('ADOSC open', 'inHigh', inHigh);
-  requireHistory('ADOSC open', inHigh.length);
-  requireArgument('ADOSC open', 'inLow', inLow);
-  requireArgument('ADOSC open', 'inClose', inClose);
-  requireArgument('ADOSC open', 'inVolume', inVolume);
-  requireHistoryLength('ADOSC open', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('ADOSC open', 'inClose', inClose.length, inHigh.length);
-  requireHistoryLength('ADOSC open', 'inVolume', inVolume.length, inHigh.length);
-  return adoscOpenInternal(core, float64(inHigh), float64(inLow), float64(inClose), float64(inVolume), 0, optInFastPeriod, optInSlowPeriod);
+export function adoscOpen(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume: ArrayLike<number>; openInterest?: ArrayLike<number> | undefined }, options?: AdoscOptions): AdoscStream {
+  requireArgument('ADOSC open', 'prices', prices);
+  const o = optionsOf('ADOSC open', options);
+  const optInFastPeriod = orDefault(o.fastPeriod, Core.INTEGER_DEFAULT);
+  const optInSlowPeriod = orDefault(o.slowPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('ADOSC open', o.core);
+  return adoscOpenPositional(prices.high, prices.low, prices.close, prices.volume, optInFastPeriod, optInSlowPeriod, core);
 }
 
 /**
- * {@link adoscOpen} that also fills the outputs over the whole history in the same
- * pass, bit-identically to {@link adosc}. The range written is the stream's
- * `outRange()`.
+ * {@link adoscOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link adosc}.
  *
- * @param inHigh - Warm-up history. High price of each bar. Every history has the
- *   same length.
- * @param inLow - Warm-up history. Low price of each bar. Every history has the
- *   same length.
- * @param inClose - Warm-up history. Close price of each bar. Every history has the
- *   same length.
- * @param inVolume - Warm-up history. Volume of each bar. Every history has the
- *   same length.
- * @param optInFastPeriod - Period of the fast A/D EMA (default 3; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSlowPeriod - Period of the slow A/D EMA (default 10; range 2 to
- *   100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - Fast-EMA minus slow-EMA of the A/D line. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price of each bar. `low`: Low price of each bar. `close`: Close
+ *   price of each bar. `volume`: Volume of each bar.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link AdoscOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link adosc} returns them; the range is the stream's
+ *   `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `adoscLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range, histories of different lengths or an output too
- *   short or starting where another output or a `Float64Array` input starts, or, on
- *   a history long enough to open, one sharing memory with another output or a
- *   `Float64Array` input.
+ *   than `adoscLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32, a parameter outside its range,
+ *   histories of different lengths or a buffer too short, of the wrong type or
+ *   starting where another buffer or a `Float64Array` input starts, or, on a history
+ *   long enough to open, one sharing memory with another buffer or a `Float64Array`
+ *   input.
  *
  * @example
  * ```ts
@@ -1010,43 +1194,22 @@ export function adoscOpen(
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
  * const volume = Float64Array.from({ length: 252 }, (_, i) =>
  *   10000 + 100 * i + 2000 * Math.sin(0.3 * i));
- * const out = new Float64Array(high.length);
- * const stream = adoscOpenAndFill(high, low, close, volume, 3, 10, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = adoscOpenAndFill({ high, low, close, volume }, {
+ *   fastPeriod: 3,
+ *   slowPeriod: 10,
+ * });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function adoscOpenAndFill(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  inVolume: ArrayLike<number>,
-  optInFastPeriod: number,
-  optInSlowPeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): AdoscStream {
-  optInFastPeriod = requireInt32('ADOSC openAndFill', 'optInFastPeriod', optInFastPeriod);
-  optInSlowPeriod = requireInt32('ADOSC openAndFill', 'optInSlowPeriod', optInSlowPeriod);
-  requireArgument('ADOSC openAndFill', 'inHigh', inHigh);
-  requireHistory('ADOSC openAndFill', inHigh.length);
-  requireArgument('ADOSC openAndFill', 'inLow', inLow);
-  requireArgument('ADOSC openAndFill', 'inClose', inClose);
-  requireArgument('ADOSC openAndFill', 'inVolume', inVolume);
-  const guardOutLen = openFillCount('ADOSC openAndFill', inHigh.length, adoscLookback(optInFastPeriod, optInSlowPeriod, core));
-  requireHistoryLength('ADOSC openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('ADOSC openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireHistoryLength('ADOSC openAndFill', 'inVolume', inVolume.length, inHigh.length);
-  requireOutput('ADOSC openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  const inVolumeF64 = float64(inVolume);
-  if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) || (outReal.buffer === inCloseF64.buffer && outReal.byteOffset === inCloseF64.byteOffset) || (outReal.buffer === inVolumeF64.buffer && outReal.byteOffset === inVolumeF64.byteOffset)) {
-    throw streamFailure('ADOSC openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outReal, inHighF64) || overlaps(outReal, inLowF64) || overlaps(outReal, inCloseF64) || overlaps(outReal, inVolumeF64))) {
-    throw streamFailure('ADOSC openAndFill', RetCode.BAD_PARAM);
-  }
-  return adoscOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, inVolumeF64, 0, optInFastPeriod, optInSlowPeriod, new MInteger(), new MInteger(), outReal);
+export function adoscOpenAndFill(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume: ArrayLike<number>; openInterest?: ArrayLike<number> | undefined }, options?: AdoscOptions): AdoscResult & { stream: AdoscStream } {
+  requireArgument('ADOSC openAndFill', 'prices', prices);
+  const o = optionsOf('ADOSC openAndFill', options);
+  const optInFastPeriod = orDefault(o.fastPeriod, Core.INTEGER_DEFAULT);
+  const optInSlowPeriod = orDefault(o.slowPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('ADOSC openAndFill', o.core);
+  const capacity = fillCapacity(adoscLookbackPositional(optInFastPeriod, optInSlowPeriod, core), prices.high, prices.low, prices.close, prices.volume);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = adoscOpenAndFillPositional(prices.high, prices.low, prices.close, prices.volume, optInFastPeriod, optInSlowPeriod, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }

@@ -203,7 +203,7 @@ public enum OutputFlags : uint
     /// <summary>Draw as a dashed line.</summary>
     DashLine = 0x00000004,
 
-    /// <summary>Draw as unconnected dots. No shipped function sets this bit.</summary>
+    /// <summary>Draw as unconnected dots.</summary>
     Dot = 0x00000008,
 
     /// <summary>Draw as a histogram.</summary>
@@ -238,6 +238,12 @@ public enum OutputFlags : uint
 
     /// <summary>Level 80 occurs too: a weaker form of the pattern, on the same bar.</summary>
     PatternWeak = 0x00008000,
+
+    /// <summary>The value is an absolute index into the input arrays.</summary>
+    BarIndex = 0x00010000,
+
+    /// <summary>A line whose segments restart wherever the function's integer output changes value: never connect across a change.</summary>
+    Segmented = 0x00020000,
 
     /// <summary>Never set: every output is required.</summary>
     [Obsolete("Never set: every output is required.")]

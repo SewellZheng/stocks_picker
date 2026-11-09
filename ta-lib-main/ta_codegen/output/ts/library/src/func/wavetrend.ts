@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -16,31 +50,17 @@
  *                average.
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { badSink, batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fmaSlow } from '../runtime/fma.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
-import { emaLookback } from './ema.ts';
-import { smaLookback } from './sma.ts';
+import { emaLookbackPositional } from './ema.ts';
+import { smaLookbackPositional } from './sma.ts';
 
-/**
- * Number of leading input bars {@link wavetrend} consumes before its first value:
- * the index of the first bar with a value when the whole series is requested.
- *
- * @param optInChannelPeriod - Period of the price channel, used by both the
- *   average and the deviation (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAveragePeriod - Smoothing for the oscillator line (default 21; range
- *   1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSignalPeriod - Period of the simple average making the signal line
- *   (default 4; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function wavetrendLookback(optInChannelPeriod: number, optInAveragePeriod: number, optInSignalPeriod: number, core: Core = Core.DEFAULT): number {
+/** @internal */
+export function wavetrendLookbackPositional(optInChannelPeriod: number, optInAveragePeriod: number, optInSignalPeriod: number, core: Core = Core.DEFAULT): number {
   if ((optInChannelPeriod | 0) !== optInChannelPeriod) {
     return -1;
   }
@@ -68,30 +88,12 @@ export function wavetrendLookback(optInChannelPeriod: number, optInAveragePeriod
   /* Keep every term a callee's own lookback: that is how WAVETREND inherits
    * TA_FUNC_UNST_EMA, once per exponential stage.
    */
-  return emaLookback(optInChannelPeriod, core) + emaLookback(optInChannelPeriod, core) + emaLookback(optInAveragePeriod, core) + smaLookback(optInSignalPeriod, core);
+  return emaLookbackPositional(optInChannelPeriod, core) + emaLookbackPositional(optInChannelPeriod, core) + emaLookbackPositional(optInAveragePeriod, core) + smaLookbackPositional(optInSignalPeriod, core);
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link wavetrend}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInChannelPeriod - Period of the price channel, used by both the
- *   average and the deviation (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAveragePeriod - Smoothing for the oscillator line (default 21; range
- *   1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSignalPeriod - Period of the simple average making the signal line
- *   (default 4; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function wavetrendDisplayShift(optInChannelPeriod: number, optInAveragePeriod: number, optInSignalPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (wavetrendLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core) < 0) {
+/** @internal */
+export function wavetrendDisplayShiftPositional(optInChannelPeriod: number, optInAveragePeriod: number, optInSignalPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 2) {
@@ -191,7 +193,7 @@ export function wavetrendImpl(
   /* This ptr will point on a circular buffer of at least
    * "optInSignalPeriod" element.
    */
-  lookbackTotal = wavetrendLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core);
+  lookbackTotal = wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core);
   /* Move up the start index if there is not
    * enough initial data.
    */
@@ -210,8 +212,8 @@ export function wavetrendImpl(
   wtBuffer = new Float64Array(optInSignalPeriod);
   maxIdx_wtBuffer = optInSignalPeriod - 1;
   wtBuffer_Idx = 0;
-  lookbackChannel = emaLookback(optInChannelPeriod, core);
-  lookbackAverage = emaLookback(optInAveragePeriod, core);
+  lookbackChannel = emaLookbackPositional(optInChannelPeriod, core);
+  lookbackAverage = emaLookbackPositional(optInAveragePeriod, core);
   /* k and beta must sum to exactly 1.0, or a flat input drifts off its
    * level. Each subtraction is exact only from an operand in [0.5,1): at a
    * period of 2 or less that is k, above it beta. Above it beta stays as the
@@ -458,96 +460,10 @@ export function wavetrendImpl(
   return RetCode.SUCCESS;
 }
 
-/**
- * WaveTrend Oscillator: how far the typical price sits from its own exponential
- * average, divided by an exponential average of that distance and by Lambert's CCI
- * constant, then smoothed. The reading is the plain stochastic's complaint
- * answered a different way — rather than bounding the oscillator by construction,
- * it scales it by how far price has recently been travelling, so the same numeric
- * level means the same thing in a quiet market and a fast one. The oscillator line
- * and its short simple average cross; the crossings that matter are the ones
- * beyond the extremes, which the author draws at ±53 and ±60.
- *
- * Formula and more info at
- * [ta-lib.org/functions/wavetrend](https://ta-lib.org/functions/wavetrend).
- *
- * **Notes**
- * - The middle stage is an exponential CCI, not `TA_CCI`: CCI averages with a
- *   simple moving average and takes the mean deviation around that window's own
- *   average, where this uses two exponential averages.
- * - On a market that has stopped moving, the exponential average stops moving too
- *   — once its step falls under half an ulp it freezes, a few ulps away from the
- *   price. That frozen gap is a real non-zero distance, so dividing by its own
- *   average walks the oscillator to ±66.67, an extreme reading produced by nothing
- *   but rounding. This answers 0 instead, by taking the distance as zero whenever
- *   the price and its average both repeat. Implementations without that test drift
- *   to the extreme on flat data, at a bar that depends on their arithmetic.
- * - A zero divisor is tested on the scaled deviation, the quantity the division
- *   actually uses, and answers the neutral 0 rather than dividing.
- * - Each exponential average is seeded with a simple average of its own first
- *   inputs, the same seeding TA-Lib's EMA uses, and each seeds on what the stage
- *   before it publishes. `TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)` discards
- *   more of that warm-up, and it counts three times because there are three
- *   exponential stages.
- * - The difference the author also plots is `TA_SUB(outWT1, outWT2)`.
- *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link wavetrendLookback} is a success with
- * `count` 0.
- *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inHigh - High price series.
- * @param inLow - Low price series.
- * @param inClose - Close price series.
- * @param optInChannelPeriod - Period of the price channel, used by both the
- *   average and the deviation (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAveragePeriod - Smoothing for the oscillator line (default 21; range
- *   1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSignalPeriod - Period of the simple average making the signal line
- *   (default 4; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outWT1 - WaveTrend oscillator line. Must hold the values produced and
- *   never be empty; the input length always suffices.
- * @param outWT2 - Simple average of the oscillator line. Must hold the values
- *   produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
- * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
- *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output,
- *   two outputs sharing memory or an output sharing memory with a `Float64Array`
- *   input it is not. Checked before anything is written.
- *
- * @example
- * ```ts
- * import { wavetrend } from 'ta-lib';
- *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const wt1 = new Float64Array(high.length);
- * const wt2 = new Float64Array(high.length);
- * const { begIdx, count } = wavetrend(
- *   0, high.length - 1,
- *   high, low, close,
- *   10, 21, 4,
- *   wt1, wt2,
- * );
- * // wt1[k] is the value at bar begIdx + k, for k < count
- * ```
- * @see [`cci`](https://ta-lib.org/functions/cci)
- * @see [`smi`](https://ta-lib.org/functions/smi)
- * @see [`stochrsi`](https://ta-lib.org/functions/stochrsi)
- * @see [`tsi`](https://ta-lib.org/functions/tsi)
- */
-export function wavetrend(
+const PARAM_RANGES = [['channelPeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000'], ['averagePeriod', Core.INTEGER_DEFAULT, 1, 100000, 'in 1..100000'], ['signalPeriod', Core.INTEGER_DEFAULT, 1, 100000, 'in 1..100000']] as const;
+
+/** @internal */
+export function wavetrendPositional(
   startIdx: number,
   endIdx: number,
   inHigh: ArrayLike<number>,
@@ -562,23 +478,45 @@ export function wavetrend(
 ): OutRange {
   startIdx = requireInt32('WAVETREND', 'startIdx', startIdx);
   endIdx = requireInt32('WAVETREND', 'endIdx', endIdx);
-  optInChannelPeriod = requireInt32('WAVETREND', 'optInChannelPeriod', optInChannelPeriod);
-  optInAveragePeriod = requireInt32('WAVETREND', 'optInAveragePeriod', optInAveragePeriod);
-  optInSignalPeriod = requireInt32('WAVETREND', 'optInSignalPeriod', optInSignalPeriod);
+  optInChannelPeriod = requireInt32('WAVETREND', 'channelPeriod', optInChannelPeriod);
+  optInAveragePeriod = requireInt32('WAVETREND', 'averagePeriod', optInAveragePeriod);
+  optInSignalPeriod = requireInt32('WAVETREND', 'signalPeriod', optInSignalPeriod);
   requireIndexRange('WAVETREND', startIdx, endIdx);
-  const guardStart = clampedStart('WAVETREND', startIdx, wavetrendLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core));
+  const guardLookback = wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('WAVETREND', PARAM_RANGES, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod);
+  }
+  const guardStart = clampedStart('WAVETREND', startIdx, guardLookback);
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('WAVETREND', 'inHigh', inHigh, guardInLen);
-  requireLength('WAVETREND', 'inLow', inLow, guardInLen);
-  requireLength('WAVETREND', 'inClose', inClose, guardInLen);
-  requireOutput('WAVETREND', 'outWT1', outWT1, guardOutLen, Float64Array);
-  requireOutput('WAVETREND', 'outWT2', outWT2, guardOutLen, Float64Array);
+  requireLength('WAVETREND', 'prices.high', inHigh, guardInLen);
+  requireLength('WAVETREND', 'prices.low', inLow, guardInLen);
+  requireLength('WAVETREND', 'prices.close', inClose, guardInLen);
+  requireOutput('WAVETREND', 'outWt1', outWT1, guardOutLen, Float64Array);
+  requireOutput('WAVETREND', 'outWt2', outWT2, guardOutLen, Float64Array);
   const inHighF64 = float64(inHigh);
   const inLowF64 = float64(inLow);
   const inCloseF64 = float64(inClose);
-  if (overlapsPartly(outWT1, inHighF64) || overlapsPartly(outWT1, inLowF64) || overlapsPartly(outWT1, inCloseF64) || overlapsPartly(outWT2, inHighF64) || overlapsPartly(outWT2, inLowF64) || overlapsPartly(outWT2, inCloseF64) || overlaps(outWT1, outWT2)) {
-    throw failure('WAVETREND', RetCode.BAD_PARAM);
+  if (overlapsPartly(outWT1, inHighF64)) {
+    throw sharedMemory('WAVETREND', 'outWt1', 'prices.high');
+  }
+  if (overlapsPartly(outWT1, inLowF64)) {
+    throw sharedMemory('WAVETREND', 'outWt1', 'prices.low');
+  }
+  if (overlapsPartly(outWT1, inCloseF64)) {
+    throw sharedMemory('WAVETREND', 'outWt1', 'prices.close');
+  }
+  if (overlapsPartly(outWT2, inHighF64)) {
+    throw sharedMemory('WAVETREND', 'outWt2', 'prices.high');
+  }
+  if (overlapsPartly(outWT2, inLowF64)) {
+    throw sharedMemory('WAVETREND', 'outWt2', 'prices.low');
+  }
+  if (overlapsPartly(outWT2, inCloseF64)) {
+    throw sharedMemory('WAVETREND', 'outWt2', 'prices.close');
+  }
+  if (overlaps(outWT1, outWT2)) {
+    throw sharedMemory('WAVETREND', 'outWt1', 'outWt2');
   }
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
@@ -587,6 +525,206 @@ export function wavetrend(
     throw failure('WAVETREND', retCode);
   }
   return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link wavetrend}, {@link wavetrendLookback},
+ * {@link wavetrendDisplayShift}, {@link wavetrendOpen} and
+ * {@link wavetrendOpenAndFill}. Every key is optional: an omitted or `undefined`
+ * key takes its default, and a call ignores the keys it has no use for.
+ */
+export interface WavetrendOptions {
+  /**
+   * Period of the price channel, used by both the average and the deviation (default
+   * 10; range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  channelPeriod?: number | undefined;
+  /**
+   * Smoothing for the oscillator line (default 21; range 1 to 100000;
+   * `Core.INTEGER_DEFAULT` selects the default).
+   */
+  averagePeriod?: number | undefined;
+  /**
+   * Period of the simple average making the signal line (default 4; range 1 to
+   * 100000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  signalPeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `outWt1`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outWt1?: Float64Array<ArrayBuffer> | undefined;
+  /**
+   * Buffer for `outWt2`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outWt2?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/**
+ * What {@link wavetrend} returns, and {@link wavetrendOpenAndFill} with its
+ * stream.
+ */
+export interface WavetrendResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /** WaveTrend oscillator line. `outWt1[k]` is the value at input bar `begIdx + k`. */
+  outWt1: Float64Array<ArrayBuffer>;
+  /**
+   * Simple average of the oscillator line. `outWt2[k]` is the value at input bar
+   * `begIdx + k`.
+   */
+  outWt2: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link wavetrend} consumes before its first value:
+ * the index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link WavetrendOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function wavetrendLookback(options?: WavetrendOptions): number {
+  const o = optionsOf('WAVETREND lookback', options);
+  return wavetrendLookbackPositional(orDefault(o.channelPeriod, Core.INTEGER_DEFAULT), orDefault(o.averagePeriod, Core.INTEGER_DEFAULT), orDefault(o.signalPeriod, Core.INTEGER_DEFAULT), coreOf('WAVETREND lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link wavetrend}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link WavetrendOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function wavetrendDisplayShift(outputIdx: number, options?: WavetrendOptions): number {
+  const o = optionsOf('WAVETREND displayShift', options);
+  return wavetrendDisplayShiftPositional(orDefault(o.channelPeriod, Core.INTEGER_DEFAULT), orDefault(o.averagePeriod, Core.INTEGER_DEFAULT), orDefault(o.signalPeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('WAVETREND displayShift', o.core));
+}
+
+/**
+ * WaveTrend Oscillator: how far the typical price sits from its own exponential
+ * average, divided by an exponential average of that distance and by Lambert's CCI
+ * constant, then smoothed. The reading is the plain stochastic's complaint
+ * answered a different way — rather than bounding the oscillator by construction,
+ * it scales it by how far price has recently been travelling, so the same numeric
+ * level means the same thing in a quiet market and a fast one. The oscillator line
+ * and its short simple average cross; the crossings that matter are the ones
+ * beyond the extremes, which the author draws at ±53 and ±60.
+ *
+ * Formula and more info at
+ * [ta-lib.org/functions/wavetrend](https://ta-lib.org/functions/wavetrend).
+ *
+ * **Notes**
+ * - The middle stage is an exponential CCI, not `cci`: CCI averages with a simple
+ *   moving average and takes the mean deviation around that window's own average,
+ *   where this uses two exponential averages.
+ * - On a market that has stopped moving, the exponential average stops moving too
+ *   — once its step falls under half an ulp it freezes, a few ulps away from the
+ *   price. That frozen gap is a real non-zero distance, so dividing by its own
+ *   average walks the oscillator to ±66.67, an extreme reading produced by nothing
+ *   but rounding. This answers 0 instead, by taking the distance as zero whenever
+ *   the price and its average both repeat. Implementations without that test drift
+ *   to the extreme on flat data, at a bar that depends on their arithmetic.
+ * - A zero divisor is tested on the scaled deviation, the quantity the division
+ *   actually uses, and answers the neutral 0 rather than dividing.
+ * - Each exponential average is seeded with a simple average of its own first
+ *   inputs, the same seeding TA-Lib's EMA uses, and each seeds on what the stage
+ *   before it publishes. `CoreBuilder.unstablePeriod(FuncUnstId.EMA, ...)`
+ *   discards more of that warm-up, and it counts three times because there are
+ *   three exponential stages.
+ * - The difference the author also plots is `sub(outWt1, outWt2)`.
+ *
+ * `outWt1[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link wavetrendLookback} is a success with empty outputs.
+ *
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `high`: High price
+ *   series. `low`: Low price series. `close`: Close price series.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link WavetrendOptions}.
+ * @returns `begIdx` and the values; see {@link WavetrendResult}. Each output is a
+ *   view of its buffer, the caller's or a new one.
+ * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
+ *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type, two buffers sharing memory or a buffer sharing memory with a
+ *   `Float64Array` input it is not. Checked before anything is written.
+ *
+ * @example
+ * ```ts
+ * import { wavetrend } from 'ta-lib';
+ *
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ * const close = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, outWt1, outWt2 } = wavetrend({ high, low, close }, {
+ *   channelPeriod: 10,
+ *   averagePeriod: 21,
+ *   signalPeriod: 4,
+ * });
+ * console.log(outWt1.length + ' values from bar ' + begIdx + '; last outWt1 = ' + outWt1[outWt1.length - 1]);
+ * ```
+ * @see [`cci`](https://ta-lib.org/functions/cci)
+ * @see [`smi`](https://ta-lib.org/functions/smi)
+ * @see [`stochrsi`](https://ta-lib.org/functions/stochrsi)
+ * @see [`tsi`](https://ta-lib.org/functions/tsi)
+ */
+export function wavetrend(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: WavetrendOptions): WavetrendResult {
+  requireArgument('WAVETREND', 'prices', prices);
+  const o = optionsOf('WAVETREND', options);
+  if (o.endIdx === undefined) {
+    requireSeries('WAVETREND', 'prices.high', prices.high);
+    requireSeries('WAVETREND', 'prices.low', prices.low);
+    requireSeries('WAVETREND', 'prices.close', prices.close);
+  }
+  const optInChannelPeriod = orDefault(o.channelPeriod, Core.INTEGER_DEFAULT);
+  const optInAveragePeriod = orDefault(o.averagePeriod, Core.INTEGER_DEFAULT);
+  const optInSignalPeriod = orDefault(o.signalPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('WAVETREND', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.high.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core), prices.high, prices.low, prices.close);
+  const outWT1 = o.outWt1 === undefined ? new Float64Array(capacity) : o.outWt1;
+  const outWT2 = o.outWt2 === undefined ? new Float64Array(capacity) : o.outWt2;
+  const range = wavetrendPositional(startIdx, endIdx, prices.high, prices.low, prices.close, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, outWT1, outWT2, core);
+  return { begIdx: range.begIdx, outWt1: outWT1.subarray(0, range.count), outWt2: outWT2.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -672,57 +810,68 @@ export class WavetrendStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('WAVETREND advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('WAVETREND advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
 
   /**
-   * Commits one closed bar, writing the new values into `out`.
+   * Commits one closed bar and returns its outputs.
    *
-   * @param inHigh - The bar's `inHigh` value: High price series.
-   * @param inLow - The bar's `inLow` value: Low price series.
-   * @param inClose - The bar's `inClose` value: Close price series.
-   * @param out - Receives the bar's outputs.
+   * @param high - The bar's `high` value: High price series.
+   * @param low - The bar's `low` value: Low price series.
+   * @param close - The bar's `close` value: Close price series.
+   * @param out - Receives the outputs and is returned; a new {@link WavetrendOut}
+   *   when omitted.
+   * @returns `out`, or the new sink.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
-   *   finite, before anything moves. `TALibError` with code
-   *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
+   *   finite, or a sink that is not an object, `null` included, before anything moves.
+   *   `TALibError` with code `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached
+   *   bar `Core.INDEX_MAX`.
    */
-  update(inHigh: number, inLow: number, inClose: number, out: WavetrendOut): void {
+  update(high: number, low: number, close: number, out?: WavetrendOut): WavetrendOut {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('WAVETREND update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('WAVETREND update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (typeof out !== 'object' || out === null) {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('WAVETREND update', 'WavetrendOut');
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('WAVETREND update', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('WAVETREND update', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
-    wavetrendStepImpl(this, inHigh, inLow, inClose);
+    wavetrendStepImpl(this, high, low, close);
     this.outRangeCount++;
-    out.wT1 = this.cur_outWT1;
-    out.wT2 = this.cur_outWT2;
+    if (out === undefined) {
+      out = new WavetrendOut();
+    }
+    out.outWt1 = this.cur_outWT1;
+    out.outWt2 = this.cur_outWT2;
+    return out;
   }
 
   /**
-   * Writes into `out` what the next `update` with the same bar would write,
-   * committing nothing.
+   * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inHigh - The bar's `inHigh` value: High price series.
-   * @param inLow - The bar's `inLow` value: Low price series.
-   * @param inClose - The bar's `inClose` value: Close price series.
-   * @param out - Receives the bar's outputs.
+   * @param high - The bar's `high` value: High price series.
+   * @param low - The bar's `low` value: Low price series.
+   * @param close - The bar's `close` value: Close price series.
+   * @param out - Receives the outputs and is returned; a new {@link WavetrendOut}
+   *   when omitted.
+   * @returns `out`, or the new sink, as `update` would fill it.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
-   *   finite.
+   *   finite, or a sink that is not an object, `null` included.
    */
-  peek(inHigh: number, inLow: number, inClose: number, out: WavetrendOut): void {
-    if (typeof out !== 'object' || out === null) {
+  peek(high: number, low: number, close: number, out?: WavetrendOut): WavetrendOut {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('WAVETREND peek', 'WavetrendOut');
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow) || !Number.isFinite(inClose)) {
-      throw nonFiniteBar('WAVETREND peek', !Number.isFinite(inHigh) ? 'inHigh' : !Number.isFinite(inLow) ? 'inLow' : 'inClose');
+    if (!Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+      throw nonFiniteBar('WAVETREND peek', !Number.isFinite(high) ? 'high' : !Number.isFinite(low) ? 'low' : 'close');
     }
     const sp = this;
+    const inHigh = high;
+    const inLow = low;
+    const inClose = close;
     let ap = 0;
     let dev = 0;
     let ci = 0;
@@ -794,21 +943,33 @@ export class WavetrendStream {
     sumSignal = sumSignal + wt1;
     cur_outWT1 = wt1;
     cur_outWT2 = sumSignal / sp.optInSignalPeriod;
-    out.wT1 = cur_outWT1;
-    out.wT2 = cur_outWT2;
+    if (out === undefined) {
+      out = new WavetrendOut();
+    }
+    out.outWt1 = cur_outWT1;
+    out.outWt2 = cur_outWT2;
+    return out;
   }
 
   /**
-   * The value at the last bar this stream counted; `peek` does not change it.
+   * The outputs at the last bar this stream counted; `peek` does not change them.
    *
-   * @param out - Receives the outputs.
+   * @param out - Receives the outputs and is returned; a new {@link WavetrendOut}
+   *   when omitted.
+   * @returns `out`, or the new sink.
+   * @throws `TALibError` with code `TA_BAD_PARAM` for a sink that is not an object,
+   *   `null` included.
    */
-  value(out: WavetrendOut): void {
-    if (typeof out !== 'object' || out === null) {
+  value(out?: WavetrendOut): WavetrendOut {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('WAVETREND value', 'WavetrendOut');
     }
-    out.wT1 = this.cur_outWT1;
-    out.wT2 = this.cur_outWT2;
+    if (out === undefined) {
+      out = new WavetrendOut();
+    }
+    out.outWt1 = this.cur_outWT1;
+    out.outWt2 = this.cur_outWT2;
+    return out;
   }
 
   /**
@@ -845,14 +1006,15 @@ export class WavetrendStream {
 }
 
 /**
- * The outputs of one WAVETREND bar, written into an object the caller owns and
- * reuses: valid until the next call that writes it.
+ * The outputs of one WAVETREND bar, as `update`, `peek` and `value` return them.
+ * Passed back to one of them, it is filled and returned again, with no allocation;
+ * it holds its values until the next call that writes it. A new one holds `NaN`.
  */
 export class WavetrendOut {
   /** WaveTrend oscillator line. */
-  wT1: number = 0;
+  outWt1: number = NaN;
   /** Simple average of the oscillator line. */
-  wT2: number = 0;
+  outWt2: number = NaN;
 }
 
 function wavetrendStepImpl(sp: WavetrendStream, inHigh: number, inLow: number, inClose: number): void {
@@ -978,9 +1140,6 @@ function wavetrendOpenImpl(
   let maxIdx_wtBuffer = (32) - 1;
   const historyLen = inHigh.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -1002,7 +1161,7 @@ function wavetrendOpenImpl(
   } else if (optInSignalPeriod < 1 || optInSignalPeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -1029,7 +1188,7 @@ function wavetrendOpenImpl(
   /* This ptr will point on a circular buffer of at least
    * "optInSignalPeriod" element.
    */
-  lookbackTotal = wavetrendLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core);
+  lookbackTotal = wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core);
   /* Move up the start index if there is not
    * enough initial data.
    */
@@ -1048,8 +1207,8 @@ function wavetrendOpenImpl(
   wtBuffer = new Float64Array(optInSignalPeriod);
   maxIdx_wtBuffer = optInSignalPeriod - 1;
   wtBuffer_Idx = 0;
-  lookbackChannel = emaLookback(optInChannelPeriod, core);
-  lookbackAverage = emaLookback(optInAveragePeriod, core);
+  lookbackChannel = emaLookbackPositional(optInChannelPeriod, core);
+  lookbackAverage = emaLookbackPositional(optInAveragePeriod, core);
   /* k and beta must sum to exactly 1.0, or a flat input drifts off its
    * level. Each subtraction is exact only from an operand in [0.5,1): at a
    * period of 2 or less that is k, above it beta. Above it beta stays as the
@@ -1342,7 +1501,10 @@ export function wavetrendOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('WAVETREND openAndFill', inHigh.length, startIdx, wavetrendLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core));
+    throw insufficientHistory('WAVETREND openAndFill', inHigh.length, startIdx, wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core) < 0) {
+    throw rejectedParams('WAVETREND openAndFill', PARAM_RANGES, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod);
   }
   throw streamFailure('WAVETREND openAndFill', retCode);
 }
@@ -1370,54 +1532,16 @@ export function wavetrendOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('WAVETREND open', inHigh.length, startIdx, wavetrendLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core));
+    throw insufficientHistory('WAVETREND open', inHigh.length, startIdx, wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core) < 0) {
+    throw rejectedParams('WAVETREND open', PARAM_RANGES, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod);
   }
   throw streamFailure('WAVETREND open', retCode);
 }
 
-/**
- * Opens a live WAVETREND stream over the warm-up history: `value()` starts at the
- * last history bar, bit-identical to {@link wavetrend} there.
- *
- * @param inHigh - Warm-up history. High price series. Every history has the same
- *   length.
- * @param inLow - Warm-up history. Low price series. Every history has the same
- *   length.
- * @param inClose - Warm-up history. Close price series. Every history has the same
- *   length.
- * @param optInChannelPeriod - Period of the price channel, used by both the
- *   average and the deviation (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAveragePeriod - Smoothing for the oscillator line (default 21; range
- *   1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSignalPeriod - Period of the simple average making the signal line
- *   (default 4; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
- * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `wavetrendLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an
- *   empty one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or histories of different lengths.
- *
- * @example
- * ```ts
- * import { WavetrendOut, wavetrendOpen } from 'ta-lib';
- *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const close = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const stream = wavetrendOpen(high, low, close, 10, 21, 4);
- * const peeked = new WavetrendOut();
- * const updated = new WavetrendOut();
- * stream.peek(101.4, 99.1, 100.9, peeked); // a forming bar: commits nothing
- * stream.update(101.4, 99.1, 100.9, updated); // the bar closes
- * ```
- */
-export function wavetrendOpen(
+/** @internal */
+export function wavetrendOpenPositional(
   inHigh: ArrayLike<number>,
   inLow: ArrayLike<number>,
   inClose: ArrayLike<number>,
@@ -1426,51 +1550,159 @@ export function wavetrendOpen(
   optInSignalPeriod: number,
   core: Core = Core.DEFAULT,
 ): WavetrendStream {
-  optInChannelPeriod = requireInt32('WAVETREND open', 'optInChannelPeriod', optInChannelPeriod);
-  optInAveragePeriod = requireInt32('WAVETREND open', 'optInAveragePeriod', optInAveragePeriod);
-  optInSignalPeriod = requireInt32('WAVETREND open', 'optInSignalPeriod', optInSignalPeriod);
-  requireArgument('WAVETREND open', 'inHigh', inHigh);
-  requireHistory('WAVETREND open', inHigh.length);
-  requireArgument('WAVETREND open', 'inLow', inLow);
-  requireArgument('WAVETREND open', 'inClose', inClose);
-  requireHistoryLength('WAVETREND open', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('WAVETREND open', 'inClose', inClose.length, inHigh.length);
+  optInChannelPeriod = requireInt32('WAVETREND open', 'channelPeriod', optInChannelPeriod);
+  optInAveragePeriod = requireInt32('WAVETREND open', 'averagePeriod', optInAveragePeriod);
+  optInSignalPeriod = requireInt32('WAVETREND open', 'signalPeriod', optInSignalPeriod);
+  requireArgument('WAVETREND open', 'prices.high', inHigh);
+  requireHistory('WAVETREND open', 'prices.high', inHigh.length);
+  requireArgument('WAVETREND open', 'prices.low', inLow);
+  requireArgument('WAVETREND open', 'prices.close', inClose);
+  requireHistoryLength('WAVETREND open', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('WAVETREND open', 'prices.close', inClose.length, inHigh.length);
   return wavetrendOpenInternal(core, float64(inHigh), float64(inLow), float64(inClose), 0, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod);
 }
 
+/** @internal */
+export function wavetrendOpenAndFillPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  inClose: ArrayLike<number>,
+  optInChannelPeriod: number,
+  optInAveragePeriod: number,
+  optInSignalPeriod: number,
+  outWT1: Float64Array,
+  outWT2: Float64Array,
+  core: Core = Core.DEFAULT,
+): WavetrendStream {
+  optInChannelPeriod = requireInt32('WAVETREND openAndFill', 'channelPeriod', optInChannelPeriod);
+  optInAveragePeriod = requireInt32('WAVETREND openAndFill', 'averagePeriod', optInAveragePeriod);
+  optInSignalPeriod = requireInt32('WAVETREND openAndFill', 'signalPeriod', optInSignalPeriod);
+  requireArgument('WAVETREND openAndFill', 'prices.high', inHigh);
+  requireHistory('WAVETREND openAndFill', 'prices.high', inHigh.length);
+  requireArgument('WAVETREND openAndFill', 'prices.low', inLow);
+  requireArgument('WAVETREND openAndFill', 'prices.close', inClose);
+  const guardLookback = wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('WAVETREND openAndFill', PARAM_RANGES, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod);
+  }
+  const guardOutLen = openFillCount('WAVETREND openAndFill', inHigh.length, guardLookback);
+  requireHistoryLength('WAVETREND openAndFill', 'prices.low', inLow.length, inHigh.length);
+  requireHistoryLength('WAVETREND openAndFill', 'prices.close', inClose.length, inHigh.length);
+  requireOutput('WAVETREND openAndFill', 'outWt1', outWT1, guardOutLen, Float64Array);
+  requireOutput('WAVETREND openAndFill', 'outWt2', outWT2, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  const inCloseF64 = float64(inClose);
+  if (outWT1.buffer === inHighF64.buffer && outWT1.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt1', 'prices.high');
+  }
+  if (outWT1.buffer === inLowF64.buffer && outWT1.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt1', 'prices.low');
+  }
+  if (outWT1.buffer === inCloseF64.buffer && outWT1.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt1', 'prices.close');
+  }
+  if (outWT2.buffer === inHighF64.buffer && outWT2.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt2', 'prices.high');
+  }
+  if (outWT2.buffer === inLowF64.buffer && outWT2.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt2', 'prices.low');
+  }
+  if (outWT2.buffer === inCloseF64.buffer && outWT2.byteOffset === inCloseF64.byteOffset) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt2', 'prices.close');
+  }
+  if (outWT1.buffer === outWT2.buffer && outWT1.byteOffset === outWT2.byteOffset) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt1', 'outWt2');
+  }
+  if (guardOutLen > 0 && overlaps(outWT1, inHighF64)) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt1', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outWT1, inLowF64)) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt1', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outWT1, inCloseF64)) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt1', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outWT2, inHighF64)) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt2', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outWT2, inLowF64)) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt2', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outWT2, inCloseF64)) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt2', 'prices.close');
+  }
+  if (guardOutLen > 0 && overlaps(outWT1, outWT2)) {
+    throw sharedMemory('WAVETREND openAndFill', 'outWt1', 'outWt2');
+  }
+  return wavetrendOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, 0, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, new MInteger(), new MInteger(), outWT1, outWT2);
+}
+
 /**
- * {@link wavetrendOpen} that also fills the outputs over the whole history in the
- * same pass, bit-identically to {@link wavetrend}. The range written is the
- * stream's `outRange()`.
+ * Opens a live WAVETREND stream over the warm-up history: `value()` starts at the
+ * last history bar, bit-identical to {@link wavetrend} there.
  *
- * @param inHigh - Warm-up history. High price series. Every history has the same
- *   length.
- * @param inLow - Warm-up history. Low price series. Every history has the same
- *   length.
- * @param inClose - Warm-up history. Close price series. Every history has the same
- *   length.
- * @param optInChannelPeriod - Period of the price channel, used by both the
- *   average and the deviation (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT`
- *   selects the default).
- * @param optInAveragePeriod - Smoothing for the oscillator line (default 21; range
- *   1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param optInSignalPeriod - Period of the simple average making the signal line
- *   (default 4; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outWT1 - WaveTrend oscillator line. Must hold `historyLen - lookback`
- *   values and share no memory with an input or another output.
- * @param outWT2 - Simple average of the oscillator line. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price series. `low`: Low price series. `close`: Close price series.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link WavetrendOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `wavetrendLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an
- *   empty one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range, histories of different lengths or an output too
- *   short or starting where another output or a `Float64Array` input starts, or, on
- *   a history long enough to open, one sharing memory with another output or a
- *   `Float64Array` input.
+ *   than `wavetrendLookback(...) + 1` bars, an empty one included, and
+ *   `TA_BAD_PARAM` for options that are not an object, a `core` that is not a
+ *   `Core`, an absent input, an integer parameter that is not an int32, a parameter
+ *   outside its range or histories of different lengths.
+ *
+ * @example
+ * ```ts
+ * import { wavetrendOpen } from 'ta-lib';
+ *
+ * const high = Float64Array.from({ length: 252 }, (_, i) =>
+ *   101 + 10 * Math.sin(0.1 * i));
+ * const low = Float64Array.from({ length: 252 }, (_, i) =>
+ *   99 + 10 * Math.sin(0.1 * i));
+ * const close = Float64Array.from({ length: 252 }, (_, i) =>
+ *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
+ * const stream = wavetrendOpen({ high, low, close }, {
+ *   channelPeriod: 10,
+ *   averagePeriod: 21,
+ *   signalPeriod: 4,
+ * });
+ * const peeked = stream.peek(101.4, 99.1, 100.9); // a forming bar: commits nothing
+ * const updated = stream.update(101.4, 99.1, 100.9); // the bar closes
+ * ```
+ */
+export function wavetrendOpen(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: WavetrendOptions): WavetrendStream {
+  requireArgument('WAVETREND open', 'prices', prices);
+  const o = optionsOf('WAVETREND open', options);
+  const optInChannelPeriod = orDefault(o.channelPeriod, Core.INTEGER_DEFAULT);
+  const optInAveragePeriod = orDefault(o.averagePeriod, Core.INTEGER_DEFAULT);
+  const optInSignalPeriod = orDefault(o.signalPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('WAVETREND open', o.core);
+  return wavetrendOpenPositional(prices.high, prices.low, prices.close, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core);
+}
+
+/**
+ * {@link wavetrendOpen} that also computes the outputs over the whole history in
+ * the same pass, bit-identically to {@link wavetrend}.
+ *
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price series. `low`: Low price series. `close`: Close price series.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link WavetrendOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link wavetrend} returns them; the range is the
+ *   stream's `outRange()`.
+ * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
+ *   than `wavetrendLookback(...) + 1` bars, an empty one included, and
+ *   `TA_BAD_PARAM` for options that are not an object, a `core` that is not a
+ *   `Core`, an absent input, an integer parameter that is not an int32, a parameter
+ *   outside its range, histories of different lengths or a buffer too short, of the
+ *   wrong type or starting where another buffer or a `Float64Array` input starts,
+ *   or, on a history long enough to open, one sharing memory with another buffer or
+ *   a `Float64Array` input.
  *
  * @example
  * ```ts
@@ -1482,44 +1714,25 @@ export function wavetrendOpen(
  *   99 + 10 * Math.sin(0.1 * i));
  * const close = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i));
- * const wt1 = new Float64Array(high.length);
- * const wt2 = new Float64Array(high.length);
- * const stream = wavetrendOpenAndFill(high, low, close, 10, 21, 4, wt1, wt2);
- * const { begIdx, count } = stream.outRange();
- * // wt1[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, outWt1, outWt2 } = wavetrendOpenAndFill({ high, low, close }, {
+ *   channelPeriod: 10,
+ *   averagePeriod: 21,
+ *   signalPeriod: 4,
+ * });
+ * // outWt1[k] is the value at bar begIdx + k
  * ```
  */
-export function wavetrendOpenAndFill(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  inClose: ArrayLike<number>,
-  optInChannelPeriod: number,
-  optInAveragePeriod: number,
-  optInSignalPeriod: number,
-  outWT1: Float64Array,
-  outWT2: Float64Array,
-  core: Core = Core.DEFAULT,
-): WavetrendStream {
-  optInChannelPeriod = requireInt32('WAVETREND openAndFill', 'optInChannelPeriod', optInChannelPeriod);
-  optInAveragePeriod = requireInt32('WAVETREND openAndFill', 'optInAveragePeriod', optInAveragePeriod);
-  optInSignalPeriod = requireInt32('WAVETREND openAndFill', 'optInSignalPeriod', optInSignalPeriod);
-  requireArgument('WAVETREND openAndFill', 'inHigh', inHigh);
-  requireHistory('WAVETREND openAndFill', inHigh.length);
-  requireArgument('WAVETREND openAndFill', 'inLow', inLow);
-  requireArgument('WAVETREND openAndFill', 'inClose', inClose);
-  const guardOutLen = openFillCount('WAVETREND openAndFill', inHigh.length, wavetrendLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core));
-  requireHistoryLength('WAVETREND openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireHistoryLength('WAVETREND openAndFill', 'inClose', inClose.length, inHigh.length);
-  requireOutput('WAVETREND openAndFill', 'outWT1', outWT1, guardOutLen, Float64Array);
-  requireOutput('WAVETREND openAndFill', 'outWT2', outWT2, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  const inCloseF64 = float64(inClose);
-  if ((outWT1.buffer === inHighF64.buffer && outWT1.byteOffset === inHighF64.byteOffset) || (outWT1.buffer === inLowF64.buffer && outWT1.byteOffset === inLowF64.byteOffset) || (outWT1.buffer === inCloseF64.buffer && outWT1.byteOffset === inCloseF64.byteOffset) || (outWT2.buffer === inHighF64.buffer && outWT2.byteOffset === inHighF64.byteOffset) || (outWT2.buffer === inLowF64.buffer && outWT2.byteOffset === inLowF64.byteOffset) || (outWT2.buffer === inCloseF64.buffer && outWT2.byteOffset === inCloseF64.byteOffset) || (outWT1.buffer === outWT2.buffer && outWT1.byteOffset === outWT2.byteOffset)) {
-    throw streamFailure('WAVETREND openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outWT1, inHighF64) || overlaps(outWT1, inLowF64) || overlaps(outWT1, inCloseF64) || overlaps(outWT2, inHighF64) || overlaps(outWT2, inLowF64) || overlaps(outWT2, inCloseF64) || overlaps(outWT1, outWT2))) {
-    throw streamFailure('WAVETREND openAndFill', RetCode.BAD_PARAM);
-  }
-  return wavetrendOpenAndFillInternal(core, inHighF64, inLowF64, inCloseF64, 0, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, new MInteger(), new MInteger(), outWT1, outWT2);
+export function wavetrendOpenAndFill(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close: ArrayLike<number>; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: WavetrendOptions): WavetrendResult & { stream: WavetrendStream } {
+  requireArgument('WAVETREND openAndFill', 'prices', prices);
+  const o = optionsOf('WAVETREND openAndFill', options);
+  const optInChannelPeriod = orDefault(o.channelPeriod, Core.INTEGER_DEFAULT);
+  const optInAveragePeriod = orDefault(o.averagePeriod, Core.INTEGER_DEFAULT);
+  const optInSignalPeriod = orDefault(o.signalPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('WAVETREND openAndFill', o.core);
+  const capacity = fillCapacity(wavetrendLookbackPositional(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, core), prices.high, prices.low, prices.close);
+  const outWT1 = o.outWt1 === undefined ? new Float64Array(capacity) : o.outWt1;
+  const outWT2 = o.outWt2 === undefined ? new Float64Array(capacity) : o.outWt2;
+  const stream = wavetrendOpenAndFillPositional(prices.high, prices.low, prices.close, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, outWT1, outWT2, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, outWt1: outWT1.subarray(0, range.count), outWt2: outWT2.subarray(0, range.count) };
 }

@@ -1160,6 +1160,93 @@ fn legs_ADXR(r: &mut Report) {
     r.legs_done("ADXR", 3);
 }
 
+const V_ALLIGATOR: &[(&str, i32, i32, i32, i32, i32, i32)] = &[
+    ("defaults", i32::MIN, i32::MIN, i32::MIN, i32::MIN, i32::MIN, i32::MIN),
+    ("minimums", 1i32, 0i32, 1i32, 0i32, 1i32, 0i32),
+];
+
+fn sub_ALLIGATOR(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift) in V_ALLIGATOR {
+        let Ok(lb) = core.alligator_lookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift) else { continue; };
+        r.control("ALLIGATOR", label, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let mut outJaw: Vec<f64> = Vec::with_capacity(1);
+            let mut outTeeth: Vec<f64> = Vec::with_capacity(1);
+            let mut outLips: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.alligator_impl(0, lb, &inHigh, &inLow, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &mut _b, &mut _n, &mut outJaw, &mut outTeeth, &mut outLips);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("ALLIGATOR", label); continue; }
+        r.quiet("ALLIGATOR", label, lb, run(|| {
+            let inHigh: Vec<f64> = Vec::with_capacity(1);
+            let inLow: Vec<f64> = Vec::with_capacity(1);
+            let mut outJaw: Vec<f64> = Vec::with_capacity(1);
+            let mut outTeeth: Vec<f64> = Vec::with_capacity(1);
+            let mut outLips: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.alligator_impl(0, lb - 1, &inHigh, &inLow, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &mut _b, &mut _n, &mut outJaw, &mut outTeeth, &mut outLips);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_ALLIGATOR(r: &mut Report) {
+    let core = Core::new();
+    let optInJawPeriod = i32::MIN;
+    let optInJawShift = i32::MIN;
+    let optInTeethPeriod = i32::MIN;
+    let optInTeethShift = i32::MIN;
+    let optInLipsPeriod = i32::MIN;
+    let optInLipsShift = i32::MIN;
+    let Ok(lb) = core.alligator_lookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift) else { r.no_legs("ALLIGATOR"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let mut outJaw: Vec<f64> = vec![Default::default(); 5];
+        let mut outTeeth: Vec<f64> = vec![Default::default(); 5];
+        let mut outLips: Vec<f64> = vec![Default::default(); 5];
+        r.legs_control("ALLIGATOR", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.alligator_impl(startIdx, endIdx, &inHigh, &inLow, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &mut _b, &mut _n, &mut outJaw, &mut outTeeth, &mut outLips);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = Vec::with_capacity(1);
+        let inLow: Vec<f64> = series("low", endIdx + 1);
+        let mut outJaw: Vec<f64> = vec![Default::default(); 5];
+        let mut outTeeth: Vec<f64> = vec![Default::default(); 5];
+        let mut outLips: Vec<f64> = vec![Default::default(); 5];
+        r.leg("ALLIGATOR", "inHigh", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.alligator_impl(startIdx, endIdx, &inHigh, &inLow, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &mut _b, &mut _n, &mut outJaw, &mut outTeeth, &mut outLips);
+            (rc, _n)
+        }));
+    }
+    {
+        let inHigh: Vec<f64> = series("high", endIdx + 1);
+        let inLow: Vec<f64> = Vec::with_capacity(1);
+        let mut outJaw: Vec<f64> = vec![Default::default(); 5];
+        let mut outTeeth: Vec<f64> = vec![Default::default(); 5];
+        let mut outLips: Vec<f64> = vec![Default::default(); 5];
+        r.leg("ALLIGATOR", "inLow", 1, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.alligator_impl(startIdx, endIdx, &inHigh, &inLow, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &mut _b, &mut _n, &mut outJaw, &mut outTeeth, &mut outLips);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("ALLIGATOR", 2);
+}
+
 const V_ALMA: &[(&str, i32, f64, f64)] = &[
     ("defaults", i32::MIN, Core::REAL_DEFAULT, Core::REAL_DEFAULT),
     ("minimums", 1i32, 0.01f64, 0.0f64),
@@ -16876,6 +16963,65 @@ fn legs_SAREXT(r: &mut Report) {
     r.legs_done("SAREXT", 2);
 }
 
+const V_SHARPE: &[(&str, i32, f64, f64)] = &[
+    ("defaults", i32::MIN, Core::REAL_DEFAULT, Core::REAL_DEFAULT),
+    ("minimums", 2i32, -3e37f64, 0.0f64),
+];
+
+fn sub_SHARPE(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInTimePeriod, optInRiskFreeRate, optInAnnualization) in V_SHARPE {
+        let Ok(lb) = core.sharpe_lookback(optInTimePeriod, optInRiskFreeRate, optInAnnualization) else { continue; };
+        r.control("SHARPE", label, run(|| {
+            let inReal: Vec<f64> = Vec::with_capacity(1);
+            let mut outReal: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sharpe_impl(0, lb, &inReal, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("SHARPE", label); continue; }
+        r.quiet("SHARPE", label, lb, run(|| {
+            let inReal: Vec<f64> = Vec::with_capacity(1);
+            let mut outReal: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sharpe_impl(0, lb - 1, &inReal, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_SHARPE(r: &mut Report) {
+    let core = Core::new();
+    let optInTimePeriod = i32::MIN;
+    let optInRiskFreeRate = Core::REAL_DEFAULT;
+    let optInAnnualization = Core::REAL_DEFAULT;
+    let Ok(lb) = core.sharpe_lookback(optInTimePeriod, optInRiskFreeRate, optInAnnualization) else { r.no_legs("SHARPE"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inReal: Vec<f64> = series("real", endIdx + 1);
+        let mut outReal: Vec<f64> = vec![Default::default(); 5];
+        r.legs_control("SHARPE", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sharpe_impl(startIdx, endIdx, &inReal, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+    {
+        let inReal: Vec<f64> = Vec::with_capacity(1);
+        let mut outReal: Vec<f64> = vec![Default::default(); 5];
+        r.leg("SHARPE", "inReal", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sharpe_impl(startIdx, endIdx, &inReal, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("SHARPE", 1);
+}
+
 const V_SI: &[(&str, f64)] = &[
     ("defaults", Core::REAL_DEFAULT),
     ("minimums", 1e-8f64),
@@ -17304,6 +17450,65 @@ fn legs_SMI(r: &mut Report) {
         }));
     }
     r.legs_done("SMI", 3);
+}
+
+const V_SORTINO: &[(&str, i32, f64, f64)] = &[
+    ("defaults", i32::MIN, Core::REAL_DEFAULT, Core::REAL_DEFAULT),
+    ("minimums", 2i32, -3e37f64, 0.0f64),
+];
+
+fn sub_SORTINO(r: &mut Report) {
+    let core = Core::new();
+    for &(label, optInTimePeriod, optInMAR, optInAnnualization) in V_SORTINO {
+        let Ok(lb) = core.sortino_lookback(optInTimePeriod, optInMAR, optInAnnualization) else { continue; };
+        r.control("SORTINO", label, run(|| {
+            let inReal: Vec<f64> = Vec::with_capacity(1);
+            let mut outReal: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sortino_impl(0, lb, &inReal, optInTimePeriod, optInMAR, optInAnnualization, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+        if lb < 1 { r.no_quiet_range("SORTINO", label); continue; }
+        r.quiet("SORTINO", label, lb, run(|| {
+            let inReal: Vec<f64> = Vec::with_capacity(1);
+            let mut outReal: Vec<f64> = Vec::with_capacity(1);
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sortino_impl(0, lb - 1, &inReal, optInTimePeriod, optInMAR, optInAnnualization, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+}
+
+fn legs_SORTINO(r: &mut Report) {
+    let core = Core::new();
+    let optInTimePeriod = i32::MIN;
+    let optInMAR = Core::REAL_DEFAULT;
+    let optInAnnualization = Core::REAL_DEFAULT;
+    let Ok(lb) = core.sortino_lookback(optInTimePeriod, optInMAR, optInAnnualization) else { r.no_legs("SORTINO"); return; };
+    let (startIdx, endIdx) = (lb, lb + 4);
+    {
+        let inReal: Vec<f64> = series("real", endIdx + 1);
+        let mut outReal: Vec<f64> = vec![Default::default(); 5];
+        r.legs_control("SORTINO", run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sortino_impl(startIdx, endIdx, &inReal, optInTimePeriod, optInMAR, optInAnnualization, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+    {
+        let inReal: Vec<f64> = Vec::with_capacity(1);
+        let mut outReal: Vec<f64> = vec![Default::default(); 5];
+        r.leg("SORTINO", "inReal", 0, run(|| {
+            let mut _b: usize = 0;
+            let mut _n: usize = 0;
+            let rc = core.sortino_impl(startIdx, endIdx, &inReal, optInTimePeriod, optInMAR, optInAnnualization, &mut _b, &mut _n, &mut outReal);
+            (rc, _n)
+        }));
+    }
+    r.legs_done("SORTINO", 1);
 }
 
 const V_SQRT: &[&str] = &[
@@ -20210,6 +20415,7 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("ADR", sub_ADR, legs_ADR),
     ("ADX", sub_ADX, legs_ADX),
     ("ADXR", sub_ADXR, legs_ADXR),
+    ("ALLIGATOR", sub_ALLIGATOR, legs_ALLIGATOR),
     ("ALMA", sub_ALMA, legs_ALMA),
     ("AO", sub_AO, legs_AO),
     ("APO", sub_APO, legs_APO),
@@ -20396,12 +20602,14 @@ const PROBES: &[(&str, Probe, Probe)] = &[
     ("RVOL", sub_RVOL, legs_RVOL),
     ("SAR", sub_SAR, legs_SAR),
     ("SAREXT", sub_SAREXT, legs_SAREXT),
+    ("SHARPE", sub_SHARPE, legs_SHARPE),
     ("SI", sub_SI, legs_SI),
     ("SIN", sub_SIN, legs_SIN),
     ("SINH", sub_SINH, legs_SINH),
     ("SKEW", sub_SKEW, legs_SKEW),
     ("SMA", sub_SMA, legs_SMA),
     ("SMI", sub_SMI, legs_SMI),
+    ("SORTINO", sub_SORTINO, legs_SORTINO),
     ("SQRT", sub_SQRT, legs_SQRT),
     ("SQZMOM", sub_SQZMOM, legs_SQZMOM),
     ("STC", sub_STC, legs_STC),
@@ -20479,7 +20687,7 @@ fn no_phantom_io() {
     // The corpus is the generator's, not a list kept by hand: a probe that
     // stopped being emitted is a shrinking sweep, which is the one way this
     // file can fail open.
-    assert_eq!(PROBES.len(), 240, "probe count");
+    assert_eq!(PROBES.len(), 243, "probe count");
     assert_eq!(
         PROBES.len(),
         crate::abstract_api::funcs().count(),

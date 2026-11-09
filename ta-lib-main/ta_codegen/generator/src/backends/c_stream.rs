@@ -423,22 +423,19 @@ fn finite_bar_check(func: &FuncDef, indent: &str, fail: &str) -> String {
     format!("{indent}if( {} ) return {fail};\n", conds.join(" || "))
 }
 
-/// Rules rS1 and rS2 run first, ahead of every presence check, answering
-/// `TA_OUT_OF_RANGE_START_INDEX` and `TA_OUT_OF_RANGE_END_INDEX`
-/// (`https://ta-lib.org/spec/streaming/#rs1`). Only `!stream` may precede them: the
-/// "`*stream` is NULL on any failure" contract is published through that
-/// pointer, so it is a precondition for reporting anything at all rather than an
-/// argument competing with the pair.
+/// Rule rS2 runs first, ahead of every presence check, answering
+/// `TA_OUT_OF_RANGE_END_INDEX` (`https://ta-lib.org/spec/streaming/#rs2`). Only
+/// `!stream` may precede it: the "`*stream` is NULL on any failure" contract is
+/// published through that pointer, so it is a precondition for reporting
+/// anything at all rather than an argument competing with the bound. An empty
+/// history is rS7, answered last by [`emit_anchor_guard`].
 ///
 /// The ceiling is `TA_INDEX_MAX + 1` because the implied `endIdx` is
 /// `historyLen - 1`. Without it the streaming entry points would compute over
 /// exactly the ranges the batch call refuses, and the two are required to agree
 /// bit for bit (#180).
 fn index_pair_guards() -> &'static str {
-    concat!(
-        "   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;\n",
-        "   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;\n"
-    )
+    "   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;\n"
 }
 
 /// Rule rU4 — [`index_pair_guards`] read on a live handle, one bar at a time.
@@ -493,7 +490,7 @@ enum Frame {
 /// prologue's order too, so both tiers state the same contract the same way.
 ///
 /// The handle is NOT in the list. Every frame checks it first and on its own,
-/// because reading the index domain (rS1/rS2 at an opener, rU4 at a step) is a
+/// because reading the index domain (rS2 at an opener, rU4 at a step) is a
 /// dereference and so has to follow it.
 ///
 /// One producer, because it is one decision and every frame makes it. Hand-rolled
@@ -584,10 +581,13 @@ fn emit_open_wrapper(o: &mut String, func: &FuncDef) {
 /// the caller's array; at stride 0 every per-bar write lands on slot 0, so after
 /// the replay it holds the last history value. Copied out only on success, which
 /// is what the two separate bodies did (an error path left `*out` untouched).
-fn emit_open_internal_wrapper(o: &mut String, func: &FuncDef) {
+fn emit_open_internal_wrapper(o: &mut String, func: &FuncDef, last_bar_only: bool) {
     let n = uname(func);
     let _ = writeln!(o, "/* Private function, not in public API. */\n{}\n{{", open_internal_signature(func));
     let _ = writeln!(o, "   TA_RetCode retCode;");
+    if last_bar_only {
+        let _ = writeln!(o, "   int begIdx;");
+    }
     let _ = writeln!(o, "   int dummyBegIdx = 0;");
     let _ = writeln!(o, "   int dummyNBElement = 0;");
     for out in &func.outputs {
@@ -596,13 +596,22 @@ fn emit_open_internal_wrapper(o: &mut String, func: &FuncDef) {
         let _ = writeln!(o, "   {ty} sink_{} = {init};", out.name);
     }
     let sinks: Vec<String> = func.outputs.iter().map(|out| format!("&sink_{}", out.name)).collect();
+    // `historyLen` is unchecked here: no arithmetic on it may overflow.
+    let start = if last_bar_only { "startIdx + 1 < historyLen ? historyLen - 1 : startIdx" } else { "startIdx" };
     let _ = writeln!(
         o,
         "   retCode = TA_{n}_OpenImpl( {}&dummyBegIdx, &dummyNBElement, {}, 0 );",
-        open_core_call_head(func, "startIdx"),
+        open_core_call_head(func, start),
         sinks.join(", ")
     );
     let _ = writeln!(o, "   if( retCode == TA_SUCCESS )\n   {{");
+    if last_bar_only {
+        let opts: Vec<&str> = func.optional_inputs.iter().map(|p| p.name.as_str()).collect();
+        let _ = writeln!(o, "      begIdx = TA_{n}_Lookback( {} );", opts.join(", "));
+        let _ = writeln!(o, "      if( begIdx < startIdx ) begIdx = startIdx;");
+        let _ = writeln!(o, "      (*stream)->outRangeBegIdx = begIdx;");
+        let _ = writeln!(o, "      (*stream)->outRangeCount = historyLen - begIdx;");
+    }
     for out in &func.outputs {
         let _ = writeln!(o, "      *{0} = sink_{0};", out.name);
     }
@@ -1196,8 +1205,66 @@ pub fn generate(
     emit_clone(&mut o, func, &plan, enums);
 
     mark_fma_multiversion(&mut o, func);
+    split_open_body(&mut o, func);
 
     o
+}
+
+/// Every strided `_OpenImpl` not already behind FMA frames keeps only its
+/// argument checks and calls one of two never-inlined frames, each with the
+/// body inlined at a constant stride. The loop's code then depends on the body
+/// and that stride alone: sharing a function with the checks, an edit to them
+/// reshuffles the loop's registers. The sink frame owns its sinks, which is what
+/// lets the compiler drop a stateless loop that only the last bar survives.
+/// A body without `outStride` hand-rolls one per entry point and is left alone.
+fn split_open_body(o: &mut String, func: &FuncDef) {
+    let n = uname(func);
+    let sig = format!("static TA_RetCode TA_{n}_OpenImpl(");
+    let Some(line) = def_line(o, &sig) else {
+        return;
+    };
+    let params_from = line + sig.len();
+    let params_to = params_from + o[params_from..].find(" )\n").expect("an `_OpenImpl` signature closes its line");
+    let params = o[params_from..params_to].trim().to_string();
+    let Some(framed) = params.strip_suffix(", int outStride") else {
+        return;
+    };
+    let open_brace = params_to + " )\n{\n".len();
+    assert_eq!(&o[params_to..open_brace], " )\n{\n", "{n}: `_OpenImpl` body does not open on its own line");
+    let end = line + o[line..].find("\n}\n").expect("a definition closes") + 3;
+    let decls_end = open_brace + o[open_brace..end].find("\n\n").expect("declarations end at a blank line") + 1;
+    let split = "   endIdx = historyLen - 1;\n";
+    let body_at = decls_end + o[decls_end..end].find(split).unwrap_or_else(|| panic!("{n}: no `{split}` after the checks"));
+    let checks = o[decls_end + 1..body_at].trim_end().to_string();
+    let decls = &o[open_brace..decls_end];
+    let rest = &o[body_at..end];
+
+    let list: Vec<&str> = framed.split(", ").collect();
+    let after_meta = list.iter().position(|p| *p == "int *outNBElement").expect("an `_OpenImpl` takes outNBElement") + 1;
+    let names: Vec<&str> = list.iter().map(|p| p.rsplit([' ', '*']).next().unwrap_or(p).trim_end_matches("[]")).collect();
+    let mut sinks = String::new();
+    let mut copies = String::new();
+    let mut sink_args = Vec::new();
+    for (i, p) in list.iter().enumerate() {
+        if i >= after_meta {
+            let ty = p.split(' ').next().expect("a typed parameter");
+            let nm = names[i];
+            let _ = writeln!(sinks, "   {ty} sink_{nm} = 0;");
+            let _ = writeln!(copies, "      if( {nm} ) *{nm} = sink_{nm};");
+            sink_args.push(format!("&sink_{nm}"));
+        } else {
+            sink_args.push(names[i].to_string());
+        }
+    }
+    let args = names.join(", ");
+    let sink_args = sink_args.join(", ");
+    let text = format!(
+        "static TA_OPEN_INLINE TA_RetCode TA_{n}_OpenBody( {params} )\n{{\n{decls}\n{rest}\n\
+         static TA_OPEN_BODY TA_RetCode TA_{n}_OpenFillFrame( {framed} )\n{{\n   return TA_{n}_OpenBody( {args}, 1 );\n}}\n\n\
+         static TA_OPEN_BODY TA_RetCode TA_{n}_OpenSinkFrame( {framed} )\n{{\n{sinks}   TA_RetCode retCode = TA_{n}_OpenBody( {sink_args}, 0 );\n   if( retCode == TA_SUCCESS )\n   {{\n{copies}   }}\n   return retCode;\n}}\n\n\
+         static TA_RetCode TA_{n}_OpenImpl( {params} )\n{{\n{checks}\n\n   return outStride ? TA_{n}_OpenFillFrame( {args} ) : TA_{n}_OpenSinkFrame( {args} );\n}}\n"
+    );
+    o.replace_range(line..end, &text);
 }
 
 /// FMA runtime CPU dispatch for `Peek`, `Update` and the open tier.
@@ -1230,15 +1297,7 @@ fn mark_fma_multiversion(o: &mut String, func: &FuncDef) {
     if let Some(line) = fuses_at(o, &peek_signature(func)) {
         o.insert_str(line, "TA_FMA_MULTIVERSION\n");
     }
-    if open_takes_fma_frames(func) {
-        dispatch_fused_open(o, func);
-    }
-}
-
-/// A candlestick's fused site sits behind its pattern's conditions and few
-/// bars reach it, so the frames buy nothing there.
-pub fn open_takes_fma_frames(func: &FuncDef) -> bool {
-    !func.is_candlestick()
+    dispatch_fused_open(o, func);
 }
 
 /// The open tier's hardware-FMA clone: a fused `_OpenImpl` is force-inlined
@@ -1820,7 +1879,7 @@ fn emit_composed(
 
     // --- Open ------------------------------------------------------------------
     emit_composed_open(o, func, cp, &outputs, &cleanup, enums, registry, helpers, counter);
-    emit_open_internal_wrapper(o, func);
+    emit_open_internal_wrapper(o, func, false);
     emit_open_wrapper(o, func);
     emit_open_and_fill_wrapper(o, func);
     emit_open_and_fill_internal_wrapper(o, func);
@@ -3464,7 +3523,7 @@ fn emit_dual_mode(
         "\n   return TA_INTERNAL_ERROR({});\n}}\n",
         crate::internal_error_ids::site("dualmode")
     );
-    emit_open_internal_wrapper(o, func);
+    emit_open_internal_wrapper(o, func, false);
     emit_open_wrapper(o, func);
     emit_open_and_fill_wrapper(o, func);
     emit_open_and_fill_internal_wrapper(o, func);
@@ -4700,7 +4759,7 @@ fn emit_open_core_body(
     emit_open_head(o, func, model, model.circs(), registry, helpers, counter, enums, &arm);
     o.push_str(&arm);
     let _ = writeln!(o, "}}\n");
-    emit_open_internal_wrapper(o, func);
+    emit_open_internal_wrapper(o, func, model.open_needs_last_bar_only());
     emit_open_wrapper(o, func);
     emit_open_and_fill_wrapper(o, func);
     emit_open_and_fill_internal_wrapper(o, func);
@@ -5298,11 +5357,13 @@ fn emit_open_arm(
     let n = uname(func);
     // --- transcribed batch body ----------------------------------------------
     let _ = writeln!(o, "\n   {{");
-    let open_body = build_open_body_from(model, body);
+    let selected = super::eager_select::rewrite(body, &super::eager_select::Declared::of(func), &func.outputs, helpers);
+    let open_body = build_open_body_from(model, &selected);
     let mut open_body_c = String::new();
     for s in &open_body {
         open_body_c.push_str(&render_statement(s, 6, false, enums, registry, helpers, counter));
     }
+    let open_body_c = super::eager_select::lay_out(&open_body_c, true);
     let open_settings = crate::candle_settings::detect_candle_settings(body);
     if !open_settings.is_empty() {
         o.push_str(&emit_used_candle_unpacking(&open_settings, &open_body_c, 6));
@@ -5787,8 +5848,9 @@ fn emit_open_validation(o: &mut String, func: &FuncDef, enums: &HashMap<String, 
 /// change any behaviour that was already defined: the preamble's clamp only
 /// ever moves `startIdx` UP, so `startIdx > endIdx` before the clamp implies it
 /// after — this fires exactly where that preamble would have, returns the same
-/// code, and writes the same out-meta. For the public entry points it is inert
-/// (they pass `startIdx = 0`, and `historyLen < 1` is already rejected above).
+/// code, and writes the same out-meta. For the public entry points (`startIdx`
+/// 0) it is rule rS7 for an empty history, after the presence and parameter
+/// checks. Keep it `>=`: `startIdx > historyLen - 1` overflows at `INT_MIN`.
 ///
 /// A negative `startIdx` is deliberately NOT rejected here: no caller in the
 /// tree can produce one (every call site passes a literal `0`, a pass-through
@@ -5796,7 +5858,7 @@ fn emit_open_validation(o: &mut String, func: &FuncDef, enums: &HashMap<String, 
 /// parameter `usize`, so a guard for it would be unreachable in C and
 /// inexpressible in the backend it would have to match.
 fn emit_anchor_guard(o: &mut String) {
-    let _ = writeln!(o, "   if( startIdx > historyLen - 1 )");
+    let _ = writeln!(o, "   if( startIdx >= historyLen )");
     let _ = writeln!(o, "   {{");
     let _ = writeln!(o, "      *outBegIdx = 0;");
     let _ = writeln!(o, "      *outNBElement = 0;");

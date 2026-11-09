@@ -87,6 +87,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SAR_Maximum =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SAR_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_DOT };
+
 static const TA_InputParameterInfo    *TA_SAR_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HL,
@@ -95,7 +98,7 @@ static const TA_InputParameterInfo    *TA_SAR_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SAR_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SAR_Default,
   NULL
 };
 
@@ -305,6 +308,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SAREXT_AccelerationMaxShort =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SAREXT_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_DOT };
+
 static const TA_InputParameterInfo    *TA_SAREXT_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_HL,
@@ -313,7 +319,7 @@ static const TA_InputParameterInfo    *TA_SAREXT_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SAREXT_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SAREXT_Default,
   NULL
 };
 
@@ -335,6 +341,98 @@ DEF_FUNCTION( SAREXT,
               TA_FUNC_FLG_OVERLAP | TA_FUNC_FLG_STREAM | TA_FUNC_FLG_PATH_DEP
              );
 /* SAREXT END */
+
+/* SHARPE BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_SHARPE_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   20,
+   "Number of returns in the window",
+
+   NULL
+};
+
+static const TA_RealRange TA_DEF_SHARPE_RiskFreeRate =
+{
+   TA_REAL_MIN,
+   TA_REAL_MAX,
+   8,
+   0.0,
+   0.001,
+   0.0001
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_SHARPE_RiskFreeRate =
+{
+   TA_OptInput_RealRange,
+   "optInRiskFreeRate",
+   0,
+
+   "Risk-Free Rate per Bar",
+   (const void *)&TA_DEF_SHARPE_RiskFreeRate,
+   0.0,
+   "Risk-free return per bar",
+
+   NULL
+};
+
+static const TA_RealRange TA_DEF_SHARPE_Annualization =
+{
+   0.0,
+   TA_REAL_MAX,
+   2,
+   1.0,
+   365.0,
+   1.0
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_SHARPE_Annualization =
+{
+   TA_OptInput_RealRange,
+   "optInAnnualization",
+   0,
+
+   "Annualization",
+   (const void *)&TA_DEF_SHARPE_Annualization,
+   252.0,
+   "Bars per year",
+
+   NULL
+};
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SHARPE_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
+static const TA_InputParameterInfo    *TA_SHARPE_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_SHARPE_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real_SHARPE_Default,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_SHARPE_OptInputs[] =
+{ &TA_DEF_UI_D_SHARPE_TimePeriod,
+  &TA_DEF_UI_D_SHARPE_RiskFreeRate,
+  &TA_DEF_UI_D_SHARPE_Annualization,
+  NULL
+};
+
+DEF_FUNCTION( SHARPE,
+              TA_GroupId_Statistic,
+              "Rolling Sharpe Ratio",
+              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_NAN_INF_OUT
+             );
+/* SHARPE END */
 
 /* SI BEGIN */
 static const TA_RealRange TA_DEF_SI_LimitMove =
@@ -361,6 +459,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SI_LimitMove =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SI_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SI_Inputs[]    =
 {
   &TA_DEF_UI_Input_Price_OHLC,
@@ -369,7 +470,7 @@ static const TA_InputParameterInfo    *TA_SI_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SI_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SI_Default,
   NULL
 };
 
@@ -386,6 +487,9 @@ DEF_FUNCTION( SI,
 /* SI END */
 
 /* SIN BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SIN_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SIN_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -394,7 +498,7 @@ static const TA_InputParameterInfo    *TA_SIN_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SIN_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SIN_Default,
   NULL
 };
 
@@ -409,6 +513,9 @@ DEF_FUNCTION( SIN,
 /* SIN END */
 
 /* SINH BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SINH_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SINH_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -417,7 +524,7 @@ static const TA_InputParameterInfo    *TA_SINH_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SINH_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SINH_Default,
   NULL
 };
 
@@ -455,6 +562,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SKEW_TimePeriod =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SKEW_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SKEW_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -463,7 +573,7 @@ static const TA_InputParameterInfo    *TA_SKEW_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SKEW_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SKEW_Default,
   NULL
 };
 
@@ -589,10 +699,10 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SMI_SignalPeriod =
 };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SMI_outSMI =
-                               { TA_Output_Real, "outSMI", TA_OUT_LINE };
+                               { TA_Output_Real, "outSMI", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SMI_outSMISignal =
-                               { TA_Output_Real, "outSMISignal", TA_OUT_DASH_LINE };
+                               { TA_Output_Real, "outSMISignal", TA_OUT_DASH_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 static const TA_InputParameterInfo    *TA_SMI_Inputs[]    =
 {
@@ -615,14 +725,110 @@ static const TA_OptInputParameterInfo *TA_SMI_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( SMI,
-              TA_GroupId_MomentumIndicators,
-              "Stochastic Momentum Index",
-              TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( SMI,
+                         TA_GroupId_MomentumIndicators,
+                         "Stochastic Momentum Index",
+                         TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outSMI\":{\"levels\":[-40,40]}}}"
+                       );
 /* SMI END */
 
+/* SORTINO BEGIN */
+static const TA_OptInputParameterInfo TA_DEF_UI_D_SORTINO_TimePeriod =
+{
+   TA_OptInput_IntegerRange,
+   "optInTimePeriod",
+   0,
+
+   "Time Period",
+   (const void *)&TA_DEF_TimePeriod_Positive_Minimum2,
+   20,
+   "Number of returns in the window",
+
+   NULL
+};
+
+static const TA_RealRange TA_DEF_SORTINO_MAR =
+{
+   TA_REAL_MIN,
+   TA_REAL_MAX,
+   8,
+   0.0,
+   0.001,
+   0.0001
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_SORTINO_MAR =
+{
+   TA_OptInput_RealRange,
+   "optInMAR",
+   0,
+
+   "Minimum Acceptable Return per Bar",
+   (const void *)&TA_DEF_SORTINO_MAR,
+   0.0,
+   "Minimum acceptable return per bar",
+
+   NULL
+};
+
+static const TA_RealRange TA_DEF_SORTINO_Annualization =
+{
+   0.0,
+   TA_REAL_MAX,
+   2,
+   1.0,
+   365.0,
+   1.0
+};
+
+static const TA_OptInputParameterInfo TA_DEF_UI_D_SORTINO_Annualization =
+{
+   TA_OptInput_RealRange,
+   "optInAnnualization",
+   0,
+
+   "Annualization",
+   (const void *)&TA_DEF_SORTINO_Annualization,
+   252.0,
+   "Bars per year",
+
+   NULL
+};
+
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SORTINO_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
+static const TA_InputParameterInfo    *TA_SORTINO_Inputs[]    =
+{
+  &TA_DEF_UI_Input_Real,
+  NULL
+};
+
+static const TA_OutputParameterInfo   *TA_SORTINO_Outputs[]   =
+{
+  &TA_DEF_UI_Output_Real_SORTINO_Default,
+  NULL
+};
+
+static const TA_OptInputParameterInfo *TA_SORTINO_OptInputs[] =
+{ &TA_DEF_UI_D_SORTINO_TimePeriod,
+  &TA_DEF_UI_D_SORTINO_MAR,
+  &TA_DEF_UI_D_SORTINO_Annualization,
+  NULL
+};
+
+DEF_FUNCTION( SORTINO,
+              TA_GroupId_Statistic,
+              "Rolling Sortino Ratio",
+              TA_FUNC_FLG_STREAM | TA_FUNC_FLG_NAN_INF_OUT
+             );
+/* SORTINO END */
+
 /* SQRT BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SQRT_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_SQRT_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -631,7 +837,7 @@ static const TA_InputParameterInfo    *TA_SQRT_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SQRT_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SQRT_Default,
   NULL
 };
 
@@ -771,7 +977,7 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SQZMOM_FactorNarrow =
 };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SQZMOM_outMomentum =
-                               { TA_Output_Real, "outMomentum", TA_OUT_HISTO };
+                               { TA_Output_Real, "outMomentum", TA_OUT_HISTO | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Integer_SQZMOM_outSqueeze =
                                { TA_Output_Integer, "outSqueeze", TA_OUT_LINE };
@@ -858,6 +1064,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_STC_CyclePeriod =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_STC_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
+
 static const TA_InputParameterInfo    *TA_STC_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -866,7 +1075,7 @@ static const TA_InputParameterInfo    *TA_STC_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_STC_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_STC_Default,
   NULL
 };
 
@@ -877,14 +1086,18 @@ static const TA_OptInputParameterInfo *TA_STC_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( STC,
-              TA_GroupId_MomentumIndicators,
-              "Schaff Trend Cycle",
-              TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( STC,
+                         TA_GroupId_MomentumIndicators,
+                         "Schaff Trend Cycle",
+                         TA_FUNC_FLG_UNST_PER | TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outReal\":{\"levels\":[25,75]}}}"
+                       );
 /* STC END */
 
 /* STDDEV BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_STDDEV_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_STDDEV_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -893,7 +1106,7 @@ static const TA_InputParameterInfo    *TA_STDDEV_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_STDDEV_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_STDDEV_Default,
   NULL
 };
 
@@ -982,10 +1195,10 @@ const TA_OptInputParameterInfo TA_DEF_UI_D_STOCH_SlowD_MAType =
 };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_STOCH_outSlowK =
-                               { TA_Output_Real, "outSlowK", TA_OUT_DASH_LINE };
+                               { TA_Output_Real, "outSlowK", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_STOCH_outSlowD =
-                               { TA_Output_Real, "outSlowD", TA_OUT_DASH_LINE };
+                               { TA_Output_Real, "outSlowD", TA_OUT_DASH_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 static const TA_InputParameterInfo    *TA_STOCH_Inputs[]    =
 {
@@ -1009,11 +1222,12 @@ static const TA_OptInputParameterInfo *TA_STOCH_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( STOCH,
-              TA_GroupId_MomentumIndicators,
-              "Stochastic",
-              TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( STOCH,
+                         TA_GroupId_MomentumIndicators,
+                         "Stochastic",
+                         TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outSlowK\":{\"levels\":[20,80]}}}"
+                       );
 /* STOCH END */
 
 /* STOCHF BEGIN */
@@ -1060,10 +1274,10 @@ const TA_OptInputParameterInfo TA_DEF_UI_D_STOCHF_FastD_MAType =
 };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_STOCHF_outFastK =
-                               { TA_Output_Real, "outFastK", TA_OUT_LINE };
+                               { TA_Output_Real, "outFastK", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_STOCHF_outFastD =
-                               { TA_Output_Real, "outFastD", TA_OUT_LINE };
+                               { TA_Output_Real, "outFastD", TA_OUT_DASH_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 static const TA_InputParameterInfo    *TA_STOCHF_Inputs[]    =
 {
@@ -1085,11 +1299,12 @@ static const TA_OptInputParameterInfo *TA_STOCHF_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( STOCHF,
-              TA_GroupId_MomentumIndicators,
-              "Stochastic Fast",
-              TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( STOCHF,
+                         TA_GroupId_MomentumIndicators,
+                         "Stochastic Fast",
+                         TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outFastK\":{\"levels\":[20,80]}}}"
+                       );
 /* STOCHF END */
 
 /* STOCHRSI BEGIN */
@@ -1136,10 +1351,10 @@ const TA_OptInputParameterInfo TA_DEF_UI_D_STOCHRSI_FastD_MAType =
 };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_STOCHRSI_outFastK =
-                               { TA_Output_Real, "outFastK", TA_OUT_LINE };
+                               { TA_Output_Real, "outFastK", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_STOCHRSI_outFastD =
-                               { TA_Output_Real, "outFastD", TA_OUT_LINE };
+                               { TA_Output_Real, "outFastD", TA_OUT_DASH_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 static const TA_InputParameterInfo    *TA_STOCHRSI_Inputs[]    =
 {
@@ -1162,14 +1377,18 @@ static const TA_OptInputParameterInfo *TA_STOCHRSI_OptInputs[] =
   NULL
 };
 
-DEF_FUNCTION( STOCHRSI,
-              TA_GroupId_MomentumIndicators,
-              "Stochastic Relative Strength Index",
-              TA_FUNC_FLG_STREAM
-             );
+DEF_FUNCTION_ATTRIBUTES( STOCHRSI,
+                         TA_GroupId_MomentumIndicators,
+                         "Stochastic Relative Strength Index",
+                         TA_FUNC_FLG_STREAM,
+                         "{\"outputs\":{\"outFastK\":{\"levels\":[20,80]}}}"
+                       );
 /* STOCHRSI END */
 
 /* SUB BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SUB_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SUB_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real0,
@@ -1179,7 +1398,7 @@ static const TA_InputParameterInfo    *TA_SUB_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SUB_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SUB_Default,
   NULL
 };
 
@@ -1194,6 +1413,9 @@ DEF_FUNCTION( SUB,
 /* SUB END */
 
 /* SUM BEGIN */
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SUM_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SUM_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -1202,7 +1424,7 @@ static const TA_InputParameterInfo    *TA_SUM_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SUM_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SUM_Default,
   NULL
 };
 
@@ -1258,10 +1480,10 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SUPERTREND_Multiplier =
 };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SUPERTREND_outSupertrend =
-                               { TA_Output_Real, "outSupertrend", TA_OUT_LINE };
+                               { TA_Output_Real, "outSupertrend", TA_OUT_LINE | TA_OUT_SEGMENTED };
 
 const TA_OutputParameterInfo TA_DEF_UI_Output_Integer_SUPERTREND_outTrend =
-                               { TA_Output_Integer, "outTrend", TA_OUT_LINE };
+                               { TA_Output_Integer, "outTrend", TA_OUT_LINE | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
 
 static const TA_InputParameterInfo    *TA_SUPERTREND_Inputs[]    =
 {
@@ -1313,6 +1535,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SWAK_2PHP_TimePeriod =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SWAK_2PHP_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SWAK_2PHP_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -1321,7 +1546,7 @@ static const TA_InputParameterInfo    *TA_SWAK_2PHP_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SWAK_2PHP_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SWAK_2PHP_Default,
   NULL
 };
 
@@ -1385,6 +1610,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SWAK_BP_Delta =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SWAK_BP_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SWAK_BP_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -1393,7 +1621,7 @@ static const TA_InputParameterInfo    *TA_SWAK_BP_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SWAK_BP_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SWAK_BP_Default,
   NULL
 };
 
@@ -1521,6 +1749,9 @@ static const TA_OptInputParameterInfo TA_DEF_UI_D_SWAK_HP_TimePeriod =
    NULL
 };
 
+const TA_OutputParameterInfo TA_DEF_UI_Output_Real_SWAK_HP_Default =
+                               { TA_Output_Real, "outReal", TA_OUT_LINE | TA_OUT_ZERO | TA_OUT_POSITIVE | TA_OUT_NEGATIVE };
+
 static const TA_InputParameterInfo    *TA_SWAK_HP_Inputs[]    =
 {
   &TA_DEF_UI_Input_Real,
@@ -1529,7 +1760,7 @@ static const TA_InputParameterInfo    *TA_SWAK_HP_Inputs[]    =
 
 static const TA_OutputParameterInfo   *TA_SWAK_HP_Outputs[]   =
 {
-  &TA_DEF_UI_Output_Real,
+  &TA_DEF_UI_Output_Real_SWAK_HP_Default,
   NULL
 };
 
@@ -1553,12 +1784,14 @@ const TA_FuncDef *TA_DEF_TableS[] =
 {
    ADD_TO_TABLE(SAR),
    ADD_TO_TABLE(SAREXT),
+   ADD_TO_TABLE(SHARPE),
    ADD_TO_TABLE(SI),
    ADD_TO_TABLE(SIN),
    ADD_TO_TABLE(SINH),
    ADD_TO_TABLE(SKEW),
    ADD_TO_TABLE(SMA),
    ADD_TO_TABLE(SMI),
+   ADD_TO_TABLE(SORTINO),
    ADD_TO_TABLE(SQRT),
    ADD_TO_TABLE(SQZMOM),
    ADD_TO_TABLE(STC),

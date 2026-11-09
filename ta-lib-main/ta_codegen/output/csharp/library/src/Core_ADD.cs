@@ -443,16 +443,13 @@ public partial class Core
       int i = 0;
       int historyLen = inReal0.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
-      }
       if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inReal1.Length != inReal0.Length ) {
          return RetCode.BadParam;
       }
-      if( startIdx > endIdx ) {
+      if( startIdx >= historyLen ) {
          outBegIdx = 0;
          outNBElement = 0;
          return RetCode.InsufficientHistory;
@@ -488,10 +485,10 @@ public partial class Core
    {
       AddStream sp = new AddStream(this);
       double[] sink_outReal = new double[1];
-      RetCode retCode = AddOpenImpl(sp, inReal0, inReal1, startIdx, out int outBegIdx, out int outNBElement, sink_outReal, 0);
-      sp.outRangeBegIdx = outBegIdx;
-      sp.outRangeCount = outNBElement;
+      RetCode retCode = AddOpenImpl(sp, inReal0, inReal1, startIdx + 1 < inReal0.Length ? inReal0.Length - 1 : startIdx, out int outBegIdx, out int outNBElement, sink_outReal, 0);
       if( retCode == RetCode.Success ) {
+         sp.outRangeBegIdx = Math.Max(startIdx, AddLookback());
+         sp.outRangeCount = inReal0.Length - sp.outRangeBegIdx;
          return sp;
       }
       if( retCode == RetCode.InsufficientHistory ) {
@@ -511,16 +508,18 @@ public partial class Core
    /// <param name="inReal0">First operand series. The warm-up history, oldest bar first.</param>
    /// <param name="inReal1">Second operand series. The warm-up history, oldest bar first.</param>
    /// <returns>The open stream handle.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>AddLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>AddLookback(...) + 1</c> bars, an empty
+   /// one included — which is what a null array becomes, since a span cannot be
+   /// null.</exception>
    /// <exception cref="System.ArgumentException">The input series have different lengths.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public AddStream AddOpen( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1 )
    {
-      if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "ADD open: history is empty", RetCode.OutOfRangeStartIndex);
       if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "ADD open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
-      if( inReal1.IsEmpty ) throw new TALibArgumentException("ADD open: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      if( !inReal0.IsEmpty ) {
+         if( inReal1.IsEmpty ) throw new TALibArgumentException("ADD open: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      }
       RequireHistoryLength("ADD", "open", "inReal1", inReal1.Length, inReal0.Length);
       return AddOpenInternal(inReal0, inReal1, 0);
    }
@@ -544,18 +543,20 @@ public partial class Core
    /// <param name="outReal">Element-wise sum of the two inputs. Must hold at least <c>historyLen -
    /// AddLookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>AddLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>AddLookback(...) + 1</c> bars, an empty
+   /// one included — which is what a null array becomes, since a span cannot be
+   /// null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public AddStream AddOpenAndFill( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, Span<double> outReal )
    {
-      if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "ADD openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
       if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "ADD openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
-      if( inReal1.IsEmpty ) throw new TALibArgumentException("ADD openAndFill: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      if( !inReal0.IsEmpty ) {
+         if( inReal1.IsEmpty ) throw new TALibArgumentException("ADD openAndFill: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      }
       int guardOutLen = OpenFillCount("ADD", "openAndFill", inReal0.Length, AddLookback());
       RequireHistoryLength("ADD", "openAndFill", "inReal1", inReal1.Length, inReal0.Length);
       RequireFillLength("ADD", "openAndFill", "outReal", outReal.Length, guardOutLen);

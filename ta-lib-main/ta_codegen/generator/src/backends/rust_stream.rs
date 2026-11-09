@@ -20,8 +20,9 @@
 //!   `&self` and the handle `Sync` — and no buffer is copied.
 //! - Drop replaces Close; RAII replaces every OOM-unwind ladder.
 //! - `historyLen` is the FIRST input slice's length: empty is
-//!   `Err(OutOfRangeStartIndex)` (rule rS1), and a multi-input open additionally
-//!   requires the rest to match that length (`Err(BadParam)` otherwise).
+//!   `Err(InsufficientHistory)` (rule rS7, after every argument check), and a
+//!   multi-input open additionally requires the rest to match that length
+//!   (`Err(BadParam)` otherwise).
 
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -34,7 +35,7 @@ use crate::streaming::{self, StreamModel, StreamPlan};
 
 use super::common;
 use super::fma;
-use super::rust_doc::{series_def, unit_domain, CLOSE_SERIES, UNIT_SERIES, VOLUME_SERIES};
+use super::rust_doc::{fmt_real_literal, series_def};
 use super::rust_lang::{
     build_matype_map, collect_for_loop_vars, collect_sentinel_vars, collect_signed_int_vars,
     collect_var_types, emit_circbuf_prolog_rust, expr_is_untyped_integer, CircBufTier,
@@ -560,16 +561,14 @@ pub fn generate(
     o
 }
 
-/// A stateless map's scalar-sink open needs only its last bar, and the
-/// optimizer reduces it to that once the stride of 0 reaches the loop. An FMA
-/// clone cannot inline into the seam, so the stride would stay a runtime value
-/// and the open would walk the whole history.
+/// An open that replays its last bar alone could gain from a clone only on the
+/// fill, where it is unmeasured.
 ///
 /// `HT_TRENDMODE` is here by measurement: its clone runs the open 37% slower
 /// on an i7-13700K and no faster on a Ryzen 7 8840U.
 pub fn open_keeps_one_path(func: &FuncDef, plan: &StreamPlan) -> bool {
     func.name.eq_ignore_ascii_case("HT_TRENDMODE")
-        || matches!(plan, StreamPlan::Loop(model) if model.tier == crate::ir::StreamTier::T1)
+        || matches!(plan, StreamPlan::Loop(model) if model.open_needs_last_bar_only())
 }
 
 /// Fused sites a step needs before `update` is FMA-dispatched.
@@ -727,7 +726,7 @@ fn emit_loop(
         emit_step_tape_impl(o, func, &[model], None, &typing, &split, enums, registry, helpers, counter);
     }
     emit_open_internal(o, func, model, &typing, &split, model.body, enums, registry, helpers, counter);
-    emit_open_internal_wrapper(o, func, model, enums);
+    emit_open_internal_wrapper(o, func, model, model.open_needs_last_bar_only(), enums);
     emit_open_wrapper(o, func, enums);
     emit_open_and_fill_wrapper(o, func, enums);
     emit_open_and_fill_internal_wrapper(o, func, enums);
@@ -750,9 +749,10 @@ fn emit_open_internal_wrapper(
     o: &mut String,
     func: &FuncDef,
     model: &StreamModel,
+    last_bar_only: bool,
     enums: &HashMap<String, EnumDef>,
 ) {
-    emit_open_internal_wrapper_named(o, func, &model.outputs, enums);
+    emit_open_internal_wrapper_named(o, func, &model.outputs, last_bar_only, enums);
 }
 
 /// [`emit_open_internal_wrapper`] over an explicit output-name list, for tiers
@@ -761,6 +761,7 @@ fn emit_open_internal_wrapper_named(
     o: &mut String,
     func: &FuncDef,
     outputs: &[String],
+    last_bar_only: bool,
     enums: &HashMap<String, EnumDef>,
 ) {
     let sn = snake(func);
@@ -775,15 +776,29 @@ fn emit_open_internal_wrapper_named(
     let opts: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     let sinks: Vec<String> = outputs.iter().map(|o2| format!("&mut sink_{o2}")).collect();
     let mut args = ins.join(", ");
-    let _ = write!(args, ", startIdx");
+    let history = &ins[0];
+    if last_bar_only {
+        let _ = writeln!(
+            o,
+            "        let lastIdx = if startIdx + 1 < {history}.len() {{ {history}.len() - 1 }} else {{ startIdx }};"
+        );
+        let _ = write!(args, ", lastIdx");
+    } else {
+        let _ = write!(args, ", startIdx");
+    }
     for opt in &opts {
         let _ = write!(args, ", {opt}");
     }
+    let binding = if last_bar_only { "mut handle" } else { "handle" };
     let _ = writeln!(
         o,
-        "        let handle = self.{sn}_open_impl({args}, &mut dummyBegIdx, &mut dummyNBElement, {}, 0)?;",
+        "        let {binding} = self.{sn}_open_impl({args}, &mut dummyBegIdx, &mut dummyNBElement, {}, 0)?;",
         sinks.join(", ")
     );
+    if last_bar_only {
+        let _ = writeln!(o, "        let begIdx = startIdx.max(self.{sn}_lookback({})?);", opts.join(", "));
+        let _ = writeln!(o, "        handle.out = OutRange {{ beg_idx: begIdx, count: {history}.len() - begIdx }};");
+    }
     let vals: Vec<String> = outputs.iter().map(|o2| format!("sink_{o2}[0]")).collect();
     let value = if vals.len() == 1 { vals[0].clone() } else { format!("({})", vals.join(", ")) };
     let _ = writeln!(o, "        Ok((handle, {value}))");
@@ -818,10 +833,6 @@ fn open_fill_capacity_guards(func: &FuncDef, with_pair: bool) -> String {
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     let mut s = String::new();
     if with_pair {
-        let _ = writeln!(
-            s,
-            "        if {first}.is_empty() {{\n            return Err(RetCode::OutOfRangeStartIndex);\n        }}"
-        );
         let _ = writeln!(
             s,
             "        if {first}.len() > Self::INDEX_MAX + 1 {{\n            return Err(RetCode::OutOfRangeEndIndex);\n        }}"
@@ -2243,21 +2254,17 @@ fn open_out_params(func: &FuncDef) -> String {
     outs
 }
 
-/// The open validation head: the implied index pair, the equal-length input
-/// check, then optional-param validation. Shared by every tier.
+/// The open validation head: rS2, optional-param validation, then the
+/// equal-length input check. Shared by every tier.
 ///
-/// rS1 and rS2 run first, ahead of every other check, answering
-/// `OutOfRangeStartIndex` and `OutOfRangeEndIndex`
-/// (`https://ta-lib.org/spec/streaming/#rs1`). `historyLen` is the FIRST input's
+/// rS2 runs first, answering `OutOfRangeEndIndex`
+/// (`https://ta-lib.org/spec/streaming/#rs2`). `historyLen` is the FIRST input's
 /// length: a later input being empty is a length disagreement, which is
-/// `BadParam` like every other argument fault.
+/// `BadParam` like every other argument fault. An empty history is rS7, answered
+/// after all of them by the anchor guard or the tier's own history check.
 fn emit_open_validation_head(o: &mut String, func: &FuncDef, mode: OutMode, enums: &HashMap<String, EnumDef>) {
     let inputs = streaming::input_array_names(func);
     let first = &inputs[0];
-    let _ = writeln!(
-        o,
-        "        if {first}.is_empty() {{\n            return Err(RetCode::OutOfRangeStartIndex);\n        }}"
-    );
     // Input-size ceiling. The fill covers bars 0..historyLen-1, so its last bar
     // is an index like any other and TA_INDEX_MAX bounds it too (#180) —
     // otherwise the streaming entry points would compute over exactly the
@@ -2310,9 +2317,11 @@ fn emit_open_validation_head(o: &mut String, func: &FuncDef, mode: OutMode, enum
 /// the rest run `while nbBar != 0` on a count that went negative).
 ///
 /// `startIdx` is `usize` here, so only the upper half of the C guard exists —
-/// the lower half is unrepresentable rather than omitted.
+/// the lower half is unrepresentable rather than omitted. At anchor 0 it is rule
+/// rS7 for an empty history, so it must run before anything evaluates
+/// `historyLen - 1`, which underflows there.
 fn emit_anchor_guard(o: &mut String) {
-    let _ = writeln!(o, "        if startIdx > endIdx {{");
+    let _ = writeln!(o, "        if startIdx >= historyLen {{");
     let _ = writeln!(o, "            (*outBegIdx) = 0;");
     let _ = writeln!(o, "            (*outNBElement) = 0;");
     let _ = writeln!(o, "            return Err(RetCode::InsufficientHistory);");
@@ -2330,11 +2339,11 @@ fn emit_open_inits(
     let inputs = streaming::input_array_names(func);
     let first = &inputs[0];
     let _ = writeln!(o, "        let historyLen: usize = {first}.len();");
+    emit_anchor_guard(o);
     let _ = writeln!(o, "        let endIdx: usize = historyLen - 1;");
     // startIdx is always a parameter of the core: 0 from both public entry
     // points, the caller's own when a composed function opens this as a sub.
     let _ = writeln!(o, "        let mut startIdx = startIdx;");
-    emit_anchor_guard(o);
     let _ = writeln!(o, "        let mut dummyBegIdx: usize = 0;");
     let _ = writeln!(o, "        let mut dummyNBElement: usize = 0;");
     let opt_real_params: Vec<String> = func
@@ -2905,7 +2914,7 @@ fn stream_open_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String 
     );
     let _ = writeln!(
         d,
-        "    ///\n    /// # Errors\n    ///\n    /// [`RetCode::InsufficientHistory`] when the history holds fewer than\n    /// `lookback + 1` bars — the one failure here worth retrying, since another\n    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.\n    /// [`RetCode::BadParam`] when a parameter is out of range or the input\n    /// lengths differ."
+        "    ///\n    /// # Errors\n    ///\n    /// [`RetCode::InsufficientHistory`] when the history holds fewer than\n    /// `lookback + 1` bars, an empty one included — the one failure here worth\n    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a\n    /// parameter is out of range or the input lengths differ."
     );
     if let Some(doctest) = stream_doctest(func, &sn, enums) {
         let _ = writeln!(d, "    ///");
@@ -2930,20 +2939,22 @@ fn stream_open_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String 
 fn stream_example_input(
     func: &FuncDef,
     input: &str,
-) -> Option<(&'static str, &'static str, &'static str)> {
-    Some(match input {
-        "inReal" if unit_domain(func) => ("data", UNIT_SERIES, "0.42"),
-        "inOpen" => ("open", "100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin()", "100.2"),
-        "inHigh" => ("high", "101.0 + 10.0 * (0.1 * i as f64).sin()", "101.4"),
-        "inLow" => ("low", "99.0 + 10.0 * (0.1 * i as f64).sin()", "99.1"),
-        "inClose" => ("close", CLOSE_SERIES, "100.9"),
-        "inVolume" => ("volume", VOLUME_SERIES, "12_345.0"),
-        "inPeriods" => ("periods", "5.0 + (i % 10) as f64", "14.0"),
-        "inReal" => ("data", "100.0 + 10.0 * (0.1 * i as f64).sin()", "100.9"),
-        "inReal0" => ("data0", "100.0 + 10.0 * (0.1 * i as f64).sin()", "100.9"),
-        "inReal1" => ("data1", "100.0 + 10.0 * (0.1 * i as f64 + 0.7).sin()", "101.3"),
-        _ => return None,
-    })
+) -> Option<(&'static str, String, String)> {
+    let series = super::examples::series(func, input)?;
+    let bar = match super::rust_doc::input_domain(func, input) {
+        Some(domain) => fmt_real_literal(super::rust_doc::domain_bar(domain, 0.42)),
+        None => match input {
+            "inOpen" => "100.2",
+            "inHigh" => "101.4",
+            "inLow" => "99.1",
+            "inVolume" => "12_345.0",
+            "inPeriods" => "14.0",
+            "inReal1" => "101.3",
+            _ => "100.9",
+        }
+        .to_string(),
+    };
+    Some((series.var, super::examples::render(&series, &super::rust_doc::RUST_SYNTAX), bar))
 }
 
 /// A runnable peek==update doctest (the per-function bit-exactness witness).
@@ -2961,9 +2972,9 @@ fn stream_doctest(
     let mut bar_args: Vec<String> = Vec::new();
     for input in &func.inputs {
         let (var, def, bar) = stream_example_input(func, &input.name)?;
-        lines.extend(series_def(var, def));
+        lines.extend(series_def(var, &def));
         args.push(format!("&{var}"));
-        bar_args.push(bar.to_string());
+        bar_args.push(bar);
     }
     for opt in &func.optional_inputs {
         args.push(super::rust_doc::example_opt_literal(opt, enums));
@@ -3042,7 +3053,7 @@ fn open_and_fill_doctest(
     let mut series: Vec<&str> = Vec::new();
     for input in &func.inputs {
         let (var, def, _bar) = stream_example_input(func, &input.name)?;
-        lines.extend(series_def(var, def));
+        lines.extend(series_def(var, &def));
         series.push(var);
     }
     // A function with no series input has no example to write.
@@ -3722,7 +3733,7 @@ fn emit_dual_mode(
     }
 
     emit_dual_open(o, func, dmp, &typing, &split, &union_scalars, enums, registry, helpers, counter);
-    emit_open_internal_wrapper(o, func, ma, enums);
+    emit_open_internal_wrapper(o, func, ma, false, enums);
     emit_open_wrapper(o, func, enums);
     emit_open_and_fill_wrapper(o, func, enums);
     emit_open_and_fill_internal_wrapper(o, func, enums);
@@ -5773,7 +5784,7 @@ fn emit_composed(
     emit_composed_open(
         o, func, cp, &typing, &split, &outputs, enums, registry, helpers, counter,
     );
-    emit_open_internal_wrapper_named(o, func, &outputs, enums);
+    emit_open_internal_wrapper_named(o, func, &outputs, false, enums);
     emit_open_wrapper(o, func, enums);
     emit_open_and_fill_wrapper(o, func, enums);
     emit_open_and_fill_internal_wrapper(o, func, enums);

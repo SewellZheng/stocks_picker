@@ -462,7 +462,7 @@ typedef enum
   /* An entry of the --function= list matched nothing the run could select. */
   TA_REGTEST_FILTER_MATCHED_NOTHING  = 1600,
 
-  /* Streaming empty-history rejection (rule rS1 / TA_OUT_OF_RANGE_START_INDEX). */
+  /* Streaming empty-history rejection (rule rS7 / TA_INSUFFICIENT_HISTORY). */
   TA_STREAM_EMPTY_HISTORY_WRONG_CODE = 1607,
   TA_STREAM_EMPTY_HISTORY_VACUOUS    = 1608,
 
@@ -619,6 +619,20 @@ typedef enum
 
   /* (#569) SKEW legs that ran while comparing nothing. */
   TA_SKEW_VACUOUS              = 1729,
+
+  /* (#571) SHARPE legs that ran while comparing nothing. */
+  TA_SHARPE_VACUOUS            = 1730,
+
+  /* (#572) SORTINO legs that ran while comparing nothing. */
+  TA_SORTINO_VACUOUS           = 1731,
+
+  /* ADR's running sum no longer leaves the drift the metadata ride's slack is held to. */
+  TA_ADR_DRIFT                 = 1732,
+
+  /* A spike no longer drives VORTEX's / ULTOSC's running sums below zero, so the
+   * negative sign their metadata declares goes unseen by the ride. */
+  TA_VORTEX_CANCEL             = 1733,
+  TA_ULTOSC_CANCEL             = 1734,
 
   /* Error code related to bug fix documentented on SourceForge. */
   TA_TEST_FAIL_BUG1359452_1  = 2000,

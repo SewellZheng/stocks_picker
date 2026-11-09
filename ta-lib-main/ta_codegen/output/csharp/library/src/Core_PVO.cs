@@ -1128,9 +1128,6 @@ public partial class Core
       int i = 0;
       int historyLen = inVolume.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
-      }
       if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
@@ -1149,7 +1146,7 @@ public partial class Core
       } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
-      if( startIdx > endIdx ) {
+      if( startIdx >= historyLen ) {
          outBegIdx = 0;
          outNBElement = 0;
          return RetCode.InsufficientHistory;
@@ -1303,14 +1300,14 @@ public partial class Core
    /// <param name="optInMAType">As in the batch call; see <see cref="PvoLookback"/> for its default and
    /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <returns>The open stream handle.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>PvoLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>PvoLookback(...) + 1</c> bars, an empty
+   /// one included — which is what a null array becomes, since a span cannot be
+   /// null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public PvoStream PvoOpen( ReadOnlySpan<double> inVolume, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
-      if( inVolume.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO open: history is empty", RetCode.OutOfRangeStartIndex);
       if( inVolume.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return PvoOpenInternal(inVolume, 0, optInFastPeriod, optInSlowPeriod, optInMAType);
    }
@@ -1339,16 +1336,16 @@ public partial class Core
    /// <param name="outReal">PVO value in percent. Must hold at least <c>historyLen -
    /// PvoLookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>PvoLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>PvoLookback(...) + 1</c> bars, an empty
+   /// one included — which is what a null array becomes, since a span cannot be
+   /// null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public PvoStream PvoOpenAndFill( ReadOnlySpan<double> inVolume, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, Span<double> outReal )
    {
-      if( inVolume.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
       if( inVolume.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inVolume), "PVO openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("PVO", "openAndFill", inVolume.Length, PvoLookback(optInFastPeriod, optInSlowPeriod, optInMAType));
       RequireFillLength("PVO", "openAndFill", "outReal", outReal.Length, guardOutLen);

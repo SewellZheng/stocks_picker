@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -46,6 +46,8 @@ export interface InputInfo {
   readonly type: InputType;
   /** The parameter's name, e.g. `inReal` or `inPriceHLC`. */
   readonly paramName: string;
+  /** The typed call's parameter name: `real`, `real0`, `periods`, or `prices` for a price input. */
+  readonly key: string;
   /** For a price input, the components it consumes (`InputFlags`); otherwise 0. */
   readonly flags: number;
 }
@@ -56,6 +58,8 @@ export interface OutputInfo {
   readonly type: OutputType;
   /** The parameter's name, e.g. `outReal`. */
   readonly paramName: string;
+  /** The typed call's result key: `values` for a single output, else e.g. `outUpperBand`. */
+  readonly key: string;
   /** Drawing and value hints (`OutputFlags`). */
   readonly flags: number;
 }
@@ -64,6 +68,8 @@ export interface OutputInfo {
 export interface OptInputInfoBase {
   /** The parameter's name, e.g. `optInTimePeriod`. */
   readonly paramName: string;
+  /** The typed call's options key, e.g. `timePeriod`; `setOptInput` takes it. */
+  readonly key: string;
   /** Display hints (`OptInputFlags`). */
   readonly flags: number;
   /** A human-readable label, e.g. `Time Period`. */
@@ -163,6 +169,13 @@ export class FuncInfo {
   readonly optInputs: readonly OptInputInfo[];
   /** The outputs, in call order. */
   readonly outputs: readonly OutputInfo[];
+  /**
+   * Metadata no flag can carry, such as an output's reference levels, as one JSON
+   * object; `'{}'` when none. The same bytes as C's `TA_GetFuncAttributes`. Ignore a
+   * key you do not know: a release may add one
+   * ([keys](https://ta-lib.org/spec/abstract/#attributes)).
+   */
+  readonly attributes: string;
 
   private constructor(
     name: string,
@@ -172,6 +185,7 @@ export class FuncInfo {
     inputs: readonly InputInfo[],
     optInputs: readonly OptInputInfo[],
     outputs: readonly OutputInfo[],
+    attributes: string,
   ) {
     this.name = name;
     this.group = group;
@@ -180,6 +194,7 @@ export class FuncInfo {
     this.inputs = freezeAll(inputs);
     this.optInputs = freezeAll(optInputs);
     this.outputs = freezeAll(outputs);
+    this.attributes = attributes;
     Object.freeze(this);
   }
 
@@ -192,8 +207,9 @@ export class FuncInfo {
     inputs: readonly InputInfo[],
     optInputs: readonly OptInputInfo[],
     outputs: readonly OutputInfo[],
+    attributes: string,
   ): FuncInfo {
-    return new FuncInfo(name, group, hint, flags, inputs, optInputs, outputs);
+    return new FuncInfo(name, group, hint, flags, inputs, optInputs, outputs, attributes);
   }
 
   /**
@@ -209,7 +225,7 @@ export class FuncInfo {
    * A holder to bind this function's arguments into at run time, then call it.
    *
    * @param core - Unstable periods and candle settings to compute with; `Core.DEFAULT` when omitted.
-   * @throws {@link TALibError} `TA_BAD_PARAM` if `core` is not a `Core`.
+   * @throws `TALibError` `TA_BAD_PARAM` if `core` is not a `Core`.
    */
   newCall(core: Core = Core.DEFAULT): ParamHolder {
     if (!(core instanceof Core)) {

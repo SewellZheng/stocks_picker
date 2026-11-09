@@ -178,10 +178,9 @@ def show_help():
                         usable on a dirty working tree.
     check-stream-retcodes
                         Verify every history-length arm, in all four backends,
-                        answers its own code: TA_INSUFFICIENT_HISTORY for a
-                        short history (rS7), TA_OUT_OF_RANGE_START_INDEX for an
-                        empty one (rS1). Pure text; also run as part of
-                        regen-check.
+                        answers TA_INSUFFICIENT_HISTORY (rS7), for a short
+                        history and for an empty one. Pure text; also run as
+                        part of regen-check.
     check-source-lists  Verify the CMake and autotools ta_regtest source
                         lists agree and every test group they compile is
                         called by ta_regtest.c (no build; pure text check)
@@ -201,6 +200,16 @@ def show_help():
                         bars are identical) and the differential gates see only
                         where the data happens to straddle.
     regtest             Full pipeline: servers (cargo) + C tests + codegen verification
+    refdata             Build ta_refdata and refresh the reference CSVs the
+                        function pages chart (website/src/.vuepress/public/
+                        functions/<name>.csv) from src/tools/ta_refdata/corpus.
+                        A file is rewritten only when missing or out of
+                        tolerance; a CSV naming no function is removed.
+                        --check writes nothing there and fails on a file
+                        out of tolerance, missing or stale, then writes a
+                        fresh set under the build dir and replays each from
+                        its own rows (ta_refdata --replay), failing on a cell
+                        that does not reproduce bit for bit.
     ref                 Differential fuzz of the current library vs each frozen
                         release in ta_ref/ (builds bin/ta_ref_<X_Y_Z>_serve, then
                         runs ta_regtest --ref=<X_Y_Z> per member). C-only; needs
@@ -235,6 +244,7 @@ def show_help():
                         on first use), so no system Node is needed
     --sanitize          Build with AddressSanitizer + UBSan into cmake-build-asan
                         (Debug, static-only; e.g. build.py ta_regtest --sanitize)
+    --check             For refdata: compare the committed CSVs, write nothing
 """)
 
 def run_codegen(root_dir: str, *cargo_args: str, path_prefix: str = None):
@@ -379,6 +389,60 @@ def build_ref(root_dir: str, build_dir: str, jobs: int, versions, build_only: bo
     print(f"ref: {len(selected) - len(failed)}/{len(selected)} member(s) passed"
           + (f"; FAILED: {', '.join(failed)}" if failed else ""))
     return 1 if failed else 0
+
+REFDATA_CORPUS = os.path.join('src', 'tools', 'ta_refdata', 'corpus')
+REFDATA_OUT = os.path.join('website', 'src', '.vuepress', 'public', 'functions')
+
+def build_refdata(root_dir: str, build_dir: str, jobs: int, build_type: str,
+                  check: bool) -> int:
+    """Builds ta_refdata and runs it over the committed corpus into the website's
+    public/functions directory; --check compares and writes nothing there, then
+    replays a freshly written set from its own rows."""
+    if not os.path.isfile(os.path.join(root_dir, 'src', 'tools', 'ta_refdata', 'ta_refdata.c')):
+        print("Error: src/tools/ta_refdata is not in this tree (it is not part of the "
+              "released source tarball); refdata needs a git checkout.")
+        return 1
+    cmake_build(build_dir, target='ta_refdata', jobs=jobs, config=build_type)
+    exe = 'ta_refdata' + ('.exe' if os.name == 'nt' else '')
+    candidates = [os.path.join(build_dir, 'bin', exe),
+                  os.path.join(build_dir, 'bin', build_type, exe)]
+    binary = next((c for c in candidates if os.path.exists(c)), None)
+    if binary is None:
+        print(f"Error: ta_refdata was built but not found at {' or '.join(candidates)}")
+        return 1
+    out_dir = os.path.join(root_dir, REFDATA_OUT)
+    os.makedirs(out_dir, exist_ok=True)
+    cmd = [binary] + (['--check'] if check else []) + \
+          [os.path.join(root_dir, REFDATA_CORPUS), out_dir]
+    print(f"=== {' '.join(os.path.relpath(c, root_dir) if c.startswith(root_dir) else c for c in cmd)} ===",
+          flush=True)
+    rc = subprocess.run(cmd).returncode
+    if rc != 0:
+        return rc
+    if not check:
+        # The pages and charts are rendered from the CSVs just written.
+        run_codegen(root_dir, 'run', '--release', '--', 'generate')
+        return 0
+    # The committed CSVs were computed on another machine, and replay compares
+    # bits, so it replays a set written here; --check above holds the committed
+    # ones to the tolerance.
+    fresh = os.path.join(build_dir, 'refdata-replay')
+    shutil.rmtree(fresh, ignore_errors=True)
+    os.makedirs(fresh)
+    p = subprocess.run([binary, os.path.join(root_dir, REFDATA_CORPUS), fresh],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        print(p.stdout + p.stderr, end='')
+        return p.returncode
+    csvs = sorted(os.path.join(fresh, f) for f in os.listdir(fresh) if f.endswith('.csv'))
+    print(f"=== ta_refdata --replay ({len(csvs)} files) ===", flush=True)
+    for i in range(0, len(csvs), 50):
+        p = subprocess.run([binary, '--replay'] + csvs[i:i + 50], capture_output=True, text=True)
+        if p.returncode != 0:
+            print(p.stdout + p.stderr, end='')
+            print("Error: a reference CSV does not reproduce from its own rows.")
+            return 1
+    return 0
 
 def build_xlanghash(root_dir: str, build_dir: str, jobs: int, lang_filter=None) -> int:
     """Cross-language BITWISE parity gate (issue #113). Diffs each generated
@@ -618,6 +682,11 @@ REGEN_PROBE_FILES = (
     'ta_codegen/output/c/tools/ta_bench_stream.c',
     'ta_codegen/output/c/tools/ta_bench_icount.c',
     'website/src/functions/sma.md',
+    'website/src/.vuepress/public/functions/sma.svg',
+    'src/tools/ta_refdata/ta_refdata_domains.h',
+    'src/tools/ta_examples/ta_examples.c',
+    'ta_codegen/output/java/library/src/test/java/io/github/talib/test/ExamplesTest.java',
+    'ta_codegen/output/csharp/library/test/ExamplesTest.g.cs',
 )
 
 # These two are SPLICED, not rewritten: everything outside the GENCODE markers
@@ -716,7 +785,7 @@ def regen_check(root_dir: str) -> int:
     if not check_regtest_source_lists(root_dir):
         return 1
 
-    print("\n=== History-length return codes (rules rS1 and rS7) ===")
+    print("\n=== History-length return codes (rule rS7) ===")
     if not check_stream_retcodes(root_dir):
         return 1
 
@@ -829,6 +898,7 @@ TARGET_PREREQS = {
     'test':         PREREQS_BUILD_BASIC,
     'regtest':      PREREQS_BUILD_SERVERS,
     'ref':          [PREREQS_CMAKE, PREREQS_GCC],
+    'refdata':      PREREQS_BUILD_BASIC,
     # build_xlanghash builds --backend=rust,java,csharp,ts, so the .NET SDK and
     # Node are as required here as the JDK. Without one, that server silently
     # never builds.
@@ -864,6 +934,8 @@ def main():
                              'pinned Node major')
     parser.add_argument('--sanitize', action='store_true',
                         help='Build with AddressSanitizer + UBSan into cmake-build-asan (issue #94)')
+    parser.add_argument('--check', action='store_true',
+                        help='refdata: compare the committed CSVs, write nothing')
     parser.add_argument('--help', '-h', action='store_true')
     args = parser.parse_args()
     global JOBS
@@ -934,6 +1006,9 @@ def main():
     if args.node and args.target != 'libraries':
         print(f"Error: --node applies only to the libraries target.")
         sys.exit(2)
+    if args.check and args.target != 'refdata':
+        print(f"Error: --check applies only to the refdata target.")
+        sys.exit(2)
     _backends = backends_for_languages(args.language)
     if args.target == 'libraries':
         # cargo runs the generator; everything else comes from the backends that
@@ -971,6 +1046,9 @@ def main():
     if args.target == 'ref':
         sys.exit(build_ref(root_dir, build_dir, args.jobs, args.versions, args.build_only))
 
+    if args.target == 'refdata':
+        sys.exit(build_refdata(root_dir, build_dir, args.jobs, args.build_type, args.check))
+
     # Cross-language BITWISE parity gate (opt-in; issue #113). Composite: build the
     # Rust server + ta_regtest, then diff each server vs the in-process C golden.
     if args.target == 'xlang-hash':
@@ -1001,6 +1079,12 @@ def main():
             # the build and ctest must name the same one.
             cmake_build(build_dir, target=cmake_target, jobs=args.jobs,
                         config=args.build_type)
+            # The function pages' C samples, a CTest entry beside ta_regtest;
+            # a checkout has them, the released tarball does not.
+            if os.path.exists(os.path.join(root_dir, 'src', 'tools', 'ta_examples',
+                                           'ta_examples.c')):
+                cmake_build(build_dir, target='ta_examples', jobs=args.jobs,
+                            config=args.build_type)
             subprocess.run(['ctest', '-C', args.build_type, '--output-on-failure',
                             '--no-tests=error'], check=True, cwd=build_dir)
         else:

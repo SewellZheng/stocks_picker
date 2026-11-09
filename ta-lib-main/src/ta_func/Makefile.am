@@ -12,6 +12,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_ADR.c \
 	ta_ADX.c \
 	ta_ADXR.c \
+	ta_ALLIGATOR.c \
 	ta_ALMA.c \
 	ta_AO.c \
 	ta_APO.c \
@@ -198,12 +199,14 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_RVOL.c \
 	ta_SAR.c \
 	ta_SAREXT.c \
+	ta_SHARPE.c \
 	ta_SI.c \
 	ta_SIN.c \
 	ta_SINH.c \
 	ta_SKEW.c \
 	ta_SMA.c \
 	ta_SMI.c \
+	ta_SORTINO.c \
 	ta_SQRT.c \
 	ta_SQZMOM.c \
 	ta_STC.c \

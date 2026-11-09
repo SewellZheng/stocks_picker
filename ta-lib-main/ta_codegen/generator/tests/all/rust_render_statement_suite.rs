@@ -1122,20 +1122,20 @@ fn every_integer_output_carries_an_example_claim() {
         }
         let out = backends::rust_lang::generate(&func, &enums, registry, helpers);
         // One claim per integer output, counted BY THAT OUTPUT'S OWN example
-        // variable. Counting bare `[..out_range.count]` instead let a mixed
+        // variable. Counting bare `[..range.count]` instead let a mixed
         // real+integer function satisfy the floor with the real output's
         // finiteness assert alone -- SUPERTREND passed this gate with no integer
         // claim at all, which is the whole condition it exists to catch.
         let claims: usize = func
             .outputs
             .iter()
-            .zip(backends::rust_doc::output_var_names(&func))
+            .zip(backends::rust_doc::example_output_vars(&func))
             .filter(|(o, _)| o.param_type == ir::ParamType::Integer)
             .map(|(_, var)| {
                 // Word boundary, not `contains`: `trend` is a proper suffix of
                 // `supertrend`, so the real output's finiteness assert would
                 // answer the integer output's needle.
-                usize::from(mentions_word(&out, &format!("{var}[..out_range.count]")))
+                usize::from(mentions_word(&out, &format!("{var}[..range.count]")))
             })
             .sum();
         assert!(
@@ -1919,6 +1919,7 @@ fn rust_lookback_param_minus() {
             name: "outReal".to_string(),
             param_type: ir::ParamType::Real,
             flags: vec![],
+            levels: Vec::new(),
         }],
         lookback: Some(ir::LookbackExpr::ParamMinus("optInTimePeriod".to_string(), 1)),
         display_shift: None,
@@ -1927,6 +1928,7 @@ fn rust_lookback_param_minus() {
         private_extra_params: vec![],
         private_param_init: vec![],
         has_explicit_private: false,
+        opt_outs: vec![],
         header_comments: vec![],
         doc: None,
         streaming: false,
@@ -1966,6 +1968,7 @@ fn rust_lookback_none() {
             name: "outReal".to_string(),
             param_type: ir::ParamType::Real,
             flags: vec![],
+            levels: Vec::new(),
         }],
         lookback: None,
         display_shift: None,
@@ -1974,6 +1977,7 @@ fn rust_lookback_none() {
         private_extra_params: vec![],
         private_param_init: vec![],
         has_explicit_private: false,
+        opt_outs: vec![],
         header_comments: vec![],
         doc: None,
         streaming: false,
@@ -2171,6 +2175,7 @@ fn rust_lookback_code_renders_var_types_correctly() {
             name: "outReal".to_string(),
             param_type: ir::ParamType::Real,
             flags: vec![],
+            levels: Vec::new(),
         }],
         lookback: Some(ir::LookbackExpr::Code(lookback_stmts)),
         display_shift: None,
@@ -2179,6 +2184,7 @@ fn rust_lookback_code_renders_var_types_correctly() {
         private_extra_params: vec![],
         private_param_init: vec![],
         has_explicit_private: false,
+        opt_outs: vec![],
         header_comments: vec![],
         doc: None,
         streaming: false,
@@ -2271,6 +2277,7 @@ fn rust_lookback_body_never_fuses_multiply_add() {
             name: "outReal".to_string(),
             param_type: ir::ParamType::Real,
             flags: vec![],
+            levels: Vec::new(),
         }],
         lookback: Some(ir::LookbackExpr::Code(lookback_stmts)),
         display_shift: None,
@@ -2279,6 +2286,7 @@ fn rust_lookback_body_never_fuses_multiply_add() {
         private_extra_params: vec![],
         private_param_init: vec![],
         has_explicit_private: false,
+        opt_outs: vec![],
         header_comments: vec![],
         doc: None,
         streaming: false,
@@ -2359,6 +2367,7 @@ fn rust_lookback_body_types_locals_by_declaration_not_name() {
                 name: "outReal".to_string(),
                 param_type: ir::ParamType::Real,
                 flags: vec![],
+                levels: Vec::new(),
             }],
             lookback: Some(ir::LookbackExpr::Code(lookback_stmts)),
             display_shift: None,
@@ -2367,6 +2376,7 @@ fn rust_lookback_body_types_locals_by_declaration_not_name() {
             private_extra_params: vec![],
             private_param_init: vec![],
             has_explicit_private: false,
+            opt_outs: vec![],
             header_comments: vec![],
             doc: None,
             streaming: false,

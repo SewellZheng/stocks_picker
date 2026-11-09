@@ -642,6 +642,26 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     // one page per function from its ta_codegen/input/<name>/<name>.md source.
     backends::docs_site::generate(all_funcs, &enums, &root);
 
+    // The verified copies of the pages' samples, whole-corpus like the pages.
+    if backends_to_run.contains(&"c") {
+        backends::c_examples::write(all_funcs, &enums, &root.join("src/tools/ta_examples/ta_examples.c"));
+    }
+    if backends_to_run.contains(&"java") {
+        backends::java_examples::write(
+            all_funcs,
+            &enums,
+            &root.join("ta_codegen/output/java/library/src/test/java/io/github/talib/test/ExamplesTest.java"),
+        );
+    }
+    if backends_to_run.contains(&"csharp") {
+        backends::csharp_examples::write(
+            all_funcs,
+            &enums,
+            &root.join("ta_codegen/output/csharp/library/test/ExamplesTest.g.cs"),
+        );
+    }
+    backends::refdata_gen::generate(all_funcs, &root);
+
     // Generated regions inside otherwise hand-written website pages (e.g. the
     // unstable-period function list, kept in step with the FuncUnstId enum).
     backends::docs_patch::generate(&enums, &root);
@@ -1165,6 +1185,47 @@ struct BuildStep {
     ok: bool,
 }
 
+/// The two emits' proof: every shipped `.js` opens with the `/*!` licence block
+/// and holds no other comment, and every function's `.d.ts` keeps its TSDoc.
+/// Floored, so an empty `dist/` cannot pass.
+fn check_dist_comments(dist: &Path) -> bool {
+    let label = "  Checking dist/ for the licence alone in each .js and the TSDoc in each function's .d.ts...";
+    let mut js = Vec::new();
+    collect_files(dist, "js", &[], &mut js);
+    let mut dts = Vec::new();
+    collect_files(&dist.join("func"), "ts", &[], &mut dts);
+    let rel = |p: &PathBuf| p.strip_prefix(dist).unwrap_or(p).display().to_string();
+    let mut bad: Vec<String> = js
+        .iter()
+        .filter(|p| {
+            let text = std::fs::read_to_string(p).unwrap_or_default();
+            !text.starts_with("/*! TA-LIB Copyright")
+                || text.matches("/*").count() != 1
+                || text.lines().any(|l| l.trim_start().starts_with("//"))
+        })
+        .map(rel)
+        .collect();
+    bad.extend(
+        dts.iter()
+            .filter(|p| !std::fs::read_to_string(p).unwrap_or_default().contains("/**"))
+            .map(rel),
+    );
+    if js.len() < 240 || dts.len() < 200 {
+        println!("{label} FAILED ({} .js, {} func .d.ts; expected every module)", js.len(), dts.len());
+        return false;
+    }
+    if !bad.is_empty() {
+        println!(
+            "{label} FAILED ({}: {})",
+            bad.len(),
+            bad.iter().take(8).cloned().collect::<Vec<_>>().join(", ")
+        );
+        return false;
+    }
+    println!("{label} OK ({} .js, {} .d.ts)", js.len(), dts.len());
+    true
+}
+
 /// Runs `cmd` with its stdout and stderr captured into one temp file, not a
 /// pipe: a build server the tool leaves behind (MSBuild node reuse, the Roslyn
 /// compiler server) inherits the handle, and reading a pipe to EOF would wait
@@ -1635,12 +1696,26 @@ fn build_ts_library(root: &Path, bin_dir: &Path) -> bool {
 
     let tsc = ts_tool(&ts_root, "tsc");
     let _ = std::fs::remove_dir_all(lib_dir.join("dist"));
+    // Two emits: `removeComments` would also strip the TSDoc from the `.d.ts`,
+    // which is the hover documentation, so the JavaScript and the declarations
+    // are emitted apart. A `/*!` comment, the licence, survives the first.
     let compile = run_build_step(
-        "Compiling the TypeScript library to dist/",
+        "Compiling the TypeScript library to dist/ (JavaScript, comments stripped)",
         "tsc",
-        std::process::Command::new(&tsc).arg("-p").arg(&lib_dir),
+        std::process::Command::new(&tsc).arg("-p").arg(&lib_dir).arg("--removeComments").arg("--declaration").arg("false"),
     );
     if !report(&compile, false) {
+        return false;
+    }
+    let declare = run_build_step(
+        "Emitting the declarations to dist/ (with their TSDoc)",
+        "tsc",
+        std::process::Command::new(&tsc).arg("-p").arg(&lib_dir).arg("--emitDeclarationOnly"),
+    );
+    if !report(&declare, false) {
+        return false;
+    }
+    if !check_dist_comments(&lib_dir.join("dist")) {
         return false;
     }
     let check = run_build_step(

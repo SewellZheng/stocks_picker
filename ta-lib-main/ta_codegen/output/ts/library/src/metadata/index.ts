@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -52,3 +52,4 @@ export { Functions } from './functions.ts';
 export { ParamHolder } from './paramHolder.ts';
 export type { PriceInput } from './paramHolder.ts';
 export { getRuntimeInfo } from './runtimeInfo.ts';
+export type { RuntimeInfoKey } from './runtimeInfo.ts';

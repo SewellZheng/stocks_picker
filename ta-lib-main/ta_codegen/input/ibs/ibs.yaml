@@ -9,4 +9,5 @@ inputs:
 outputs:
   - name: outReal
     type: real
-    flags: [line]
+    flags: [line, zero, positive]
+    levels: [0.2, 0.8]

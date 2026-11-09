@@ -35,7 +35,8 @@ optional_inputs:
 outputs:
   - name: outFastK
     type: real
-    flags: [line]
+    flags: [line, zero, positive]
+    levels: [20, 80]
   - name: outFastD
     type: real
-    flags: [line]
+    flags: [dash_line, zero, positive, negative]

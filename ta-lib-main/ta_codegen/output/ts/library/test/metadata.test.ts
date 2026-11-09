@@ -54,6 +54,7 @@ import { bbands } from '../src/func/bbands.ts';
 import { minmaxindex } from '../src/func/minmaxindex.ts';
 import { sma, smaLookback } from '../src/func/sma.ts';
 import { Core } from '../src/runtime/core.ts';
+import { OutRange } from '../src/index.ts';
 import { TALibError } from '../src/runtime/errors.ts';
 import { FuncFlags, FunctionDescription, Functions, getRuntimeInfo, InputType, OptInputType } from '../src/metadata/index.ts';
 import type { FuncInfo } from '../src/metadata/index.ts';
@@ -87,6 +88,11 @@ function info(name: string): FuncInfo {
 
 function rejects(code: string, fn: () => unknown): void {
   assert.throws(fn, (e: unknown) => e instanceof TALibError && e.code === code);
+}
+
+/** A public result's range, for comparison with the holder's `OutRange`. */
+function rangeOf(begIdx: number, values: Float64Array | Int32Array): OutRange {
+  return new OutRange(begIdx, values.length);
 }
 
 function bits(a: Float64Array | Int32Array): Uint8Array {
@@ -124,27 +130,40 @@ test('call is the public tier, bit for bit', () => {
   const s = new Float64Array(N);
   const d = new Float64Array(N);
   const rs = info('SMA').newCall().setInput(0, close).setOptInput(0, 20).setOutput(0, s).call(0, N - 1);
-  const rd = sma(0, N - 1, close, 20, d);
-  assert.deepEqual(rs, rd);
+  const rd = sma(close, { startIdx: 0, endIdx: N - 1, timePeriod: 20, outReal: d });
+  assert.deepEqual(rs, rangeOf(rd.begIdx, rd.values));
   assert.deepEqual(bits(s), bits(d));
 
   const hs = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
   const hd = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
   const h = info('BBANDS').newCall().setInput(0, close).setOptInput(0, 10).setOptInput(1, 1.5).setOptInput(3, MAType.EMA);
   hs.forEach((a, k) => h.setOutput(k, a));
-  assert.deepEqual(h.call(5, N - 1), bbands(5, N - 1, close, 10, 1.5, Core.REAL_DEFAULT, MAType.EMA, hd[0], hd[1], hd[2]));
+  const rb = bbands(close, {
+    startIdx: 5,
+    endIdx: N - 1,
+    timePeriod: 10,
+    nbDevUp: 1.5,
+    nbDevDn: Core.REAL_DEFAULT,
+    maType: MAType.EMA,
+    outUpperBand: hd[0],
+    outMiddleBand: hd[1],
+    outLowerBand: hd[2],
+  });
+  assert.deepEqual(h.call(5, N - 1), rangeOf(rb.begIdx, rb.outUpperBand));
   for (let k = 0; k < 3; k++) assert.deepEqual(bits(hs[k]), bits(hd[k]));
 
   const as = new Float64Array(N);
   const ad = new Float64Array(N);
   const ra = info('ATR').newCall().setPriceInput(0, { high, low, close }).setOutput(0, as).call(0, N - 1);
-  assert.deepEqual(ra, atr(0, N - 1, high, low, close, Core.INTEGER_DEFAULT, ad));
+  const rt = atr({ high, low, close }, { startIdx: 0, endIdx: N - 1, timePeriod: Core.INTEGER_DEFAULT, outReal: ad });
+  assert.deepEqual(ra, rangeOf(rt.begIdx, rt.values));
   assert.deepEqual(bits(as), bits(ad));
 
   const is = [new Int32Array(N), new Int32Array(N)];
   const id = [new Int32Array(N), new Int32Array(N)];
   const rm = info('MINMAXINDEX').newCall().setInput(0, close).setOutput(0, is[0]).setOutput(1, is[1]).call(0, N - 1);
-  assert.deepEqual(rm, minmaxindex(0, N - 1, close, Core.INTEGER_DEFAULT, id[0], id[1]));
+  const rx = minmaxindex(close, { startIdx: 0, endIdx: N - 1, timePeriod: Core.INTEGER_DEFAULT, outMinIdx: id[0], outMaxIdx: id[1] });
+  assert.deepEqual(rm, rangeOf(rx.begIdx, rx.outMinIdx));
   assert.deepEqual(bits(is[0]), bits(id[0]));
   assert.deepEqual(bits(is[1]), bits(id[1]));
 });
@@ -158,7 +177,7 @@ test('a public-tier rejection surfaces as the direct call does', () => {
 
 test('lookback and displayShift follow the bound parameters', () => {
   const h = info('SMA').newCall();
-  assert.equal(h.lookback(), smaLookback(Core.INTEGER_DEFAULT));
+  assert.equal(h.lookback(), smaLookback({ timePeriod: Core.INTEGER_DEFAULT }));
   h.setOptInput(0, 7);
   assert.equal(h.lookback(), 6);
   h.setOptInput(0, 100001);
@@ -180,7 +199,7 @@ test('a rejected price re-bind leaves the previous bundle whole', () => {
   assert.deepEqual(run(h), first);
   h.setPriceInput(0, { high: high2, low: low2, close: close2 });
   const direct = new Float64Array(N);
-  atr(0, N - 1, high2, low2, close2, Core.INTEGER_DEFAULT, direct);
+  atr({ high: high2, low: low2, close: close2 }, { startIdx: 0, endIdx: N - 1, timePeriod: Core.INTEGER_DEFAULT, outReal: direct });
   assert.deepEqual(run(h), bits(direct));
 });
 
@@ -196,7 +215,8 @@ test('every other rejected setter leaves the holder as it found it', () => {
   rejects('TA_BAD_PARAM', () => h.setOutput(0, null as unknown as Float64Array));
   assert.equal(h.lookback(), 8);
   const d = new Float64Array(N);
-  assert.deepEqual(h.call(0, N - 1), sma(0, N - 1, close, 9, d));
+  const r9 = sma(close, { startIdx: 0, endIdx: N - 1, timePeriod: 9, outReal: d });
+  assert.deepEqual(h.call(0, N - 1), rangeOf(r9.begIdx, r9.values));
   assert.deepEqual(bits(out), bits(d));
 
   rejects('TA_INVALID_PARAM_HOLDER_TYPE', () => info('ATR').newCall().setInput(0, close));
@@ -216,4 +236,38 @@ test('getRuntimeInfo and FunctionDescription', () => {
   const xml = FunctionDescription.xml();
   assert.ok(xml.startsWith('<?xml'));
   assert.ok(xml.includes('<Abbreviation>SMA</Abbreviation>'));
+});
+
+test('call defaults its range as the typed call does', () => {
+  const whole = new Float64Array(N);
+  const explicit = new Float64Array(N);
+  const r = info('SMA').newCall().setInput(0, close).setOptInput(0, 20).setOutput(0, whole).call();
+  const e = info('SMA').newCall().setInput(0, close).setOptInput(0, 20).setOutput(0, explicit).call(0, N - 1);
+  assert.deepEqual([r.begIdx, r.count], [e.begIdx, e.count]);
+  assert.deepEqual(Array.from(whole), Array.from(explicit));
+  const from25 = info('SMA').newCall().setInput(0, close).setOptInput(0, 20).setOutput(0, new Float64Array(N)).call(25);
+  assert.deepEqual([from25.begIdx, from25.count], [25, N - 25]);
+  // The default reads the input's length, so an empty one is the typed call's rejection, not a range fault.
+  rejects('TA_BAD_PARAM', () => info('SMA').newCall().setInput(0, new Float64Array(0)).setOutput(0, new Float64Array(1)).call());
+  const priced = info('ATR').newCall().setPriceInput(0, { high, low, close }).setOutput(0, new Float64Array(N)).call();
+  assert.deepEqual([priced.begIdx, priced.count], [14, N - 14]);
+});
+
+test('rows carry the typed call keys, and setOptInput takes the key as well as the position', () => {
+  const s = info('SMA');
+  assert.deepEqual([s.inputs[0].key, s.optInputs[0].key, s.outputs[0].key], ['real', 'timePeriod', 'values']);
+  const st = info('STOCH');
+  assert.equal(st.inputs[0].key, 'prices');
+  assert.deepEqual(st.optInputs.map((o) => o.key), ['fastKPeriod', 'slowKPeriod', 'slowKMaType', 'slowDPeriod', 'slowDMaType']);
+  assert.deepEqual(st.outputs.map((o) => o.key), ['outSlowK', 'outSlowD']);
+  assert.deepEqual(info('MAVP').inputs.map((i) => i.key), ['real', 'periods']);
+  assert.deepEqual(info('BETA').inputs.map((i) => i.key), ['real0', 'real1']);
+  const byKey = new Float64Array(N);
+  const byIndex = new Float64Array(N);
+  const rk = info('SMA').newCall().setInput(0, close).setOptInput('timePeriod', 20).setOutput(0, byKey).call();
+  const ri = info('SMA').newCall().setInput(0, close).setOptInput(0, 20).setOutput(0, byIndex).call();
+  assert.deepEqual([rk.begIdx, rk.count], [ri.begIdx, ri.count]);
+  assert.deepEqual(Array.from(byKey), Array.from(byIndex));
+  rejects('TA_BAD_PARAM', () => info('SMA').newCall().setOptInput('timeperiod', 20));
+  rejects('TA_BAD_PARAM', () => info('SMA').newCall().setOptInput('optInTimePeriod', 20));
 });

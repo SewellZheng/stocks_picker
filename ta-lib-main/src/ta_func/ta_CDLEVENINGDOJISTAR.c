@@ -60,6 +60,10 @@
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
  */
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("no-split-paths")
+#endif
+
 TA_LIB_API int TA_CDLEVENINGDOJISTAR_Lookback( double optInPenetration )
 {
    int BodyDoji_avgPeriod = TA_Globals->candleSettings[TA_BodyDoji].avgPeriod;
@@ -151,6 +155,78 @@ TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR( int    startIdx,
       *outNBElement= 0;
       return TA_SUCCESS;
    }
+   if( BodyDoji_rangeType == TA_RangeType_HighLow && BodyLong_rangeType == TA_RangeType_RealBody && BodyShort_rangeType == TA_RangeType_RealBody )
+   {
+   /* Do the calculation using tight loops. */
+   /* Add-up the initial period, except for the last value. */
+   BodyLongPeriodTotal = 0;
+   BodyDojiPeriodTotal = 0;
+   BodyShortPeriodTotal = 0;
+   BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod;
+   BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod;
+   BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod;
+   i = BodyLongTrailingIdx;
+   while( i < startIdx - 2 )
+   {
+      BodyLongPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      i += 1;
+   }
+   i = BodyDojiTrailingIdx;
+   while( i < startIdx - 1 )
+   {
+      BodyDojiPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+      i += 1;
+   }
+   i = BodyShortTrailingIdx;
+   while( i < startIdx )
+   {
+      BodyShortPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      i += 1;
+   }
+   i = startIdx;
+   /* Proceed with the calculation for the requested range.
+    * Must have:
+    * - first candle: long white real body
+    * - second candle: doji gapping up
+    * - third candle: black real body that moves well within the first candle's real body
+    * The meaning of "doji" and "long" is specified with TA_SetCandleSettings
+    * The meaning of "moves well within" is specified with optInPenetration and "moves" should mean the real body should
+    * not be short ("short" is specified with TA_SetCandleSettings) - Greg Morris wants it to be long, someone else want
+    * it to be relatively long
+    */
+   outIdx = 0;
+   do
+   {
+      if( (((inClose[i - 2] >= inOpen[i - 2]) + /* white */
+          (!(inClose[i] >= inOpen[i])) +        /* black real body */
+          (((inOpen[i - 1] > inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & (inClose[i - 1] > inOpen[i - 2]) & (inClose[i - 1] > inClose[i - 2])))) == 3) ) /* gapping up */
+      {
+         outInteger[outIdx++] = ((-100) & -(int)(((inClose[i] < inClose[i - 2] - fabs(inClose[i - 2] - inOpen[i - 2]) * optInPenetration) & /* closing well within 1st rb */
+             (fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2)) & /* 1st: long */
+             (fabs(inClose[i - 1] - inOpen[i - 1]) <= TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,BodyDoji_avgPeriod,BodyDoji_factor,BodyDojiPeriodTotal,i - 1)) & /* 2nd: doji */
+             (fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i))))); /* 3rd: longer than short */
+      } else 
+      {
+         outInteger[outIdx++] = 0;
+      }
+      /* add the current range and subtract the first range: this is done after the pattern recognition
+       * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+       */
+      BodyLongPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyLongTrailingIdx);
+      BodyDojiPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1) - TA_CANDLERANGE_OF(TA_RangeType_HighLow,BodyDojiTrailingIdx);
+      BodyShortPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyShortTrailingIdx);
+      i += 1;
+      BodyLongTrailingIdx += 1;
+      BodyDojiTrailingIdx += 1;
+      BodyShortTrailingIdx += 1;
+   } while( i <= endIdx );
+   /* All done. Indicate the output limits and return. */
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else
+   {
    /* Do the calculation using tight loops. */
    /* Add-up the initial period, except for the last value. */
    BodyLongPeriodTotal = 0;
@@ -218,6 +294,7 @@ TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR( int    startIdx,
    *outNBElement= outIdx;
    *outBegIdx= startIdx;
    return TA_SUCCESS;
+   }
 }
 
 TA_RetCode TA_S_CDLEVENINGDOJISTAR( int    startIdx,
@@ -283,6 +360,57 @@ TA_RetCode TA_S_CDLEVENINGDOJISTAR( int    startIdx,
       *outNBElement= 0;
       return TA_SUCCESS;
    }
+   if( BodyDoji_rangeType == TA_RangeType_HighLow && BodyLong_rangeType == TA_RangeType_RealBody && BodyShort_rangeType == TA_RangeType_RealBody )
+   {
+   BodyLongPeriodTotal = 0;
+   BodyDojiPeriodTotal = 0;
+   BodyShortPeriodTotal = 0;
+   BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod;
+   BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod;
+   BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod;
+   i = BodyLongTrailingIdx;
+   while( i < startIdx - 2 )
+   {
+      BodyLongPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      i += 1;
+   }
+   i = BodyDojiTrailingIdx;
+   while( i < startIdx - 1 )
+   {
+      BodyDojiPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+      i += 1;
+   }
+   i = BodyShortTrailingIdx;
+   while( i < startIdx )
+   {
+      BodyShortPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      i += 1;
+   }
+   i = startIdx;
+   outIdx = 0;
+   do
+   {
+      if( ((((double)inClose[i - 2] >= (double)inOpen[i - 2]) + (!((double)inClose[i] >= (double)inOpen[i])) + ((((double)inOpen[i - 1] > (double)inOpen[i - 2]) & ((double)inOpen[i - 1] > (double)inClose[i - 2]) & ((double)inClose[i - 1] > (double)inOpen[i - 2]) & ((double)inClose[i - 1] > (double)inClose[i - 2])))) == 3) )
+      {
+         outInteger[outIdx++] = ((-100) & -(int)((((double)inClose[i] < (double)inClose[i - 2] - fabs((double)inClose[i - 2] - (double)inOpen[i - 2]) * optInPenetration) & (fabs((double)inClose[i - 2] - (double)inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2)) & (fabs((double)inClose[i - 1] - (double)inOpen[i - 1]) <= TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,BodyDoji_avgPeriod,BodyDoji_factor,BodyDojiPeriodTotal,i - 1)) & (fabs((double)inClose[i] - (double)inOpen[i]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i)))));
+      } else 
+      {
+         outInteger[outIdx++] = 0;
+      }
+      BodyLongPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyLongTrailingIdx);
+      BodyDojiPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1) - TA_CANDLERANGE_OF(TA_RangeType_HighLow,BodyDojiTrailingIdx);
+      BodyShortPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyShortTrailingIdx);
+      i += 1;
+      BodyLongTrailingIdx += 1;
+      BodyDojiTrailingIdx += 1;
+      BodyShortTrailingIdx += 1;
+   } while( i <= endIdx );
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else
+   {
    BodyLongPeriodTotal = 0;
    BodyDojiPeriodTotal = 0;
    BodyShortPeriodTotal = 0;
@@ -329,6 +457,7 @@ TA_RetCode TA_S_CDLEVENINGDOJISTAR( int    startIdx,
    *outNBElement= outIdx;
    *outBegIdx= startIdx;
    return TA_SUCCESS;
+   }
 }
 
 /**** Streaming API *****/
@@ -441,26 +570,10 @@ static void TA_CDLEVENINGDOJISTAR_StepImpl( struct TA_CDLEVENINGDOJISTAR_Stream 
    }
 }
 
-static TA_RetCode TA_CDLEVENINGDOJISTAR_OpenImpl( struct TA_CDLEVENINGDOJISTAR_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInPenetration, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_CDLEVENINGDOJISTAR_OpenBody( struct TA_CDLEVENINGDOJISTAR_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInPenetration, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_CDLEVENINGDOJISTAR_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( optInPenetration == TA_REAL_DEFAULT )
-      optInPenetration = 0.3;
-   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
-      return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -501,6 +614,132 @@ static TA_RetCode TA_CDLEVENINGDOJISTAR_OpenImpl( struct TA_CDLEVENINGDOJISTAR_S
          *outNBElement= 0;
          return TA_INSUFFICIENT_HISTORY;
       }
+      if( BodyDoji_rangeType == TA_RangeType_HighLow && BodyLong_rangeType == TA_RangeType_RealBody && BodyShort_rangeType == TA_RangeType_RealBody )
+      {
+      /* Do the calculation using tight loops. */
+      /* Add-up the initial period, except for the last value. */
+      BodyLongPeriodTotal = 0;
+      BodyDojiPeriodTotal = 0;
+      BodyShortPeriodTotal = 0;
+      BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod;
+      BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod;
+      BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod;
+      i = BodyLongTrailingIdx;
+      while( i < startIdx - 2 )
+      {
+         BodyLongPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+         i += 1;
+      }
+      i = BodyDojiTrailingIdx;
+      while( i < startIdx - 1 )
+      {
+         BodyDojiPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+         i += 1;
+      }
+      i = BodyShortTrailingIdx;
+      while( i < startIdx )
+      {
+         BodyShortPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+         i += 1;
+      }
+      i = startIdx;
+      /* Proceed with the calculation for the requested range.
+       * Must have:
+       * - first candle: long white real body
+       * - second candle: doji gapping up
+       * - third candle: black real body that moves well within the first candle's real body
+       * The meaning of "doji" and "long" is specified with TA_SetCandleSettings
+       * The meaning of "moves well within" is specified with optInPenetration and "moves" should mean the real body should
+       * not be short ("short" is specified with TA_SetCandleSettings) - Greg Morris wants it to be long, someone else want
+       * it to be relatively long
+       */
+      outIdx = 0;
+      do
+      {
+         if( (((inClose[i - 2] >= inOpen[i - 2]) + /* white */
+             (!(inClose[i] >= inOpen[i])) +        /* black real body */
+             (((inOpen[i - 1] > inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & (inClose[i - 1] > inOpen[i - 2]) & (inClose[i - 1] > inClose[i - 2])))) == 3) ) /* gapping up */
+         {
+            outInteger[outIdx++ * outStride] = ((-100) & -(int)(((inClose[i] < inClose[i - 2] - fabs(inClose[i - 2] - inOpen[i - 2]) * optInPenetration) & /* closing well within 1st rb */
+                (fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2)) & /* 1st: long */
+                (fabs(inClose[i - 1] - inOpen[i - 1]) <= TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,BodyDoji_avgPeriod,BodyDoji_factor,BodyDojiPeriodTotal,i - 1)) & /* 2nd: doji */
+                (fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i))))); /* 3rd: longer than short */
+         } else 
+         {
+            outInteger[outIdx++ * outStride] = 0;
+         }
+         /* add the current range and subtract the first range: this is done after the pattern recognition
+          * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+          */
+         BodyLongPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyLongTrailingIdx);
+         BodyDojiPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1) - TA_CANDLERANGE_OF(TA_RangeType_HighLow,BodyDojiTrailingIdx);
+         BodyShortPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyShortTrailingIdx);
+         i += 1;
+         BodyLongTrailingIdx += 1;
+         BodyDojiTrailingIdx += 1;
+         BodyShortTrailingIdx += 1;
+      } while( i <= endIdx );
+      /* All done. Indicate the output limits and return. */
+      *outNBElement= outIdx;
+      *outBegIdx= startIdx;
+
+      /* Capture the live batch state into the handle. */
+      sp = (struct TA_CDLEVENINGDOJISTAR_Stream *)TA_Malloc( sizeof(*sp) );
+      if( !sp ) { return TA_ALLOC_ERR; }
+      memset( sp, 0, sizeof(*sp) );
+      sp->optInPenetration = optInPenetration;
+      sp->BodyDojiPeriodTotal = BodyDojiPeriodTotal;
+      sp->BodyLongPeriodTotal = BodyLongPeriodTotal;
+      sp->BodyShortPeriodTotal = BodyShortPeriodTotal;
+      sp->ringCap_BodyDojiTrailingIdx = (int)(i - BodyDojiTrailingIdx);
+      if( sp->ringCap_BodyDojiTrailingIdx < 0 || sp->ringCap_BodyDojiTrailingIdx > historyLen ) { TA_CDLEVENINGDOJISTAR_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(229); }
+      { size_t allocN = (size_t)(sp->ringCap_BodyDojiTrailingIdx > 0 ? sp->ringCap_BodyDojiTrailingIdx : 1);
+        sp->ring_BodyDojiTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_BodyDojiTrailingIdx_derived ) { TA_CDLEVENINGDOJISTAR_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        { int fillJ;
+          for( fillJ = historyLen - sp->ringCap_BodyDojiTrailingIdx; fillJ < historyLen; fillJ++ )
+             sp->ring_BodyDojiTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_BodyDojiTrailingIdx)] = TA_STREAM_CANDLERANGE(BodyDoji,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+        }
+      }
+      sp->ringPos_BodyDojiTrailingIdx = 0;
+      sp->ringCap_BodyLongTrailingIdx = (int)(i - BodyLongTrailingIdx);
+      if( sp->ringCap_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLEVENINGDOJISTAR_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(230); }
+      { size_t allocN = (size_t)(sp->ringCap_BodyLongTrailingIdx > 0 ? sp->ringCap_BodyLongTrailingIdx : 1);
+        sp->ring_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_BodyLongTrailingIdx_derived ) { TA_CDLEVENINGDOJISTAR_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        { int fillJ;
+          for( fillJ = historyLen - sp->ringCap_BodyLongTrailingIdx; fillJ < historyLen; fillJ++ )
+             sp->ring_BodyLongTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_BodyLongTrailingIdx)] = TA_STREAM_CANDLERANGE(BodyLong,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+        }
+      }
+      sp->ringPos_BodyLongTrailingIdx = 0;
+      sp->ringCap_BodyShortTrailingIdx = (int)(i - BodyShortTrailingIdx);
+      if( sp->ringCap_BodyShortTrailingIdx < 0 || sp->ringCap_BodyShortTrailingIdx > historyLen ) { TA_CDLEVENINGDOJISTAR_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(231); }
+      { size_t allocN = (size_t)(sp->ringCap_BodyShortTrailingIdx > 0 ? sp->ringCap_BodyShortTrailingIdx : 1);
+        sp->ring_BodyShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_BodyShortTrailingIdx_derived ) { TA_CDLEVENINGDOJISTAR_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        { int fillJ;
+          for( fillJ = historyLen - sp->ringCap_BodyShortTrailingIdx; fillJ < historyLen; fillJ++ )
+             sp->ring_BodyShortTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_BodyShortTrailingIdx)] = TA_STREAM_CANDLERANGE(BodyShort,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+        }
+      }
+      sp->ringPos_BodyShortTrailingIdx = 0;
+      sp->lag1_inOpen = inOpen[historyLen - 1];
+      sp->lag2_inOpen = inOpen[historyLen - 2];
+      sp->lag1_inHigh = inHigh[historyLen - 1];
+      sp->lag2_inHigh = inHigh[historyLen - 2];
+      sp->lag1_inLow = inLow[historyLen - 1];
+      sp->lag2_inLow = inLow[historyLen - 2];
+      sp->lag1_inClose = inClose[historyLen - 1];
+      sp->lag2_inClose = inClose[historyLen - 2];
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
+      sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
+      *stream = sp;
+      return TA_SUCCESS;
+      }
+      else
+      {
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
       BodyLongPeriodTotal = 0;
@@ -541,20 +780,14 @@ static TA_RetCode TA_CDLEVENINGDOJISTAR_OpenImpl( struct TA_CDLEVENINGDOJISTAR_S
       outIdx = 0;
       do
       {
-         if( ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == 1 && /* white */
-             ((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 &&        /* black real body */
-             ((min(inOpen[i - 1],inClose[i - 1]) > max(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) ) /* gapping up */
+         if( (((inClose[i - 2] >= inOpen[i - 2]) + /* white */
+             (!(inClose[i] >= inOpen[i])) +        /* black real body */
+             (((inOpen[i - 1] > inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & (inClose[i - 1] > inOpen[i - 2]) & (inClose[i - 1] > inClose[i - 2])))) == 3) ) /* gapping up */
          {
-            if( inClose[i] < inClose[i - 2] - fabs(inClose[i - 2] - inOpen[i - 2]) * optInPenetration && /* closing well within 1st rb */
-                fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2) && /* 1st: long */
-                fabs(inClose[i - 1] - inOpen[i - 1]) <= TA_CANDLEAVERAGE_OF(BodyDoji_rangeType,BodyDoji_avgPeriod,BodyDoji_factor,BodyDojiPeriodTotal,i - 1) && /* 2nd: doji */
-                fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i) ) /* 3rd: longer than short */
-            {
-               outInteger[outIdx++ * outStride] = -100;
-            } else 
-            {
-               outInteger[outIdx++ * outStride] = 0;
-            }
+            outInteger[outIdx++ * outStride] = ((-100) & -(int)(((inClose[i] < inClose[i - 2] - fabs(inClose[i - 2] - inOpen[i - 2]) * optInPenetration) & /* closing well within 1st rb */
+                (fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2)) & /* 1st: long */
+                (fabs(inClose[i - 1] - inOpen[i - 1]) <= TA_CANDLEAVERAGE_OF(BodyDoji_rangeType,BodyDoji_avgPeriod,BodyDoji_factor,BodyDojiPeriodTotal,i - 1)) & /* 2nd: doji */
+                (fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i))))); /* 3rd: longer than short */
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -628,7 +861,44 @@ static TA_RetCode TA_CDLEVENINGDOJISTAR_OpenImpl( struct TA_CDLEVENINGDOJISTAR_S
       sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
+      }
    }
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDLEVENINGDOJISTAR_OpenFillFrame( struct TA_CDLEVENINGDOJISTAR_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInPenetration, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   return TA_CDLEVENINGDOJISTAR_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDLEVENINGDOJISTAR_OpenSinkFrame( struct TA_CDLEVENINGDOJISTAR_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInPenetration, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   int sink_outInteger = 0;
+   TA_RetCode retCode = TA_CDLEVENINGDOJISTAR_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, outBegIdx, outNBElement, &sink_outInteger, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outInteger ) *outInteger = sink_outInteger;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_CDLEVENINGDOJISTAR_OpenImpl( struct TA_CDLEVENINGDOJISTAR_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInPenetration, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( optInPenetration == TA_REAL_DEFAULT )
+      optInPenetration = 0.3;
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_CDLEVENINGDOJISTAR_OpenFillFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger ) : TA_CDLEVENINGDOJISTAR_OpenSinkFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger );
 }
 
 /* Private function, not in public API. */
@@ -650,7 +920,6 @@ TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR_Open( TA_CDLEVENINGDOJISTAR_Stream *
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLEVENINGDOJISTAR_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outInteger );
@@ -660,7 +929,6 @@ TA_LIB_API TA_RetCode TA_CDLEVENINGDOJISTAR_OpenAndFill( TA_CDLEVENINGDOJISTAR_S
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;

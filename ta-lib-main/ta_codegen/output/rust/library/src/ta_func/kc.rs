@@ -310,23 +310,24 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
+    /// let high = vec![0.0; 252]; // your data, oldest first
+    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low = vec![0.0; 252]; // your data, oldest first
+    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close = vec![0.0; 252]; // your data, oldest first
+    /// # let close: Vec<f64> = (0..252)
+    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .collect();
     /// let mut upper_band = vec![0.0; 252];
     /// let mut middle_band = vec![0.0; 252];
     /// let mut lower_band = vec![0.0; 252];
     ///
-    /// let out_range = core.kc(
-    ///     0, high.len() - 1, &high, &low, &close, 20, 10, 2.0,
-    ///     &mut upper_band, &mut middle_band, &mut lower_band,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert!(upper_band[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.kc(0, high.len() - 1, &high, &low, &close, 20, 10, 2.0,
+    ///                     &mut upper_band, &mut middle_band, &mut lower_band)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last upper_band = {}", range.count, range.beg_idx, upper_band[range.count - 1]);
+    /// # assert!(upper_band[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -472,9 +473,6 @@ impl Core {
     pub(crate) fn kc_open_impl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInATRPeriod: i32, mut optInNbDev: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outRealUpperBand: &mut [f64], outRealMiddleBand: &mut [f64], outRealLowerBand: &mut [f64], outStride: usize,
     ) -> Result<KcStream, RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -497,13 +495,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut owned_sc_outRealUpperBand: Vec<f64> =
@@ -633,10 +631,9 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -708,9 +705,6 @@ impl Core {
     pub fn kc_open_and_fill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInTimePeriod: i32, mut optInATRPeriod: i32, mut optInNbDev: f64, outRealUpperBand: &mut [f64], outRealMiddleBand: &mut [f64], outRealLowerBand: &mut [f64],
     ) -> Result<(KcStream, OutRange), RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

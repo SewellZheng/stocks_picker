@@ -449,16 +449,13 @@ public partial class Core
       int i = 0;
       int historyLen = inReal0.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
-      }
       if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inReal1.Length != inReal0.Length ) {
          return RetCode.BadParam;
       }
-      if( startIdx > endIdx ) {
+      if( startIdx >= historyLen ) {
          outBegIdx = 0;
          outNBElement = 0;
          return RetCode.InsufficientHistory;
@@ -494,10 +491,10 @@ public partial class Core
    {
       DivStream sp = new DivStream(this);
       double[] sink_outReal = new double[1];
-      RetCode retCode = DivOpenImpl(sp, inReal0, inReal1, startIdx, out int outBegIdx, out int outNBElement, sink_outReal, 0);
-      sp.outRangeBegIdx = outBegIdx;
-      sp.outRangeCount = outNBElement;
+      RetCode retCode = DivOpenImpl(sp, inReal0, inReal1, startIdx + 1 < inReal0.Length ? inReal0.Length - 1 : startIdx, out int outBegIdx, out int outNBElement, sink_outReal, 0);
       if( retCode == RetCode.Success ) {
+         sp.outRangeBegIdx = Math.Max(startIdx, DivLookback());
+         sp.outRangeCount = inReal0.Length - sp.outRangeBegIdx;
          return sp;
       }
       if( retCode == RetCode.InsufficientHistory ) {
@@ -517,16 +514,18 @@ public partial class Core
    /// <param name="inReal0">Dividend (numerator) series. The warm-up history, oldest bar first.</param>
    /// <param name="inReal1">Divisor (denominator) series. The warm-up history, oldest bar first.</param>
    /// <returns>The open stream handle.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>DivLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>DivLookback(...) + 1</c> bars, an empty
+   /// one included — which is what a null array becomes, since a span cannot be
+   /// null.</exception>
    /// <exception cref="System.ArgumentException">The input series have different lengths.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public DivStream DivOpen( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1 )
    {
-      if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "DIV open: history is empty", RetCode.OutOfRangeStartIndex);
       if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "DIV open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
-      if( inReal1.IsEmpty ) throw new TALibArgumentException("DIV open: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      if( !inReal0.IsEmpty ) {
+         if( inReal1.IsEmpty ) throw new TALibArgumentException("DIV open: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      }
       RequireHistoryLength("DIV", "open", "inReal1", inReal1.Length, inReal0.Length);
       return DivOpenInternal(inReal0, inReal1, 0);
    }
@@ -550,18 +549,20 @@ public partial class Core
    /// <param name="outReal">Per-element quotient inReal0/inReal1. Must hold at least <c>historyLen -
    /// DivLookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>DivLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>DivLookback(...) + 1</c> bars, an empty
+   /// one included — which is what a null array becomes, since a span cannot be
+   /// null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public DivStream DivOpenAndFill( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, Span<double> outReal )
    {
-      if( inReal0.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "DIV openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
       if( inReal0.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal0), "DIV openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
-      if( inReal1.IsEmpty ) throw new TALibArgumentException("DIV openAndFill: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      if( !inReal0.IsEmpty ) {
+         if( inReal1.IsEmpty ) throw new TALibArgumentException("DIV openAndFill: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      }
       int guardOutLen = OpenFillCount("DIV", "openAndFill", inReal0.Length, DivLookback());
       RequireHistoryLength("DIV", "openAndFill", "inReal1", inReal1.Length, inReal0.Length);
       RequireFillLength("DIV", "openAndFill", "outReal", outReal.Length, guardOutLen);

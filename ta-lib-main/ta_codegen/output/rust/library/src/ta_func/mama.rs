@@ -617,15 +617,16 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
+    /// let series = vec![0.0; 252]; // your data, oldest first
+    /// # let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let mut mama = vec![0.0; 252];
     /// let mut fama = vec![0.0; 252];
     ///
-    /// let out_range = core.mama(0, data.len() - 1, &data, 0.5, 0.05, &mut mama, &mut fama)?;
-    /// assert!(out_range.count > 0);
-    /// assert!(mama[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.mama(0, series.len() - 1, &series, 0.5, 0.05, &mut mama, &mut fama)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last mama = {}", range.count, range.beg_idx, mama[range.count - 1]);
+    /// # assert!(mama[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -1155,9 +1156,6 @@ impl Core {
     fn mama_open_impl_scalar(
         &self, inReal: &[f64], startIdx: usize, mut optInFastLimit: f64, mut optInSlowLimit: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outMAMA: &mut [f64], outFAMA: &mut [f64], outStride: usize,
     ) -> Result<MamaStream, RetCode> {
-        if inReal.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -1172,13 +1170,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut outIdx: usize = 0_usize;
@@ -1616,17 +1614,16 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.mama_open(&data, 0.5, 0.05).expect("enough history");
+    /// let (mut s, _last) = core.mama_open(&series, 0.5, 0.05).expect("enough history");
     /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
     /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
@@ -1655,16 +1652,16 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
     /// let mut batch_mama = vec![0.0; 252];
     /// let mut batch_fama = vec![0.0; 252];
-    /// let batch = core.mama(0, data.len() - 1, &data, 0.5, 0.05, &mut batch_mama, &mut batch_fama)?;
+    /// let batch = core.mama(0, series.len() - 1, &series, 0.5, 0.05, &mut batch_mama, &mut batch_fama)?;
     ///
     /// let mut mama = vec![0.0; 252];
     /// let mut fama = vec![0.0; 252];
-    /// let (_stream, filled) = core.mama_open_and_fill(&data, 0.5, 0.05, &mut mama, &mut fama)?;
+    /// let (_stream, filled) = core.mama_open_and_fill(&series, 0.5, 0.05, &mut mama, &mut fama)?;
     ///
     /// assert_eq!(filled.beg_idx, batch.beg_idx);
     /// assert_eq!(filled.count, batch.count);
@@ -1678,9 +1675,6 @@ impl Core {
     pub fn mama_open_and_fill(
         &self, inReal: &[f64], mut optInFastLimit: f64, mut optInSlowLimit: f64, outMAMA: &mut [f64], outFAMA: &mut [f64],
     ) -> Result<(MamaStream, OutRange), RetCode> {
-        if inReal.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

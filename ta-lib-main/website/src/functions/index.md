@@ -5,6 +5,10 @@ description: "Every TA-Lib technical analysis function, grouped by category, wit
 
 All technical-analysis functions, grouped by category. Each page documents the formula, inputs, outputs, and links to the C / Rust / Java / C# / TypeScript source.
 
+## Reference data
+
+Each page charts the function at default parameters over one fixed price series (IBM, daily, 1999, the series `ta_regtest` ships), or over a synthetic input the page names for the Math Transform and Math Operators functions, and links a CSV of the inputs and every output, computed by the C library. Running TA-Lib over the CSV's own input columns from its first row reproduces the output columns. [Compare with a tolerance](/spec/versions/#tolerance) rather than bit for bit.
+
 ## Cycle Indicators
 
 - [HT_DCPERIOD](/functions/ht_dcperiod.md) — Hilbert Transform - Dominant Cycle Period
@@ -119,6 +123,7 @@ All technical-analysis functions, grouped by category. Each page documents the f
 ## Overlap Studies
 
 - [ACCBANDS](/functions/accbands.md) — Acceleration Bands
+- [ALLIGATOR](/functions/alligator.md) — Williams Alligator
 - [ALMA](/functions/alma.md) — Arnaud Legoux Moving Average
 - [BBANDS](/functions/bbands.md) — Bollinger Bands
 - [CE](/functions/ce.md) — Chandelier Exit
@@ -239,7 +244,9 @@ All technical-analysis functions, grouped by category. Each page documents the f
 - [MEDIAN](/functions/median.md) — Rolling Median
 - [PERCENTILE](/functions/percentile.md) — Percentile (nearest rank)
 - [PERCENTRANK](/functions/percentrank.md) — Percent Rank
+- [SHARPE](/functions/sharpe.md) — Rolling Sharpe Ratio
 - [SKEW](/functions/skew.md) — Rolling Skewness
+- [SORTINO](/functions/sortino.md) — Rolling Sortino Ratio
 - [STDDEV](/functions/stddev.md) — Standard Deviation
 - [TSF](/functions/tsf.md) — Time Series Forecast
 - [VAR](/functions/var.md) — Variance

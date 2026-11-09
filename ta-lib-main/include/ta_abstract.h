@@ -297,6 +297,14 @@ typedef struct TA_FuncInfo
 TA_LIB_API TA_RetCode TA_GetFuncInfo( const TA_FuncHandle *handle,
                                       const TA_FuncInfo **funcInfo );
 
+/* The function's attributes: metadata no flag can carry, such as an output's
+ * reference levels, as one JSON object; "{}" when it has none. The string is
+ * static: never free it. Ignore a key you do not know, since a release may add
+ * one. The keys: https://ta-lib.org/spec/abstract/#attributes
+ */
+TA_LIB_API TA_RetCode TA_GetFuncAttributes( const TA_FuncHandle *handle,
+                                            const char **json );
+
 
 /* An alternate way to access all the functions is through the
  * use of the TA_ForEachFunc(). You can setup a function to be
@@ -474,6 +482,10 @@ typedef int TA_OutputFlags;
                                              * never shifted. */
 #define TA_OUT_PATTERN_WEAK      0x00008000 /* Level 80 occurs too: a weaker form of the pattern,
                                              * on the same bar. */
+#define TA_OUT_BAR_INDEX         0x00010000 /* The value is an absolute index into the input arrays. */
+#define TA_OUT_SEGMENTED         0x00020000 /* A line whose segments restart wherever the function's
+                                             * integer output changes value: never connect across
+                                             * a change. */
 
 
 /* The following 3 structures will exist for each input, optional

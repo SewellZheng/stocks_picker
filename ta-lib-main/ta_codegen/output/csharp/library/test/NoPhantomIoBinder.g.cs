@@ -173,6 +173,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["ALLIGATOR"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.AlligatorImpl(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5), out int b, out int n, c.RealOut(0), c.RealOut(1), c.RealOut(2));
+            return new CallOutcome(rc, b, n);
+        },
         ["ALMA"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.AlmaImpl(
@@ -1289,6 +1295,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.RealOpt(0), c.RealOpt(1), c.RealOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5), c.RealOpt(6), c.RealOpt(7), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["SHARPE"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.SharpeImpl(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
         ["SI"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.SiImpl(
@@ -1323,6 +1335,12 @@ internal static class NoPhantomIoBinder
         {
             RetCode rc = core.SmiImpl(
                 startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), out int b, out int n, c.RealOut(0), c.RealOut(1));
+            return new CallOutcome(rc, b, n);
+        },
+        ["SORTINO"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.SortinoImpl(
+                startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
         ["SQRT"] = static (core, c, startIdx, endIdx) =>
@@ -1616,6 +1634,12 @@ internal static class NoPhantomIoBinder
         {
             RetCode rc = core.AdxrImpl(
                 startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), Narrow(c.Price(0, PriceComponents.Close)), c.IntOpt(0), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
+        ["ALLIGATOR"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.AlligatorImpl(
+                startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5), out int b, out int n, c.RealOut(0), c.RealOut(1), c.RealOut(2));
             return new CallOutcome(rc, b, n);
         },
         ["ALMA"] = static (core, c, startIdx, endIdx) =>
@@ -2734,6 +2758,12 @@ internal static class NoPhantomIoBinder
                 startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), c.RealOpt(0), c.RealOpt(1), c.RealOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5), c.RealOpt(6), c.RealOpt(7), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
+        ["SHARPE"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.SharpeImpl(
+                startIdx, endIdx, Narrow(c.Series(0)), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), out int b, out int n, c.RealOut(0));
+            return new CallOutcome(rc, b, n);
+        },
         ["SI"] = static (core, c, startIdx, endIdx) =>
         {
             RetCode rc = core.SiImpl(
@@ -2768,6 +2798,12 @@ internal static class NoPhantomIoBinder
         {
             RetCode rc = core.SmiImpl(
                 startIdx, endIdx, Narrow(c.Price(0, PriceComponents.High)), Narrow(c.Price(0, PriceComponents.Low)), Narrow(c.Price(0, PriceComponents.Close)), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), out int b, out int n, c.RealOut(0), c.RealOut(1));
+            return new CallOutcome(rc, b, n);
+        },
+        ["SORTINO"] = static (core, c, startIdx, endIdx) =>
+        {
+            RetCode rc = core.SortinoImpl(
+                startIdx, endIdx, Narrow(c.Series(0)), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2), out int b, out int n, c.RealOut(0));
             return new CallOutcome(rc, b, n);
         },
         ["SQRT"] = static (core, c, startIdx, endIdx) =>
@@ -3018,6 +3054,7 @@ internal static class NoPhantomIoBinder
         ["ADR"] = static (core, c) => core.AdrOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0)),
         ["ADX"] = static (core, c) => core.AdxOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0)),
         ["ADXR"] = static (core, c) => core.AdxrOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0)),
+        ["ALLIGATOR"] = static (core, c) => core.AlligatorOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3), c.IntOpt(4), c.IntOpt(5)),
         ["ALMA"] = static (core, c) => core.AlmaOpen(c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2)),
         ["AO"] = static (core, c) => core.AoOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.IntOpt(0), c.IntOpt(1)),
         ["APO"] = static (core, c) => core.ApoOpen(c.Series(0), c.IntOpt(0), c.IntOpt(1), (MAType)c.IntOpt(2)),
@@ -3204,12 +3241,14 @@ internal static class NoPhantomIoBinder
         ["RVOL"] = static (core, c) => core.RvolOpen(c.Price(0, PriceComponents.Volume), c.IntOpt(0)),
         ["SAR"] = static (core, c) => core.SarOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.RealOpt(0), c.RealOpt(1)),
         ["SAREXT"] = static (core, c) => core.SarextOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.RealOpt(0), c.RealOpt(1), c.RealOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5), c.RealOpt(6), c.RealOpt(7)),
+        ["SHARPE"] = static (core, c) => core.SharpeOpen(c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2)),
         ["SI"] = static (core, c) => core.SiOpen(c.Price(0, PriceComponents.Open), c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.RealOpt(0)),
         ["SIN"] = static (core, c) => core.SinOpen(c.Series(0)),
         ["SINH"] = static (core, c) => core.SinhOpen(c.Series(0)),
         ["SKEW"] = static (core, c) => core.SkewOpen(c.Series(0), c.IntOpt(0)),
         ["SMA"] = static (core, c) => core.SmaOpen(c.Series(0), c.IntOpt(0)),
         ["SMI"] = static (core, c) => core.SmiOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2), c.IntOpt(3)),
+        ["SORTINO"] = static (core, c) => core.SortinoOpen(c.Series(0), c.IntOpt(0), c.RealOpt(1), c.RealOpt(2)),
         ["SQRT"] = static (core, c) => core.SqrtOpen(c.Series(0)),
         ["SQZMOM"] = static (core, c) => core.SqzmomOpen(c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.IntOpt(2), c.RealOpt(3), c.RealOpt(4), c.RealOpt(5)),
         ["STC"] = static (core, c) => core.StcOpen(c.Series(0), c.IntOpt(0), c.IntOpt(1), c.IntOpt(2)),

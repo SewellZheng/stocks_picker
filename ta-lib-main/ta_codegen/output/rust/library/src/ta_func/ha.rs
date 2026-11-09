@@ -288,27 +288,29 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let open: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
-    ///     .collect();
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
+    /// let open = vec![0.0; 252]; // your data, oldest first
+    /// # let open: Vec<f64> = (0..252)
+    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    /// #     .collect();
+    /// let high = vec![0.0; 252]; // your data, oldest first
+    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low = vec![0.0; 252]; // your data, oldest first
+    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close = vec![0.0; 252]; // your data, oldest first
+    /// # let close: Vec<f64> = (0..252)
+    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .collect();
     /// let mut ha_open = vec![0.0; 252];
     /// let mut ha_high = vec![0.0; 252];
     /// let mut ha_low = vec![0.0; 252];
     /// let mut ha_close = vec![0.0; 252];
     ///
-    /// let out_range = core.ha(
-    ///     0, open.len() - 1, &open, &high, &low, &close,
-    ///     &mut ha_open, &mut ha_high, &mut ha_low, &mut ha_close,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert!(ha_open[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.ha(0, open.len() - 1, &open, &high, &low, &close,
+    ///                     &mut ha_open, &mut ha_high, &mut ha_low, &mut ha_close)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last ha_open = {}", range.count, range.beg_idx, ha_open[range.count - 1]);
+    /// # assert!(ha_open[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -469,9 +471,6 @@ impl Core {
     pub(crate) fn ha_open_impl(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outHAOpen: &mut [f64], outHAHigh: &mut [f64], outHALow: &mut [f64], outHAClose: &mut [f64], outStride: usize,
     ) -> Result<HaStream, RetCode> {
-        if inOpen.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -479,13 +478,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inOpen.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut i: usize = 0_usize;
@@ -605,10 +604,9 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -691,9 +689,6 @@ impl Core {
     pub fn ha_open_and_fill(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outHAOpen: &mut [f64], outHAHigh: &mut [f64], outHALow: &mut [f64], outHAClose: &mut [f64],
     ) -> Result<(HaStream, OutRange), RetCode> {
-        if inOpen.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inOpen.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

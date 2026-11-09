@@ -861,6 +861,25 @@ impl StreamModel<'_> {
         }
     }
 
+    /// True when the handle an open leaves is a function of the last history
+    /// bar and the input tail alone: no carried scalar, lag, counter or
+    /// window, only trailing rings, which open backfills from the inputs. The
+    /// scalar open of such a model may then replay the last bar only, and
+    /// publish the range batch reports, max(startIdx, lookback).
+    #[must_use]
+    pub fn open_needs_last_bar_only(&self) -> bool {
+        let Steady::Batch { windows, circs, counter, .. } = &self.steady else {
+            return false;
+        };
+        self.state.is_empty()
+            && self.lags.is_empty()
+            && self.out_feedback.is_empty()
+            && self.parity.is_none()
+            && windows.is_empty()
+            && circs.is_empty()
+            && counter.is_none()
+    }
+
     /// True iff the model owns any heap buffer and therefore needs a
     /// `TA_<N>_ReleaseImpl` (per-buffer `TA_Free`) instead of a plain free.
     /// Replaces the OR-chains previously duplicated across the emitter.
@@ -10389,6 +10408,7 @@ mod tests {
                 name: "outReal".into(),
                 param_type: ParamType::Real,
                 flags: vec![],
+                levels: Vec::new(),
             }],
             lookback: None,
             display_shift: None,
@@ -10397,6 +10417,7 @@ mod tests {
             private_extra_params: vec![],
             private_param_init: vec![],
             has_explicit_private: false,
+            opt_outs: vec![],
             header_comments: vec![],
             doc: None,
             streaming: false,

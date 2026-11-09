@@ -66,7 +66,38 @@ public final class Functions {
 
     private Functions() { }
 
+   private static final Map<String, String> ATTRIBUTES = Map.ofEntries(
+      Map.entry("ADX", "{\"outputs\":{\"outReal\":{\"levels\":[25]}}}"),
+      Map.entry("ADXR", "{\"outputs\":{\"outReal\":{\"levels\":[25]}}}"),
+      Map.entry("AROON", "{\"outputs\":{\"outAroonUp\":{\"levels\":[30,70]}}}"),
+      Map.entry("CCI", "{\"outputs\":{\"outReal\":{\"levels\":[-100,100]}}}"),
+      Map.entry("CHOP", "{\"outputs\":{\"outReal\":{\"levels\":[38.2,61.8]}}}"),
+      Map.entry("CMO", "{\"outputs\":{\"outReal\":{\"levels\":[-50,50]}}}"),
+      Map.entry("CRSI", "{\"outputs\":{\"outReal\":{\"levels\":[10,90]}}}"),
+      Map.entry("IBS", "{\"outputs\":{\"outReal\":{\"levels\":[0.2,0.8]}}}"),
+      Map.entry("IMI", "{\"outputs\":{\"outReal\":{\"levels\":[30,70]}}}"),
+      Map.entry("KDJ", "{\"outputs\":{\"outK\":{\"levels\":[20,80]}}}"),
+      Map.entry("MACDV", "{\"outputs\":{\"outMACDV\":{\"levels\":[-150,-50,50,150]}}}"),
+      Map.entry("MASSI", "{\"outputs\":{\"outReal\":{\"levels\":[26.5,27]}}}"),
+      Map.entry("MFI", "{\"outputs\":{\"outReal\":{\"levels\":[20,80]}}}"),
+      Map.entry("PERCENTB", "{\"outputs\":{\"outReal\":{\"levels\":[0,1]}}}"),
+      Map.entry("PSO", "{\"outputs\":{\"outReal\":{\"levels\":[-0.9,-0.2,0.2,0.9]}}}"),
+      Map.entry("RSI", "{\"outputs\":{\"outReal\":{\"levels\":[30,70]}}}"),
+      Map.entry("SMI", "{\"outputs\":{\"outSMI\":{\"levels\":[-40,40]}}}"),
+      Map.entry("STC", "{\"outputs\":{\"outReal\":{\"levels\":[25,75]}}}"),
+      Map.entry("STOCH", "{\"outputs\":{\"outSlowK\":{\"levels\":[20,80]}}}"),
+      Map.entry("STOCHF", "{\"outputs\":{\"outFastK\":{\"levels\":[20,80]}}}"),
+      Map.entry("STOCHRSI", "{\"outputs\":{\"outFastK\":{\"levels\":[20,80]}}}"),
+      Map.entry("ULTOSC", "{\"outputs\":{\"outReal\":{\"levels\":[30,70]}}}"),
+      Map.entry("WAVETREND", "{\"outputs\":{\"outWT1\":{\"levels\":[-60,-53,53,60]}}}"),
+      Map.entry("WILLR", "{\"outputs\":{\"outReal\":{\"levels\":[-80,-20]}}}")
+   );
+
    private static final Map<String, FuncInfo> BY_NAME = build();
+
+   static String attributesOf(String name) {
+      return name == null ? "{}" : ATTRIBUTES.getOrDefault(name, "{}");
+   }
 
    /** Every function, in canonical name order. */
    public static List<FuncInfo> all() {
@@ -129,6 +160,7 @@ public final class Functions {
       put(m, f_ADR());
       put(m, f_ADX());
       put(m, f_ADXR());
+      put(m, f_ALLIGATOR());
       put(m, f_ALMA());
       put(m, f_AO());
       put(m, f_APO());
@@ -315,12 +347,14 @@ public final class Functions {
       put(m, f_RVOL());
       put(m, f_SAR());
       put(m, f_SAREXT());
+      put(m, f_SHARPE());
       put(m, f_SI());
       put(m, f_SIN());
       put(m, f_SINH());
       put(m, f_SKEW());
       put(m, f_SMA());
       put(m, f_SMI());
+      put(m, f_SORTINO());
       put(m, f_SQRT());
       put(m, f_SQZMOM());
       put(m, f_STC());
@@ -391,7 +425,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000010)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000710)
          ));
    }
 
@@ -423,7 +457,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -435,7 +469,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -448,7 +482,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -471,7 +505,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -489,7 +523,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -507,7 +541,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -525,7 +559,52 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
+         ));
+   }
+
+   private static FuncInfo f_ALLIGATOR() {
+      return new FuncInfo(
+         "ALLIGATOR", "Overlap Studies", "Williams Alligator", 0x03000002,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHL", 0x00000006)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInJawPeriod", 0x00000000,
+               "Jaw Period", "Time period for the jaw line", 13.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 1, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInJawShift", 0x00000000,
+               "Jaw Shift", "Bars ahead the jaw line is drawn", 8.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               0, 100000, 0, 30, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTeethPeriod", 0x00000000,
+               "Teeth Period", "Time period for the teeth line", 8.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 1, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTeethShift", 0x00000000,
+               "Teeth Shift", "Bars ahead the teeth line is drawn", 5.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               0, 100000, 0, 30, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInLipsPeriod", 0x00000000,
+               "Lips Period", "Time period for the lips line", 5.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               1, 100000, 1, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInLipsShift", 0x00000000,
+               "Lips Shift", "Bars ahead the lips line is drawn", 3.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               0, 100000, 0, 30, 1, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outJaw", 0x00004001),
+            new OutputInfo(OutputType.REAL, "outTeeth", 0x00004001),
+            new OutputInfo(OutputType.REAL, "outLips", 0x00004001)
          ));
    }
 
@@ -576,7 +655,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000010)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000710)
          ));
    }
 
@@ -604,7 +683,7 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -622,8 +701,8 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outAroonDown", 0x00000004),
-            new OutputInfo(OutputType.REAL, "outAroonUp", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outAroonDown", 0x00000504),
+            new OutputInfo(OutputType.REAL, "outAroonUp", 0x00000501)
          ));
    }
 
@@ -641,7 +720,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -659,7 +738,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -671,7 +750,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -683,7 +762,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -701,13 +780,13 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
    private static FuncInfo f_AVGDEV() {
       return new FuncInfo(
-         "AVGDEV", "Price Transform", "Average Deviation", 0x03000000,
+         "AVGDEV", "Price Transform", "Average Deviation", 0x02000000,
          List.of(
             new InputInfo(InputType.REAL, "inReal", 0x00000000)
          ),
@@ -799,7 +878,7 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -818,7 +897,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -830,7 +909,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -848,7 +927,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1658,7 +1737,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1676,7 +1755,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000201)
          ));
    }
 
@@ -1694,7 +1773,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -1712,7 +1791,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -1759,7 +1838,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1777,7 +1856,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1795,7 +1874,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1823,7 +1902,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1842,7 +1921,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1854,7 +1933,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000301)
          ));
    }
 
@@ -1866,7 +1945,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000101)
          ));
    }
 
@@ -1894,7 +1973,7 @@ public final class Functions {
                2, 10000, 20, 200, 20, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -1912,7 +1991,7 @@ public final class Functions {
                2, 100000, 5, 50, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1924,7 +2003,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1947,7 +2026,7 @@ public final class Functions {
                1, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -1978,7 +2057,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2031,7 +2110,7 @@ public final class Functions {
                2, 100000, 2, 50, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000010)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000710)
          ));
    }
 
@@ -2049,7 +2128,7 @@ public final class Functions {
                2, 100000, 10, 60, 5, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00004001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00004701)
          ));
    }
 
@@ -2067,7 +2146,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -2085,7 +2164,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2126,7 +2205,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2144,7 +2223,7 @@ public final class Functions {
                2, 100000, 2, 100, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -2162,8 +2241,8 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outBullPower", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outBearPower", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outBullPower", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outBearPower", 0x00000701)
          ));
    }
 
@@ -2175,7 +2254,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -2193,8 +2272,8 @@ public final class Functions {
                2, 100000, 5, 50, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outFisher", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outTrigger", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outFisher", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outTrigger", 0x00000704)
          ));
    }
 
@@ -2206,7 +2285,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2224,7 +2303,7 @@ public final class Functions {
                2, 100000, 2, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2311,7 +2390,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000101)
          ));
    }
 
@@ -2323,7 +2402,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000301)
          ));
    }
 
@@ -2335,8 +2414,8 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outInPhase", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outQuadrature", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outInPhase", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outQuadrature", 0x00000704)
          ));
    }
 
@@ -2348,8 +2427,8 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outSine", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outLeadSine", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outSine", 0x00000301),
+            new OutputInfo(OutputType.REAL, "outLeadSine", 0x00000304)
          ));
    }
 
@@ -2385,7 +2464,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -2434,7 +2513,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -2520,9 +2599,9 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outK", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outD", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outJ", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outK", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outD", 0x00000704),
+            new OutputInfo(OutputType.REAL, "outJ", 0x00000701)
          ));
    }
 
@@ -2580,8 +2659,8 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outKST", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outKSTSignal", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outKST", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outKSTSignal", 0x00000704)
          ));
    }
 
@@ -2649,8 +2728,8 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outKST", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outKSTSignal", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outKST", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outKSTSignal", 0x00000704)
          ));
    }
 
@@ -2668,7 +2747,7 @@ public final class Functions {
                4, 10000, 10, 200, 5, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2696,8 +2775,8 @@ public final class Functions {
                2, 100000, 2, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outKVO", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outKVOSignal", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outKVO", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outKVOSignal", 0x00000704)
          ));
    }
 
@@ -2733,7 +2812,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2769,7 +2848,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2781,7 +2860,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2793,7 +2872,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -2844,9 +2923,9 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outMACD", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outMACDSignal", 0x00000004),
-            new OutputInfo(OutputType.REAL, "outMACDHist", 0x00000010)
+            new OutputInfo(OutputType.REAL, "outMACD", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outMACDSignal", 0x00000704),
+            new OutputInfo(OutputType.REAL, "outMACDHist", 0x00000710)
          ));
    }
 
@@ -2889,9 +2968,9 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outMACD", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outMACDSignal", 0x00000004),
-            new OutputInfo(OutputType.REAL, "outMACDHist", 0x00000010)
+            new OutputInfo(OutputType.REAL, "outMACD", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outMACDSignal", 0x00000704),
+            new OutputInfo(OutputType.REAL, "outMACDHist", 0x00000710)
          ));
    }
 
@@ -2909,9 +2988,9 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outMACD", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outMACDSignal", 0x00000004),
-            new OutputInfo(OutputType.REAL, "outMACDHist", 0x00000010)
+            new OutputInfo(OutputType.REAL, "outMACD", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outMACDSignal", 0x00000704),
+            new OutputInfo(OutputType.REAL, "outMACDHist", 0x00000710)
          ));
    }
 
@@ -2939,9 +3018,9 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outMACDV", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outMACDVSignal", 0x00000004),
-            new OutputInfo(OutputType.REAL, "outMACDVHist", 0x00000010)
+            new OutputInfo(OutputType.REAL, "outMACDV", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outMACDVSignal", 0x00000704),
+            new OutputInfo(OutputType.REAL, "outMACDVHist", 0x00000710)
          ));
    }
 
@@ -2977,7 +3056,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3000,7 +3079,7 @@ public final class Functions {
                2, 100000, 10, 50, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000101)
          ));
    }
 
@@ -3065,7 +3144,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.INTEGER, "outInteger", 0x00000001)
+            new OutputInfo(OutputType.INTEGER, "outInteger", 0x00010001)
          ));
    }
 
@@ -3131,7 +3210,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3203,7 +3282,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.INTEGER, "outInteger", 0x00000001)
+            new OutputInfo(OutputType.INTEGER, "outInteger", 0x00010001)
          ));
    }
 
@@ -3240,8 +3319,8 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.INTEGER, "outMinIdx", 0x00000001),
-            new OutputInfo(OutputType.INTEGER, "outMaxIdx", 0x00000001)
+            new OutputInfo(OutputType.INTEGER, "outMinIdx", 0x00010001),
+            new OutputInfo(OutputType.INTEGER, "outMaxIdx", 0x00010001)
          ));
    }
 
@@ -3259,7 +3338,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3277,7 +3356,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3295,7 +3374,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3308,7 +3387,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3326,7 +3405,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3338,7 +3417,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3351,7 +3430,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3384,7 +3463,7 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3425,7 +3504,7 @@ public final class Functions {
                2, 10000, 20, 200, 20, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3443,7 +3522,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3461,7 +3540,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3489,7 +3568,7 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3512,7 +3591,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3524,7 +3603,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3552,7 +3631,7 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3564,7 +3643,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3582,7 +3661,7 @@ public final class Functions {
                1, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3618,7 +3697,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3636,7 +3715,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3654,7 +3733,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3672,7 +3751,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3695,7 +3774,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3713,7 +3792,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3736,7 +3815,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3759,7 +3838,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3777,7 +3856,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -3800,7 +3879,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000008)
          ));
    }
 
@@ -3853,7 +3932,35 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000008)
+         ));
+   }
+
+   private static FuncInfo f_SHARPE() {
+      return new FuncInfo(
+         "SHARPE", "Statistic Functions", "Rolling Sharpe Ratio", 0x42000000,
+         List.of(
+            new InputInfo(InputType.REAL, "inReal", 0x00000000)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTimePeriod", 0x00000000,
+               "Time Period", "Number of returns in the window", 20.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInRiskFreeRate", 0x00000000,
+               "Risk-Free Rate per Bar", "Risk-free return per bar", 0.0,
+               -3e37, 3e37, 8, 0.0, 0.001, 0.0001,
+               0, 0, 0, 0, 0, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInAnnualization", 0x00000000,
+               "Annualization", "Bars per year", 252.0,
+               0.0, 3e37, 2, 1.0, 365.0, 1.0,
+               0, 0, 0, 0, 0, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3871,7 +3978,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3883,7 +3990,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3895,7 +4002,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3913,7 +4020,7 @@ public final class Functions {
                3, 100000, 10, 200, 5, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3964,8 +4071,36 @@ public final class Functions {
                2, 100000, 2, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outSMI", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outSMISignal", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outSMI", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outSMISignal", 0x00000704)
+         ));
+   }
+
+   private static FuncInfo f_SORTINO() {
+      return new FuncInfo(
+         "SORTINO", "Statistic Functions", "Rolling Sortino Ratio", 0x42000000,
+         List.of(
+            new InputInfo(InputType.REAL, "inReal", 0x00000000)
+         ),
+         List.of(
+            new OptInputInfo(
+               OptInputType.INTEGER_RANGE, "optInTimePeriod", 0x00000000,
+               "Time Period", "Number of returns in the window", 20.0,
+               0.0, 0.0, 0, 0.0, 0.0, 0.0,
+               2, 100000, 4, 200, 1, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInMAR", 0x00000000,
+               "Minimum Acceptable Return per Bar", "Minimum acceptable return per bar", 0.0,
+               -3e37, 3e37, 8, 0.0, 0.001, 0.0001,
+               0, 0, 0, 0, 0, null),
+            new OptInputInfo(
+               OptInputType.REAL_RANGE, "optInAnnualization", 0x00000000,
+               "Annualization", "Bars per year", 252.0,
+               0.0, 3e37, 2, 1.0, 365.0, 1.0,
+               0, 0, 0, 0, 0, null)
+         ),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -3977,7 +4112,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -4020,7 +4155,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outMomentum", 0x00000010),
+            new OutputInfo(OutputType.REAL, "outMomentum", 0x00000710),
             new OutputInfo(OutputType.INTEGER, "outSqueeze", 0x00000001)
          ));
    }
@@ -4049,7 +4184,7 @@ public final class Functions {
                2, 100000, 2, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -4072,7 +4207,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4110,8 +4245,8 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outSlowK", 0x00000004),
-            new OutputInfo(OutputType.REAL, "outSlowD", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outSlowK", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outSlowD", 0x00000704)
          ));
    }
 
@@ -4139,8 +4274,8 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outFastK", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outFastD", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outFastK", 0x00000501),
+            new OutputInfo(OutputType.REAL, "outFastD", 0x00000704)
          ));
    }
 
@@ -4173,8 +4308,8 @@ public final class Functions {
                0, 0, 0, 0, 0, "0=SMA;1=EMA;2=WMA;3=DEMA;4=TEMA;5=TRIMA;6=KAMA;7=MAMA;8=T3;9=HMA;10=DISABLED;11=DEFAULT;12=ZLEMA;13=RMA;14=VIDYA;15=ALMA")
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outFastK", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outFastD", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outFastK", 0x00000501),
+            new OutputInfo(OutputType.REAL, "outFastD", 0x00000704)
          ));
    }
 
@@ -4187,7 +4322,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4205,7 +4340,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4228,8 +4363,8 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outSupertrend", 0x00000001),
-            new OutputInfo(OutputType.INTEGER, "outTrend", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outSupertrend", 0x00020001),
+            new OutputInfo(OutputType.INTEGER, "outTrend", 0x00000301)
          ));
    }
 
@@ -4247,7 +4382,7 @@ public final class Functions {
                2, 10000, 5, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4270,7 +4405,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4324,7 +4459,7 @@ public final class Functions {
                5, 100000, 5, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4359,7 +4494,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4371,7 +4506,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4401,7 +4536,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -4437,7 +4572,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4478,7 +4613,7 @@ public final class Functions {
                2, 100000, 2, 50, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4518,7 +4653,7 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4541,7 +4676,7 @@ public final class Functions {
                0, 0, 0, 0, 0, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -4559,7 +4694,7 @@ public final class Functions {
                2, 100000, 14, 56, 7, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000501)
          ));
    }
 
@@ -4600,8 +4735,8 @@ public final class Functions {
                1, 100000, 1, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outPlusVI", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outMinusVI", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outPlusVI", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outMinusVI", 0x00000701)
          ));
    }
 
@@ -4644,7 +4779,7 @@ public final class Functions {
          ),
          List.of(),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000701)
          ));
    }
 
@@ -4672,8 +4807,8 @@ public final class Functions {
                1, 100000, 1, 50, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outWT1", 0x00000001),
-            new OutputInfo(OutputType.REAL, "outWT2", 0x00000004)
+            new OutputInfo(OutputType.REAL, "outWT1", 0x00000701),
+            new OutputInfo(OutputType.REAL, "outWT2", 0x00000704)
          ));
    }
 
@@ -4703,7 +4838,7 @@ public final class Functions {
                2, 100000, 4, 200, 1, null)
          ),
          List.of(
-            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000601)
          ));
    }
 
@@ -4745,8 +4880,8 @@ public final class Functions {
          ),
          List.of(
             new OutputInfo(OutputType.REAL, "outZigZag", 0x00000001),
-            new OutputInfo(OutputType.INTEGER, "outTrend", 0x00000001),
-            new OutputInfo(OutputType.INTEGER, "outPivotIdx", 0x00000001)
+            new OutputInfo(OutputType.INTEGER, "outTrend", 0x00000301),
+            new OutputInfo(OutputType.INTEGER, "outPivotIdx", 0x00010001)
          ));
    }
 

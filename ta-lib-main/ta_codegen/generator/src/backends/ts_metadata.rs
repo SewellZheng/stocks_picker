@@ -64,7 +64,7 @@ fn clean_stale(dir: &Path, keep: &[&str]) {
 }
 
 fn header() -> String {
-    format!("{}\n{MARKER}\n\n", super::ta_abstract_c::LICENSE)
+    format!("{}\n{MARKER}\n\n", super::ts::ts_license())
 }
 
 /// A single-quoted TS string literal.
@@ -175,6 +175,12 @@ const OUTPUT_FLAGS: &[(&str, &str, &str)] = &[
          `ParamHolder.displayShift` reports. The values are never shifted.",
     ),
     ("pattern_weak", "PATTERN_WEAK", "Level 80 occurs too: a weaker form of the pattern, on the same bar."),
+    ("bar_index", "BAR_INDEX", "The value is an absolute index into the input arrays."),
+    (
+        "segmented",
+        "SEGMENTED",
+        "A line whose segments restart wherever the function's integer output changes value: never connect across a change.",
+    ),
 ];
 
 const PRICE_COMPONENTS: &[(PriceComponent, &str, &str)] = &[
@@ -298,6 +304,8 @@ export interface InputInfo {
   readonly type: InputType;
   /** The parameter's name, e.g. `inReal` or `inPriceHLC`. */
   readonly paramName: string;
+  /** The typed call's parameter name: `real`, `real0`, `periods`, or `prices` for a price input. */
+  readonly key: string;
   /** For a price input, the components it consumes (`InputFlags`); otherwise 0. */
   readonly flags: number;
 }
@@ -308,6 +316,8 @@ export interface OutputInfo {
   readonly type: OutputType;
   /** The parameter's name, e.g. `outReal`. */
   readonly paramName: string;
+  /** The typed call's result key: `values` for a single output, else e.g. `outUpperBand`. */
+  readonly key: string;
   /** Drawing and value hints (`OutputFlags`). */
   readonly flags: number;
 }
@@ -316,6 +326,8 @@ export interface OutputInfo {
 export interface OptInputInfoBase {
   /** The parameter's name, e.g. `optInTimePeriod`. */
   readonly paramName: string;
+  /** The typed call's options key, e.g. `timePeriod`; `setOptInput` takes it. */
+  readonly key: string;
   /** Display hints (`OptInputFlags`). */
   readonly flags: number;
   /** A human-readable label, e.g. `Time Period`. */
@@ -415,6 +427,13 @@ export class FuncInfo {
   readonly optInputs: readonly OptInputInfo[];
   /** The outputs, in call order. */
   readonly outputs: readonly OutputInfo[];
+  /**
+   * Metadata no flag can carry, such as an output's reference levels, as one JSON
+   * object; `'{}'` when none. The same bytes as C's `TA_GetFuncAttributes`. Ignore a
+   * key you do not know: a release may add one
+   * ([keys](https://ta-lib.org/spec/abstract/#attributes)).
+   */
+  readonly attributes: string;
 
   private constructor(
     name: string,
@@ -424,6 +443,7 @@ export class FuncInfo {
     inputs: readonly InputInfo[],
     optInputs: readonly OptInputInfo[],
     outputs: readonly OutputInfo[],
+    attributes: string,
   ) {
     this.name = name;
     this.group = group;
@@ -432,6 +452,7 @@ export class FuncInfo {
     this.inputs = freezeAll(inputs);
     this.optInputs = freezeAll(optInputs);
     this.outputs = freezeAll(outputs);
+    this.attributes = attributes;
     Object.freeze(this);
   }
 
@@ -444,8 +465,9 @@ export class FuncInfo {
     inputs: readonly InputInfo[],
     optInputs: readonly OptInputInfo[],
     outputs: readonly OutputInfo[],
+    attributes: string,
   ): FuncInfo {
-    return new FuncInfo(name, group, hint, flags, inputs, optInputs, outputs);
+    return new FuncInfo(name, group, hint, flags, inputs, optInputs, outputs, attributes);
   }
 
   /**
@@ -461,7 +483,7 @@ export class FuncInfo {
    * A holder to bind this function's arguments into at run time, then call it.
    *
    * @param core - Unstable periods and candle settings to compute with; `Core.DEFAULT` when omitted.
-   * @throws {@link TALibError} `TA_BAD_PARAM` if `core` is not a `Core`.
+   * @throws `TALibError` `TA_BAD_PARAM` if `core` is not a `Core`.
    */
   newCall(core: Core = Core.DEFAULT): ParamHolder {
     if (!(core instanceof Core)) {
@@ -496,17 +518,17 @@ import { InputFlags, InputType, OptInputType, OutputType } from './flags.ts';
 /** The OHLCV components of a price input. Omit any the input's `flags` do not name. */
 export interface PriceInput {
   /** Open prices. */
-  readonly open?: ArrayLike<number>;
+  readonly open?: ArrayLike<number> | undefined;
   /** High prices. */
-  readonly high?: ArrayLike<number>;
+  readonly high?: ArrayLike<number> | undefined;
   /** Low prices. */
-  readonly low?: ArrayLike<number>;
+  readonly low?: ArrayLike<number> | undefined;
   /** Close prices. */
-  readonly close?: ArrayLike<number>;
+  readonly close?: ArrayLike<number> | undefined;
   /** Volumes. */
-  readonly volume?: ArrayLike<number>;
+  readonly volume?: ArrayLike<number> | undefined;
   /** Open interest. */
-  readonly openInterest?: ArrayLike<number>;
+  readonly openInterest?: ArrayLike<number> | undefined;
 }
 
 const COMPONENTS = [
@@ -544,7 +566,7 @@ function unsetValue(o: OptInputInfo): number {
  *
  * Every setter checks its argument against the function's row before it writes,
  * so a rejected call leaves the holder as it was. A rejection throws
- * {@link TALibError}: `TA_BAD_PARAM` for an index out of range or a missing or
+ * `TALibError`: `TA_BAD_PARAM` for an index out of range or a missing or
  * malformed value, `TA_INVALID_PARAM_HOLDER_TYPE` for a slot of another kind.
  * An unset optional parameter takes its default.
  *
@@ -631,11 +653,17 @@ export class ParamHolder {
    * `Core.INTEGER_DEFAULT` selects the default; a real domain takes any number,
    * and `Core.REAL_DEFAULT` selects the default.
    *
-   * @param idx - The parameter's position in `FuncInfo.optInputs`.
+   * @param slot - The parameter's position in `FuncInfo.optInputs`, or its `key`.
    * @param value - The parameter's value, or the domain's default sentinel.
+   * @throws `TALibError` `TA_BAD_PARAM` for a position out of range or a key that
+   *   names no parameter of this function.
    */
-  setOptInput(idx: number, value: number): this {
+  setOptInput(slot: number | string, value: number): this {
     const name = this.info.name;
+    const idx = typeof slot === 'string' ? this.info.optInputs.findIndex((o) => o.key === slot) : slot;
+    if (idx < 0 && typeof slot === 'string') {
+      throw bad(RetCode.BAD_PARAM, `${name}: no optional parameter keyed ${JSON.stringify(slot)}`);
+    }
     checkIndex(name, 'optInput', idx, this.info.optInputs.length);
     const type = this.info.optInputs[idx].type;
     if (type === OptInputType.INTEGER_RANGE || type === OptInputType.INTEGER_LIST) {
@@ -693,12 +721,14 @@ export class ParamHolder {
    * Calls the function over `[startIdx, endIdx]` through its public batch form,
    * which then throws exactly as a direct call does.
    *
-   * @param startIdx - First bar of the requested range (inclusive).
-   * @param endIdx - Last bar of the requested range (inclusive).
-   * @throws {@link TALibError} `TA_INPUT_NOT_ALL_INITIALIZE` or
+   * @param startIdx - First bar of the requested range (inclusive); 0 when omitted.
+   * @param endIdx - Last bar of the requested range (inclusive); when omitted, the
+   *   last bar of the first bound input (of its first consumed component for a
+   *   price input), as the typed call defaults it.
+   * @throws `TALibError` `TA_INPUT_NOT_ALL_INITIALIZE` or
    *   `TA_OUTPUT_NOT_ALL_INITIALIZE` for an unbound input or output.
    */
-  call(startIdx: number, endIdx: number): OutRange {
+  call(startIdx = 0, endIdx?: number): OutRange {
     const name = this.info.name;
     for (let i = 0; i < this.info.inputs.length; i++) {
       const bound = this.info.inputs[i].type === InputType.PRICE ? this.prices[i] !== null : this.inputs[i] !== null;
@@ -711,6 +741,14 @@ export class ParamHolder {
         throw new TALibError(RetCode.OUTPUT_NOT_ALL_INITIALIZE, `${name}: output ${i} is not set`);
       }
     }
+    if (endIdx === undefined) {
+      const first = this.info.inputs[0]?.type === InputType.PRICE ? this.prices[0]?.find((c) => c !== undefined) : this.inputs[0];
+      const length = first?.length ?? 0;
+      if (length === 0) {
+        throw new TALibError(RetCode.BAD_PARAM, `${name}: input 0 is empty`);
+      }
+      endIdx = length - 1;
+    }
     return this.thunks.call(this, startIdx, endIdx);
   }
 }
@@ -720,7 +758,7 @@ export class ParamHolder {
 // dispatch.ts
 // ---------------------------------------------------------------------------
 
-/// One thunk triple per function, each calling the function's public tier.
+/// One thunk triple per function, each calling the function's positional tier.
 fn dispatch(rows: &[FuncRow], by_name: &HashMap<&str, &FuncDef>) -> String {
     let mut s = header();
     let mut enum_types: Vec<&str> = rows
@@ -794,9 +832,9 @@ fn dispatch(rows: &[FuncRow], by_name: &HashMap<&str, &FuncDef>) -> String {
         }
         call.push("h.core".into());
         let _ = writeln!(s, "  ['{m}', {{");
-        let _ = writeln!(s, "    lookback: (h) => {m}.{}({}),", n.lookback, lb.join(", "));
-        let _ = writeln!(s, "    displayShift: (h, o) => {m}.{}({}),", n.display_shift, ds.join(", "));
-        let _ = writeln!(s, "    call: (h, s, e) => {m}.{}({}),", n.public, call.join(", "));
+        let _ = writeln!(s, "    lookback: (h) => {m}.{}({}),", n.lookback_positional, lb.join(", "));
+        let _ = writeln!(s, "    displayShift: (h, o) => {m}.{}({}),", n.display_shift_positional, ds.join(", "));
+        let _ = writeln!(s, "    call: (h, s, e) => {m}.{}({}),", n.positional, call.join(", "));
         s.push_str("  }],\n");
     }
     s.push_str("]);\n");
@@ -853,6 +891,23 @@ export const Functions = Object.freeze({
     s
 }
 
+/// The typed call's name for an input row: the positional parameter, or `prices`.
+fn input_key(kind: InputKind, param_name: &str) -> String {
+    match kind {
+        InputKind::Price => super::ts::PRICES_PARAM.to_string(),
+        InputKind::Real | InputKind::Integer => super::ts::input_param_name(param_name),
+    }
+}
+
+/// The typed call's result key for an output row: `values` for a function's only output.
+fn output_row_key(single: bool, param_name: &str) -> String {
+    if single {
+        "values".to_string()
+    } else {
+        super::ts::output_key(param_name)
+    }
+}
+
 fn emit_row(s: &mut String, r: &FuncRow) {
     let _ = writeln!(
         s,
@@ -872,8 +927,9 @@ fn emit_row(s: &mut String, r: &FuncRow) {
                 InputKind::Integer => "INTEGER",
             };
             format!(
-                "{{ type: InputType.{ty}, paramName: {}, flags: 0x{:08X} }}",
+                "{{ type: InputType.{ty}, paramName: {}, key: {}, flags: 0x{:08X} }}",
                 lit(&i.param_name),
+                lit(&input_key(i.kind, &i.param_name)),
                 i.flags
             )
         })
@@ -883,8 +939,9 @@ fn emit_row(s: &mut String, r: &FuncRow) {
         .iter()
         .map(|o| {
             let common = format!(
-                "paramName: {}, flags: 0x{:08X}, displayName: {}, hint: {}, defaultValue: {}",
+                "paramName: {}, key: {}, flags: 0x{:08X}, displayName: {}, hint: {}, defaultValue: {}",
                 lit(&o.param_name),
+                lit(&super::ts::param_key(&o.param_name)),
                 o.flags,
                 lit(&o.display_name),
                 lit(&o.hint),
@@ -931,24 +988,25 @@ fn emit_row(s: &mut String, r: &FuncRow) {
                 OutputKind::Integer => "INTEGER",
             };
             format!(
-                "{{ type: OutputType.{ty}, paramName: {}, flags: 0x{:08X} }}",
+                "{{ type: OutputType.{ty}, paramName: {}, key: {}, flags: 0x{:08X} }}",
                 lit(&o.param_name),
+                lit(&output_row_key(r.outputs.len() == 1, &o.param_name)),
                 o.flags
             )
         })
         .collect();
-    for (items, last) in [(&inputs, false), (&opts, false), (&outputs, true)] {
-        let close = if last { ")," } else { "," };
+    for items in [&inputs, &opts, &outputs] {
         if items.is_empty() {
-            let _ = writeln!(s, "    []{close}");
+            s.push_str("    [],\n");
         } else {
             s.push_str("    [\n");
             for it in items {
                 let _ = writeln!(s, "      {it},");
             }
-            let _ = writeln!(s, "    ]{close}");
+            s.push_str("    ],\n");
         }
     }
+    let _ = writeln!(s, "    {}),", lit(&r.attributes));
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,7 +1062,8 @@ fn index() -> String {
          export { Functions } from './functions.ts';\n\
          export { ParamHolder } from './paramHolder.ts';\n\
          export type { PriceInput } from './paramHolder.ts';\n\
-         export { getRuntimeInfo } from './runtimeInfo.ts';\n",
+         export { getRuntimeInfo } from './runtimeInfo.ts';\n\
+         export type { RuntimeInfoKey } from './runtimeInfo.ts';\n",
     );
     s
 }

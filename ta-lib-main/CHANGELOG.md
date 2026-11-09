@@ -11,10 +11,13 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - New TA Functions:
   - CE: Chandelier Exit, the highest high and lowest low offset by a multiple of the ATR (#568)
   - MACDV: MACD-V, Spiroglou's volatility-normalised MACD, the EMA spread over the ATR (#570)
+  - SHARPE: Rolling Sharpe Ratio, annualized mean excess return over its standard deviation (#571)
   - SKEW: Rolling Skewness, the adjusted Fisher-Pearson coefficient (#569)
+  - SORTINO: Rolling Sortino Ratio, annualized mean excess return over its downside deviation (#572)
 
 ### Faster
-- ~1.5x to 7x: most candlestick patterns, using a pre-check optimization (#566). Thanks @Yvictor !
+- ~2x to 5x, up to 7x in batch: most candlestick patterns, batch and streaming. Pre-check,
+  default-settings and branch-free optimizations (#566, #580). Thanks @Yvictor !
 
 ## [0.8.3] 2026-10-25
 ### Added

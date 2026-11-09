@@ -58,7 +58,12 @@
  *  103004 AC     Creation
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
+ *  110526 MF,CC  Carry the ranges of the two previous bars instead of recomputing them
  */
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("no-split-paths")
+#endif
 
 TA_LIB_API int TA_CDL3BLACKCROWS_Lookback( void )
 {
@@ -84,9 +89,14 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS( int    startIdx,
                                          int        outInteger[] )
 {
    double ShadowVeryShortPeriodTotal[3];
+   double range1;
+   double range2;
+   double trailRange1;
+   double trailRange2;
+   double range0;
+   double trailRange0;
    int i;
    int outIdx;
-   int totIdx;
    int ShadowVeryShortTrailingIdx;
    int lookbackTotal;
    int ShadowVeryShort_rangeType = TA_Globals->candleSettings[TA_ShadowVeryShort].rangeType;
@@ -129,6 +139,8 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS( int    startIdx,
       *outNBElement= 0;
       return TA_SUCCESS;
    }
+   if( ShadowVeryShort_rangeType == TA_RangeType_RealBody )
+   {
    /* Do the calculation using tight loops. */
    /* Add-up the initial period, except for the last value. */
    ShadowVeryShortPeriodTotal[2] = 0;
@@ -138,12 +150,16 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS( int    startIdx,
    i = ShadowVeryShortTrailingIdx;
    while( i < startIdx )
    {
-      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 2);
-      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 1);
-      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
       i += 1;
    }
    i = startIdx;
+   range2 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2);
+   range1 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 1);
+   trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx - 2);
+   trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx - 1);
    /* Proceed with the calculation for the requested range.
     * Must have:
     * - three consecutive and declining black candlesticks
@@ -165,9 +181,9 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS( int    startIdx,
              (inHigh[i - 3] > inClose[i - 2]) &  /* 1st black closes under prior candle's high */
              (inClose[i - 2] > inClose[i - 1]) & /* three declining */
              (inClose[i - 1] > inClose[i]) &     /* three declining */
-             ((((inClose[i - 2] >= inOpen[i - 2]) ? inOpen[i - 2] : inClose[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
-             ((((inClose[i - 1] >= inOpen[i - 1]) ? inOpen[i - 1] : inClose[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
-             ((((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
       } else 
       {
          outInteger[outIdx++] = 0;
@@ -175,10 +191,16 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS( int    startIdx,
       /* add the current range and subtract the first range: this is done after the pattern recognition
        * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
        */
-      for( totIdx = 2; totIdx >= 0; totIdx -= 1 )
-      {
-         ShadowVeryShortPeriodTotal[totIdx] = ShadowVeryShortPeriodTotal[totIdx] + (TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - totIdx) - TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - totIdx));
-      }
+      /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+      range0 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+      range2 = range1;
+      range1 = range0;
+      trailRange2 = trailRange1;
+      trailRange1 = trailRange0;
       i += 1;
       ShadowVeryShortTrailingIdx += 1;
    } while( i <= endIdx );
@@ -186,6 +208,217 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS( int    startIdx,
    *outNBElement= outIdx;
    *outBegIdx= startIdx;
    return TA_SUCCESS;
+   }
+   else if( ShadowVeryShort_rangeType == TA_RangeType_HighLow )
+   {
+   /* Do the calculation using tight loops. */
+   /* Add-up the initial period, except for the last value. */
+   ShadowVeryShortPeriodTotal[2] = 0;
+   ShadowVeryShortPeriodTotal[1] = 0;
+   ShadowVeryShortPeriodTotal[0] = 0;
+   ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+   i = ShadowVeryShortTrailingIdx;
+   while( i < startIdx )
+   {
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+      i += 1;
+   }
+   i = startIdx;
+   range2 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 2);
+   range1 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1);
+   trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx - 2);
+   trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx - 1);
+   /* Proceed with the calculation for the requested range.
+    * Must have:
+    * - three consecutive and declining black candlesticks
+    * - each candle must have no or very short lower shadow
+    * - each candle after the first must open within the prior candle's real body
+    * - the first candle's close should be under the prior white candle's high
+    * The meaning of "very short" is specified with TA_SetCandleSettings
+    */
+   outIdx = 0;
+   do
+   {
+      if( (((inClose[i - 3] >= inOpen[i - 3]) +         /* white */
+          (!(inClose[i - 2] >= inOpen[i - 2])) +        /* 1st black */
+          (!(inClose[i - 1] >= inOpen[i - 1]))) == 3) ) /* 2nd black */
+      {
+         outInteger[outIdx++] = ((-100) & -(int)(((!(inClose[i] >= inOpen[i])) & /* 3rd black */
+             (inOpen[i - 1] < inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & /* 2nd black opens within 1st black's rb */
+             (inOpen[i] < inOpen[i - 1]) & (inOpen[i] > inClose[i - 1]) & /* 3rd black opens within 2nd black's rb */
+             (inHigh[i - 3] > inClose[i - 2]) &  /* 1st black closes under prior candle's high */
+             (inClose[i - 2] > inClose[i - 1]) & /* three declining */
+             (inClose[i - 1] > inClose[i]) &     /* three declining */
+             ((TA_COLOR_MIN(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
+      } else 
+      {
+         outInteger[outIdx++] = 0;
+      }
+      /* add the current range and subtract the first range: this is done after the pattern recognition
+       * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+       */
+      /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+      range0 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+      trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+      range2 = range1;
+      range1 = range0;
+      trailRange2 = trailRange1;
+      trailRange1 = trailRange0;
+      i += 1;
+      ShadowVeryShortTrailingIdx += 1;
+   } while( i <= endIdx );
+   /* All done. Indicate the output limits and return. */
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else if( ShadowVeryShort_rangeType == TA_RangeType_Shadows )
+   {
+   /* Do the calculation using tight loops. */
+   /* Add-up the initial period, except for the last value. */
+   ShadowVeryShortPeriodTotal[2] = 0;
+   ShadowVeryShortPeriodTotal[1] = 0;
+   ShadowVeryShortPeriodTotal[0] = 0;
+   ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+   i = ShadowVeryShortTrailingIdx;
+   while( i < startIdx )
+   {
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+      i += 1;
+   }
+   i = startIdx;
+   range2 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 2);
+   range1 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 1);
+   trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx - 2);
+   trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx - 1);
+   /* Proceed with the calculation for the requested range.
+    * Must have:
+    * - three consecutive and declining black candlesticks
+    * - each candle must have no or very short lower shadow
+    * - each candle after the first must open within the prior candle's real body
+    * - the first candle's close should be under the prior white candle's high
+    * The meaning of "very short" is specified with TA_SetCandleSettings
+    */
+   outIdx = 0;
+   do
+   {
+      if( (((inClose[i - 3] >= inOpen[i - 3]) +         /* white */
+          (!(inClose[i - 2] >= inOpen[i - 2])) +        /* 1st black */
+          (!(inClose[i - 1] >= inOpen[i - 1]))) == 3) ) /* 2nd black */
+      {
+         outInteger[outIdx++] = ((-100) & -(int)(((!(inClose[i] >= inOpen[i])) & /* 3rd black */
+             (inOpen[i - 1] < inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & /* 2nd black opens within 1st black's rb */
+             (inOpen[i] < inOpen[i - 1]) & (inOpen[i] > inClose[i - 1]) & /* 3rd black opens within 2nd black's rb */
+             (inHigh[i - 3] > inClose[i - 2]) &  /* 1st black closes under prior candle's high */
+             (inClose[i - 2] > inClose[i - 1]) & /* three declining */
+             (inClose[i - 1] > inClose[i]) &     /* three declining */
+             ((TA_COLOR_MIN(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
+      } else 
+      {
+         outInteger[outIdx++] = 0;
+      }
+      /* add the current range and subtract the first range: this is done after the pattern recognition
+       * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+       */
+      /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+      range0 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+      trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+      range2 = range1;
+      range1 = range0;
+      trailRange2 = trailRange1;
+      trailRange1 = trailRange0;
+      i += 1;
+      ShadowVeryShortTrailingIdx += 1;
+   } while( i <= endIdx );
+   /* All done. Indicate the output limits and return. */
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else
+   {
+   /* Do the calculation using tight loops. */
+   /* Add-up the initial period, except for the last value. */
+   ShadowVeryShortPeriodTotal[2] = 0;
+   ShadowVeryShortPeriodTotal[1] = 0;
+   ShadowVeryShortPeriodTotal[0] = 0;
+   ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+   i = ShadowVeryShortTrailingIdx;
+   while( i < startIdx )
+   {
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i);
+      i += 1;
+   }
+   i = startIdx;
+   range2 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 2);
+   range1 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 1);
+   trailRange2 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - 2);
+   trailRange1 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - 1);
+   /* Proceed with the calculation for the requested range.
+    * Must have:
+    * - three consecutive and declining black candlesticks
+    * - each candle must have no or very short lower shadow
+    * - each candle after the first must open within the prior candle's real body
+    * - the first candle's close should be under the prior white candle's high
+    * The meaning of "very short" is specified with TA_SetCandleSettings
+    */
+   outIdx = 0;
+   do
+   {
+      if( (((inClose[i - 3] >= inOpen[i - 3]) +         /* white */
+          (!(inClose[i - 2] >= inOpen[i - 2])) +        /* 1st black */
+          (!(inClose[i - 1] >= inOpen[i - 1]))) == 3) ) /* 2nd black */
+      {
+         outInteger[outIdx++] = ((-100) & -(int)(((!(inClose[i] >= inOpen[i])) & /* 3rd black */
+             (inOpen[i - 1] < inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & /* 2nd black opens within 1st black's rb */
+             (inOpen[i] < inOpen[i - 1]) & (inOpen[i] > inClose[i - 1]) & /* 3rd black opens within 2nd black's rb */
+             (inHigh[i - 3] > inClose[i - 2]) &  /* 1st black closes under prior candle's high */
+             (inClose[i - 2] > inClose[i - 1]) & /* three declining */
+             (inClose[i - 1] > inClose[i]) &     /* three declining */
+             ((TA_COLOR_MIN(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
+             ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
+      } else 
+      {
+         outInteger[outIdx++] = 0;
+      }
+      /* add the current range and subtract the first range: this is done after the pattern recognition
+       * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+       */
+      /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+      range0 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i);
+      trailRange0 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+      range2 = range1;
+      range1 = range0;
+      trailRange2 = trailRange1;
+      trailRange1 = trailRange0;
+      i += 1;
+      ShadowVeryShortTrailingIdx += 1;
+   } while( i <= endIdx );
+   /* All done. Indicate the output limits and return. */
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
 }
 
 TA_RetCode TA_S_CDL3BLACKCROWS( int    startIdx,
@@ -199,9 +432,14 @@ TA_RetCode TA_S_CDL3BLACKCROWS( int    startIdx,
                                 int        outInteger[] )
 {
    double ShadowVeryShortPeriodTotal[3];
+   double range1;
+   double range2;
+   double trailRange1;
+   double trailRange2;
+   double range0;
+   double trailRange0;
    int i;
    int outIdx;
-   int totIdx;
    int ShadowVeryShortTrailingIdx;
    int lookbackTotal;
    int ShadowVeryShort_rangeType = TA_Globals->candleSettings[TA_ShadowVeryShort].rangeType;
@@ -237,6 +475,143 @@ TA_RetCode TA_S_CDL3BLACKCROWS( int    startIdx,
       *outNBElement= 0;
       return TA_SUCCESS;
    }
+   if( ShadowVeryShort_rangeType == TA_RangeType_RealBody )
+   {
+   ShadowVeryShortPeriodTotal[2] = 0;
+   ShadowVeryShortPeriodTotal[1] = 0;
+   ShadowVeryShortPeriodTotal[0] = 0;
+   ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+   i = ShadowVeryShortTrailingIdx;
+   while( i < startIdx )
+   {
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      i += 1;
+   }
+   i = startIdx;
+   range2 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2);
+   range1 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 1);
+   trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx - 2);
+   trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx - 1);
+   outIdx = 0;
+   do
+   {
+      if( ((((double)inClose[i - 3] >= (double)inOpen[i - 3]) + (!((double)inClose[i - 2] >= (double)inOpen[i - 2])) + (!((double)inClose[i - 1] >= (double)inOpen[i - 1]))) == 3) )
+      {
+         outInteger[outIdx++] = ((-100) & -(int)(((!((double)inClose[i] >= (double)inOpen[i])) & ((double)inOpen[i - 1] < (double)inOpen[i - 2]) & ((double)inOpen[i - 1] > (double)inClose[i - 2]) & ((double)inOpen[i] < (double)inOpen[i - 1]) & ((double)inOpen[i] > (double)inClose[i - 1]) & ((double)inHigh[i - 3] > (double)inClose[i - 2]) & ((double)inClose[i - 2] > (double)inClose[i - 1]) & ((double)inClose[i - 1] > (double)inClose[i]) & ((TA_COLOR_MIN((double)inClose[i - 2], (double)inOpen[i - 2]) - (double)inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & ((TA_COLOR_MIN((double)inClose[i - 1], (double)inOpen[i - 1]) - (double)inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & ((TA_COLOR_MIN((double)inClose[i], (double)inOpen[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i)))));
+      } else 
+      {
+         outInteger[outIdx++] = 0;
+      }
+      range0 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+      range2 = range1;
+      range1 = range0;
+      trailRange2 = trailRange1;
+      trailRange1 = trailRange0;
+      i += 1;
+      ShadowVeryShortTrailingIdx += 1;
+   } while( i <= endIdx );
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else if( ShadowVeryShort_rangeType == TA_RangeType_HighLow )
+   {
+   ShadowVeryShortPeriodTotal[2] = 0;
+   ShadowVeryShortPeriodTotal[1] = 0;
+   ShadowVeryShortPeriodTotal[0] = 0;
+   ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+   i = ShadowVeryShortTrailingIdx;
+   while( i < startIdx )
+   {
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+      i += 1;
+   }
+   i = startIdx;
+   range2 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 2);
+   range1 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1);
+   trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx - 2);
+   trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx - 1);
+   outIdx = 0;
+   do
+   {
+      if( ((((double)inClose[i - 3] >= (double)inOpen[i - 3]) + (!((double)inClose[i - 2] >= (double)inOpen[i - 2])) + (!((double)inClose[i - 1] >= (double)inOpen[i - 1]))) == 3) )
+      {
+         outInteger[outIdx++] = ((-100) & -(int)(((!((double)inClose[i] >= (double)inOpen[i])) & ((double)inOpen[i - 1] < (double)inOpen[i - 2]) & ((double)inOpen[i - 1] > (double)inClose[i - 2]) & ((double)inOpen[i] < (double)inOpen[i - 1]) & ((double)inOpen[i] > (double)inClose[i - 1]) & ((double)inHigh[i - 3] > (double)inClose[i - 2]) & ((double)inClose[i - 2] > (double)inClose[i - 1]) & ((double)inClose[i - 1] > (double)inClose[i]) & ((TA_COLOR_MIN((double)inClose[i - 2], (double)inOpen[i - 2]) - (double)inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & ((TA_COLOR_MIN((double)inClose[i - 1], (double)inOpen[i - 1]) - (double)inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & ((TA_COLOR_MIN((double)inClose[i], (double)inOpen[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i)))));
+      } else 
+      {
+         outInteger[outIdx++] = 0;
+      }
+      range0 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+      trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+      range2 = range1;
+      range1 = range0;
+      trailRange2 = trailRange1;
+      trailRange1 = trailRange0;
+      i += 1;
+      ShadowVeryShortTrailingIdx += 1;
+   } while( i <= endIdx );
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else if( ShadowVeryShort_rangeType == TA_RangeType_Shadows )
+   {
+   ShadowVeryShortPeriodTotal[2] = 0;
+   ShadowVeryShortPeriodTotal[1] = 0;
+   ShadowVeryShortPeriodTotal[0] = 0;
+   ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+   i = ShadowVeryShortTrailingIdx;
+   while( i < startIdx )
+   {
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+      i += 1;
+   }
+   i = startIdx;
+   range2 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 2);
+   range1 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 1);
+   trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx - 2);
+   trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx - 1);
+   outIdx = 0;
+   do
+   {
+      if( ((((double)inClose[i - 3] >= (double)inOpen[i - 3]) + (!((double)inClose[i - 2] >= (double)inOpen[i - 2])) + (!((double)inClose[i - 1] >= (double)inOpen[i - 1]))) == 3) )
+      {
+         outInteger[outIdx++] = ((-100) & -(int)(((!((double)inClose[i] >= (double)inOpen[i])) & ((double)inOpen[i - 1] < (double)inOpen[i - 2]) & ((double)inOpen[i - 1] > (double)inClose[i - 2]) & ((double)inOpen[i] < (double)inOpen[i - 1]) & ((double)inOpen[i] > (double)inClose[i - 1]) & ((double)inHigh[i - 3] > (double)inClose[i - 2]) & ((double)inClose[i - 2] > (double)inClose[i - 1]) & ((double)inClose[i - 1] > (double)inClose[i]) & ((TA_COLOR_MIN((double)inClose[i - 2], (double)inOpen[i - 2]) - (double)inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & ((TA_COLOR_MIN((double)inClose[i - 1], (double)inOpen[i - 1]) - (double)inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & ((TA_COLOR_MIN((double)inClose[i], (double)inOpen[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i)))));
+      } else 
+      {
+         outInteger[outIdx++] = 0;
+      }
+      range0 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+      trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+      range2 = range1;
+      range1 = range0;
+      trailRange2 = trailRange1;
+      trailRange1 = trailRange0;
+      i += 1;
+      ShadowVeryShortTrailingIdx += 1;
+   } while( i <= endIdx );
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else
+   {
    ShadowVeryShortPeriodTotal[2] = 0;
    ShadowVeryShortPeriodTotal[1] = 0;
    ShadowVeryShortPeriodTotal[0] = 0;
@@ -250,26 +625,36 @@ TA_RetCode TA_S_CDL3BLACKCROWS( int    startIdx,
       i += 1;
    }
    i = startIdx;
+   range2 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 2);
+   range1 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 1);
+   trailRange2 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - 2);
+   trailRange1 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - 1);
    outIdx = 0;
    do
    {
       if( ((((double)inClose[i - 3] >= (double)inOpen[i - 3]) + (!((double)inClose[i - 2] >= (double)inOpen[i - 2])) + (!((double)inClose[i - 1] >= (double)inOpen[i - 1]))) == 3) )
       {
-         outInteger[outIdx++] = ((-100) & -(int)(((!((double)inClose[i] >= (double)inOpen[i])) & ((double)inOpen[i - 1] < (double)inOpen[i - 2]) & ((double)inOpen[i - 1] > (double)inClose[i - 2]) & ((double)inOpen[i] < (double)inOpen[i - 1]) & ((double)inOpen[i] > (double)inClose[i - 1]) & ((double)inHigh[i - 3] > (double)inClose[i - 2]) & ((double)inClose[i - 2] > (double)inClose[i - 1]) & ((double)inClose[i - 1] > (double)inClose[i]) & (((((double)inClose[i - 2] >= (double)inOpen[i - 2]) ? (double)inOpen[i - 2] : (double)inClose[i - 2]) - (double)inLow[i - 2]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & (((((double)inClose[i - 1] >= (double)inOpen[i - 1]) ? (double)inOpen[i - 1] : (double)inClose[i - 1]) - (double)inLow[i - 1]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & (((((double)inClose[i] >= (double)inOpen[i]) ? (double)inOpen[i] : (double)inClose[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i)))));
+         outInteger[outIdx++] = ((-100) & -(int)(((!((double)inClose[i] >= (double)inOpen[i])) & ((double)inOpen[i - 1] < (double)inOpen[i - 2]) & ((double)inOpen[i - 1] > (double)inClose[i - 2]) & ((double)inOpen[i] < (double)inOpen[i - 1]) & ((double)inOpen[i] > (double)inClose[i - 1]) & ((double)inHigh[i - 3] > (double)inClose[i - 2]) & ((double)inClose[i - 2] > (double)inClose[i - 1]) & ((double)inClose[i - 1] > (double)inClose[i]) & ((TA_COLOR_MIN((double)inClose[i - 2], (double)inOpen[i - 2]) - (double)inLow[i - 2]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & ((TA_COLOR_MIN((double)inClose[i - 1], (double)inOpen[i - 1]) - (double)inLow[i - 1]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & ((TA_COLOR_MIN((double)inClose[i], (double)inOpen[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i)))));
       } else 
       {
          outInteger[outIdx++] = 0;
       }
-      for( totIdx = 2; totIdx >= 0; totIdx -= 1 )
-      {
-         ShadowVeryShortPeriodTotal[totIdx] = ShadowVeryShortPeriodTotal[totIdx] + (TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - totIdx) - TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - totIdx));
-      }
+      range0 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i);
+      trailRange0 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx);
+      ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+      ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+      ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+      range2 = range1;
+      range1 = range0;
+      trailRange2 = trailRange1;
+      trailRange1 = trailRange0;
       i += 1;
       ShadowVeryShortTrailingIdx += 1;
    } while( i <= endIdx );
    *outNBElement= outIdx;
    *outBegIdx= startIdx;
    return TA_SUCCESS;
+   }
 }
 
 /**** Streaming API *****/
@@ -281,6 +666,10 @@ struct TA_CDL3BLACKCROWS_Stream {
    /* The value(s) at the last bar the stream counted (see TA_CDL3BLACKCROWS_Value). */
    int cur_outInteger;
    double ShadowVeryShortPeriodTotal[3];
+   double range1;
+   double range2;
+   double trailRange1;
+   double trailRange2;
    double lag1_inOpen;
    double lag2_inOpen;
    double lag3_inOpen;
@@ -294,7 +683,6 @@ struct TA_CDL3BLACKCROWS_Stream {
    double lag3_inClose;
    int ringPos_ShadowVeryShortTrailingIdx;
    int ringCap_ShadowVeryShortTrailingIdx;
-   int ringLag_ShadowVeryShortTrailingIdx;
    double *ring_ShadowVeryShortTrailingIdx_derived;
 };
 
@@ -309,9 +697,13 @@ static void TA_CDL3BLACKCROWS_ReleaseImpl( struct TA_CDL3BLACKCROWS_Stream *sp )
 /* Private function, not in public API. */
 static void TA_CDL3BLACKCROWS_StepImpl( struct TA_CDL3BLACKCROWS_Stream *sp, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   int totIdx;
+   double range0;
+   double trailRange0;
 
-   sp->ring_ShadowVeryShortTrailingIdx_derived[sp->ringPos_ShadowVeryShortTrailingIdx] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen,inHigh,inLow,inClose);
+   if( sp->ringCap_ShadowVeryShortTrailingIdx == 0 )
+   {
+      sp->ring_ShadowVeryShortTrailingIdx_derived[0] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen,inHigh,inLow,inClose);
+   }
    if( ((sp->lag3_inClose >= sp->lag3_inOpen) ? 1 : -1) == 1 &&  /* white */
        ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : -1) == -1 && /* 1st black */
        ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : -1) == -1 )  /* 2nd black */
@@ -324,9 +716,9 @@ static void TA_CDL3BLACKCROWS_StepImpl( struct TA_CDL3BLACKCROWS_Stream *sp, dou
           sp->lag3_inHigh > sp->lag2_inClose &&   /* 1st black closes under prior candle's high */
           sp->lag2_inClose > sp->lag1_inClose &&  /* three declining */
           sp->lag1_inClose > inClose &&           /* three declining */
-          (((sp->lag2_inClose >= sp->lag2_inOpen) ? sp->lag2_inOpen : sp->lag2_inClose) - sp->lag2_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* very short lower shadow */
-          (((sp->lag1_inClose >= sp->lag1_inOpen) ? sp->lag1_inOpen : sp->lag1_inClose) - sp->lag1_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* very short lower shadow */
-          (((inClose >= inOpen) ? inOpen : inClose) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) ) /* very short lower shadow */
+          (TA_COLOR_MIN(sp->lag2_inClose, sp->lag2_inOpen) - sp->lag2_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* very short lower shadow */
+          (TA_COLOR_MIN(sp->lag1_inClose, sp->lag1_inOpen) - sp->lag1_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* very short lower shadow */
+          (TA_COLOR_MIN(inClose, inOpen) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) ) /* very short lower shadow */
       {
          *outInteger= -100;
       } else 
@@ -340,10 +732,16 @@ static void TA_CDL3BLACKCROWS_StepImpl( struct TA_CDL3BLACKCROWS_Stream *sp, dou
    /* add the current range and subtract the first range: this is done after the pattern recognition
     * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
     */
-   for( totIdx = 2; totIdx >= 0; totIdx -= 1 )
-   {
-      sp->ShadowVeryShortPeriodTotal[totIdx] = sp->ShadowVeryShortPeriodTotal[totIdx] + (sp->ring_ShadowVeryShortTrailingIdx_derived[(sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx >= sp->ringCap_ShadowVeryShortTrailingIdx) ? sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx - sp->ringCap_ShadowVeryShortTrailingIdx : sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx] - sp->ring_ShadowVeryShortTrailingIdx_derived[(sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - sp->ringLag_ShadowVeryShortTrailingIdx - totIdx) % sp->ringCap_ShadowVeryShortTrailingIdx]);
-   }
+   /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+   range0 = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen,inHigh,inLow,inClose);
+   trailRange0 = sp->ring_ShadowVeryShortTrailingIdx_derived[sp->ringPos_ShadowVeryShortTrailingIdx];
+   sp->ShadowVeryShortPeriodTotal[2] = sp->ShadowVeryShortPeriodTotal[2] + (sp->range2 - sp->trailRange2);
+   sp->ShadowVeryShortPeriodTotal[1] = sp->ShadowVeryShortPeriodTotal[1] + (sp->range1 - sp->trailRange1);
+   sp->ShadowVeryShortPeriodTotal[0] = sp->ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+   sp->range2 = sp->range1;
+   sp->range1 = range0;
+   sp->trailRange2 = sp->trailRange1;
+   sp->trailRange1 = trailRange0;
    sp->cur_outInteger = *outInteger;
    sp->lag3_inOpen = sp->lag2_inOpen;
    sp->lag2_inOpen = sp->lag1_inOpen;
@@ -356,6 +754,7 @@ static void TA_CDL3BLACKCROWS_StepImpl( struct TA_CDL3BLACKCROWS_Stream *sp, dou
    sp->lag3_inClose = sp->lag2_inClose;
    sp->lag2_inClose = sp->lag1_inClose;
    sp->lag1_inClose = inClose;
+   sp->ring_ShadowVeryShortTrailingIdx_derived[sp->ringPos_ShadowVeryShortTrailingIdx] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen,inHigh,inLow,inClose);
    sp->ringPos_ShadowVeryShortTrailingIdx = sp->ringPos_ShadowVeryShortTrailingIdx + 1;
    if( sp->ringPos_ShadowVeryShortTrailingIdx >= sp->ringCap_ShadowVeryShortTrailingIdx )
    {
@@ -363,22 +762,10 @@ static void TA_CDL3BLACKCROWS_StepImpl( struct TA_CDL3BLACKCROWS_Stream *sp, dou
    }
 }
 
-static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_CDL3BLACKCROWS_OpenBody( struct TA_CDL3BLACKCROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_CDL3BLACKCROWS_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -387,9 +774,14 @@ static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **
       int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
       double ShadowVeryShort_factor = TA_Globals->candleSettings[TA_ShadowVeryShort].factor;
       double ShadowVeryShortPeriodTotal[3] = {0};
+      double range1 = 0.0;
+      double range2 = 0.0;
+      double trailRange1 = 0.0;
+      double trailRange2 = 0.0;
+      double range0;
+      double trailRange0;
       int i;
       int outIdx;
-      int totIdx;
       int ShadowVeryShortTrailingIdx;
       int lookbackTotal;
       /* Identify the minimum number of price bar needed
@@ -410,6 +802,8 @@ static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **
          *outNBElement= 0;
          return TA_INSUFFICIENT_HISTORY;
       }
+      if( ShadowVeryShort_rangeType == TA_RangeType_RealBody )
+      {
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
       ShadowVeryShortPeriodTotal[2] = 0;
@@ -419,12 +813,16 @@ static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **
       i = ShadowVeryShortTrailingIdx;
       while( i < startIdx )
       {
-         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 2);
-         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 1);
-         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i);
+         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2);
+         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 1);
+         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
          i += 1;
       }
       i = startIdx;
+      range2 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 2);
+      range1 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i - 1);
+      trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx - 2);
+      trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx - 1);
       /* Proceed with the calculation for the requested range.
        * Must have:
        * - three consecutive and declining black candlesticks
@@ -436,27 +834,19 @@ static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **
       outIdx = 0;
       do
       {
-         if( ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : -1) == 1 &&  /* white */
-             ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == -1 && /* 1st black */
-             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == -1 )  /* 2nd black */
+         if( (((inClose[i - 3] >= inOpen[i - 3]) +         /* white */
+             (!(inClose[i - 2] >= inOpen[i - 2])) +        /* 1st black */
+             (!(inClose[i - 1] >= inOpen[i - 1]))) == 3) ) /* 2nd black */
          {
-            if( ((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 && /* 3rd black */
-                inOpen[i - 1] < inOpen[i - 2] &&
-                inOpen[i - 1] > inClose[i - 2] &&             /* 2nd black opens within 1st black's rb */
-                inOpen[i] < inOpen[i - 1] &&
-                inOpen[i] > inClose[i - 1] &&                 /* 3rd black opens within 2nd black's rb */
-                inHigh[i - 3] > inClose[i - 2] &&             /* 1st black closes under prior candle's high */
-                inClose[i - 2] > inClose[i - 1] &&            /* three declining */
-                inClose[i - 1] > inClose[i] &&                /* three declining */
-                (((inClose[i - 2] >= inOpen[i - 2]) ? inOpen[i - 2] : inClose[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2) && /* very short lower shadow */
-                (((inClose[i - 1] >= inOpen[i - 1]) ? inOpen[i - 1] : inClose[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1) && /* very short lower shadow */
-                (((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i) ) /* very short lower shadow */
-            {
-               outInteger[outIdx++ * outStride] = -100;
-            } else 
-            {
-               outInteger[outIdx++ * outStride] = 0;
-            }
+            outInteger[outIdx++ * outStride] = ((-100) & -(int)(((!(inClose[i] >= inOpen[i])) & /* 3rd black */
+                (inOpen[i - 1] < inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & /* 2nd black opens within 1st black's rb */
+                (inOpen[i] < inOpen[i - 1]) & (inOpen[i] > inClose[i - 1]) & /* 3rd black opens within 2nd black's rb */
+                (inHigh[i - 3] > inClose[i - 2]) &  /* 1st black closes under prior candle's high */
+                (inClose[i - 2] > inClose[i - 1]) & /* three declining */
+                (inClose[i - 1] > inClose[i]) &     /* three declining */
+                ((TA_COLOR_MIN(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
+                ((TA_COLOR_MIN(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
+                ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -464,10 +854,16 @@ static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **
          /* add the current range and subtract the first range: this is done after the pattern recognition
           * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
           */
-         for( totIdx = 2; totIdx >= 0; totIdx -= 1 )
-         {
-            ShadowVeryShortPeriodTotal[totIdx] = ShadowVeryShortPeriodTotal[totIdx] + (TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - totIdx) - TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - totIdx));
-         }
+         /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+         range0 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+         trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_RealBody,ShadowVeryShortTrailingIdx);
+         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+         range2 = range1;
+         range1 = range0;
+         trailRange2 = trailRange1;
+         trailRange1 = trailRange0;
          i += 1;
          ShadowVeryShortTrailingIdx += 1;
       } while( i <= endIdx );
@@ -480,18 +876,21 @@ static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       memcpy( sp->ShadowVeryShortPeriodTotal, ShadowVeryShortPeriodTotal, sizeof( sp->ShadowVeryShortPeriodTotal ) );
-      sp->ringLag_ShadowVeryShortTrailingIdx = (int)(i - ShadowVeryShortTrailingIdx);
-      sp->ringCap_ShadowVeryShortTrailingIdx = sp->ringLag_ShadowVeryShortTrailingIdx + 3;
-      if( sp->ringLag_ShadowVeryShortTrailingIdx < 0 || sp->ringCap_ShadowVeryShortTrailingIdx > historyLen ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(195); }
+      sp->range1 = range1;
+      sp->range2 = range2;
+      sp->trailRange1 = trailRange1;
+      sp->trailRange2 = trailRange2;
+      sp->ringCap_ShadowVeryShortTrailingIdx = (int)(i - ShadowVeryShortTrailingIdx);
+      if( sp->ringCap_ShadowVeryShortTrailingIdx < 0 || sp->ringCap_ShadowVeryShortTrailingIdx > historyLen ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(504); }
       { size_t allocN = (size_t)(sp->ringCap_ShadowVeryShortTrailingIdx > 0 ? sp->ringCap_ShadowVeryShortTrailingIdx : 1);
         sp->ring_ShadowVeryShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_ShadowVeryShortTrailingIdx_derived ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_ShadowVeryShortTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_ShadowVeryShortTrailingIdx_derived[fillJ % sp->ringCap_ShadowVeryShortTrailingIdx] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+             sp->ring_ShadowVeryShortTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_ShadowVeryShortTrailingIdx)] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
         }
       }
-      sp->ringPos_ShadowVeryShortTrailingIdx = historyLen % sp->ringCap_ShadowVeryShortTrailingIdx;
+      sp->ringPos_ShadowVeryShortTrailingIdx = 0;
       sp->lag1_inOpen = inOpen[historyLen - 1];
       sp->lag2_inOpen = inOpen[historyLen - 2];
       sp->lag3_inOpen = inOpen[historyLen - 3];
@@ -508,7 +907,358 @@ static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **
       sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
+      }
+      else if( ShadowVeryShort_rangeType == TA_RangeType_HighLow )
+      {
+      /* Do the calculation using tight loops. */
+      /* Add-up the initial period, except for the last value. */
+      ShadowVeryShortPeriodTotal[2] = 0;
+      ShadowVeryShortPeriodTotal[1] = 0;
+      ShadowVeryShortPeriodTotal[0] = 0;
+      ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+      i = ShadowVeryShortTrailingIdx;
+      while( i < startIdx )
+      {
+         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 2);
+         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1);
+         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+         i += 1;
+      }
+      i = startIdx;
+      range2 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 2);
+      range1 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i - 1);
+      trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx - 2);
+      trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx - 1);
+      /* Proceed with the calculation for the requested range.
+       * Must have:
+       * - three consecutive and declining black candlesticks
+       * - each candle must have no or very short lower shadow
+       * - each candle after the first must open within the prior candle's real body
+       * - the first candle's close should be under the prior white candle's high
+       * The meaning of "very short" is specified with TA_SetCandleSettings
+       */
+      outIdx = 0;
+      do
+      {
+         if( (((inClose[i - 3] >= inOpen[i - 3]) +         /* white */
+             (!(inClose[i - 2] >= inOpen[i - 2])) +        /* 1st black */
+             (!(inClose[i - 1] >= inOpen[i - 1]))) == 3) ) /* 2nd black */
+         {
+            outInteger[outIdx++ * outStride] = ((-100) & -(int)(((!(inClose[i] >= inOpen[i])) & /* 3rd black */
+                (inOpen[i - 1] < inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & /* 2nd black opens within 1st black's rb */
+                (inOpen[i] < inOpen[i - 1]) & (inOpen[i] > inClose[i - 1]) & /* 3rd black opens within 2nd black's rb */
+                (inHigh[i - 3] > inClose[i - 2]) &  /* 1st black closes under prior candle's high */
+                (inClose[i - 2] > inClose[i - 1]) & /* three declining */
+                (inClose[i - 1] > inClose[i]) &     /* three declining */
+                ((TA_COLOR_MIN(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
+                ((TA_COLOR_MIN(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
+                ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_HighLow,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
+         } else 
+         {
+            outInteger[outIdx++ * outStride] = 0;
+         }
+         /* add the current range and subtract the first range: this is done after the pattern recognition
+          * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+          */
+         /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+         range0 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,i);
+         trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_HighLow,ShadowVeryShortTrailingIdx);
+         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+         range2 = range1;
+         range1 = range0;
+         trailRange2 = trailRange1;
+         trailRange1 = trailRange0;
+         i += 1;
+         ShadowVeryShortTrailingIdx += 1;
+      } while( i <= endIdx );
+      /* All done. Indicate the output limits and return. */
+      *outNBElement= outIdx;
+      *outBegIdx= startIdx;
+
+      /* Capture the live batch state into the handle. */
+      sp = (struct TA_CDL3BLACKCROWS_Stream *)TA_Malloc( sizeof(*sp) );
+      if( !sp ) { return TA_ALLOC_ERR; }
+      memset( sp, 0, sizeof(*sp) );
+      memcpy( sp->ShadowVeryShortPeriodTotal, ShadowVeryShortPeriodTotal, sizeof( sp->ShadowVeryShortPeriodTotal ) );
+      sp->range1 = range1;
+      sp->range2 = range2;
+      sp->trailRange1 = trailRange1;
+      sp->trailRange2 = trailRange2;
+      sp->ringCap_ShadowVeryShortTrailingIdx = (int)(i - ShadowVeryShortTrailingIdx);
+      if( sp->ringCap_ShadowVeryShortTrailingIdx < 0 || sp->ringCap_ShadowVeryShortTrailingIdx > historyLen ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(504); }
+      { size_t allocN = (size_t)(sp->ringCap_ShadowVeryShortTrailingIdx > 0 ? sp->ringCap_ShadowVeryShortTrailingIdx : 1);
+        sp->ring_ShadowVeryShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_ShadowVeryShortTrailingIdx_derived ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        { int fillJ;
+          for( fillJ = historyLen - sp->ringCap_ShadowVeryShortTrailingIdx; fillJ < historyLen; fillJ++ )
+             sp->ring_ShadowVeryShortTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_ShadowVeryShortTrailingIdx)] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+        }
+      }
+      sp->ringPos_ShadowVeryShortTrailingIdx = 0;
+      sp->lag1_inOpen = inOpen[historyLen - 1];
+      sp->lag2_inOpen = inOpen[historyLen - 2];
+      sp->lag3_inOpen = inOpen[historyLen - 3];
+      sp->lag1_inHigh = inHigh[historyLen - 1];
+      sp->lag2_inHigh = inHigh[historyLen - 2];
+      sp->lag3_inHigh = inHigh[historyLen - 3];
+      sp->lag1_inLow = inLow[historyLen - 1];
+      sp->lag2_inLow = inLow[historyLen - 2];
+      sp->lag1_inClose = inClose[historyLen - 1];
+      sp->lag2_inClose = inClose[historyLen - 2];
+      sp->lag3_inClose = inClose[historyLen - 3];
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
+      sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
+      *stream = sp;
+      return TA_SUCCESS;
+      }
+      else if( ShadowVeryShort_rangeType == TA_RangeType_Shadows )
+      {
+      /* Do the calculation using tight loops. */
+      /* Add-up the initial period, except for the last value. */
+      ShadowVeryShortPeriodTotal[2] = 0;
+      ShadowVeryShortPeriodTotal[1] = 0;
+      ShadowVeryShortPeriodTotal[0] = 0;
+      ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+      i = ShadowVeryShortTrailingIdx;
+      while( i < startIdx )
+      {
+         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 2);
+         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 1);
+         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+         i += 1;
+      }
+      i = startIdx;
+      range2 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 2);
+      range1 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i - 1);
+      trailRange2 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx - 2);
+      trailRange1 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx - 1);
+      /* Proceed with the calculation for the requested range.
+       * Must have:
+       * - three consecutive and declining black candlesticks
+       * - each candle must have no or very short lower shadow
+       * - each candle after the first must open within the prior candle's real body
+       * - the first candle's close should be under the prior white candle's high
+       * The meaning of "very short" is specified with TA_SetCandleSettings
+       */
+      outIdx = 0;
+      do
+      {
+         if( (((inClose[i - 3] >= inOpen[i - 3]) +         /* white */
+             (!(inClose[i - 2] >= inOpen[i - 2])) +        /* 1st black */
+             (!(inClose[i - 1] >= inOpen[i - 1]))) == 3) ) /* 2nd black */
+         {
+            outInteger[outIdx++ * outStride] = ((-100) & -(int)(((!(inClose[i] >= inOpen[i])) & /* 3rd black */
+                (inOpen[i - 1] < inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & /* 2nd black opens within 1st black's rb */
+                (inOpen[i] < inOpen[i - 1]) & (inOpen[i] > inClose[i - 1]) & /* 3rd black opens within 2nd black's rb */
+                (inHigh[i - 3] > inClose[i - 2]) &  /* 1st black closes under prior candle's high */
+                (inClose[i - 2] > inClose[i - 1]) & /* three declining */
+                (inClose[i - 1] > inClose[i]) &     /* three declining */
+                ((TA_COLOR_MIN(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
+                ((TA_COLOR_MIN(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
+                ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
+         } else 
+         {
+            outInteger[outIdx++ * outStride] = 0;
+         }
+         /* add the current range and subtract the first range: this is done after the pattern recognition
+          * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+          */
+         /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+         range0 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+         trailRange0 = TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowVeryShortTrailingIdx);
+         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+         range2 = range1;
+         range1 = range0;
+         trailRange2 = trailRange1;
+         trailRange1 = trailRange0;
+         i += 1;
+         ShadowVeryShortTrailingIdx += 1;
+      } while( i <= endIdx );
+      /* All done. Indicate the output limits and return. */
+      *outNBElement= outIdx;
+      *outBegIdx= startIdx;
+
+      /* Capture the live batch state into the handle. */
+      sp = (struct TA_CDL3BLACKCROWS_Stream *)TA_Malloc( sizeof(*sp) );
+      if( !sp ) { return TA_ALLOC_ERR; }
+      memset( sp, 0, sizeof(*sp) );
+      memcpy( sp->ShadowVeryShortPeriodTotal, ShadowVeryShortPeriodTotal, sizeof( sp->ShadowVeryShortPeriodTotal ) );
+      sp->range1 = range1;
+      sp->range2 = range2;
+      sp->trailRange1 = trailRange1;
+      sp->trailRange2 = trailRange2;
+      sp->ringCap_ShadowVeryShortTrailingIdx = (int)(i - ShadowVeryShortTrailingIdx);
+      if( sp->ringCap_ShadowVeryShortTrailingIdx < 0 || sp->ringCap_ShadowVeryShortTrailingIdx > historyLen ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(504); }
+      { size_t allocN = (size_t)(sp->ringCap_ShadowVeryShortTrailingIdx > 0 ? sp->ringCap_ShadowVeryShortTrailingIdx : 1);
+        sp->ring_ShadowVeryShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_ShadowVeryShortTrailingIdx_derived ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        { int fillJ;
+          for( fillJ = historyLen - sp->ringCap_ShadowVeryShortTrailingIdx; fillJ < historyLen; fillJ++ )
+             sp->ring_ShadowVeryShortTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_ShadowVeryShortTrailingIdx)] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+        }
+      }
+      sp->ringPos_ShadowVeryShortTrailingIdx = 0;
+      sp->lag1_inOpen = inOpen[historyLen - 1];
+      sp->lag2_inOpen = inOpen[historyLen - 2];
+      sp->lag3_inOpen = inOpen[historyLen - 3];
+      sp->lag1_inHigh = inHigh[historyLen - 1];
+      sp->lag2_inHigh = inHigh[historyLen - 2];
+      sp->lag3_inHigh = inHigh[historyLen - 3];
+      sp->lag1_inLow = inLow[historyLen - 1];
+      sp->lag2_inLow = inLow[historyLen - 2];
+      sp->lag1_inClose = inClose[historyLen - 1];
+      sp->lag2_inClose = inClose[historyLen - 2];
+      sp->lag3_inClose = inClose[historyLen - 3];
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
+      sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
+      *stream = sp;
+      return TA_SUCCESS;
+      }
+      else
+      {
+      /* Do the calculation using tight loops. */
+      /* Add-up the initial period, except for the last value. */
+      ShadowVeryShortPeriodTotal[2] = 0;
+      ShadowVeryShortPeriodTotal[1] = 0;
+      ShadowVeryShortPeriodTotal[0] = 0;
+      ShadowVeryShortTrailingIdx = startIdx - ShadowVeryShort_avgPeriod;
+      i = ShadowVeryShortTrailingIdx;
+      while( i < startIdx )
+      {
+         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 2);
+         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 1);
+         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i);
+         i += 1;
+      }
+      i = startIdx;
+      range2 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 2);
+      range1 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i - 1);
+      trailRange2 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - 2);
+      trailRange1 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx - 1);
+      /* Proceed with the calculation for the requested range.
+       * Must have:
+       * - three consecutive and declining black candlesticks
+       * - each candle must have no or very short lower shadow
+       * - each candle after the first must open within the prior candle's real body
+       * - the first candle's close should be under the prior white candle's high
+       * The meaning of "very short" is specified with TA_SetCandleSettings
+       */
+      outIdx = 0;
+      do
+      {
+         if( (((inClose[i - 3] >= inOpen[i - 3]) +         /* white */
+             (!(inClose[i - 2] >= inOpen[i - 2])) +        /* 1st black */
+             (!(inClose[i - 1] >= inOpen[i - 1]))) == 3) ) /* 2nd black */
+         {
+            outInteger[outIdx++ * outStride] = ((-100) & -(int)(((!(inClose[i] >= inOpen[i])) & /* 3rd black */
+                (inOpen[i - 1] < inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & /* 2nd black opens within 1st black's rb */
+                (inOpen[i] < inOpen[i - 1]) & (inOpen[i] > inClose[i - 1]) & /* 3rd black opens within 2nd black's rb */
+                (inHigh[i - 3] > inClose[i - 2]) &  /* 1st black closes under prior candle's high */
+                (inClose[i - 2] > inClose[i - 1]) & /* three declining */
+                (inClose[i - 1] > inClose[i]) &     /* three declining */
+                ((TA_COLOR_MIN(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[2],i - 2)) & /* very short lower shadow */
+                ((TA_COLOR_MIN(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[1],i - 1)) & /* very short lower shadow */
+                ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowVeryShort_rangeType,ShadowVeryShort_avgPeriod,ShadowVeryShort_factor,ShadowVeryShortPeriodTotal[0],i))))); /* very short lower shadow */
+         } else 
+         {
+            outInteger[outIdx++ * outStride] = 0;
+         }
+         /* add the current range and subtract the first range: this is done after the pattern recognition
+          * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+          */
+         /* A bar's ranges for i-1 and i-2 are the ones computed one and two bars ago. */
+         range0 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,i);
+         trailRange0 = TA_CANDLERANGE_OF(ShadowVeryShort_rangeType,ShadowVeryShortTrailingIdx);
+         ShadowVeryShortPeriodTotal[2] = ShadowVeryShortPeriodTotal[2] + (range2 - trailRange2);
+         ShadowVeryShortPeriodTotal[1] = ShadowVeryShortPeriodTotal[1] + (range1 - trailRange1);
+         ShadowVeryShortPeriodTotal[0] = ShadowVeryShortPeriodTotal[0] + (range0 - trailRange0);
+         range2 = range1;
+         range1 = range0;
+         trailRange2 = trailRange1;
+         trailRange1 = trailRange0;
+         i += 1;
+         ShadowVeryShortTrailingIdx += 1;
+      } while( i <= endIdx );
+      /* All done. Indicate the output limits and return. */
+      *outNBElement= outIdx;
+      *outBegIdx= startIdx;
+
+      /* Capture the live batch state into the handle. */
+      sp = (struct TA_CDL3BLACKCROWS_Stream *)TA_Malloc( sizeof(*sp) );
+      if( !sp ) { return TA_ALLOC_ERR; }
+      memset( sp, 0, sizeof(*sp) );
+      memcpy( sp->ShadowVeryShortPeriodTotal, ShadowVeryShortPeriodTotal, sizeof( sp->ShadowVeryShortPeriodTotal ) );
+      sp->range1 = range1;
+      sp->range2 = range2;
+      sp->trailRange1 = trailRange1;
+      sp->trailRange2 = trailRange2;
+      sp->ringCap_ShadowVeryShortTrailingIdx = (int)(i - ShadowVeryShortTrailingIdx);
+      if( sp->ringCap_ShadowVeryShortTrailingIdx < 0 || sp->ringCap_ShadowVeryShortTrailingIdx > historyLen ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(504); }
+      { size_t allocN = (size_t)(sp->ringCap_ShadowVeryShortTrailingIdx > 0 ? sp->ringCap_ShadowVeryShortTrailingIdx : 1);
+        sp->ring_ShadowVeryShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_ShadowVeryShortTrailingIdx_derived ) { TA_CDL3BLACKCROWS_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        { int fillJ;
+          for( fillJ = historyLen - sp->ringCap_ShadowVeryShortTrailingIdx; fillJ < historyLen; fillJ++ )
+             sp->ring_ShadowVeryShortTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_ShadowVeryShortTrailingIdx)] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+        }
+      }
+      sp->ringPos_ShadowVeryShortTrailingIdx = 0;
+      sp->lag1_inOpen = inOpen[historyLen - 1];
+      sp->lag2_inOpen = inOpen[historyLen - 2];
+      sp->lag3_inOpen = inOpen[historyLen - 3];
+      sp->lag1_inHigh = inHigh[historyLen - 1];
+      sp->lag2_inHigh = inHigh[historyLen - 2];
+      sp->lag3_inHigh = inHigh[historyLen - 3];
+      sp->lag1_inLow = inLow[historyLen - 1];
+      sp->lag2_inLow = inLow[historyLen - 2];
+      sp->lag1_inClose = inClose[historyLen - 1];
+      sp->lag2_inClose = inClose[historyLen - 2];
+      sp->lag3_inClose = inClose[historyLen - 3];
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
+      sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
+      *stream = sp;
+      return TA_SUCCESS;
+      }
    }
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDL3BLACKCROWS_OpenFillFrame( struct TA_CDL3BLACKCROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   return TA_CDL3BLACKCROWS_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDL3BLACKCROWS_OpenSinkFrame( struct TA_CDL3BLACKCROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   int sink_outInteger = 0;
+   TA_RetCode retCode = TA_CDL3BLACKCROWS_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, &sink_outInteger, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outInteger ) *outInteger = sink_outInteger;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_CDL3BLACKCROWS_OpenImpl( struct TA_CDL3BLACKCROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_CDL3BLACKCROWS_OpenFillFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger ) : TA_CDL3BLACKCROWS_OpenSinkFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger );
 }
 
 /* Private function, not in public API. */
@@ -530,7 +1280,6 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS_Open( TA_CDL3BLACKCROWS_Stream **stream,
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDL3BLACKCROWS_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
@@ -540,7 +1289,6 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS_OpenAndFill( TA_CDL3BLACKCROWS_Stream **
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
@@ -583,9 +1331,9 @@ TA_LIB_API TA_RetCode TA_CDL3BLACKCROWS_Peek( const TA_CDL3BLACKCROWS_Stream *st
           sp->lag3_inHigh > sp->lag2_inClose &&   /* 1st black closes under prior candle's high */
           sp->lag2_inClose > sp->lag1_inClose &&  /* three declining */
           sp->lag1_inClose > inClose &&           /* three declining */
-          (((sp->lag2_inClose >= sp->lag2_inOpen) ? sp->lag2_inOpen : sp->lag2_inClose) - sp->lag2_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* very short lower shadow */
-          (((sp->lag1_inClose >= sp->lag1_inOpen) ? sp->lag1_inOpen : sp->lag1_inClose) - sp->lag1_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* very short lower shadow */
-          (((inClose >= inOpen) ? inOpen : inClose) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) ) /* very short lower shadow */
+          (TA_COLOR_MIN(sp->lag2_inClose, sp->lag2_inOpen) - sp->lag2_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* very short lower shadow */
+          (TA_COLOR_MIN(sp->lag1_inClose, sp->lag1_inOpen) - sp->lag1_inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* very short lower shadow */
+          (TA_COLOR_MIN(inClose, inOpen) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) ) /* very short lower shadow */
       {
          *outInteger= -100;
       } else 

@@ -458,25 +458,27 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
+    /// let high = vec![0.0; 252]; // your data, oldest first
+    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low = vec![0.0; 252]; // your data, oldest first
+    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close = vec![0.0; 252]; // your data, oldest first
+    /// # let close: Vec<f64> = (0..252)
+    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .collect();
+    /// let volume = vec![0.0; 252]; // your data, oldest first
+    /// # let volume: Vec<f64> = (0..252)
+    /// #     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    /// #     .collect();
     /// let mut kvo = vec![0.0; 252];
     /// let mut kvo_signal = vec![0.0; 252];
     ///
-    /// let out_range = core.kvo(
-    ///     0, high.len() - 1, &high, &low, &close, &volume, 34, 55, 13,
-    ///     &mut kvo, &mut kvo_signal,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert!(kvo[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.kvo(0, high.len() - 1, &high, &low, &close, &volume, 34, 55, 13,
+    ///                      &mut kvo, &mut kvo_signal)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last kvo = {}", range.count, range.beg_idx, kvo[range.count - 1]);
+    /// # assert!(kvo[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -664,9 +666,6 @@ impl Core {
     fn kvo_open_impl_scalar(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outKVO: &mut [f64], outKVOSignal: &mut [f64], outStride: usize,
     ) -> Result<KvoStream, RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -689,13 +688,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut kFast: f64 = 0.0_f64;
@@ -906,10 +905,9 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -919,7 +917,7 @@ impl Core {
     ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
     ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -958,7 +956,7 @@ impl Core {
     ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
     ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -982,9 +980,6 @@ impl Core {
     pub fn kvo_open_and_fill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outKVO: &mut [f64], outKVOSignal: &mut [f64],
     ) -> Result<(KvoStream, OutRange), RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

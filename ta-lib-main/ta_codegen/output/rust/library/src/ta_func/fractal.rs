@@ -288,23 +288,23 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
+    /// let high = vec![0.0; 252]; // your data, oldest first
+    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low = vec![0.0; 252]; // your data, oldest first
+    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let mut swing_high = vec![0i32; 252];
     /// let mut swing_low = vec![0i32; 252];
     ///
-    /// let out_range = core.fractal(
-    ///     0, high.len() - 1, &high, &low, 2, 2,
-    ///     &mut swing_high, &mut swing_low,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert_eq!(out_range.beg_idx + out_range.count, high.len());
-    /// // a pattern output writes only the values its flags declare
-    /// assert!(swing_high[..out_range.count].iter().all(|v| [0, 100].contains(v)));
-    /// // a pattern output writes only the values its flags declare
-    /// assert!(swing_low[..out_range.count].iter().all(|v| [0, 100].contains(v)));
+    /// let core = Core::new();
+    /// let range = core.fractal(0, high.len() - 1, &high, &low, 2, 2,
+    ///                          &mut swing_high, &mut swing_low)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last swing_high = {}", range.count, range.beg_idx, swing_high[range.count - 1]);
+    /// # assert_eq!(range.beg_idx + range.count, high.len());
+    /// # // a pattern output writes only the values its flags declare
+    /// # assert!(swing_high[..range.count].iter().all(|v| [0, 100].contains(v)));
+    /// # // a pattern output writes only the values its flags declare
+    /// # assert!(swing_low[..range.count].iter().all(|v| [0, 100].contains(v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -470,9 +470,6 @@ impl Core {
     pub(crate) fn fractal_open_impl(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInLeftBars: i32, mut optInRightBars: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outSwingHigh: &mut [i32], outSwingLow: &mut [i32], outStride: usize,
     ) -> Result<FractalStream, RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -490,13 +487,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut today: usize = 0_usize;
@@ -594,10 +591,9 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -656,9 +652,6 @@ impl Core {
     pub fn fractal_open_and_fill(
         &self, inHigh: &[f64], inLow: &[f64], mut optInLeftBars: i32, mut optInRightBars: i32, outSwingHigh: &mut [i32], outSwingLow: &mut [i32],
     ) -> Result<(FractalStream, OutRange), RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

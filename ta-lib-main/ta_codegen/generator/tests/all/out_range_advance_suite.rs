@@ -147,7 +147,7 @@ fn ceiling_needle(lang: &str) -> &'static str {
 /// Rule rU4's guard, in the ONE slot its table puts it in
 /// (`https://ta-lib.org/spec/streaming/#ru4`): first, with only the
 /// handle-presence check allowed in front of it — exactly as only `!stream` may
-/// precede an opener's rS1/rS2 pair.
+/// precede an opener's history bounds.
 ///
 /// Position, not presence. C is matched as a substring including that check,
 /// because a composed `Update` opens with `TA_RetCode retCode;` and so has no
@@ -189,7 +189,7 @@ fn assert_ceiling_is_answered_first(what: &str, lang: &str, body: &str) {
         ],
         "ts" => [
             ceiling_needle("ts"),
-            "throw failure(",
+            "throw streamFailure(",
             "RetCode.OUT_OF_RANGE_END_INDEX",
         ],
         other => panic!("unknown backend {other}"),
@@ -224,7 +224,7 @@ fn finite_test(lang: &str, bars: &[String]) -> String {
             "rust" => format!("!{b}.is_finite()"),
             "java" => format!("!Double.isFinite({b})"),
             "csharp" => format!("!double.IsFinite({b})"),
-            "ts" => format!("!Number.isFinite({b})"),
+            "ts" => format!("!Number.isFinite({})", backends::ts::input_param_name(b)),
             other => panic!("unknown backend {other}"),
         })
         .collect();

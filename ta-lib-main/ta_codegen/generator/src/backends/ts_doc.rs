@@ -15,6 +15,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use super::doc_meta::{self, ensure_period, RangeMeta};
+use super::examples::{self, hidden, shown, Line};
 use super::rust_doc::{self, IntClaim};
 use super::ts::{self, ts_names};
 use crate::ir::{DocDef, EnumDef, FuncDef, OptInput, Output, ParamType};
@@ -47,47 +48,47 @@ pub fn batch_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
             b.bullet(&tsdoc(note));
         }
     }
+    let first = ts::result_key(func, &func.outputs[0]);
     b.para(&format!(
-        "Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing \
-         is padded. A range that ends before {{@link {}}} is a success with `count` 0.",
+        "`{first}[k]` is the value at input bar `begIdx + k`; every output is exactly as long as the \
+         number of values written, and nothing is padded. A range that ends before {{@link {}}} is a \
+         success with empty outputs.",
         names.lookback
     ));
     b.blank();
-    b.param("startIdx", "First bar of the requested range (inclusive).");
-    b.param("endIdx", "Last bar of the requested range (inclusive).");
-    for input in &func.inputs {
-        b.param(&input.name, &input_desc(&input.name, doc));
-    }
-    for opt in &func.optional_inputs {
-        b.param(&opt.name, &param_doc(opt, doc, enums));
-    }
-    for out in &func.outputs {
-        b.param(
-            &out.name,
-            &format!(
-                "{} Must hold the values produced and never be empty; the input length always suffices.",
-                output_desc(out, doc)
-            ),
-        );
-    }
-    b.param("core", CORE_PARAM);
+    api_input_params(&mut b, func, doc, "");
+    b.param(
+        "options",
+        &format!(
+            "Parameters, the range `startIdx` to `endIdx` (inclusive), `core` and output buffers, \
+             each optional; see {{@link {}}}.",
+            names.options_type
+        ),
+    );
     b.tag(
         "returns",
-        "The range written: `begIdx` is the first bar with a value, `count` how many were written.",
+        &format!(
+            "`begIdx` and the values; see {{@link {}}}. Each output is a view of its buffer, the \
+             caller's or a new one.",
+            names.result_type
+        ),
     );
-    let mut causes = vec!["an argument that is not an int32"];
+    let mut causes = vec!["options that are not an object", "a `core` that is not a `Core`", "an absent input", "a range bound that is not an int32"];
+    if func.optional_inputs.iter().any(|o| matches!(o.param_type, ParamType::Integer | ParamType::Enum(_))) {
+        causes.push("an integer parameter that is not an int32");
+    }
     if has_real_param(func) {
         causes.push("a real parameter that is not a number");
     }
     if !func.optional_inputs.is_empty() {
         causes.push("a parameter outside its range");
     }
-    causes.extend(["an array too short for the range", "an empty output"]);
+    causes.extend(["an input too short for the range", "a buffer that is empty, too short or of the wrong type"]);
     if ts::shared_output_condition(func).is_some() {
-        causes.push("two outputs sharing memory");
+        causes.push("two buffers sharing memory");
     }
     if !func.inputs.is_empty() {
-        causes.push("an output sharing memory with a `Float64Array` input it is not");
+        causes.push("a buffer sharing memory with a `Float64Array` input it is not");
     }
     b.tag(
         "throws",
@@ -107,11 +108,110 @@ pub fn batch_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     b.render()
 }
 
-/// `<n>Lookback`.
+/// `@param` lines for the idiomatic API's input parameters; `lead` prefixes
+/// each text.
+fn api_input_params(b: &mut Block, func: &FuncDef, doc: &DocDef, lead: &str) {
+    for a in ts::api_inputs(func) {
+        if a.is_price {
+            let parts: Vec<String> = a
+                .legs
+                .iter()
+                .map(|(i, expr)| format!("`{}`: {}", &expr[ts::PRICES_PARAM.len() + 1..], input_desc(&i.name, doc)))
+                .collect();
+            b.param(&a.name, &format!("{lead}One series per price component this function reads, all of one length; other components may be present and are ignored. {}", parts.join(" ")));
+        } else {
+            b.param(&a.name, &format!("{lead}{}", input_desc(&a.legs[0].0.name, doc)));
+        }
+    }
+}
+
+/// The `<N>Options` interface.
+#[must_use]
+pub fn options_docs(func: &FuncDef) -> String {
+    let names = ts_names(&func.name);
+    let mut calls = vec![names.public.clone(), names.lookback.clone(), names.display_shift.clone()];
+    if func.streaming {
+        calls.extend([names.open.clone(), names.open_and_fill.clone()]);
+    }
+    let links: Vec<String> = calls.iter().map(|c| format!("{{@link {c}}}")).collect();
+    let refs: Vec<&str> = links.iter().map(String::as_str).collect();
+    let mut b = Block::new("");
+    b.para(&format!(
+        "Options of {}. Every key is optional: an omitted or `undefined` key takes its default, and a \
+         call ignores the keys it has no use for.",
+        any_and(&refs)
+    ));
+    b.render()
+}
+
+/// The `<N>Result` interface.
+#[must_use]
+pub fn result_docs(func: &FuncDef) -> String {
+    let names = ts_names(&func.name);
+    let mut b = Block::new("");
+    if func.streaming {
+        b.para(&format!(
+            "What {{@link {}}} returns, and {{@link {}}} with its stream.",
+            names.public, names.open_and_fill
+        ));
+    } else {
+        b.para(&format!("What {{@link {}}} returns.", names.public));
+    }
+    b.render()
+}
+
+/// A member of an interface, indented one level.
+#[must_use]
+pub fn member(text: &str) -> String {
+    let mut b = Block::new("  ");
+    b.para(text);
+    b.render()
+}
+
+/// An optional parameter's options key.
 #[allow(clippy::implicit_hasher)]
 #[must_use]
-pub fn lookback_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String {
-    let doc = doc_of(func);
+pub fn param_text(func: &FuncDef, opt: &OptInput, enums: &HashMap<String, EnumDef>) -> String {
+    param_doc(opt, doc_of(func), enums)
+}
+
+pub const START_IDX_KEY: &str =
+    "First bar of the requested range (default 0). Bars before it are still read as warm-up. Batch calls only.";
+pub const END_IDX_KEY: &str =
+    "Last bar of the requested range, inclusive (default the last bar of the first input). Batch calls only.";
+pub const CORE_KEY: &str = CORE_PARAM;
+pub const BEG_IDX_FIELD: &str = "Input bar of the first value; 0 when there is none.";
+
+/// An output buffer's options key.
+#[must_use]
+pub fn buffer_text(func: &FuncDef, out: &Output) -> String {
+    let in_place = if out.param_type == ParamType::Real {
+        "; a batch call may compute in place over a `Float64Array` input of the same length"
+    } else {
+        ""
+    };
+    format!(
+        "Buffer for `{}`, written from index 0 and allocated when omitted. It must hold the values \
+         produced (for a batch call the input length always suffices, for an `OpenAndFill` \
+         `historyLen - lookback`), and share no memory with another buffer or with an input{in_place}.",
+        ts::result_key(func, out)
+    )
+}
+
+/// An output's field of `<N>Result`.
+#[must_use]
+pub fn result_field_text(func: &FuncDef, out: &Output) -> String {
+    let key = ts::result_key(func, out);
+    let desc = output_desc(out, doc_of(func));
+    let stop = if desc.ends_with(['.', '!', '?']) { "" } else { "." };
+    format!("{desc}{stop} `{key}[k]` is the value at input bar `begIdx + k`.")
+}
+
+const OPTIONS_IGNORED: &str = "other keys are ignored";
+
+/// `<n>Lookback`.
+#[must_use]
+pub fn lookback_docs(func: &FuncDef) -> String {
     let names = ts_names(&func.name);
     let mut b = Block::new("");
     b.para(&format!(
@@ -123,19 +223,23 @@ pub fn lookback_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String
         b.para("It includes `core`'s unstable period for this function.");
     }
     b.blank();
-    for opt in &func.optional_inputs {
-        b.param(&opt.name, &param_doc(opt, doc, enums));
-    }
-    b.param("core", CORE_PARAM);
-    b.tag("returns", "The lookback, or -1 if a parameter is out of range.");
+    b.param(
+        "options",
+        &format!("The parameters and `core`; {OPTIONS_IGNORED}. See {{@link {}}}.", names.options_type),
+    );
+    b.tag("returns", "The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of range.");
+    b.tag("throws", OPTIONS_THROW);
     b.render()
 }
 
+/// Lookback and display shift answer a rejected parameter with a value, but
+/// not a caller error in the call's shape.
+const OPTIONS_THROW: &str =
+    "`TALibError` with code `TA_BAD_PARAM` when `options` is not an object or `core` is not a `Core`.";
+
 /// `<n>DisplayShift`.
-#[allow(clippy::implicit_hasher)]
 #[must_use]
-pub fn display_shift_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String {
-    let doc = doc_of(func);
+pub fn display_shift_docs(func: &FuncDef) -> String {
     let names = ts_names(&func.name);
     let mut b = Block::new("");
     b.para(&format!(
@@ -149,15 +253,17 @@ pub fn display_shift_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> S
         "Every output of this function is drawn at its own bar, so the answer is 0."
     });
     b.blank();
-    for opt in &func.optional_inputs {
-        b.param(&opt.name, &param_doc(opt, doc, enums));
-    }
-    b.param(crate::ir::DISPLAY_SHIFT_INDEX_PARAM, "Position of the output in the batch signature, from 0.");
-    b.param("core", CORE_PARAM);
+    b.param(crate::ir::DISPLAY_SHIFT_INDEX_PARAM, "Position of the output among the result's outputs, from 0.");
+    b.param(
+        "options",
+        &format!("The parameters and `core`; {OPTIONS_IGNORED}. See {{@link {}}}.", names.options_type),
+    );
     b.tag(
         "returns",
-        "The display shift, or -2147483648 if a parameter is out of range or the index names no output.",
+        "The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a parameter is out of \
+         range or the index names no output.",
     );
+    b.tag("throws", OPTIONS_THROW);
     b.render()
 }
 
@@ -174,8 +280,11 @@ pub fn open_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String {
         func.name, names.public
     ));
     b.blank();
-    history_params(&mut b, func, doc, enums);
-    b.param("core", CORE_PARAM);
+    api_input_params(&mut b, func, doc, "Warm-up history. ");
+    b.param(
+        "options",
+        &format!("The parameters and `core`; {OPTIONS_IGNORED}. See {{@link {}}}.", names.options_type),
+    );
     b.tag("returns", "The stream, positioned on the last history bar.");
     b.tag("throws", &open_throws(func, false));
     if let Some(example) = open_example(func, enums) {
@@ -192,24 +301,27 @@ pub fn open_and_fill_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> S
     let names = ts_names(&func.name);
     let mut b = Block::new("");
     b.para(&format!(
-        "{{@link {}}} that also fills the outputs over the whole history in the same pass, \
-         bit-identically to {{@link {}}}. The range written is the stream's `outRange()`.",
+        "{{@link {}}} that also computes the outputs over the whole history in the same pass, \
+         bit-identically to {{@link {}}}.",
         names.open, names.public
     ));
     b.blank();
-    history_params(&mut b, func, doc, enums);
-    for out in &func.outputs {
-        b.param(
-            &out.name,
-            &format!(
-                "{} Must hold `historyLen - lookback` values and share no memory with an input \
-                 or another output.",
-                output_desc(out, doc)
-            ),
-        );
-    }
-    b.param("core", CORE_PARAM);
-    b.tag("returns", "The stream, positioned on the last history bar.");
+    api_input_params(&mut b, func, doc, "Warm-up history. ");
+    b.param(
+        "options",
+        &format!(
+            "The parameters, `core` and output buffers; {OPTIONS_IGNORED}. See {{@link {}}}.",
+            names.options_type
+        ),
+    );
+    b.tag(
+        "returns",
+        &format!(
+            "The stream, positioned on the last history bar, with `begIdx` and the values over the \
+             history as {{@link {}}} returns them; the range is the stream's `outRange()`.",
+            names.public
+        ),
+    );
     b.tag("throws", &open_throws(func, true));
     if let Some(example) = fill_example(func, enums) {
         b.example(&example);
@@ -270,36 +382,42 @@ pub fn stream_method_docs(func: &FuncDef, method: StreamMethod) -> String {
             let update = method == StreamMethod::Update;
             b.para(match (update, multi) {
                 (true, false) => "Commits one closed bar and returns the new value.",
-                (true, true) => "Commits one closed bar, writing the new values into `out`.",
-                (false, false) => "What the next `update` with the same bar would return, committing nothing.",
-                (false, true) => "Writes into `out` what the next `update` with the same bar would write, committing nothing.",
+                (true, true) => "Commits one closed bar and returns its outputs.",
+                (false, _) => "What the next `update` with the same bar would return, committing nothing.",
             });
             b.blank();
             for bar in streaming::input_array_names(func) {
-                b.param(&bar, &format!("The bar's `{bar}` value: {}", input_desc(&bar, doc)));
+                let name = ts::input_param_name(&bar);
+                b.param(&name, &format!("The bar's `{name}` value: {}", input_desc(&bar, doc)));
             }
             if multi {
-                b.param("out", "Receives the bar's outputs.");
+                b.param("out", &sink_param(&names));
+                b.tag("returns", if update { "`out`, or the new sink." } else { "`out`, or the new sink, as `update` would fill it." });
             } else {
                 b.tag("returns", if update { "The new value." } else { "The value `update` would return." });
             }
+            let sink = if multi { SINK_REJECTED } else { "" };
             if update {
                 b.tag(
                     "throws",
                     &format!(
-                        "`TALibError` with code `TA_BAD_PARAM` for a bar value that is not finite, \
+                        "`TALibError` with code `TA_BAD_PARAM` for a bar value that is not finite{sink}, \
                          before anything moves. {CEILING_THROWS}"
                     ),
                 );
             } else {
-                b.tag("throws", "`TALibError` with code `TA_BAD_PARAM` for a bar value that is not finite.");
+                b.tag("throws", &format!("`TALibError` with code `TA_BAD_PARAM` for a bar value that is not finite{sink}."));
             }
         }
         StreamMethod::Value => {
-            b.para("The value at the last bar this stream counted; `peek` does not change it.");
             if multi {
+                b.para("The outputs at the last bar this stream counted; `peek` does not change them.");
                 b.blank();
-                b.param("out", "Receives the outputs.");
+                b.param("out", &sink_param(&names));
+                b.tag("returns", "`out`, or the new sink.");
+                b.tag("throws", &format!("`TALibError` with code `TA_BAD_PARAM` for{}.", SINK_REJECTED.trim_start_matches(", or")));
+            } else {
+                b.para("The value at the last bar this stream counted; `peek` does not change it.");
             }
         }
         StreamMethod::Clone => {
@@ -314,13 +432,21 @@ pub fn stream_method_docs(func: &FuncDef, method: StreamMethod) -> String {
     b.render()
 }
 
+/// The sink clause of a multi-output method's `@throws`.
+const SINK_REJECTED: &str = ", or a sink that is not an object, `null` included";
+
+fn sink_param(names: &ts::TsNames) -> String {
+    format!("Receives the outputs and is returned; a new {{@link {}}} when omitted.", names.out_class)
+}
+
 /// The `<N>Out` sink class of a multi-output stream.
 #[must_use]
 pub fn out_class_docs(func: &FuncDef) -> String {
     let mut b = Block::new("");
     b.para(&format!(
-        "The outputs of one {} bar, written into an object the caller owns and reuses: \
-         valid until the next call that writes it.",
+        "The outputs of one {} bar, as `update`, `peek` and `value` return them. Passed back to one \
+         of them, it is filled and returned again, with no allocation; it holds its values until \
+         the next call that writes it. A new one holds `NaN`.",
         func.name
     ));
     b.render()
@@ -339,20 +465,9 @@ const CORE_PARAM: &str = "Unstable periods and candle settings to compute with; 
 const CEILING_THROWS: &str =
     "`TALibError` with code `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.";
 
-fn history_params(b: &mut Block, func: &FuncDef, doc: &DocDef, enums: &HashMap<String, EnumDef>) {
-    let bars = streaming::input_array_names(func);
-    let same = if bars.len() > 1 { " Every history has the same length." } else { "" };
-    for bar in &bars {
-        b.param(bar, &format!("Warm-up history. {}{same}", input_desc(bar, doc)));
-    }
-    for opt in &func.optional_inputs {
-        b.param(&opt.name, &param_doc(opt, doc, enums));
-    }
-}
-
 fn open_throws(func: &FuncDef, fill: bool) -> String {
     let names = ts_names(&func.name);
-    let mut causes = Vec::new();
+    let mut causes = vec!["options that are not an object", "a `core` that is not a `Core`", "an absent input"];
     if func.optional_inputs.iter().any(|o| matches!(o.param_type, ParamType::Integer | ParamType::Enum(_))) {
         causes.push("an integer parameter that is not an int32");
     }
@@ -367,14 +482,15 @@ fn open_throws(func: &FuncDef, fill: bool) -> String {
     }
     if fill {
         causes.push(
-            "an output too short or starting where another output or a `Float64Array` input starts, or, on a \
-             history long enough to open, one sharing memory with another output or a `Float64Array` input",
+            "a buffer too short, of the wrong type or starting where another buffer or a `Float64Array` input \
+             starts, or, on a history long enough to open, one sharing memory with another buffer or a \
+             `Float64Array` input",
         );
     }
-    let bad = if causes.is_empty() { String::new() } else { format!(", and `TA_BAD_PARAM` for {}", any_of(&causes)) };
+    let bad = format!(", and `TA_BAD_PARAM` for {}", any_of(&causes));
     format!(
         "`TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter than \
-         `{}(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty one{bad}.",
+         `{}(...) + 1` bars, an empty one included{bad}.",
         names.lookback
     )
 }
@@ -389,6 +505,15 @@ fn any_of(items: &[&str]) -> String {
         [] => String::new(),
         [one] => (*one).to_string(),
         [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
+    }
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn any_and(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -498,12 +623,74 @@ fn see_also(func: &FuncDef, doc: &DocDef, registry: &Registry) -> Vec<String> {
         .collect()
 }
 
+/// The function names the prose mapper may spell in TypeScript, seeded by the
+/// backend from the corpus it generates. Seeding only adds, so the set does not
+/// depend on which caller seeded last; empty under a unit test that seeds nothing,
+/// which then maps only the context-free forms.
+static FUNCTION_NAMES: std::sync::RwLock<BTreeSet<String>> = std::sync::RwLock::new(BTreeSet::new());
+
+pub fn seed_function_names<'a>(names: impl IntoIterator<Item = &'a str>) {
+    FUNCTION_NAMES.write().expect("function names").extend(names.into_iter().map(str::to_string));
+}
+
+/// C spellings in the shared `.md` prose, in the TypeScript API's own terms:
+/// `optInTimePeriod` is the option key `timePeriod`, `inHigh` the bar's `high`,
+/// `outRealUpperBand` the result's `outUpperBand` and `outBegIdx` its `begIdx`
+/// (a single output's `outReal` stays: it is also its buffer key), `TA_MAType_EMA`
+/// is `MAType.EMA`, `TA_FUNC_UNST_EMA` is `FuncUnstId.EMA`, the settings calls are
+/// the builder's, and a function `TA_MEDPRICE` (or its `_Lookback` /
+/// `_DisplayShift`) is `medprice`. A `TA_` name that is none of these, a
+/// `RetCode` for one, stays: it is the `code` a thrown error carries.
+fn plain_terms(text: &str) -> String {
+    use regex::Regex;
+    use std::sync::OnceLock;
+    static OPT: OnceLock<Regex> = OnceLock::new();
+    static INP: OnceLock<Regex> = OnceLock::new();
+    static OUT: OnceLock<Regex> = OnceLock::new();
+    static TA: OnceLock<Regex> = OnceLock::new();
+    let opt = OPT.get_or_init(|| Regex::new(r"\boptIn[A-Z][A-Za-z0-9_]*").expect("regex"));
+    let inp = INP.get_or_init(|| Regex::new(r"\bin(Open|High|Low|Close|Volume|OpenInterest|Real[0-9]*|Periods)\b").expect("regex"));
+    let out = OUT.get_or_init(|| Regex::new(r"\bout[A-Z][A-Za-z0-9_]*\b").expect("regex"));
+    let ta = TA.get_or_init(|| Regex::new(r"\bTA_([A-Za-z][A-Za-z0-9_]*)\b").expect("regex"));
+    let names = FUNCTION_NAMES.read().expect("function names");
+    let text = opt.replace_all(text, |c: &regex::Captures| ts::param_key(&c[0]));
+    let text = inp.replace_all(&text, |c: &regex::Captures| ts::input_param_name(&c[0]));
+    let text = out.replace_all(&text, |c: &regex::Captures| if &c[0] == "outBegIdx" { "begIdx".to_string() } else { ts::output_key(&c[0]) });
+    ta.replace_all(&text, |c: &regex::Captures| {
+        let rest = &c[1];
+        if let Some(m) = rest.strip_prefix("MAType_") {
+            return format!("MAType.{m}");
+        }
+        if let Some(m) = rest.strip_prefix("FUNC_UNST_") {
+            return format!("FuncUnstId.{m}");
+        }
+        match rest {
+            "SetUnstablePeriod" => return "CoreBuilder.unstablePeriod".to_string(),
+            "GetUnstablePeriod" => return "Core.unstablePeriod".to_string(),
+            "SetCandleSettings" => return "CoreBuilder.candleSetting".to_string(),
+            "RestoreCandleDefaultSettings" => return "CoreBuilder.restoreCandleDefault".to_string(),
+            _ => {}
+        }
+        if let Some(func) = rest.strip_suffix("_Lookback").filter(|f| names.contains(*f)) {
+            return ts::ts_names(func).lookback;
+        }
+        if let Some(func) = rest.strip_suffix("_DisplayShift").filter(|f| names.contains(*f)) {
+            return ts::ts_names(func).display_shift;
+        }
+        if names.contains(rest) {
+            return ts::func_ident(rest);
+        }
+        c[0].to_string()
+    })
+    .into_owned()
+}
+
 /// Canonical Markdown made safe inside a `/** */` block: rustdoc's escaping
 /// (TSDoc renders the same Markdown), plus `@` outside code spans, which TSDoc
 /// would read as a tag at the start of a wrapped line.
 #[must_use]
 pub fn tsdoc(text: &str) -> String {
-    let escaped = rust_doc::escape_prose(text);
+    let escaped = rust_doc::escape_prose(&plain_terms(text));
     let mut out = String::with_capacity(escaped.len());
     let mut in_code = false;
     for c in escaped.chars() {
@@ -655,8 +842,9 @@ pub struct Example {
     pub title: String,
     /// Names the example imports from the package.
     pub imports: BTreeSet<String>,
-    /// The example's code, after its import line.
-    pub body: Vec<String>,
+    /// The example's code, after its import line; the doc block shows the shown
+    /// lines, the test runs them all.
+    pub body: Vec<Line>,
     /// Names only the checks import.
     pub check_imports: BTreeSet<String>,
     /// Assertions over the variables the body defined.
@@ -669,8 +857,14 @@ impl Example {
     pub fn source(&self) -> Vec<String> {
         let mut lines: Vec<String> = import_line(&self.imports).lines().map(String::from).collect();
         lines.push(String::new());
-        lines.extend(self.body.iter().cloned());
+        lines.extend(self.body.iter().filter(|l| l.shown).map(|l| l.text.clone()));
         lines
+    }
+
+    /// Every body line, as the test runs it.
+    #[must_use]
+    pub fn body_text(&self) -> Vec<String> {
+        self.body.iter().map(|l| l.text.clone()).collect()
     }
 }
 
@@ -689,23 +883,23 @@ fn import_line(names: &BTreeSet<String>) -> String {
 }
 
 /// One input's example series: `(variable, element expression in i, one more bar)`.
-/// The batch, open and fill examples feed the same history, and `open` and
-/// `close` stay inside `[low, high]`. See [`rust_doc::CLOSE_SERIES`] for why
-/// `close` carries a second harmonic and `volume` falls on some bars.
-fn series(func: &FuncDef, input: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    Some(match input {
-        "inReal" if rust_doc::unit_domain(func) => ("data", "Math.sin(0.1 * i)", "0.42"),
-        "inOpen" => ("open", "100 + 10 * Math.sin(0.1 * i - 0.05)", "100.2"),
-        "inHigh" => ("high", "101 + 10 * Math.sin(0.1 * i)", "101.4"),
-        "inLow" => ("low", "99 + 10 * Math.sin(0.1 * i)", "99.1"),
-        "inClose" => ("close", "100 + 10 * Math.sin(0.1 * i) + 0.8 * Math.sin(0.7 * i)", "100.9"),
-        "inVolume" => ("volume", "10000 + 100 * i + 2000 * Math.sin(0.3 * i)", "12345"),
-        "inPeriods" => ("periods", "5 + (i % 10)", "14"),
-        "inReal" => ("data", "100 + 10 * Math.sin(0.1 * i)", "100.9"),
-        "inReal0" => ("data0", "100 + 10 * Math.sin(0.1 * i)", "100.9"),
-        "inReal1" => ("data1", "100 + 10 * Math.sin(0.1 * i + 0.7)", "101.3"),
-        _ => return None,
-    })
+/// The batch, open and fill examples feed the same history, from [`examples::series`].
+fn series(func: &FuncDef, input: &str) -> Option<(&'static str, String, String)> {
+    let s = examples::series(func, input)?;
+    let bar = match rust_doc::input_domain(func, input) {
+        Some(domain) => doc_meta::fmt_real(rust_doc::domain_bar(domain, 0.42)),
+        None => match input {
+            "inOpen" => "100.2",
+            "inHigh" => "101.4",
+            "inLow" => "99.1",
+            "inVolume" => "12345",
+            "inPeriods" => "14",
+            "inReal1" => "101.3",
+            _ => "100.9",
+        }
+        .to_string(),
+    };
+    Some((s.var, examples::render(&s, &examples::MATH_SIN), bar))
 }
 
 fn series_lines(var: &str, expr: &str) -> Vec<String> {
@@ -722,17 +916,30 @@ fn series_lines(var: &str, expr: &str) -> Vec<String> {
 /// What every example of a function shares: its series and argument literals.
 struct Setup {
     /// One `(variable, bar literal)` per bar input, in call order.
-    series: Vec<(&'static str, &'static str)>,
+    series: Vec<(&'static str, String)>,
+    /// The series as literals, for the streaming examples.
     lines: Vec<String>,
+    /// The series as the batch example declares them: a placeholder a reader
+    /// fills, shown, and the hidden fill the test runs.
+    placeholder: Vec<Line>,
     opts: Vec<String>,
     imports: BTreeSet<String>,
 }
 
 fn setup(func: &FuncDef, inputs: &[String], enums: &HashMap<String, EnumDef>) -> Option<Setup> {
-    let mut s = Setup { series: Vec::new(), lines: Vec::new(), opts: Vec::new(), imports: BTreeSet::new() };
+    let mut s = Setup {
+        series: Vec::new(),
+        lines: Vec::new(),
+        placeholder: Vec::new(),
+        opts: Vec::new(),
+        imports: BTreeSet::new(),
+    };
     for input in inputs {
         let (var, expr, bar) = series(func, input)?;
-        s.lines.extend(series_lines(var, expr));
+        s.lines.extend(series_lines(var, &expr));
+        let comment = examples::series(func, input)?.comment;
+        s.placeholder.push(shown(format!("const {var} = new Float64Array({EXAMPLE_LEN}); // {comment}")));
+        s.placeholder.push(hidden(format!("for (let i = 0; i < {EXAMPLE_LEN}; i++) {var}[i] = {expr};")));
         s.series.push((var, bar));
     }
     if s.series.is_empty() {
@@ -765,62 +972,74 @@ fn opt_literal(opt: &OptInput, enums: &HashMap<String, EnumDef>) -> (String, Opt
     }
 }
 
-/// The names an example or its checks bind besides its series and outputs.
-const EXAMPLE_LOCALS: &[&str] =
-    &["begIdx", "count", "stream", "peeked", "updated", "range", "batch", "k", "i", "v", "bar", "idx"];
-
-/// One variable per output, distinct from each other, from [`EXAMPLE_LOCALS`]
-/// and from every binding the example or its checks import.
-fn output_vars(func: &FuncDef, taken: &BTreeSet<String>) -> Vec<String> {
-    rust_doc::output_var_names(func)
+/// The idiomatic call's input arguments over the example series: a price
+/// group as one object of its series.
+fn api_args(func: &FuncDef, s: &Setup) -> Vec<String> {
+    let names: Vec<String> = func.inputs.iter().map(|i| i.name.clone()).collect();
+    let var_of = |name: &str| s.series[names.iter().position(|n| n == name).expect("a series per input")].0;
+    ts::api_inputs(func)
         .iter()
-        .map(|snake| {
-            let camel = snake_to_camel(snake);
-            if taken.contains(&camel)
-                || EXAMPLE_LOCALS.contains(&camel.as_str())
-                || ts::RESERVED_WORDS.contains(&camel.as_str())
-            {
-                format!("{camel}Out")
+        .map(|a| {
+            if a.is_price {
+                let fields: Vec<String> = a
+                    .legs
+                    .iter()
+                    .map(|(i, expr)| {
+                        let key = &expr[ts::PRICES_PARAM.len() + 1..];
+                        let var = var_of(&i.name);
+                        if var == key { key.to_string() } else { format!("{key}: {var}") }
+                    })
+                    .collect();
+                format!("{{ {} }}", fields.join(", "))
             } else {
-                camel
+                var_of(&a.legs[0].0.name).to_string()
             }
         })
         .collect()
 }
 
-fn snake_to_camel(s: &str) -> String {
-    let mut out = String::new();
-    let mut upper = false;
-    for c in s.chars() {
-        if c == '_' {
-            upper = true;
-        } else if upper {
-            out.push(c.to_ascii_uppercase());
-            upper = false;
-        } else {
-            out.push(c);
-        }
+/// `{lead}name(inputs.., { key: value, .. });`, the options object broken one
+/// key per line when the call is long.
+fn api_call(lead: &str, name: &str, inputs: &[String], opts: &[(String, String)]) -> Vec<String> {
+    let fields: Vec<String> = opts.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+    let mut args = inputs.to_vec();
+    if !fields.is_empty() {
+        args.push(format!("{{ {} }}", fields.join(", ")));
     }
-    out
-}
-
-fn array_ctor(output: &Output) -> &'static str {
-    ts::array_ts_type(&output.param_type)
-}
-
-/// `name(a, b, ...)`, broken one argument group per line when it is long.
-fn call(lead: &str, name: &str, groups: &[Vec<String>]) -> Vec<String> {
-    let flat: Vec<String> = groups.iter().flatten().cloned().collect();
-    let one = format!("{lead}{name}({});", flat.join(", "));
-    if one.len() <= WRAP {
+    let one = format!("{lead}{name}({});", args.join(", "));
+    if one.len() <= WRAP || fields.is_empty() {
         return vec![one];
     }
-    let mut lines = vec![format!("{lead}{name}(")];
-    for g in groups.iter().filter(|g| !g.is_empty()) {
-        lines.push(format!("  {},", g.join(", ")));
+    let mut lead_inputs = inputs.join(", ");
+    if !lead_inputs.is_empty() {
+        lead_inputs.push_str(", ");
     }
-    lines.push(");".to_string());
+    let mut lines = vec![format!("{lead}{name}({lead_inputs}{{")];
+    lines.extend(fields.iter().map(|f| format!("  {f},")));
+    lines.push("});".to_string());
     lines
+}
+
+/// `const { a, b } = `, or the pattern one name per line when it is long.
+fn destructure(names: &[String]) -> (Vec<String>, String) {
+    let one = format!("const {{ {} }} = ", names.join(", "));
+    if one.len() <= WRAP / 2 + 8 {
+        return (Vec::new(), one);
+    }
+    let mut pre = vec!["const {".to_string()];
+    pre.extend(names.iter().map(|n| format!("  {n},")));
+    (pre, "} = ".to_string())
+}
+
+fn example_opts(func: &FuncDef, s: &Setup) -> Vec<(String, String)> {
+    func.optional_inputs.iter().zip(&s.opts).map(|(o, v)| (ts::param_key(&o.name), v.clone())).collect()
+}
+
+/// The result keys of `func`, `begIdx` first.
+fn result_names(func: &FuncDef) -> Vec<String> {
+    let mut names = vec!["begIdx".to_string()];
+    names.extend(func.outputs.iter().map(|o| ts::result_key(func, o)));
+    names
 }
 
 /// The batch call over the whole history.
@@ -833,27 +1052,35 @@ pub fn batch_example(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> Option
     let first = s.series[0].0;
     let mut imports = s.imports.clone();
     imports.insert(names.public.clone());
-    let outs = output_vars(func, &imports);
+    let outs: Vec<String> = func.outputs.iter().map(|o| ts::result_key(func, o)).collect();
 
-    let mut body = s.lines.clone();
-    for (out, var) in func.outputs.iter().zip(&outs) {
-        body.push(format!("const {var} = new {}({first}.length);", array_ctor(out)));
+    let mut body = s.placeholder.clone();
+    body.push(shown(""));
+    let (pre, lead) = destructure(&result_names(func));
+    body.extend(pre.into_iter().map(shown));
+    body.extend(api_call(&lead, &names.public, &api_args(func, &s), &example_opts(func, &s)).into_iter().map(shown));
+    // Concatenation, not a template literal: `${` reads as TeX to the doc gate.
+    body.push(shown(format!(
+        "console.log({0}.length + ' values from bar ' + begIdx + '; last {0} = ' + {0}[{0}.length - 1]);",
+        outs[0]
+    )));
+
+    let mut checks = vec![
+        format!("const count = {}.length;", outs[0]),
+        "assert.ok(count > 0);".to_string(),
+        format!("assert.equal(begIdx + count, {first}.length);"),
+    ];
+    for var in &outs[1..] {
+        checks.push(format!("assert.equal({var}.length, count);"));
     }
-    body.extend(call(
-        "const { begIdx, count } = ",
-        &names.public,
-        &[
-            vec!["0".to_string(), format!("{first}.length - 1")],
-            s.series.iter().map(|(v, _)| (*v).to_string()).collect(),
-            s.opts.clone(),
-            outs.clone(),
-        ],
-    ));
-    body.push(format!("// {}[k] is the value at bar begIdx + k, for k < count", outs[0]));
-
-    let mut checks = vec!["assert.ok(count > 0);".to_string(), format!("assert.equal(begIdx + count, {first}.length);")];
     if let Some((_, var)) = func.outputs.iter().zip(&outs).find(|(o, _)| o.param_type != ParamType::Integer) {
-        checks.push(format!("assert.ok({var}.subarray(0, count).every(Number.isFinite));"));
+        // A `nan_inf_output` function may emit infinity on ordinary data.
+        let check = if func.flags.iter().any(|fl| fl == "nan_inf_output") {
+            "(v) => !Number.isNaN(v)"
+        } else {
+            "Number.isFinite"
+        };
+        checks.push(format!("assert.ok({var}.every({check}));"));
     }
     if func.outputs.iter().any(|o| o.param_type == ParamType::Integer) {
         let period = func
@@ -922,30 +1149,25 @@ pub fn open_example(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> Option<
         return None;
     }
     let names = ts_names(&func.name);
-    let s = setup(func, &streaming::input_array_names(func), enums)?;
+    let inputs: Vec<String> = func.inputs.iter().map(|i| i.name.clone()).collect();
+    assert_eq!(inputs, streaming::input_array_names(func), "{}: the bars are the batch inputs", func.name);
+    let s = setup(func, &inputs, enums)?;
     let first = s.series[0].0;
     let mut imports = s.imports.clone();
     imports.insert(names.open.clone());
-    let mut args: Vec<String> = s.series.iter().map(|(v, _)| (*v).to_string()).collect();
-    args.extend(s.opts.iter().cloned());
-    let bars: Vec<&str> = s.series.iter().map(|(_, b)| *b).collect();
+    let bars: Vec<&str> = s.series.iter().map(|(_, b)| b.as_str()).collect();
 
     let mut body = s.lines.clone();
-    body.extend(call("const stream = ", &names.open, &[args]));
+    body.extend(api_call("const stream = ", &names.open, &api_args(func, &s), &example_opts(func, &s)));
+    body.push(format!("const peeked = stream.peek({}); // a forming bar: commits nothing", bars.join(", ")));
+    body.push(format!("const updated = stream.update({}); // the bar closes", bars.join(", ")));
     let mut checks = Vec::new();
     if func.outputs.len() > 1 {
-        imports.insert(names.out_class.clone());
-        body.push(format!("const peeked = new {}();", names.out_class));
-        body.push(format!("const updated = new {}();", names.out_class));
-        body.push(format!("stream.peek({}, peeked); // a forming bar: commits nothing", bars.join(", ")));
-        body.push(format!("stream.update({}, updated); // the bar closes", bars.join(", ")));
         for out in &func.outputs {
-            let f = super::java_stream::value_field_name(&out.name);
+            let f = ts::output_key(&out.name);
             checks.push(format!("assert.ok(Object.is(peeked.{f}, updated.{f}));"));
         }
     } else {
-        body.push(format!("const peeked = stream.peek({}); // a forming bar: commits nothing", bars.join(", ")));
-        body.push(format!("const updated = stream.update({}); // the bar closes", bars.join(", ")));
         checks.push("assert.ok(Object.is(peeked, updated));".to_string());
         checks.push("assert.ok(Object.is(stream.value(), updated));".to_string());
     }
@@ -954,13 +1176,14 @@ pub fn open_example(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> Option<
     Some(Example {
         title: format!("{}: {} example", func.name, names.open),
         imports,
-        body,
+        body: body.into_iter().map(shown).collect(),
         check_imports: BTreeSet::new(),
         checks,
     })
 }
 
-/// `<n>OpenAndFill` over the history; the checks hold the fill to the batch call.
+/// `<n>OpenAndFill` over the history; the checks hold the fill to the stream's
+/// range and to the batch call.
 #[allow(clippy::implicit_hasher)]
 #[must_use]
 pub fn fill_example(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> Option<Example> {
@@ -968,53 +1191,37 @@ pub fn fill_example(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> Option<
         return None;
     }
     let names = ts_names(&func.name);
-    let s = setup(func, &streaming::input_array_names(func), enums)?;
-    let first = s.series[0].0;
+    let inputs: Vec<String> = func.inputs.iter().map(|i| i.name.clone()).collect();
+    let s = setup(func, &inputs, enums)?;
     let mut imports = s.imports.clone();
     imports.insert(names.open_and_fill.clone());
     let check_imports: BTreeSet<String> = [names.public.clone()].into_iter().collect();
-    let taken: BTreeSet<String> = imports.union(&check_imports).cloned().collect();
-    let outs = output_vars(func, &taken);
-    let series_args: Vec<String> = s.series.iter().map(|(v, _)| (*v).to_string()).collect();
+    let outs: Vec<String> = func.outputs.iter().map(|o| ts::result_key(func, o)).collect();
+    let args = api_args(func, &s);
+    let options = example_opts(func, &s);
 
     let mut body = s.lines.clone();
-    for (out, var) in func.outputs.iter().zip(&outs) {
-        body.push(format!("const {var} = new {}({first}.length);", array_ctor(out)));
-    }
-    body.extend(call(
-        "const stream = ",
-        &names.open_and_fill,
-        &[series_args.clone(), s.opts.clone(), outs.clone()],
-    ));
-    body.push("const { begIdx, count } = stream.outRange();".to_string());
-    body.push(format!("// {}[k] is the value at bar begIdx + k, for k < count", outs[0]));
+    let mut bound = vec!["stream".to_string()];
+    bound.extend(result_names(func));
+    let (pre, lead) = destructure(&bound);
+    body.extend(pre);
+    body.extend(api_call(&lead, &names.open_and_fill, &args, &options));
+    body.push(format!("// {}[k] is the value at bar begIdx + k", outs[0]));
 
-    let batch_outs: Vec<String> = outs.iter().map(|v| format!("batch{}{}", v[..1].to_ascii_uppercase(), &v[1..])).collect();
-    let mut checks = Vec::new();
-    for (out, var) in func.outputs.iter().zip(&batch_outs) {
-        checks.push(format!("const {var} = new {}({first}.length);", array_ctor(out)));
-    }
-    checks.extend(call(
-        "const batch = ",
-        &names.public,
-        &[
-            vec!["0".to_string(), format!("{first}.length - 1")],
-            series_args,
-            s.opts.clone(),
-            batch_outs.clone(),
-        ],
-    ));
-    checks.push("assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);".to_string());
-    checks.push("assert.ok(count > 0);".to_string());
-    checks.push("for (let k = 0; k < count; k++) {".to_string());
-    for (var, batch) in outs.iter().zip(&batch_outs) {
-        checks.push(format!("  assert.ok(Object.is({var}[k], {batch}[k]));"));
+    let mut checks = vec!["const range = stream.outRange();".to_string()];
+    checks.extend(api_call("const batch = ", &names.public, &args, &options));
+    checks.push(format!("assert.deepEqual([begIdx, {}.length], [range.begIdx, range.count]);", outs[0]));
+    checks.push(format!("assert.deepEqual([begIdx, {0}.length], [batch.begIdx, batch.{0}.length]);", outs[0]));
+    checks.push(format!("assert.ok({}.length > 0);", outs[0]));
+    checks.push(format!("for (let k = 0; k < {}.length; k++) {{", outs[0]));
+    for var in &outs {
+        checks.push(format!("  assert.ok(Object.is({var}[k], batch.{var}[k]));"));
     }
     checks.push("}".to_string());
     Some(Example {
         title: format!("{}: {} example", func.name, names.open_and_fill),
         imports,
-        body,
+        body: body.into_iter().map(shown).collect(),
         check_imports,
         checks,
     })
@@ -1072,13 +1279,14 @@ pub fn render_example_tests(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             imports.extend(ex.imports.iter().cloned());
             imports.extend(ex.check_imports.iter().cloned());
         }
-        let mut s = String::from(super::ta_abstract_c::LICENSE);
+        let mut s = ts::ts_license();
         s.push_str("\n/* Generated by ta_codegen from the TSDoc examples \u{2014} do not edit. */\n\n");
         s.push_str("import assert from 'node:assert/strict';\nimport { test } from 'node:test';\n");
         let _ = writeln!(s, "{}", import_line(&imports));
         for ex in &exs {
             let _ = writeln!(s, "\ntest('{}', () => {{", ex.title);
-            for line in ex.body.iter().chain(std::iter::once(&String::new())).chain(&ex.checks) {
+            let body = ex.body_text();
+            for line in body.iter().chain(std::iter::once(&String::new())).chain(&ex.checks) {
                 if line.is_empty() {
                     s.push('\n');
                 } else {

@@ -832,9 +832,6 @@ public partial class Core
       int i = 0;
       int historyLen = inReal.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
-      }
       if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
@@ -843,7 +840,7 @@ public partial class Core
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( startIdx > endIdx ) {
+      if( startIdx >= historyLen ) {
          outBegIdx = 0;
          outNBElement = 0;
          return RetCode.InsufficientHistory;
@@ -1015,14 +1012,14 @@ public partial class Core
    /// <param name="optInTimePeriod">As in the batch call; see <see cref="MidpointLookback"/> for its default
    /// and range (<c>int.MinValue</c> selects the default).</param>
    /// <returns>The open stream handle.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MidpointLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MidpointLookback(...) + 1</c> bars, an
+   /// empty one included — which is what a null array becomes, since a span
+   /// cannot be null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public MidpointStream MidpointOpen( ReadOnlySpan<double> inReal, int optInTimePeriod )
    {
-      if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MIDPOINT open: history is empty", RetCode.OutOfRangeStartIndex);
       if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MIDPOINT open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return MidpointOpenInternal(inReal, 0, optInTimePeriod);
    }
@@ -1048,16 +1045,16 @@ public partial class Core
    /// <param name="outReal">Midpoint of the period's high/low range. Must hold at least <c>historyLen
    /// - MidpointLookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MidpointLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MidpointLookback(...) + 1</c> bars, an
+   /// empty one included — which is what a null array becomes, since a span
+   /// cannot be null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public MidpointStream MidpointOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
-      if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MIDPOINT openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
       if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "MIDPOINT openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("MIDPOINT", "openAndFill", inReal.Length, MidpointLookback(optInTimePeriod));
       RequireFillLength("MIDPOINT", "openAndFill", "outReal", outReal.Length, guardOutLen);

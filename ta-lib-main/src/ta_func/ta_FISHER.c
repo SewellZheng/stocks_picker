@@ -765,14 +765,13 @@ static TA_FMA_STEP_INLINE TA_RetCode TA_FISHER_OpenImpl( struct TA_FISHER_Stream
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outFisher || !outTrigger ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 10;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
+   if( startIdx >= historyLen )
    {
       *outBegIdx = 0;
       *outNBElement = 0;
@@ -1028,7 +1027,6 @@ TA_LIB_API TA_RetCode TA_FISHER_Open( TA_FISHER_Stream **stream, const double in
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outFisher || !outTrigger ) return TA_BAD_PARAM;
    return TA_FMA_AVAILABLE ? TA_FISHER_OpenSinkFma( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outFisher, outTrigger ) : TA_FISHER_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outFisher, outTrigger );
@@ -1038,7 +1036,6 @@ TA_LIB_API TA_RetCode TA_FISHER_OpenAndFill( TA_FISHER_Stream **stream, const do
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outFisher || !outTrigger ) return TA_BAD_PARAM;
    if( (const void *)outFisher == (const void *)inHigh || (const void *)outFisher == (const void *)inLow || (const void *)outTrigger == (const void *)inHigh || (const void *)outTrigger == (const void *)inLow || (const void *)outFisher == (const void *)outTrigger ) return TA_BAD_PARAM;

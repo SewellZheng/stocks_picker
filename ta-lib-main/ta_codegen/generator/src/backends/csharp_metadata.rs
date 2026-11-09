@@ -414,6 +414,12 @@ const OUTPUT_FLAGS: &[(&str, &str, &str)] = &[
         "A chart draws it ahead of or behind the bar that computed it, by the bars the display-shift query reports. The values are never shifted.",
     ),
     ("pattern_weak", "PatternWeak", "Level 80 occurs too: a weaker form of the pattern, on the same bar."),
+    ("bar_index", "BarIndex", "The value is an absolute index into the input arrays."),
+    (
+        "segmented",
+        "Segmented",
+        "A line whose segments restart wherever the function's integer output changes value: never connect across a change.",
+    ),
 ];
 
 /// Output members kept for compatibility: the C value stays defined, no output sets it.
@@ -903,6 +909,7 @@ fn emit_factory(s: &mut String, r: &FuncRow, by_name: &HashMap<&str, &FuncDef>) 
     emit_list(s, "inputs", &r.inputs.iter().map(input_expr).collect::<Vec<_>>());
     emit_list(s, "optInputs", &r.opt_inputs.iter().map(opt_expr).collect::<Vec<_>>());
     emit_list(s, "outputs", &r.outputs.iter().map(output_expr).collect::<Vec<_>>());
+    let _ = writeln!(s, "        attributes: {},", cs(&r.attributes));
 
     // --- the thunks ---
     let opt_args = opt_arg_exprs(def);
@@ -1551,6 +1558,7 @@ public sealed record FuncInfo
                           ImmutableArray<InputInfo> inputs,
                           ImmutableArray<OptInputInfo> optInputs,
                           ImmutableArray<OutputInfo> outputs,
+                          string attributes,
                           LookbackThunk lookback, DisplayShiftThunk displayShift,
                           InvokeThunk invoke)
     {
@@ -1562,6 +1570,7 @@ public sealed record FuncInfo
         Inputs = inputs;
         OptInputs = optInputs;
         Outputs = outputs;
+        Attributes = attributes;
         Lookback = lookback;
         DisplayShift = displayShift;
         Invoke = invoke;
@@ -1595,6 +1604,13 @@ public sealed record FuncInfo
 
     /// <summary>The outputs, in call order.</summary>
     public ImmutableArray<OutputInfo> Outputs { get; }
+
+    /// <summary>Metadata no flag can carry, such as an output's reference levels,
+    /// as one JSON object; <c>"{}"</c> when none. The same bytes as C's
+    /// <c>TA_GetFuncAttributes</c>.</summary>
+    /// <remarks>Ignore a key you do not know: a release may add one
+    /// (<see href="https://ta-lib.org/spec/abstract/#attributes">keys</see>).</remarks>
+    public string Attributes { get; }
 
     internal LookbackThunk Lookback { get; }
 

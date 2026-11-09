@@ -56,15 +56,16 @@ import { test } from 'node:test';
 import { FuncFlags, Functions } from '../src/metadata/index.ts';
 
 const TESTS: Record<string, number> = {
-  'batchArgs.test.ts': 9,
-  'batchContract.test.ts': 6,
+  'batchArgs.test.ts': 10,
+  'batchContract.test.ts': 10,
   'inputForms.test.ts': 1,
   'mavpBank.test.ts': 2,
-  'metadata.test.ts': 10,
+  'metadata.test.ts': 12,
   'metadataSweep.test.ts': 6,
+  'options.test.ts': 8,
   'phantomIo.test.ts': 5,
-  'publicApi.test.ts': 4,
-  'runtime.test.ts': 13,
+  'publicApi.test.ts': 6,
+  'runtime.test.ts': 14,
   'stream.test.ts': 6,
   'streamContract.test.ts': 13,
   'suite.test.ts': 2,

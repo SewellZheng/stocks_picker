@@ -261,7 +261,7 @@ static TA_RetCode TA_STDDEV_StepImpl( struct TA_STDDEV_Stream *sp, double inReal
    return TA_SUCCESS;
 }
 
-static TA_RetCode TA_STDDEV_OpenImpl( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_STDDEV_OpenBody( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_STDDEV_Stream *sp;
    int endIdx;
@@ -270,26 +270,6 @@ static TA_RetCode TA_STDDEV_OpenImpl( struct TA_STDDEV_Stream **stream, const do
    TA_RetCode subRc;
    double *sc_outReal;
    TA_VAR_Stream *sub0;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 5;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( optInNbDev == TA_REAL_DEFAULT )
-      optInNbDev = 1;
-   else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
-      return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -388,6 +368,46 @@ static TA_RetCode TA_STDDEV_OpenImpl( struct TA_STDDEV_Stream **stream, const do
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_STDDEV_OpenFillFrame( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_STDDEV_OpenBody( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_STDDEV_OpenSinkFrame( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   double sink_outReal = 0;
+   TA_RetCode retCode = TA_STDDEV_OpenBody( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outReal ) *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_STDDEV_OpenImpl( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 5;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( optInNbDev == TA_REAL_DEFAULT )
+      optInNbDev = 1;
+   else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_STDDEV_OpenFillFrame( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal ) : TA_STDDEV_OpenSinkFrame( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_STDDEV_OpenInternal( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, double *outReal )
 {
@@ -407,7 +427,6 @@ TA_LIB_API TA_RetCode TA_STDDEV_Open( TA_STDDEV_Stream **stream, const double in
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_STDDEV_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outReal );
@@ -417,7 +436,6 @@ TA_LIB_API TA_RetCode TA_STDDEV_OpenAndFill( TA_STDDEV_Stream **stream, const do
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;

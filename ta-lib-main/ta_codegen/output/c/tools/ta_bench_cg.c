@@ -35,6 +35,7 @@
 #include "ta_ADR.c"
 #include "ta_ADX.c"
 #include "ta_ADXR.c"
+#include "ta_ALLIGATOR.c"
 #include "ta_ALMA.c"
 #include "ta_AO.c"
 #include "ta_APO.c"
@@ -220,12 +221,14 @@
 #include "ta_RVOL.c"
 #include "ta_SAR.c"
 #include "ta_SAREXT.c"
+#include "ta_SHARPE.c"
 #include "ta_SI.c"
 #include "ta_SIN.c"
 #include "ta_SINH.c"
 #include "ta_SKEW.c"
 #include "ta_SMA.c"
 #include "ta_SMI.c"
+#include "ta_SORTINO.c"
 #include "ta_SQRT.c"
 #include "ta_SQZMOM.c"
 #include "ta_STC.c"
@@ -511,6 +514,24 @@ static void bench_all(const char *filter, int iters) {
             g_sink += g_outBuf0[0];
         }
         printf("ADXR %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "ALLIGATOR") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_ALLIGATOR(0, g_nPoints - 1, g_high, g_low, 13, 8, 8, 5, 5, 3, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+            g_sink += g_outBuf1[0];
+            g_sink += g_outBuf2[0];
+        }
+        printf("ALLIGATOR %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "ALMA") ) {
@@ -3525,6 +3546,22 @@ static void bench_all(const char *filter, int iters) {
         printf("SAREXT %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "SHARPE") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_SHARPE(0, g_nPoints - 1, g_close, 20, 0.000000000000000, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+        }
+        printf("SHARPE %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "SI") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -3620,6 +3657,22 @@ static void bench_all(const char *filter, int iters) {
             g_sink += g_outBuf1[0];
         }
         printf("SMI %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "SORTINO") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_SORTINO(0, g_nPoints - 1, g_close, 20, 0.000000000000000, 252.000000000000000, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += g_outBuf0[0];
+        }
+        printf("SORTINO %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "SQRT") ) {

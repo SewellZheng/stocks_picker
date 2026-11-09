@@ -1358,6 +1358,17 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
     s.push_str("        handle_TA_GetFuncInfo(json, resp, resp_size);\n");
     s.push_str("    }\n");
 
+    // Absent from a frozen release, which has no TA_GetFuncAttributes to call.
+    let m = "TA_GetFuncAttributes";
+    s.push_str("#ifndef TA_REF_SERVE\n");
+    s.push_str(&format!(
+        "    else if ( methodLen == {n} && strncmp(method, \"{m}\", {n}) == 0 ) {{\n",
+        n = m.len()
+    ));
+    s.push_str("        handle_TA_GetFuncAttributes(json, resp, resp_size);\n");
+    s.push_str("    }\n");
+    s.push_str("#endif /* TA_REF_SERVE */\n");
+
     // TA_GetInputParameterInfo
     s.push_str("    else if ( methodLen == 24 && strncmp(method, \"TA_GetInputParameterInfo\", 24) == 0 ) {\n");
     s.push_str("        handle_TA_GetInputParameterInfo(json, resp, resp_size);\n");
@@ -1633,9 +1644,6 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     s.push_str("    static void requireHistory(String funcName, int historyLen) {\n");
-    s.push_str("        if (historyLen < 1) {\n");
-    s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_START_INDEX);\n");
-    s.push_str("        }\n");
     s.push_str("        if (historyLen > INDEX_MAX + 1) {\n");
     s.push_str("            throw failure(funcName, RetCode.OUT_OF_RANGE_END_INDEX);\n");
     s.push_str("        }\n");
@@ -2006,6 +2014,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
 
     // ta_abstract introspection RPCs (issue #114) — metadata parity with C/Rust via test_abstract.c.
     s.push_str("        else if (json.contains(\"\\\"TA_GetFuncInfo\\\"\")) return handleGetFuncInfo(json);\n");
+    s.push_str("        else if (json.contains(\"\\\"TA_GetFuncAttributes\\\"\")) return handleGetFuncAttributes(json);\n");
     s.push_str("        else if (json.contains(\"\\\"TA_GetInputParameterInfo\\\"\")) return handleGetInputParameterInfo(json);\n");
     s.push_str("        else if (json.contains(\"\\\"TA_GetOptInputParameterInfo\\\"\")) return handleGetOptInputParameterInfo(json);\n");
     s.push_str("        else if (json.contains(\"\\\"TA_GetOutputParameterInfo\\\"\")) return handleGetOutputParameterInfo(json);\n");
@@ -2978,6 +2987,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     // server has no table of its own). test_abstract.c therefore proves the
     // shipped artifact against the C library rather than a test-only copy.
     s.push_str("            else if (method == \"TA_GetFuncInfo\") return AbsFuncInfo(p);\n");
+    s.push_str("            else if (method == \"TA_GetFuncAttributes\") return AbsFuncAttributes(p);\n");
     s.push_str("            else if (method == \"TA_GetInputParameterInfo\") return AbsInputInfo(p);\n");
     s.push_str("            else if (method == \"TA_GetOptInputParameterInfo\") return AbsOptInputInfo(p);\n");
     s.push_str("            else if (method == \"TA_GetOutputParameterInfo\") return AbsOutputInfo(p);\n");
@@ -4462,6 +4472,13 @@ const RUST_ABSTRACT_METADATA_HANDLERS: &str = r#"        "TA_GetFuncInfo" => {
                 None => "{\"retCode\":2}".to_string(),
             }
         }
+        "TA_GetFuncAttributes" => {
+            let name = params["funcName"].as_str().unwrap_or("");
+            match abstract_api::get_func_handle(name) {
+                Some(id) => serde_json::json!({ "attributes": id.info().attributes() }).to_string(),
+                None => "{\"retCode\":2}".to_string(),
+            }
+        }
         "TA_GetInputParameterInfo" => {
             let name = params["funcName"].as_str().unwrap_or("");
             let idx = params["paramIndex"].as_u64().unwrap_or(0) as usize;
@@ -4944,6 +4961,11 @@ const CSHARP_ABSTRACT_HANDLERS: &str = r#"    static string AbsStr(string? v) {
              + $",\"nbOptInput\":{f.OptInputs.Length},\"nbOutput\":{f.Outputs.Length}}}";
     }
 
+    static string AbsFuncAttributes(JsonElement p) {
+        var f = AbsLookup(p);
+        return f is null ? "{\"retCode\":2}" : $"{{\"attributes\":{AbsStr(f.Attributes)}}}";
+    }
+
     static string AbsInputInfo(JsonElement p) {
         var f = AbsLookup(p);
         int i = GetInt(p, "paramIndex", -1);
@@ -5223,11 +5245,11 @@ const TAIL_LO = 0xbeef1234;
 const TAIL_F64 = float64FromWords(TAIL_HI, TAIL_LO);
 const TAIL_I32 = 0x5eadbeef;
 
-function f64Out(len: number): Float64Array {
+function f64Out(len: number): Float64Array<ArrayBuffer> {
   return new Float64Array(len).fill(TAIL_F64);
 }
 
-function i32Out(len: number): Int32Array {
+function i32Out(len: number): Int32Array<ArrayBuffer> {
   return new Int32Array(len).fill(TAIL_I32);
 }
 
@@ -5311,7 +5333,7 @@ function setUnstablePeriod(p: Params): string {
 function setCandleSettings(p: Params): string {
   try {
     core = core.toBuilder()
-      .candleSetting(int(p, 'settingType', -1) as CandleSettingType, int(p, 'rangeType', -1) as RangeType,
+      .candleSetting(int(p, 'settingType', -1) as Parameters<CoreBuilder['candleSetting']>[0], int(p, 'rangeType', -1) as RangeType,
         int(p, 'avgPeriod', 0), f64Bits(p, 'factorBits', 1.0))
       .build();
   } catch (e) {
@@ -5322,7 +5344,7 @@ function setCandleSettings(p: Params): string {
 
 // A request's own unstablePeriod. A rejected one keeps the previous setting, as
 // C's TA_SetUnstablePeriod does.
-function pinUnstable(id: FuncUnstId, period: number): void {
+function pinUnstable(id: Parameters<Core['unstablePeriod']>[0], period: number): void {
   if (core.unstablePeriod(id) === period) return;
   try {
     core = core.toBuilder().unstablePeriod(id, period).build();
@@ -5365,6 +5387,12 @@ function absFuncInfo(p: Params): string {
   return `{"name":${JSON.stringify(f.name)},"group":${JSON.stringify(f.group)},"hint":${JSON.stringify(f.hint)}`
     + `,"flags":${f.flags >>> 0},"nbInput":${f.inputs.length},"nbOptInput":${f.optInputs.length}`
     + `,"nbOutput":${f.outputs.length}}`;
+}
+
+function absFuncAttributes(p: Params): string {
+  const f = absLookup(p);
+  if (f === undefined) return '{"retCode":2}';
+  return `{"attributes":${JSON.stringify(f.attributes)}}`;
 }
 
 function absInputInfo(p: Params): string {
@@ -5681,6 +5709,7 @@ pub fn generate_ts_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -
         ("abstract_get_lookback", "`{\"lookback\":${lookback(p)}}`", false),
         ("abstract_get_display_shift", "`{\"displayShift\":${displayShift(p)}}`", false),
         ("TA_GetFuncInfo", "absFuncInfo(p)", false),
+        ("TA_GetFuncAttributes", "absFuncAttributes(p)", false),
         ("TA_GetInputParameterInfo", "absInputInfo(p)", false),
         ("TA_GetOptInputParameterInfo", "absOptInputInfo(p)", false),
         ("TA_GetOutputParameterInfo", "absOutputInfo(p)", false),
@@ -5713,9 +5742,97 @@ pub fn generate_ts_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -
     s
 }
 
-/// One `TA_<NAME>` handler. A correctness request calls the public tier; a
+/// Calls to one TS function's public tier, spelled over the server's own
+/// expressions: `ins` holds one per input of `func.inputs`, `params` one per
+/// optional input, `outs` one per output buffer (or none, to have the call
+/// allocate). The module namespace is `func.name`.
+pub(crate) struct TsPublic<'a> {
+    func: &'a FuncDef,
+    names: crate::backends::ts::TsNames,
+}
+
+impl<'a> TsPublic<'a> {
+    pub(crate) fn new(func: &'a FuncDef) -> Self {
+        TsPublic { func, names: crate::backends::ts::ts_names(&func.name) }
+    }
+
+    /// The inputs in the Abstract API's grouping: a price group as one object.
+    fn inputs<S: AsRef<str>>(&self, ins: &[S]) -> Vec<String> {
+        let func = self.func;
+        assert_eq!(ins.len(), func.inputs.len(), "{}: one expression per input", func.name);
+        let at = |name: &str| ins[func.inputs.iter().position(|i| i.name == name).expect("an input")].as_ref().to_string();
+        crate::backends::ts::api_inputs(func)
+            .iter()
+            .map(|a| {
+                if a.is_price {
+                    let fields: Vec<String> = a
+                        .legs
+                        .iter()
+                        .map(|(i, expr)| format!("{}: {}", &expr[crate::backends::ts::PRICES_PARAM.len() + 1..], at(&i.name)))
+                        .collect();
+                    format!("{{ {} }}", fields.join(", "))
+                } else {
+                    at(&a.legs[0].0.name)
+                }
+            })
+            .collect()
+    }
+
+    /// The options object: parameters, the range, `core`, then the buffers.
+    fn options<S: AsRef<str>>(&self, params: &[S], range: Option<(&str, &str)>, core: &str, outs: &[String]) -> String {
+        let func = self.func;
+        assert_eq!(params.len(), func.optional_inputs.len(), "{}: one expression per parameter", func.name);
+        assert!(outs.is_empty() || outs.len() == func.outputs.len(), "{}: one buffer per output", func.name);
+        let field = |k: &str, v: &str| if k == v { k.to_string() } else { format!("{k}: {v}") };
+        let mut fields: Vec<String> = func
+            .optional_inputs
+            .iter()
+            .zip(params)
+            .map(|(o, v)| field(&crate::backends::ts::param_key(&o.name), v.as_ref()))
+            .collect();
+        if let Some((start, end)) = range {
+            fields.push(field("startIdx", start));
+            fields.push(field("endIdx", end));
+        }
+        fields.push(field("core", core));
+        fields.extend(func.outputs.iter().zip(outs).map(|(o, v)| field(&crate::backends::ts::buffer_key(func, o), v)));
+        format!("{{ {} }}", fields.join(", "))
+    }
+
+    fn call(&self, name: &str, mut args: Vec<String>, options: String) -> String {
+        args.push(options);
+        format!("{}.{name}({})", self.func.name, args.join(", "))
+    }
+
+    /// `<n>(ins, opts)`: `{ begIdx, <outputs> }`.
+    pub(crate) fn batch<S: AsRef<str>, P: AsRef<str>>(&self, ins: &[S], params: &[P], range: (&str, &str), core: &str, outs: &[String]) -> String {
+        self.call(&self.names.public, self.inputs(ins), self.options(params, Some(range), core, outs))
+    }
+
+    /// `<n>Lookback(opts)`.
+    pub(crate) fn lookback<P: AsRef<str>>(&self, params: &[P], core: &str) -> String {
+        self.call(&self.names.lookback, Vec::new(), self.options(params, None, core, &[]))
+    }
+
+    /// `<n>Open(ins, opts)`: the stream.
+    pub(crate) fn open<S: AsRef<str>, P: AsRef<str>>(&self, ins: &[S], params: &[P], core: &str) -> String {
+        self.call(&self.names.open, self.inputs(ins), self.options(params, None, core, &[]))
+    }
+
+    /// `<n>OpenAndFill(ins, opts)`: `{ stream, begIdx, <outputs> }`.
+    pub(crate) fn open_and_fill<S: AsRef<str>, P: AsRef<str>>(&self, ins: &[S], params: &[P], core: &str, outs: &[String]) -> String {
+        self.call(&self.names.open_and_fill, self.inputs(ins), self.options(params, None, core, outs))
+    }
+
+    /// Each output's key in a batch or fill result.
+    pub(crate) fn result_keys(&self) -> Vec<String> {
+        self.func.outputs.iter().map(|o| crate::backends::ts::result_key(self.func, o)).collect()
+    }
+}
+
+/// One `TA_<NAME>` handler. A correctness request calls the public function; a
 /// `"timed":1` request calls `<n>Impl`, so nothing measured acquires the public
-/// tier's argument checks.
+/// function's argument checks.
 #[allow(clippy::too_many_lines)]
 fn ts_batch_handler(func: &FuncDef, enums: &HashMap<String, EnumDef>, opt_reads: &str) -> String {
     let n = crate::backends::ts::ts_names(&func.name);
@@ -5751,9 +5868,8 @@ fn ts_batch_handler(func: &FuncDef, enums: &HashMap<String, EnumDef>, opt_reads:
             .expect("func_unst_id found it");
         let _ = writeln!(s, "  pinUnstable(FuncUnstId.{variant}, int(p, 'unstablePeriod', 0));");
     }
-    let mut lb_args: Vec<&str> = opt_names.clone();
-    lb_args.push("core");
-    let _ = writeln!(s, "  const outLen = outLength(p, startIdx, endIdx, {m}.{}({}));", n.lookback, lb_args.join(", "));
+    let api = TsPublic::new(func);
+    let _ = writeln!(s, "  const outLen = outLength(p, startIdx, endIdx, {});", api.lookback(&opt_names, "core"));
     for (k, out) in outputs.iter().enumerate() {
         let ctor = if out.param_type == ParamType::Integer { "i32Out" } else { "f64Out" };
         let _ = writeln!(s, "  const out{k} = {ctor}(outLen);");
@@ -5765,14 +5881,8 @@ fn ts_batch_handler(func: &FuncDef, enums: &HashMap<String, EnumDef>, opt_reads:
     s.push_str("  let rc: number = RetCode.SUCCESS;\n");
     s.push_str("  let t0 = 0n;\n");
 
-    let public_call = |ins: &[String]| -> String {
-        let mut a: Vec<String> = vec!["startIdx".into(), "endIdx".into()];
-        a.extend(ins.iter().cloned());
-        a.extend(opt_names.iter().map(|o| (*o).to_string()));
-        a.extend(out_vars.iter().cloned());
-        a.push("core".into());
-        format!("{m}.{}({})", n.public, a.join(", "))
-    };
+    let first_result = api.result_keys().swap_remove(0);
+    let public_call = |ins: &[String]| api.batch(ins, &opt_names, ("startIdx", "endIdx"), "core", &out_vars);
     let mut impl_args: Vec<String> = vec!["core".into(), "startIdx".into(), "endIdx".into()];
     impl_args.extend(input_names.iter().cloned());
     impl_args.extend(opt_names.iter().map(|o| (*o).to_string()));
@@ -5782,23 +5892,17 @@ fn ts_batch_handler(func: &FuncDef, enums: &HashMap<String, EnumDef>, opt_reads:
 
     // Iteration 0 is a discarded warm-up, and makes every correctness request an
     // idempotency check.
-    let mut open_args: Vec<String> = input_names.iter().map(|i| format!("warm_{i}")).collect();
-    open_args.extend(opt_names.iter().map(|o| (*o).to_string()));
-    let mut fill_args = open_args.clone();
-    fill_args.extend(out_vars.iter().cloned());
-    open_args.push("core".into());
-    fill_args.push("core".into());
-
+    let warm: Vec<String> = input_names.iter().map(|i| format!("warm_{i}")).collect();
     s.push_str("  for (let bi = 0; bi <= iters; bi++) {\n");
     s.push_str("    if (bi === 1) t0 = process.hrtime.bigint();\n");
     s.push_str("    if (benchMode !== 0) {\n");
     s.push_str("      try {\n");
     s.push_str("        if (benchMode === 1) {\n");
-    let _ = writeln!(s, "          {m}.{}({});", n.open, open_args.join(", "));
+    let _ = writeln!(s, "          {};", api.open(&warm, &opt_names, "core"));
     s.push_str("        } else {\n");
-    let _ = writeln!(s, "          const wh = {m}.{}({});", n.open_and_fill, fill_args.join(", "));
-    s.push_str("          outBegIdx.value = wh.outRange().begIdx;\n");
-    s.push_str("          outNBElement.value = wh.outRange().count;\n");
+    let _ = writeln!(s, "          const wh = {};", api.open_and_fill(&warm, &opt_names, "core", &out_vars));
+    s.push_str("          outBegIdx.value = wh.begIdx;\n");
+    let _ = writeln!(s, "          outNBElement.value = wh.{first_result}.length;");
     s.push_str("        }\n");
     s.push_str("        rc = RetCode.SUCCESS;\n");
     s.push_str("      } catch (e) {\n");
@@ -5812,7 +5916,7 @@ fn ts_batch_handler(func: &FuncDef, enums: &HashMap<String, EnumDef>, opt_reads:
     s.push_str("      } else {\n");
     let _ = writeln!(s, "        const r = {};", public_call(&input_names));
     s.push_str("        outBegIdx.value = r.begIdx;\n");
-    s.push_str("        outNBElement.value = r.count;\n");
+    let _ = writeln!(s, "        outNBElement.value = r.{first_result}.length;");
     s.push_str("        rc = RetCode.SUCCESS;\n");
     s.push_str("      }\n");
     s.push_str("    } catch (e) {\n");
@@ -5830,7 +5934,7 @@ fn ts_batch_handler(func: &FuncDef, enums: &HashMap<String, EnumDef>, opt_reads:
     s.push_str("    try {\n");
     let _ = writeln!(s, "      const r = {};", public_call(&f_ins));
     s.push_str("      outBegIdx.value = r.begIdx;\n");
-    s.push_str("      outNBElement.value = r.count;\n");
+    let _ = writeln!(s, "      outNBElement.value = r.{first_result}.length;");
     s.push_str("      rc = RetCode.SUCCESS;\n");
     s.push_str("    } catch (e) {\n");
     s.push_str("      rc = failureCode(e);\n");

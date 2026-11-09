@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -156,5 +156,9 @@ export const OutputFlags = Object.freeze({
   DISPLAY_SHIFT: 0x00004000,
   /** Level 80 occurs too: a weaker form of the pattern, on the same bar. */
   PATTERN_WEAK: 0x00008000,
+  /** The value is an absolute index into the input arrays. */
+  BAR_INDEX: 0x00010000,
+  /** A line whose segments restart wherever the function's integer output changes value: never connect across a change. */
+  SEGMENTED: 0x00020000,
 } as const);
 

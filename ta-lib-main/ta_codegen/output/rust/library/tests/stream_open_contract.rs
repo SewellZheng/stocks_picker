@@ -1,9 +1,8 @@
-//! Rule rS1 for the Rust streaming openers (`https://ta-lib.org/spec/streaming/#rs1`),
-//! issue #268.
+//! An empty history for the Rust streaming openers: rule rS7
+//! (`https://ta-lib.org/spec/streaming/#rs7`), issue #268.
 //!
-//! rS1 and rS2 run first, ahead of every other check, answering
-//! `OutOfRangeStartIndex` and `OutOfRangeEndIndex`, so an empty history answers
-//! `OutOfRangeStartIndex` rather than the catch-all.
+//! An empty history answers `InsufficientHistory`, after every argument check,
+//! like any history too short to open.
 //!
 //! No cross-language gate reaches it. The JSON-RPC servers hand every opener the
 //! full series, so a backend that went back to `BadParam` here stays green in
@@ -23,29 +22,39 @@ fn series(n: usize) -> Vec<f64> {
 }
 
 #[test]
-fn an_empty_history_is_an_index_fault() {
+fn an_empty_history_is_insufficient() {
     let core = Core::new();
     let empty: [f64; 0] = [];
     let mut out = [0.0_f64; 8];
 
-    assert_eq!(core.sma_open(&empty, 30).err(), Some(RetCode::OutOfRangeStartIndex));
+    assert_eq!(core.sma_open(&empty, 30).err(), Some(RetCode::InsufficientHistory));
     assert_eq!(
         core.sma_open_and_fill(&empty, 30, &mut out).err(),
-        Some(RetCode::OutOfRangeStartIndex)
+        Some(RetCode::InsufficientHistory)
+    );
+    // After every argument check: a bad parameter or an absent output wins.
+    assert_eq!(core.sma_open(&empty, 0).err(), Some(RetCode::BadParam));
+    assert_eq!(
+        core.sma_open_and_fill(&empty, 30, &mut []).err(),
+        Some(RetCode::BadParam)
     );
     // A candlestick reaches it through four legs, and the dispatch tier and the
     // period bank hand-roll their own prologue.
     assert_eq!(
         core.cdldoji_open(&empty, &empty, &empty, &empty).err(),
-        Some(RetCode::OutOfRangeStartIndex)
+        Some(RetCode::InsufficientHistory)
     );
     assert_eq!(
         core.ma_open(&empty, 30, MAType::EMA).err(),
-        Some(RetCode::OutOfRangeStartIndex)
+        Some(RetCode::InsufficientHistory)
     );
     assert_eq!(
         core.mavp_open(&empty, &empty, 2, 30, MAType::SMA).err(),
-        Some(RetCode::OutOfRangeStartIndex)
+        Some(RetCode::InsufficientHistory)
+    );
+    assert_eq!(
+        core.mavp_open(&empty, &empty, 30, 2, MAType::SMA).err(),
+        Some(RetCode::BadParam)
     );
 }
 
@@ -79,22 +88,26 @@ fn a_history_past_the_index_domain_is_an_index_fault() {
 }
 
 /// The controls, without which the assertions above would pass against an
-/// opener that answered `OutOfRangeStartIndex` for everything.
+/// opener that answered `InsufficientHistory` for everything.
 #[test]
 fn the_other_rejections_keep_their_own_codes() {
     let core = Core::new();
     let data = series(252);
 
-    // A one-bar history is inside the index domain: that is rS7's business.
+    // A one-bar history is short too, but is checked after the arguments.
     assert_eq!(
         core.sma_open(&data[..1], 30).err(),
         Some(RetCode::InsufficientHistory)
+    );
+    assert_eq!(
+        core.sma_open_and_fill(&data[..1], 30, &mut []).err(),
+        Some(RetCode::BadParam)
     );
     // A parameter outside its range is still the catch-all.
     assert_eq!(core.sma_open(&data, 0).err(), Some(RetCode::BadParam));
     // So is a second input of a different length — `historyLen` is the FIRST
     // input's, so a later one disagreeing is an argument fault, not an empty
-    // history. This is the half the emptiness check used to be fused with.
+    // history.
     assert_eq!(
         core.stoch_open(&data, &data[..100], &data, 5, 3, MAType::SMA, 3, MAType::SMA).err(),
         Some(RetCode::BadParam)

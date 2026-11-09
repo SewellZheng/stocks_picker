@@ -264,27 +264,28 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
+    /// let series = vec![0.0; 252]; // your data, oldest first
+    /// # let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let mut min_idx = vec![0i32; 252];
     /// let mut max_idx = vec![0i32; 252];
     ///
-    /// let out_range = core.minmaxindex(0, data.len() - 1, &data, 30, &mut min_idx, &mut max_idx)?;
-    /// assert!(out_range.count > 0);
-    /// assert_eq!(out_range.beg_idx + out_range.count, data.len());
-    /// // every reported index locates the lowest value of its 30-bar window
-    /// for (k, &idx) in min_idx[..out_range.count].iter().enumerate() {
-    ///     let (bar, idx) = (out_range.beg_idx + k, idx as usize);
-    ///     assert!(bar + 1 - 30 <= idx && idx <= bar);
-    ///     assert!(data[bar + 1 - 30..=bar].iter().all(|&v| v >= data[idx]));
-    /// }
-    /// // every reported index locates the highest value of its 30-bar window
-    /// for (k, &idx) in max_idx[..out_range.count].iter().enumerate() {
-    ///     let (bar, idx) = (out_range.beg_idx + k, idx as usize);
-    ///     assert!(bar + 1 - 30 <= idx && idx <= bar);
-    ///     assert!(data[bar + 1 - 30..=bar].iter().all(|&v| v <= data[idx]));
-    /// }
+    /// let core = Core::new();
+    /// let range = core.minmaxindex(0, series.len() - 1, &series, 30, &mut min_idx, &mut max_idx)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last min_idx = {}", range.count, range.beg_idx, min_idx[range.count - 1]);
+    /// # assert_eq!(range.beg_idx + range.count, series.len());
+    /// # // every reported index locates the lowest value of its 30-bar window
+    /// # for (k, &idx) in min_idx[..range.count].iter().enumerate() {
+    /// #     let (bar, idx) = (range.beg_idx + k, idx as usize);
+    /// #     assert!(bar + 1 - 30 <= idx && idx <= bar);
+    /// #     assert!(series[bar + 1 - 30..=bar].iter().all(|&v| v >= series[idx]));
+    /// # }
+    /// # // every reported index locates the highest value of its 30-bar window
+    /// # for (k, &idx) in max_idx[..range.count].iter().enumerate() {
+    /// #     let (bar, idx) = (range.beg_idx + k, idx as usize);
+    /// #     assert!(bar + 1 - 30 <= idx && idx <= bar);
+    /// #     assert!(series[bar + 1 - 30..=bar].iter().all(|&v| v <= series[idx]));
+    /// # }
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -428,9 +429,6 @@ impl Core {
     pub(crate) fn minmaxindex_open_impl(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMinIdx: &mut [i32], outMaxIdx: &mut [i32], outStride: usize,
     ) -> Result<MinmaxindexStream, RetCode> {
-        if inReal.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -440,13 +438,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut highest: f64 = 0.0_f64;
@@ -581,17 +579,16 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.minmaxindex_open(&data, 30).expect("enough history");
+    /// let (mut s, _last) = core.minmaxindex_open(&series, 30).expect("enough history");
     /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
     /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
@@ -620,16 +617,16 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
     /// let mut batch_min_idx = vec![0_i32; 252];
     /// let mut batch_max_idx = vec![0_i32; 252];
-    /// let batch = core.minmaxindex(0, data.len() - 1, &data, 30, &mut batch_min_idx, &mut batch_max_idx)?;
+    /// let batch = core.minmaxindex(0, series.len() - 1, &series, 30, &mut batch_min_idx, &mut batch_max_idx)?;
     ///
     /// let mut min_idx = vec![0_i32; 252];
     /// let mut max_idx = vec![0_i32; 252];
-    /// let (_stream, filled) = core.minmaxindex_open_and_fill(&data, 30, &mut min_idx, &mut max_idx)?;
+    /// let (_stream, filled) = core.minmaxindex_open_and_fill(&series, 30, &mut min_idx, &mut max_idx)?;
     ///
     /// assert_eq!(filled.beg_idx, batch.beg_idx);
     /// assert_eq!(filled.count, batch.count);
@@ -641,9 +638,6 @@ impl Core {
     pub fn minmaxindex_open_and_fill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outMinIdx: &mut [i32], outMaxIdx: &mut [i32],
     ) -> Result<(MinmaxindexStream, OutRange), RetCode> {
-        if inReal.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

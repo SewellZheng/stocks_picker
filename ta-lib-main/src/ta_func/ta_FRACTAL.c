@@ -413,30 +413,10 @@ static void TA_FRACTAL_StepImpl( struct TA_FRACTAL_Stream *sp, double inHigh, do
    }
 }
 
-static TA_RetCode TA_FRACTAL_OpenImpl( struct TA_FRACTAL_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInLeftBars, int optInRightBars, int *outBegIdx, int *outNBElement, int outSwingHigh[], int outSwingLow[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_FRACTAL_OpenBody( struct TA_FRACTAL_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInLeftBars, int optInRightBars, int *outBegIdx, int *outNBElement, int outSwingHigh[], int outSwingLow[], int outStride )
 {
    struct TA_FRACTAL_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inHigh || !inLow || !outSwingHigh || !outSwingLow ) return TA_BAD_PARAM;
-   if( (int)optInLeftBars == TA_INTEGER_DEFAULT )
-      optInLeftBars = 2;
-   else if( (int)optInLeftBars < 1 || (int)optInLeftBars > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInRightBars == TA_INTEGER_DEFAULT )
-      optInRightBars = 2;
-   else if( (int)optInRightBars < 1 || (int)optInRightBars > 100000 )
-      return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -542,6 +522,48 @@ static TA_RetCode TA_FRACTAL_OpenImpl( struct TA_FRACTAL_Stream **stream, const 
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_FRACTAL_OpenFillFrame( struct TA_FRACTAL_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInLeftBars, int optInRightBars, int *outBegIdx, int *outNBElement, int outSwingHigh[], int outSwingLow[] )
+{
+   return TA_FRACTAL_OpenBody( stream, inHigh, inLow, startIdx, historyLen, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_FRACTAL_OpenSinkFrame( struct TA_FRACTAL_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInLeftBars, int optInRightBars, int *outBegIdx, int *outNBElement, int outSwingHigh[], int outSwingLow[] )
+{
+   int sink_outSwingHigh = 0;
+   int sink_outSwingLow = 0;
+   TA_RetCode retCode = TA_FRACTAL_OpenBody( stream, inHigh, inLow, startIdx, historyLen, optInLeftBars, optInRightBars, outBegIdx, outNBElement, &sink_outSwingHigh, &sink_outSwingLow, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outSwingHigh ) *outSwingHigh = sink_outSwingHigh;
+      if( outSwingLow ) *outSwingLow = sink_outSwingLow;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_FRACTAL_OpenImpl( struct TA_FRACTAL_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInLeftBars, int optInRightBars, int *outBegIdx, int *outNBElement, int outSwingHigh[], int outSwingLow[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outSwingHigh || !outSwingLow ) return TA_BAD_PARAM;
+   if( (int)optInLeftBars == TA_INTEGER_DEFAULT )
+      optInLeftBars = 2;
+   else if( (int)optInLeftBars < 1 || (int)optInLeftBars > 100000 )
+      return TA_BAD_PARAM;
+   if( (int)optInRightBars == TA_INTEGER_DEFAULT )
+      optInRightBars = 2;
+   else if( (int)optInRightBars < 1 || (int)optInRightBars > 100000 )
+      return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_FRACTAL_OpenFillFrame( stream, inHigh, inLow, startIdx, historyLen, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow ) : TA_FRACTAL_OpenSinkFrame( stream, inHigh, inLow, startIdx, historyLen, optInLeftBars, optInRightBars, outBegIdx, outNBElement, outSwingHigh, outSwingLow );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_FRACTAL_OpenInternal( struct TA_FRACTAL_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInLeftBars, int optInRightBars, int *outSwingHigh, int *outSwingLow )
 {
@@ -563,7 +585,6 @@ TA_LIB_API TA_RetCode TA_FRACTAL_Open( TA_FRACTAL_Stream **stream, const double 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outSwingHigh || !outSwingLow ) return TA_BAD_PARAM;
    return TA_FRACTAL_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInLeftBars, optInRightBars, outSwingHigh, outSwingLow );
@@ -573,7 +594,6 @@ TA_LIB_API TA_RetCode TA_FRACTAL_OpenAndFill( TA_FRACTAL_Stream **stream, const 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outSwingHigh || !outSwingLow ) return TA_BAD_PARAM;
    if( (const void *)outSwingHigh == (const void *)inHigh || (const void *)outSwingHigh == (const void *)inLow || (const void *)outSwingLow == (const void *)inHigh || (const void *)outSwingLow == (const void *)inLow || (const void *)outSwingHigh == (const void *)outSwingLow ) return TA_BAD_PARAM;

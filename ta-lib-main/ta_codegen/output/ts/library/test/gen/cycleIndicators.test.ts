@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -37,363 +37,367 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  HtPhasorOut, HtSineOut, htDcperiod, htDcperiodOpen, htDcperiodOpenAndFill,
-  htDcphase, htDcphaseOpen, htDcphaseOpenAndFill, htPhasor, htPhasorOpen,
-  htPhasorOpenAndFill, htSine, htSineOpen, htSineOpenAndFill, htTrendmode,
-  htTrendmodeOpen, htTrendmodeOpenAndFill, swak2php, swak2phpOpen,
-  swak2phpOpenAndFill, swakBp, swakBpOpen, swakBpOpenAndFill, swakHp,
-  swakHpOpen, swakHpOpenAndFill
+  htDcperiod, htDcperiodOpen, htDcperiodOpenAndFill, htDcphase, htDcphaseOpen,
+  htDcphaseOpenAndFill, htPhasor, htPhasorOpen, htPhasorOpenAndFill, htSine,
+  htSineOpen, htSineOpenAndFill, htTrendmode, htTrendmodeOpen,
+  htTrendmodeOpenAndFill, swak2php, swak2phpOpen, swak2phpOpenAndFill, swakBp,
+  swakBpOpen, swakBpOpenAndFill, swakHp, swakHpOpen, swakHpOpenAndFill
 } from 'ta-lib';
 
 test('HT_DCPERIOD: htDcperiod example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = htDcperiod(0, data.length - 1, data, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = htDcperiod(series);
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('HT_DCPERIOD: htDcperiodOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = htDcperiodOpen(data);
+  const stream = htDcperiodOpen(series);
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('HT_DCPERIOD: htDcperiodOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = htDcperiodOpenAndFill(data, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = htDcperiodOpenAndFill(series);
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = htDcperiod(0, data.length - 1, data, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = htDcperiod(series);
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('HT_DCPHASE: htDcphase example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = htDcphase(0, data.length - 1, data, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = htDcphase(series);
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('HT_DCPHASE: htDcphaseOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = htDcphaseOpen(data);
+  const stream = htDcphaseOpen(series);
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('HT_DCPHASE: htDcphaseOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = htDcphaseOpenAndFill(data, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = htDcphaseOpenAndFill(series);
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = htDcphase(0, data.length - 1, data, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = htDcphase(series);
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('HT_PHASOR: htPhasor example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const inPhase = new Float64Array(data.length);
-  const quadrature = new Float64Array(data.length);
-  const { begIdx, count } = htPhasor(
-    0, data.length - 1,
-    data,
-    inPhase, quadrature,
-  );
-  // inPhase[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, outInPhase, outQuadrature } = htPhasor(series);
+  console.log(outInPhase.length + ' values from bar ' + begIdx + '; last outInPhase = ' + outInPhase[outInPhase.length - 1]);
+
+  const count = outInPhase.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(inPhase.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.equal(outQuadrature.length, count);
+  assert.ok(outInPhase.every(Number.isFinite));
 });
 
 test('HT_PHASOR: htPhasorOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = htPhasorOpen(data);
-  const peeked = new HtPhasorOut();
-  const updated = new HtPhasorOut();
-  stream.peek(100.9, peeked); // a forming bar: commits nothing
-  stream.update(100.9, updated); // the bar closes
+  const stream = htPhasorOpen(series);
+  const peeked = stream.peek(100.9); // a forming bar: commits nothing
+  const updated = stream.update(100.9); // the bar closes
 
-  assert.ok(Object.is(peeked.inPhase, updated.inPhase));
-  assert.ok(Object.is(peeked.quadrature, updated.quadrature));
+  assert.ok(Object.is(peeked.outInPhase, updated.outInPhase));
+  assert.ok(Object.is(peeked.outQuadrature, updated.outQuadrature));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('HT_PHASOR: htPhasorOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const inPhase = new Float64Array(data.length);
-  const quadrature = new Float64Array(data.length);
-  const stream = htPhasorOpenAndFill(data, inPhase, quadrature);
-  const { begIdx, count } = stream.outRange();
-  // inPhase[k] is the value at bar begIdx + k, for k < count
+  const {
+    stream,
+    begIdx,
+    outInPhase,
+    outQuadrature,
+  } = htPhasorOpenAndFill(series);
+  // outInPhase[k] is the value at bar begIdx + k
 
-  const batchInPhase = new Float64Array(data.length);
-  const batchQuadrature = new Float64Array(data.length);
-  const batch = htPhasor(0, data.length - 1, data, batchInPhase, batchQuadrature);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(inPhase[k], batchInPhase[k]));
-    assert.ok(Object.is(quadrature[k], batchQuadrature[k]));
+  const range = stream.outRange();
+  const batch = htPhasor(series);
+  assert.deepEqual([begIdx, outInPhase.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, outInPhase.length], [batch.begIdx, batch.outInPhase.length]);
+  assert.ok(outInPhase.length > 0);
+  for (let k = 0; k < outInPhase.length; k++) {
+    assert.ok(Object.is(outInPhase[k], batch.outInPhase[k]));
+    assert.ok(Object.is(outQuadrature[k], batch.outQuadrature[k]));
   }
 });
 
 test('HT_SINE: htSine example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const sine = new Float64Array(data.length);
-  const leadSine = new Float64Array(data.length);
-  const { begIdx, count } = htSine(0, data.length - 1, data, sine, leadSine);
-  // sine[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, outSine, outLeadSine } = htSine(series);
+  console.log(outSine.length + ' values from bar ' + begIdx + '; last outSine = ' + outSine[outSine.length - 1]);
+
+  const count = outSine.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(sine.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.equal(outLeadSine.length, count);
+  assert.ok(outSine.every(Number.isFinite));
 });
 
 test('HT_SINE: htSineOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = htSineOpen(data);
-  const peeked = new HtSineOut();
-  const updated = new HtSineOut();
-  stream.peek(100.9, peeked); // a forming bar: commits nothing
-  stream.update(100.9, updated); // the bar closes
+  const stream = htSineOpen(series);
+  const peeked = stream.peek(100.9); // a forming bar: commits nothing
+  const updated = stream.update(100.9); // the bar closes
 
-  assert.ok(Object.is(peeked.sine, updated.sine));
-  assert.ok(Object.is(peeked.leadSine, updated.leadSine));
+  assert.ok(Object.is(peeked.outSine, updated.outSine));
+  assert.ok(Object.is(peeked.outLeadSine, updated.outLeadSine));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('HT_SINE: htSineOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const sine = new Float64Array(data.length);
-  const leadSine = new Float64Array(data.length);
-  const stream = htSineOpenAndFill(data, sine, leadSine);
-  const { begIdx, count } = stream.outRange();
-  // sine[k] is the value at bar begIdx + k, for k < count
+  const {
+    stream,
+    begIdx,
+    outSine,
+    outLeadSine,
+  } = htSineOpenAndFill(series);
+  // outSine[k] is the value at bar begIdx + k
 
-  const batchSine = new Float64Array(data.length);
-  const batchLeadSine = new Float64Array(data.length);
-  const batch = htSine(0, data.length - 1, data, batchSine, batchLeadSine);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(sine[k], batchSine[k]));
-    assert.ok(Object.is(leadSine[k], batchLeadSine[k]));
+  const range = stream.outRange();
+  const batch = htSine(series);
+  assert.deepEqual([begIdx, outSine.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, outSine.length], [batch.begIdx, batch.outSine.length]);
+  assert.ok(outSine.length > 0);
+  for (let k = 0; k < outSine.length; k++) {
+    assert.ok(Object.is(outSine[k], batch.outSine[k]));
+    assert.ok(Object.is(outLeadSine[k], batch.outLeadSine[k]));
   }
 });
 
 test('HT_TRENDMODE: htTrendmode example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Int32Array(data.length);
-  const { begIdx, count } = htTrendmode(0, data.length - 1, data, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = htTrendmode(series);
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
+  assert.equal(begIdx + count, series.length);
   // the mode is a flag: 1 in a trend, 0 in a cycle
-  assert.ok(out.subarray(0, count).every((v) => v === 0 || v === 1));
+  assert.ok(values.subarray(0, count).every((v) => v === 0 || v === 1));
 });
 
 test('HT_TRENDMODE: htTrendmodeOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = htTrendmodeOpen(data);
+  const stream = htTrendmodeOpen(series);
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('HT_TRENDMODE: htTrendmodeOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Int32Array(data.length);
-  const stream = htTrendmodeOpenAndFill(data, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = htTrendmodeOpenAndFill(series);
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Int32Array(data.length);
-  const batch = htTrendmode(0, data.length - 1, data, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = htTrendmode(series);
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('SWAK_2PHP: swak2php example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = swak2php(0, data.length - 1, data, 20, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = swak2php(series, { timePeriod: 20 });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('SWAK_2PHP: swak2phpOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = swak2phpOpen(data, 20);
+  const stream = swak2phpOpen(series, { timePeriod: 20 });
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('SWAK_2PHP: swak2phpOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = swak2phpOpenAndFill(data, 20, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = swak2phpOpenAndFill(series, {
+    timePeriod: 20,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = swak2php(0, data.length - 1, data, 20, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = swak2php(series, { timePeriod: 20 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('SWAK_BP: swakBp example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = swakBp(0, data.length - 1, data, 20, 0.1, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = swakBp(series, { timePeriod: 20, delta: 0.1 });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('SWAK_BP: swakBpOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = swakBpOpen(data, 20, 0.1);
+  const stream = swakBpOpen(series, { timePeriod: 20, delta: 0.1 });
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('SWAK_BP: swakBpOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = swakBpOpenAndFill(data, 20, 0.1, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = swakBpOpenAndFill(series, {
+    timePeriod: 20,
+    delta: 0.1,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = swakBp(0, data.length - 1, data, 20, 0.1, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = swakBp(series, { timePeriod: 20, delta: 0.1 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });
 
 test('SWAK_HP: swakHp example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
-    100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const { begIdx, count } = swakHp(0, data.length - 1, data, 20, out);
-  // out[k] is the value at bar begIdx + k, for k < count
+  const series = new Float64Array(252); // your data, oldest first
+  for (let i = 0; i < 252; i++) series[i] = 100 + 10 * Math.sin(0.1 * i);
 
+  const { begIdx, values } = swakHp(series, { timePeriod: 20 });
+  console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
+
+  const count = values.length;
   assert.ok(count > 0);
-  assert.equal(begIdx + count, data.length);
-  assert.ok(out.subarray(0, count).every(Number.isFinite));
+  assert.equal(begIdx + count, series.length);
+  assert.ok(values.every(Number.isFinite));
 });
 
 test('SWAK_HP: swakHpOpen example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const stream = swakHpOpen(data, 20);
+  const stream = swakHpOpen(series, { timePeriod: 20 });
   const peeked = stream.peek(100.9); // a forming bar: commits nothing
   const updated = stream.update(100.9); // the bar closes
 
   assert.ok(Object.is(peeked, updated));
   assert.ok(Object.is(stream.value(), updated));
   const range = stream.outRange();
-  assert.equal(range.begIdx + range.count, data.length + 1);
+  assert.equal(range.begIdx + range.count, series.length + 1);
 });
 
 test('SWAK_HP: swakHpOpenAndFill example', () => {
-  const data = Float64Array.from({ length: 252 }, (_, i) =>
+  const series = Float64Array.from({ length: 252 }, (_, i) =>
     100 + 10 * Math.sin(0.1 * i));
-  const out = new Float64Array(data.length);
-  const stream = swakHpOpenAndFill(data, 20, out);
-  const { begIdx, count } = stream.outRange();
-  // out[k] is the value at bar begIdx + k, for k < count
+  const { stream, begIdx, values } = swakHpOpenAndFill(series, {
+    timePeriod: 20,
+  });
+  // values[k] is the value at bar begIdx + k
 
-  const batchOut = new Float64Array(data.length);
-  const batch = swakHp(0, data.length - 1, data, 20, batchOut);
-  assert.deepEqual([begIdx, count], [batch.begIdx, batch.count]);
-  assert.ok(count > 0);
-  for (let k = 0; k < count; k++) {
-    assert.ok(Object.is(out[k], batchOut[k]));
+  const range = stream.outRange();
+  const batch = swakHp(series, { timePeriod: 20 });
+  assert.deepEqual([begIdx, values.length], [range.begIdx, range.count]);
+  assert.deepEqual([begIdx, values.length], [batch.begIdx, batch.values.length]);
+  assert.ok(values.length > 0);
+  for (let k = 0; k < values.length; k++) {
+    assert.ok(Object.is(values[k], batch.values[k]));
   }
 });

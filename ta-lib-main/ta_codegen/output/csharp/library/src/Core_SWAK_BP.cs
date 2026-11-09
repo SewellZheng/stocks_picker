@@ -736,9 +736,6 @@ public partial class Core
       double y2 = 0;
       int historyLen = inReal.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
-      }
       if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
@@ -752,7 +749,7 @@ public partial class Core
       } else if( !(optInDelta >= 5e-2 && optInDelta <= 5e-1) ) {
          return RetCode.BadParam;
       }
-      if( startIdx > endIdx ) {
+      if( startIdx >= historyLen ) {
          outBegIdx = 0;
          outNBElement = 0;
          return RetCode.InsufficientHistory;
@@ -893,14 +890,14 @@ public partial class Core
    /// <param name="optInDelta">As in the batch call; see <see cref="SwakBpLookback"/> for its default and
    /// range (<see cref="Core.RealDefault"/> selects the default).</param>
    /// <returns>The open stream handle.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SwakBpLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SwakBpLookback(...) + 1</c> bars, an empty
+   /// one included — which is what a null array becomes, since a span cannot be
+   /// null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public SwakBpStream SwakBpOpen( ReadOnlySpan<double> inReal, int optInTimePeriod, double optInDelta )
    {
-      if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "SWAK_BP open: history is empty", RetCode.OutOfRangeStartIndex);
       if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "SWAK_BP open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       return SwakBpOpenInternal(inReal, 0, optInTimePeriod, optInDelta);
    }
@@ -929,16 +926,16 @@ public partial class Core
    /// <param name="outReal">The extracted cycle, centred on zero. Must hold at least <c>historyLen -
    /// SwakBpLookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SwakBpLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SwakBpLookback(...) + 1</c> bars, an empty
+   /// one included — which is what a null array becomes, since a span cannot be
+   /// null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public SwakBpStream SwakBpOpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, double optInDelta, Span<double> outReal )
    {
-      if( inReal.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "SWAK_BP openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
       if( inReal.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inReal), "SWAK_BP openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
       int guardOutLen = OpenFillCount("SWAK_BP", "openAndFill", inReal.Length, SwakBpLookback(optInTimePeriod, optInDelta));
       RequireFillLength("SWAK_BP", "openAndFill", "outReal", outReal.Length, guardOutLen);

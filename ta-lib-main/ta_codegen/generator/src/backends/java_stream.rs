@@ -597,7 +597,7 @@ fn emit_loop_shape(
         helpers, counter,
     );
     emit_open_and_fill_internal_wrapper(o, func, true);
-    emit_open_wrappers(o, func, true, enums);
+    emit_open_wrappers(o, func, true, model.open_needs_last_bar_only(), enums);
     if registry.in_tape_set(&func.name.to_lowercase()) {
         let tier = TapeTier { models: &[model], dual: None, fields: &fields, step_settings: &step_settings };
         emit_tape_entries(o, func, &tier, stream_fma, enums, registry, helpers, counter);
@@ -1025,7 +1025,7 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
     );
     let _ = writeln!(o, "      public {vt} update( {sig_bars}{sink} ) {{");
     // rU4 first, then rU2 before rU3: the index domain ahead of the call's
-    // arguments, as an opener answers rS1/rS2 ahead of rS4; and an absent sink is a
+    // arguments, as an opener answers rS2 ahead of rS4; and an absent sink is a
     // fault in the call, not in the bar.
     o.push_str(&out_range_ceiling_guard(func, "         ", "update"));
     o.push_str(&require_sink(func, "         ", "update"));
@@ -1948,9 +1948,10 @@ fn emit_open_prologue(
 /// The anchor has to land inside the history — see `c_stream::emit_anchor_guard`
 /// for why the transcribed bodies cannot be relied on for this (only 137 of 174
 /// carry TA-Lib's "make sure there is still something to evaluate" preamble, and
-/// the rest run `while nbBar != 0` on a count that went negative).
+/// the rest run `while nbBar != 0` on a count that went negative). At anchor 0 it
+/// is rule rS7 for an empty history.
 fn emit_anchor_guard(o: &mut String) {
-    let _ = writeln!(o, "      if( startIdx > endIdx ) {{");
+    let _ = writeln!(o, "      if( startIdx >= historyLen ) {{");
     let _ = writeln!(o, "         outBegIdx.value = 0;");
     let _ = writeln!(o, "         outNBElement.value = 0;");
     let _ = writeln!(o, "         return RetCode.INSUFFICIENT_HISTORY;");
@@ -2020,14 +2021,8 @@ fn emit_open_head(o: &mut String, func: &FuncDef, _outputs: &[String]) {
 fn emit_open_validation(o: &mut String, func: &FuncDef, mode: OutMode, enums: &HashMap<String, EnumDef>) {
     let inputs = streaming::input_array_names(func);
     let first = &inputs[0];
-    // rS1 and rS2 run first, ahead of every presence check but the history's
-    // own, answering OUT_OF_RANGE_START_INDEX and OUT_OF_RANGE_END_INDEX
-    // (https://ta-lib.org/spec/streaming/#rs1). `historyLen` is the FIRST input's
-    // length, so a later input of a different length is an argument
-    // disagreement, not an empty history.
-    let _ = writeln!(o, "      if( historyLen < 1 ) {{");
-    let _ = writeln!(o, "         return RetCode.OUT_OF_RANGE_START_INDEX;");
-    let _ = writeln!(o, "      }}");
+    // An empty history is not refused here: it is rule rS7, answered after
+    // every argument check by the anchor guard or the tier's own history check.
     // The fill covers bars 0..historyLen-1, so its last bar is an index like any
     // other and INDEX_MAX bounds it too (#180). Without this the streaming
     // entry points would compute over exactly the ranges the batch call refuses,
@@ -2508,20 +2503,23 @@ fn emit_cur_capture(o: &mut String, outputs: &[String], source: CurSource) {
 // Public wrappers
 // ---------------------------------------------------------------------------
 
+/// `<base>Lookback(<optIns>)`.
+fn lookback_call(func: &FuncDef) -> String {
+    let opts: Vec<&str> = func.optional_inputs.iter().map(|p| p.name.as_str()).collect();
+    format!("{}Lookback({})", method_base(func), opts.join(", "))
+}
+
 /// The reject-conversion tail shared by openInternal / openAndFill: rule rS7
 /// with its counts, then `Core.streamFailure` for every other code, which
 /// single-sources the stable message prefix. `anchor` is the seam's
 /// `startIdx`, or `None` at a public frame (anchor 0).
-fn emit_reject_conversion(o: &mut String, func: &FuncDef, what: &str, anchor: Option<&str>) {
+fn emit_reject_conversion(o: &mut String, func: &FuncDef, what: &str, anchor: Option<&str>, on_success: &str) {
     let n = func.name.to_uppercase();
     let history = &streaming::input_array_names(func)[0];
-    let lookback = format!(
-        "{}Lookback({})",
-        method_base(func),
-        func.optional_inputs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")
-    );
+    let lookback = lookback_call(func);
     let anchor = anchor.unwrap_or("0");
     let _ = writeln!(o, "      if( retCode == RetCode.SUCCESS ) {{");
+    o.push_str(on_success);
     let _ = writeln!(o, "         return sp;");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {{");
@@ -2539,10 +2537,12 @@ fn emit_reject_conversion(o: &mut String, func: &FuncDef, what: &str, anchor: Op
 /// server drives to check an anchored range against the batch — 176 call sites,
 /// one per function, which is why it is emitted for every tier and not only the
 /// ones something composes over.
+#[allow(clippy::too_many_arguments)]
 fn emit_open_internal_seam(
     o: &mut String,
     func: &FuncDef,
     merged: bool,
+    last_bar_only: bool,
     in_sig: &[String],
     in_fwd: &[String],
     opt_sig_str: &str,
@@ -2560,12 +2560,18 @@ fn emit_open_internal_seam(
         in_sig.join(", ")
     );
     let _ = writeln!(o, "      {class} sp = new {class}(this);");
+    let mut on_success = String::new();
     if merged {
         let _ = writeln!(o, "      MInteger outBegIdx = new MInteger();");
         let _ = writeln!(o, "      MInteger outNBElement = new MInteger();");
         let mut args: Vec<String> = vec!["sp".to_string()];
         args.extend(in_fwd.iter().cloned());
-        args.push("startIdx".to_string());
+        let history = &in_fwd[0];
+        args.push(if last_bar_only {
+            format!("startIdx + 1 < {history}.length ? {history}.length - 1 : startIdx")
+        } else {
+            "startIdx".to_string()
+        });
         for p in &func.optional_inputs { args.push(p.name.clone()); }
         args.push("outBegIdx".to_string());
         args.push("outNBElement".to_string());
@@ -2578,11 +2584,16 @@ fn emit_open_internal_seam(
         // holds the last history value — what `sp.cur_*` is seeded from.
         args.push("0".to_string());
         let _ = writeln!(o, "      RetCode retCode = {base}OpenImpl({});", args.join(", "));
-        // The numerics report their range through the pair whatever the stride,
-        // so the plain open gets the same numbers a fill would — read back
-        // rather than re-derived from the lookback (issue #241).
-        let _ = writeln!(o, "      sp.outRangeBegIdx = outBegIdx.value;");
-        let _ = writeln!(o, "      sp.outRangeCount = outNBElement.value;");
+        if last_bar_only {
+            let _ = writeln!(on_success, "         sp.outRangeBegIdx = Math.max(startIdx, {});", lookback_call(func));
+            let _ = writeln!(on_success, "         sp.outRangeCount = {history}.length - sp.outRangeBegIdx;");
+        } else {
+            // The numerics report their range through the pair whatever the stride,
+            // so the plain open gets the same numbers a fill would — read back
+            // rather than re-derived from the lookback (issue #241).
+            let _ = writeln!(o, "      sp.outRangeBegIdx = outBegIdx.value;");
+            let _ = writeln!(o, "      sp.outRangeCount = outNBElement.value;");
+        }
     } else {
         let _ = writeln!(
             o,
@@ -2590,27 +2601,24 @@ fn emit_open_internal_seam(
             in_fwd.join(", ")
         );
     }
-    emit_reject_conversion(o, func, "open", Some("startIdx"));
+    emit_reject_conversion(o, func, "open", Some("startIdx"), &on_success);
     let _ = writeln!(o, "   }}");
 
 }
 
-/// Rule rS4 at the PUBLIC opener, with the implied index pair (rS1/rS2) in the
-/// middle of it.
+/// Rule rS4 at the PUBLIC opener, with rule rS2 in the middle of it.
 ///
-/// **Exactly one presence check precedes the pair**: the FIRST input's, because
+/// **Exactly one presence check precedes rS2**: the FIRST input's, because
 /// that is the array `historyLen` is read from and a length cannot be taken from
 /// an array that is not there. Every other argument — the remaining price legs
-/// included — is checked after, which is the specified order (rule rS1's note,
-/// `https://ta-lib.org/spec/streaming/#rs1`; footnote [4] of
-/// `docs/spec-conformance.md`). Checking them all up
-/// front reads as tidier and is wrong: a candlestick opened on an empty history
-/// with one null leg would report the leg, where C reports the empty history.
+/// included — is checked after, as C checks `historyLen` ahead of its NULL
+/// tests (footnote [4] of `docs/spec-conformance.md`). An empty history is
+/// rule rS7, left to the core, which answers it after every argument check.
 ///
-/// `<N>OpenImpl` answers the pair too; this runs first only to fix the ORDER,
+/// `<N>OpenImpl` answers rS2 too; this runs first only to fix the ORDER,
 /// exactly as `Core.requireIndexRange` does in the batch tier. Without it a
-/// null output pre-empted the empty history, and a null input reached
-/// `inReal.length` and surfaced as a bare `NullPointerException` naming nothing.
+/// null input reached `inReal.length` and surfaced as a bare
+/// `NullPointerException` naming nothing.
 fn emit_public_open_guards(o: &mut String, func: &FuncDef, verb: &str, with_outputs: bool) {
     let n = func.name.to_uppercase();
     let inputs = streaming::input_array_names(func);
@@ -2706,10 +2714,8 @@ fn emit_public_open_doc(
          \x20   * to {{@link Core#{base}}} at that bar.\n\
          \x20   * <p>The history must hold at least {{@code {base}Lookback(...) + 1}} bars\n\
          \x20   * (unstable-period aware), or {{@link InsufficientHistoryException}} is\n\
-         \x20   * thrown.{params} An EMPTY history throws\n\
-         \x20   * {{@link IndexOutOfBoundsException}} — its implied {{@code startIdx}} of 0\n\
-         \x20   * names no bar — and a null argument {{@link IllegalArgumentException}},\n\
-         \x20   * both ahead of everything above.\n\
+         \x20   * thrown, an empty history included.{params} A null argument throws\n\
+         \x20   * {{@link IllegalArgumentException}}, ahead of everything above.\n\
          \x20   */"
     );
 }
@@ -2782,6 +2788,7 @@ fn emit_open_wrappers(
     o: &mut String,
     func: &FuncDef,
     merged: bool,
+    last_bar_only: bool,
     enums: &HashMap<String, EnumDef>,
 ) {
     let jbase = method_base(func);
@@ -2803,7 +2810,7 @@ fn emit_open_wrappers(
     let opt_sig_str = if opt_sig.is_empty() { String::new() } else { format!(", {}", opt_sig.join(", ")) };
     let opt_fwd_str = if opt_fwd.is_empty() { String::new() } else { format!(", {}", opt_fwd.join(", ")) };
 
-    emit_open_internal_seam(o, func, merged, &in_sig, &in_fwd, &opt_sig_str, &opt_fwd_str);
+    emit_open_internal_seam(o, func, merged, last_bar_only, &in_sig, &in_fwd, &opt_sig_str, &opt_fwd_str);
 
     emit_public_open_doc(o, func, enums, &n, &jbase);
     let _ = writeln!(
@@ -2895,7 +2902,7 @@ fn emit_open_wrappers(
         );
         let _ = writeln!(o, "      sp.outRangeBegIdx = outBegIdx.value;");
         let _ = writeln!(o, "      sp.outRangeCount = outNBElement.value;");
-        emit_reject_conversion(o, func, "openAndFill", None);
+        emit_reject_conversion(o, func, "openAndFill", None, "");
     }
     let _ = writeln!(o, "   }}");
 }
@@ -3111,7 +3118,7 @@ fn emit_dual_mode(
     }
     emit_open_and_fill_internal_wrapper(o, func, true);
 
-    emit_open_wrappers(o, func, true, enums);
+    emit_open_wrappers(o, func, true, false, enums);
     if registry.in_tape_set(&func.name.to_lowercase()) {
         let tier = TapeTier { models: &[ma, mb], dual: Some(dmp), fields: &fields, step_settings: &step_settings };
         emit_tape_entries(o, func, &tier, stream_fma, enums, registry, helpers, counter);
@@ -3493,7 +3500,7 @@ fn emit_dispatch(
         let _ = writeln!(o, "   }}");
     }
 
-    emit_open_wrappers(o, func, false, enums);
+    emit_open_wrappers(o, func, false, false, enums);
     emit_open_and_fill_internal_wrapper(o, func, false);
     if registry.in_tape_set(&func.name.to_lowercase()) {
         emit_dispatch_tape(o, func, dp, registry);
@@ -4004,7 +4011,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "      return RetCode.SUCCESS;");
     let _ = writeln!(o, "   }}");
 
-    emit_open_wrappers(o, func, false, enums);
+    emit_open_wrappers(o, func, false, false, enums);
 }
 
 // ---------------------------------------------------------------------------
@@ -4762,7 +4769,7 @@ fn emit_composed(
         o, func, cp, &step_settings, stream_fma, &outputs, enums, registry, helpers, counter,
     );
     emit_open_and_fill_internal_wrapper(o, func, true);
-    emit_open_wrappers(o, func, true, enums);
+    emit_open_wrappers(o, func, true, false, enums);
 }
 
 /// `<base>OpenAndFillInternal`: `OpenAndFill` anchored at the caller's
@@ -4832,6 +4839,6 @@ fn emit_open_and_fill_internal_wrapper(o: &mut String, func: &FuncDef, merged: b
     // composed sub-handle is opened through (issue #241).
     let _ = writeln!(o, "      sp.outRangeBegIdx = outBegIdx.value;");
     let _ = writeln!(o, "      sp.outRangeCount = outNBElement.value;");
-    emit_reject_conversion(o, func, "openAndFill", Some("startIdx"));
+    emit_reject_conversion(o, func, "openAndFill", Some("startIdx"), "");
     let _ = writeln!(o, "   }}");
 }

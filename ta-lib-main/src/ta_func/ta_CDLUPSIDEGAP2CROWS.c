@@ -58,6 +58,7 @@
  *  110104 AC     Creation
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  *  103126 MF,CC  Pre-check the cheap tests in an outer if, the candle averages inside
+ *  110626 MF,CC  Opt out of the range-type copy, which slows this body
  */
 
 TA_LIB_API int TA_CDLUPSIDEGAP2CROWS_Lookback( void )
@@ -378,22 +379,10 @@ static void TA_CDLUPSIDEGAP2CROWS_StepImpl( struct TA_CDLUPSIDEGAP2CROWS_Stream 
    }
 }
 
-static TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenImpl( struct TA_CDLUPSIDEGAP2CROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenBody( struct TA_CDLUPSIDEGAP2CROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_CDLUPSIDEGAP2CROWS_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -460,22 +449,15 @@ static TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenImpl( struct TA_CDLUPSIDEGAP2CROWS_S
       outIdx = 0;
       do
       {
-         if( ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == 1 &&  /* 1st: white */
-             ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == -1 && /* 2nd: black */
-             ((min(inOpen[i - 1],inClose[i - 1]) > max(inOpen[i - 2],inClose[i - 2])) ? 1 : 0) ) /* gapping up */
+         if( (((inClose[i - 2] >= inOpen[i - 2]) +  /* 1st: white */
+             (!(inClose[i - 1] >= inOpen[i - 1])) + /* 2nd: black */
+             (((inOpen[i - 1] > inOpen[i - 2]) & (inOpen[i - 1] > inClose[i - 2]) & (inClose[i - 1] > inOpen[i - 2]) & (inClose[i - 1] > inClose[i - 2])))) == 3) ) /* gapping up */
          {
-            if( fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2) && /* long */
-                fabs(inClose[i - 1] - inOpen[i - 1]) <= TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i - 1) && /* short */
-                ((inClose[i] >= inOpen[i]) ? 1 : -1) == -1 && /* 3rd: black */
-                inOpen[i] > inOpen[i - 1] &&
-                inClose[i] < inClose[i - 1] &&                /* 3rd: engulfing prior rb */
-                inClose[i] > inClose[i - 2] )                 /* closing above 1st */
-            {
-               outInteger[outIdx++ * outStride] = -100;
-            } else 
-            {
-               outInteger[outIdx++ * outStride] = 0;
-            }
+            outInteger[outIdx++ * outStride] = ((-100) & -(int)(((fabs(inClose[i - 2] - inOpen[i - 2]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyLongPeriodTotal,i - 2)) & /* long */
+                (fabs(inClose[i - 1] - inOpen[i - 1]) <= TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyShortPeriodTotal,i - 1)) & /* short */
+                (!(inClose[i] >= inOpen[i])) &    /* 3rd: black */
+                (inOpen[i] > inOpen[i - 1]) & (inClose[i] < inClose[i - 1]) & /* 3rd: engulfing prior rb */
+                (inClose[i] > inClose[i - 2])))); /* closing above 1st */
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -537,6 +519,38 @@ static TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenImpl( struct TA_CDLUPSIDEGAP2CROWS_S
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenFillFrame( struct TA_CDLUPSIDEGAP2CROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   return TA_CDLUPSIDEGAP2CROWS_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenSinkFrame( struct TA_CDLUPSIDEGAP2CROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   int sink_outInteger = 0;
+   TA_RetCode retCode = TA_CDLUPSIDEGAP2CROWS_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, &sink_outInteger, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outInteger ) *outInteger = sink_outInteger;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenImpl( struct TA_CDLUPSIDEGAP2CROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_CDLUPSIDEGAP2CROWS_OpenFillFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger ) : TA_CDLUPSIDEGAP2CROWS_OpenSinkFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenInternal( struct TA_CDLUPSIDEGAP2CROWS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outInteger )
 {
@@ -556,7 +570,6 @@ TA_LIB_API TA_RetCode TA_CDLUPSIDEGAP2CROWS_Open( TA_CDLUPSIDEGAP2CROWS_Stream *
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLUPSIDEGAP2CROWS_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
@@ -566,7 +579,6 @@ TA_LIB_API TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenAndFill( TA_CDLUPSIDEGAP2CROWS_S
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;

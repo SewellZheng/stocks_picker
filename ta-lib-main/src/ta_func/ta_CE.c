@@ -839,7 +839,6 @@ static TA_FMA_STEP_INLINE TA_RetCode TA_CE_OpenImpl( struct TA_CE_Stream **strea
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outRealLong || !outRealShort ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
@@ -850,7 +849,7 @@ static TA_FMA_STEP_INLINE TA_RetCode TA_CE_OpenImpl( struct TA_CE_Stream **strea
       optInMultiplier = 3;
    else if( !(optInMultiplier >= 0e0 && optInMultiplier <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
+   if( startIdx >= historyLen )
    {
       *outBegIdx = 0;
       *outNBElement = 0;
@@ -1213,7 +1212,6 @@ TA_LIB_API TA_RetCode TA_CE_Open( TA_CE_Stream **stream, const double inHigh[], 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outRealLong || !outRealShort ) return TA_BAD_PARAM;
    return TA_FMA_AVAILABLE ? TA_CE_OpenSinkFma( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInMultiplier, outRealLong, outRealShort ) : TA_CE_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInMultiplier, outRealLong, outRealShort );
@@ -1223,7 +1221,6 @@ TA_LIB_API TA_RetCode TA_CE_OpenAndFill( TA_CE_Stream **stream, const double inH
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outRealLong || !outRealShort ) return TA_BAD_PARAM;
    if( (const void *)outRealLong == (const void *)inHigh || (const void *)outRealLong == (const void *)inLow || (const void *)outRealLong == (const void *)inClose || (const void *)outRealShort == (const void *)inHigh || (const void *)outRealShort == (const void *)inLow || (const void *)outRealShort == (const void *)inClose || (const void *)outRealLong == (const void *)outRealShort ) return TA_BAD_PARAM;

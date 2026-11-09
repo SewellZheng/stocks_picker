@@ -469,25 +469,26 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
+    /// let high = vec![0.0; 252]; // your data, oldest first
+    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low = vec![0.0; 252]; // your data, oldest first
+    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close = vec![0.0; 252]; // your data, oldest first
+    /// # let close: Vec<f64> = (0..252)
+    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .collect();
     /// let mut momentum = vec![0.0; 252];
     /// let mut squeeze = vec![0i32; 252];
     ///
-    /// let out_range = core.sqzmom(
-    ///     0, high.len() - 1, &high, &low, &close, 20, 2.0, 20, 2.0, 1.5, 1.0,
-    ///     &mut momentum, &mut squeeze,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert!(momentum[..out_range.count].iter().all(|v| v.is_finite()));
-    /// assert_eq!(out_range.beg_idx + out_range.count, high.len());
-    /// // the compression level is an ordinal: 3 narrow, 2 normal, 1 wide, -1 released, 0 otherwise
-    /// assert!(squeeze[..out_range.count].iter().all(|&v| (-1..=3).contains(&v)));
+    /// let core = Core::new();
+    /// let range = core.sqzmom(0, high.len() - 1, &high, &low, &close, 20, 2.0, 20, 2.0, 1.5, 1.0,
+    ///                         &mut momentum, &mut squeeze)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last momentum = {}", range.count, range.beg_idx, momentum[range.count - 1]);
+    /// # assert!(momentum[..range.count].iter().all(|v| v.is_finite()));
+    /// # assert_eq!(range.beg_idx + range.count, high.len());
+    /// # // the compression level is an ordinal: 3 narrow, 2 normal, 1 wide, -1 released, 0 otherwise
+    /// # assert!(squeeze[..range.count].iter().all(|&v| (-1..=3).contains(&v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -665,9 +666,6 @@ impl Core {
     pub(crate) fn sqzmom_open_impl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInBBPeriod: i32, mut optInNbDev: f64, mut optInKCPeriod: i32, mut optInFactorWide: f64, mut optInFactorNormal: f64, mut optInFactorNarrow: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outMomentum: &mut [f64], outSqueeze: &mut [i32], outStride: usize,
     ) -> Result<SqzmomStream, RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -705,13 +703,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut owned_sc_outMomentum: Vec<f64> =
@@ -927,10 +925,9 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -996,9 +993,6 @@ impl Core {
     pub fn sqzmom_open_and_fill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInBBPeriod: i32, mut optInNbDev: f64, mut optInKCPeriod: i32, mut optInFactorWide: f64, mut optInFactorNormal: f64, mut optInFactorNarrow: f64, outMomentum: &mut [f64], outSqueeze: &mut [i32],
     ) -> Result<(SqzmomStream, OutRange), RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

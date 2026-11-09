@@ -404,19 +404,18 @@ impl Core {
     /// ```
     /// use ta_lib::{Core, MAType};
     ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
+    /// let series = vec![0.0; 252]; // your data, oldest first
+    /// # let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let mut macd = vec![0.0; 252];
     /// let mut macd_signal = vec![0.0; 252];
     /// let mut macd_hist = vec![0.0; 252];
     ///
-    /// let out_range = core.macdext(
-    ///     0, data.len() - 1, &data, 12, MAType::SMA, 26, MAType::SMA, 9, MAType::SMA,
-    ///     &mut macd, &mut macd_signal, &mut macd_hist,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert!(macd[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.macdext(0, series.len() - 1, &series, 12, MAType::SMA, 26, MAType::SMA, 9, MAType::SMA,
+    ///                          &mut macd, &mut macd_signal, &mut macd_hist)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last macd = {}", range.count, range.beg_idx, macd[range.count - 1]);
+    /// # assert!(macd[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -552,9 +551,6 @@ impl Core {
     pub(crate) fn macdext_open_impl(
         &self, inReal: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInFastMAType: MAType, mut optInSlowPeriod: i32, mut optInSlowMAType: MAType, mut optInSignalPeriod: i32, mut optInSignalMAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64], outStride: usize,
     ) -> Result<MacdextStream, RetCode> {
-        if inReal.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -583,13 +579,13 @@ impl Core {
             optInSignalMAType = MAType::SMA;
         }
         let historyLen: usize = inReal.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut owned_sc_outMACD: Vec<f64> =
@@ -760,17 +756,16 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
-    /// let (mut s, _last) = core.macdext_open(&data, 12, MAType::SMA, 26, MAType::SMA, 9, MAType::SMA).expect("enough history");
+    /// let (mut s, _last) = core.macdext_open(&series, 12, MAType::SMA, 26, MAType::SMA, 9, MAType::SMA).expect("enough history");
     /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
     /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
@@ -800,18 +795,18 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     ///
     /// let core = Core::new();
     /// let mut batch_macd = vec![0.0; 252];
     /// let mut batch_macd_signal = vec![0.0; 252];
     /// let mut batch_macd_hist = vec![0.0; 252];
-    /// let batch = core.macdext(0, data.len() - 1, &data, 12, MAType::SMA, 26, MAType::SMA, 9, MAType::SMA, &mut batch_macd, &mut batch_macd_signal, &mut batch_macd_hist)?;
+    /// let batch = core.macdext(0, series.len() - 1, &series, 12, MAType::SMA, 26, MAType::SMA, 9, MAType::SMA, &mut batch_macd, &mut batch_macd_signal, &mut batch_macd_hist)?;
     ///
     /// let mut macd = vec![0.0; 252];
     /// let mut macd_signal = vec![0.0; 252];
     /// let mut macd_hist = vec![0.0; 252];
-    /// let (_stream, filled) = core.macdext_open_and_fill(&data, 12, MAType::SMA, 26, MAType::SMA, 9, MAType::SMA, &mut macd, &mut macd_signal, &mut macd_hist)?;
+    /// let (_stream, filled) = core.macdext_open_and_fill(&series, 12, MAType::SMA, 26, MAType::SMA, 9, MAType::SMA, &mut macd, &mut macd_signal, &mut macd_hist)?;
     ///
     /// assert_eq!(filled.beg_idx, batch.beg_idx);
     /// assert_eq!(filled.count, batch.count);
@@ -827,9 +822,6 @@ impl Core {
     pub fn macdext_open_and_fill(
         &self, inReal: &[f64], mut optInFastPeriod: i32, mut optInFastMAType: MAType, mut optInSlowPeriod: i32, mut optInSlowMAType: MAType, mut optInSignalPeriod: i32, mut optInSignalMAType: MAType, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64],
     ) -> Result<(MacdextStream, OutRange), RetCode> {
-        if inReal.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

@@ -245,9 +245,10 @@
 //! * [`WAVETREND`](Core::wavetrend) — WaveTrend Oscillator
 //! * [`WILLR`](Core::willr) — Williams' %R
 //!
-//! ## Overlap Studies (35)
+//! ## Overlap Studies (36)
 //!
 //! * [`ACCBANDS`](Core::accbands) — Acceleration Bands
+//! * [`ALLIGATOR`](Core::alligator) — Williams Alligator
 //! * [`ALMA`](Core::alma) — Arnaud Legoux Moving Average
 //! * [`BBANDS`](Core::bbands) — Bollinger Bands
 //! * [`CE`](Core::ce) — Chandelier Exit
@@ -356,7 +357,7 @@
 //! * [`TYPPRICE`](Core::typprice) — Typical Price
 //! * [`WCLPRICE`](Core::wclprice) — Weighted Close Price
 //!
-//! ## Statistic Functions (14)
+//! ## Statistic Functions (16)
 //!
 //! * [`BETA`](Core::beta) — Beta
 //! * [`CORREL`](Core::correl) — Pearson's Correlation Coefficient (r)
@@ -368,7 +369,9 @@
 //! * [`MEDIAN`](Core::median) — Rolling Median
 //! * [`PERCENTILE`](Core::percentile) — Percentile (nearest rank)
 //! * [`PERCENTRANK`](Core::percentrank) — Percent Rank
+//! * [`SHARPE`](Core::sharpe) — Rolling Sharpe Ratio
 //! * [`SKEW`](Core::skew) — Rolling Skewness
+//! * [`SORTINO`](Core::sortino) — Rolling Sortino Ratio
 //! * [`STDDEV`](Core::stddev) — Standard Deviation
 //! * [`TSF`](Core::tsf) — Time Series Forecast
 //! * [`VAR`](Core::var) — Variance

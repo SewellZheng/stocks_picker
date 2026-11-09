@@ -980,6 +980,8 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_stddev,   "STDDEV,VAR" );
    DO_TEST( test_func_kurtosis, "KURTOSIS" );
    DO_TEST( test_func_skew,     "SKEW" );
+   DO_TEST( test_func_sharpe,   "SHARPE" );
+   DO_TEST( test_func_sortino,  "SORTINO" );
    DO_TEST( test_func_median,   "MEDIAN" );
    /* CORREL numerical robustness (#242). Separate from the per_hl group so the
     * probes can be reached on their own; --function=CORREL matches both. */
@@ -1023,6 +1025,7 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_fisher,   "FISHER" );
    DO_TEST( test_func_kvo, "KVO" );
    DO_TEST( test_func_ichimoku, "ICHIMOKU" );
+   DO_TEST( test_func_alligator, "ALLIGATOR" );
    DO_TEST( test_func_zigzag,   "ZIGZAG" );
    DO_TEST( test_func_wavetrend, "WAVETREND" );
    DO_TEST( test_func_dosc, "DOSC" );

@@ -212,21 +212,16 @@ fn rust_public_fill_bounds_every_output_against_its_own_lookback() {
     assert!(checked >= 200, "only {checked} public fills inspected");
 }
 
-/// Rule rS1 on EVERY C# public opener — corpus-wide, for the same reason as the
-/// Java gate below.
+/// Rule rS2, then rS4 and rS5, on EVERY C# public opener — corpus-wide, for the
+/// same reason as the Java gate below.
 ///
-/// C# is the backend where the probe/corpus gap is widest. Its live rS1 is the
-/// public frame's `IsEmpty` throw, not the core's `historyLen < 1` return, which
-/// the frame makes unreachable from the public API — so
-/// `scripts/check_stream_retcodes.py`, which reads the core, is not evidence
-/// about the surface a caller touches. `StreamApiTest` probes it on `SMA`; this
-/// is what covers the other 175.
-///
-/// Two clauses, because the first input means something the others do not: it
-/// carries the history, so empty THERE is rS1; a later one is a length
-/// disagreement, which is the catch-all like every other argument fault.
+/// An empty FIRST input is the history's rS7, which the core's anchor guard
+/// answers after every argument check, so the public frame must not refuse it:
+/// a frame-level `IsEmpty` throw would answer it ahead of rS3, rS4 and rS5. A
+/// later empty input beside a non-empty history is absent, which is the
+/// catch-all like every other argument fault.
 #[test]
-fn csharp_public_openers_reject_an_empty_history_as_an_index_fault() {
+fn csharp_public_openers_leave_an_empty_history_to_the_core() {
     let registry = make_registry();
     let helpers = common::make_helpers();
     let enums = load_enums();
@@ -250,11 +245,37 @@ fn csharp_public_openers_reject_an_empty_history_as_an_index_fault() {
                 .unwrap_or_else(|| panic!("{}: no public {verb}", func.name));
             let body = &src[at..];
             let history = &inputs[0];
+            let body = &body[..body.find("\n   }\n").unwrap_or(body.len())];
+            assert!(
+                !body.contains(&format!("if( {history}.IsEmpty ) throw")),
+                "{}: {verb} refuses an empty history ahead of the argument checks",
+                func.name
+            );
+            // A later empty input is absent only beside a non-empty history:
+            // beside an empty one it has the right length, and rS7 answers.
+            let gate = format!("if( !{history}.IsEmpty ) {{");
+            if inputs.len() > 1 {
+                let at_gate = body.find(&gate).unwrap_or_else(|| {
+                    panic!("{}: {verb} refuses an empty later input beside an empty history", func.name)
+                });
+                for extra in &inputs[1..] {
+                    let other = format!("if( {extra}.IsEmpty ) throw");
+                    let at_other = body.find(&other).unwrap_or_else(|| panic!("{}: {verb} does not check `{extra}`", func.name));
+                    let close = body[at_gate..].find("\n      }").map_or(body.len(), |c| at_gate + c);
+                    assert!(
+                        at_gate < at_other && at_other < close,
+                        "{}: {verb} checks `{extra}` outside the non-empty-history gate",
+                        func.name
+                    );
+                }
+            } else {
+                assert!(!body.contains(&gate), "{}: {verb} gates on a history with no other input", func.name);
+            }
             let s1 = format!(
-                "if( {history}.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof({history}), \"{base} {verb}: history is empty\", RetCode.OutOfRangeStartIndex);"
+                "if( {history}.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof({history}), \"{base} {verb}: history is longer than IndexMax + 1\", RetCode.OutOfRangeEndIndex);"
             );
             let at_s1 = body.find(&s1).unwrap_or_else(|| {
-                panic!("{}: {verb} does not answer rS1 on the history", func.name)
+                panic!("{}: {verb} does not answer rS2 on the history", func.name)
             });
             for extra in &inputs[1..] {
                 let other = format!(
@@ -313,7 +334,7 @@ fn csharp_public_openers_reject_an_empty_history_as_an_index_fault() {
     assert!(checked >= 352, "only {checked} public openers inspected");
 }
 
-/// Rule rS4, then rS1/rS2, on EVERY Java public opener — corpus-wide, because a
+/// Rule rS4, then the history bounds, on EVERY Java public opener — corpus-wide, because a
 /// probe on SMA says nothing about the other 175.
 ///
 /// The order is the point, and the assertion is two-sided: the FIRST input's
@@ -321,7 +342,7 @@ fn csharp_public_openers_reject_an_empty_history_as_an_index_fault() {
 /// that is not there), and **everything else** follows it — the remaining price
 /// legs as much as the outputs. A one-sided version that only pinned the outputs
 /// would pass against a frame that checks every leg up front, which reports the
-/// leg where C reports the empty history.
+/// leg where C reports a history longer than `INDEX_MAX + 1`.
 ///
 /// An output is checked with `requireLength`, not `requireArgument`: one call
 /// carries rS4 and rS5, exactly as the batch wrapper's does. Requiring the
@@ -455,86 +476,101 @@ fn ts_public_openers_type_test_then_the_index_pair_then_the_buffers() {
         let inputs = streaming::input_array_names(&func);
         let history = &inputs[0];
         for (verb, entry, fill) in
-            [("open", format!("export function {}(", names.open), false), ("openAndFill", format!("export function {}(", names.open_and_fill), true)]
+            [("open", format!("export function {}(", names.open_positional), false), ("openAndFill", format!("export function {}(", names.open_and_fill_positional), true)]
         {
             let at = src.find(&entry).unwrap_or_else(|| panic!("{f}: no public {verb}"));
             let body = body_after(&src, at);
             let find = |needle: &str| body.find(needle).unwrap_or_else(|| panic!("{f}: {verb} has no `{needle}`"));
-            let pair = find(&format!("requireHistory('{f} {verb}', {history}.length);"));
+            let pair = find(&format!("requireHistory('{f} {verb}', '{}', {history}.length);", backends::ts::input_label(&func, history)));
             for p in &func.optional_inputs {
                 let helper = match p.param_type {
                     ir::ParamType::Integer | ir::ParamType::Enum(_) => "requireInt32",
                     ir::ParamType::Real => "requireReal",
                     ir::ParamType::Price(_) => continue,
                 };
-                let at_type = find(&format!("{0} = {helper}('{f} {verb}', '{0}', {0})", p.name));
+                let at_type = find(&format!("{0} = {helper}('{f} {verb}', '{1}', {0})", p.name, backends::ts::param_key(&p.name)));
                 assert!(at_type < pair, "{f}: {verb} type-tests `{}` after the index pair", p.name);
             }
             let width = fill.then(|| {
-                let w = find(&format!("const guardOutLen = openFillCount('{f} {verb}', {history}.length, {}(", names.lookback));
+                let w = find(&format!("const guardOutLen = openFillCount('{f} {verb}', {history}.length, "));
                 assert!(w > pair, "{f}: the fill width precedes the index pair");
+                let own = format!("{}(", names.lookback_positional);
+                let width_line = body[w..].lines().next().unwrap_or_default();
+                if !width_line.contains(&own) {
+                    assert!(width_line.ends_with(", guardLookback);"), "{f}: the fill width is not the function's own lookback:\n{width_line}");
+                    let lb = find(&format!("const guardLookback = {own}"));
+                    let reject = find(&format!("  if (guardLookback < 0) {{\n    throw rejectedParams('{f} {verb}', PARAM_RANGES, "));
+                    assert!(pair < lb && lb < reject && reject < w, "{f}: the parameter rejection is out of order");
+                }
                 w
             });
             for extra in &inputs[1..] {
-                let at_in = find(&format!("requireHistoryLength('{f} {verb}', '{extra}', {extra}.length, {history}.length);"));
+                let label = backends::ts::input_label(&func, extra);
+                let at_in = find(&format!("requireHistoryLength('{f} {verb}', '{label}', {extra}.length, {history}.length);"));
                 assert!(at_in > width.unwrap_or(pair), "{f}: {verb} checks `{extra}`'s length too early");
             }
             if fill {
                 let mut last = width.unwrap_or(pair);
                 for out in &func.outputs {
                     let ty = if out.param_type == ir::ParamType::Real { "Float64Array" } else { "Int32Array" };
-                    let at_out = find(&format!("requireOutput('{f} {verb}', '{0}', {0}, guardOutLen, {ty});", out.name));
+                    let label = backends::ts::output_label(&func, &out.name);
+                    let at_out = find(&format!("requireOutput('{f} {verb}', '{label}', {0}, guardOutLen, {ty});", out.name));
                     assert!(at_out > last, "{f}: `{}` is bounded out of order", out.name);
                     last = at_out;
                 }
-                // The exempt tiers (an `OpenImpl` without a stride) guard in
-                // their own fill body, over inputs already converted.
+                // Every pair, named in its throw: one start address after the
+                // capacity checks, then a partial overlap, only once the history
+                // is long enough, over the converted inputs.
+                let mut pairs: Vec<(String, String, String, String)> = Vec::new();
+                for out in &func.outputs {
+                    let la = backends::ts::output_label(&func, &out.name);
+                    pairs.extend(inputs.iter().map(|i| (out.name.clone(), format!("{i}F64"), la.clone(), backends::ts::input_label(&func, i))));
+                }
+                for (k, a) in func.outputs.iter().enumerate() {
+                    for b in &func.outputs[k + 1..] {
+                        pairs.push((a.name.clone(), b.name.clone(), backends::ts::output_label(&func, &a.name), backends::ts::output_label(&func, &b.name)));
+                    }
+                }
+                for head in ["", "guardOutLen > 0 && "] {
+                    for (a, b, la, lb) in &pairs {
+                        let test = if head.is_empty() {
+                            format!("{a}.buffer === {b}.buffer && {a}.byteOffset === {b}.byteOffset")
+                        } else {
+                            format!("overlaps({a}, {b})")
+                        };
+                        let at = find(&format!("  if ({head}{test}) {{\n    throw sharedMemory('{f} openAndFill', '{la}', '{lb}');"));
+                        assert!(at > last, "{f}: the guard on `{a}` and `{b}` is out of order");
+                        last = at;
+                    }
+                }
+                assert_eq!(body.matches("sharedMemory(").count(), 2 * pairs.len(), "{f}: the fill guards a pair it has no business with");
+                // The exempt tiers (an `OpenImpl` without a stride) keep C's
+                // guard in their own fill body too.
                 let exempt = !signature_after(&src, &format!("\nfunction {}Impl(", names.open)).contains("outStride");
-                let (scope, suffix) = if exempt {
+                if exempt {
                     let impl_at = src
                         .find(&format!("\nfunction {}Impl(", names.open_and_fill))
                         .unwrap_or_else(|| panic!("{f}: an exempt tier with no fill body"));
-                    (body_after(&src, impl_at), "")
-                } else {
-                    (body, "F64")
-                };
-                // One start address is refused ahead of the history check; a
-                // partial overlap only once the history is long enough.
-                let partial_head = if exempt { "if (historyLen > " } else { "if (guardOutLen > 0 && (" };
-                let clause = scope.find(" && (overlaps(").unwrap_or_else(|| panic!("{f}: no overlap guard on its fill"));
-                let g = scope[..clause].rfind('\n').map_or(0, |i| i + 1);
-                assert!(scope[g..].trim_start().starts_with(partial_head), "{f}: the overlap guard is not `{partial_head}...`");
-                let s_at = scope[..g].rfind("\n  if ((").unwrap_or_else(|| panic!("{f}: no same-start guard ahead of the overlap guard"));
-                if exempt {
+                    let scope = body_after(&src, impl_at);
+                    let clause = scope.find(" && (overlaps(").unwrap_or_else(|| panic!("{f}: no overlap guard on its fill body"));
+                    let g = scope[..clause].rfind('\n').map_or(0, |i| i + 1);
                     let insufficient = scope.find("return RetCode.INSUFFICIENT_HISTORY").unwrap_or_else(|| panic!("{f}: a fill body with no history check"));
                     assert!(g < insufficient, "{f}: the overlap guard follows the history check it is conditioned on");
-                    let bound = scope[g..].lines().next().unwrap_or_default();
+                    let guard = scope[g..].lines().next().unwrap_or_default();
                     assert!(
-                        bound.starts_with(&format!("  if (historyLen > {}(", names.lookback)),
-                        "{f}: the overlap guard is not bounded by the function's own lookback:\n{bound}"
+                        guard.starts_with(&format!("  if (historyLen > {}(", names.lookback_positional)),
+                        "{f}: the overlap guard is not bounded by the function's own lookback:\n{guard}"
                     );
-                } else {
-                    assert!(s_at > last, "{f}: the same-start guard precedes a capacity check");
+                    let s_at = scope[..g].rfind("\n  if ((").unwrap_or_else(|| panic!("{f}: no same-start guard ahead of the overlap guard"));
+                    let same = scope[s_at + 1..].lines().next().unwrap_or_default();
+                    for (a, b, ..) in &pairs {
+                        let b = b.trim_end_matches("F64");
+                        assert!(guard.contains(&format!("overlaps({a}, {b})")), "{f}: the fill body's overlap guard has no `{a}`, `{b}`:\n{guard}");
+                        assert!(same.contains(&format!("({a}.buffer === {b}.buffer && {a}.byteOffset === {b}.byteOffset)")), "{f}: the fill body's same-start guard has no `{a}`, `{b}`:\n{same}");
+                    }
+                    assert_eq!(guard.matches("overlaps(").count(), pairs.len(), "{f}: the fill body tests a pair it has no business with:\n{guard}");
+                    assert_eq!(same.matches(".buffer === ").count(), pairs.len(), "{f}: the fill body's same-start guard tests a pair it has no business with:\n{same}");
                 }
-                let same = scope[s_at + 1..].lines().next().unwrap_or_default();
-                let guard = scope[g..].lines().next().unwrap_or_default();
-                assert!(guard.contains(" && (overlaps("), "{f}: the overlap guard is not conditioned on the history:\n{guard}");
-                let outs: Vec<&str> = func.outputs.iter().map(|o| o.name.as_str()).collect();
-                let mut pairs: Vec<(String, String)> = Vec::new();
-                for out in &outs {
-                    pairs.extend(inputs.iter().map(|i| ((*out).to_string(), format!("{i}{suffix}"))));
-                }
-                for (k, a) in outs.iter().enumerate() {
-                    pairs.extend(outs[k + 1..].iter().map(|b| ((*a).to_string(), (*b).to_string())));
-                }
-                for (a, b) in &pairs {
-                    let p = format!("overlaps({a}, {b})");
-                    assert!(guard.contains(p.as_str()), "{f}: the fill's overlap guard has no `{p}`:\n{guard}");
-                    let q = format!("({a}.buffer === {b}.buffer && {a}.byteOffset === {b}.byteOffset)");
-                    assert!(same.contains(q.as_str()), "{f}: the fill's same-start guard has no `{q}`:\n{same}");
-                }
-                assert_eq!(guard.matches("overlaps(").count(), pairs.len(), "{f}: the guard tests a pair it has no business with:\n{guard}");
-                assert_eq!(same.matches(".buffer === ").count(), pairs.len(), "{f}: the same-start guard tests a pair it has no business with:\n{same}");
                 guarded += 1;
                 exempt_fills += usize::from(exempt);
             }
@@ -647,9 +683,10 @@ fn signature_after<'a>(s: &'a str, needle: &str) -> &'a str {
     &s[at..at + s[at..].find(')').expect("signature closes")]
 }
 
-/// The `{`-matched body that follows `from`.
+/// The `{`-matched body that follows `from`: the first brace that ends its
+/// line, so an inline object type in the signature is passed over.
 fn body_after(s: &str, from: usize) -> &str {
-    let b = match s[from..].find('{') {
+    let b = match s[from..].find("{\n") {
         Some(i) => from + i,
         None => return "",
     };
@@ -729,11 +766,14 @@ fn strip_comments(s: &str) -> String {
 /// bars was an ASan stack-buffer-overflow; the same call panicked in Rust,
 /// where the count is `usize`.
 ///
+/// The same guard is rule rS7 for an empty history, so no separate emptiness
+/// check may precede it: that would answer rS7 ahead of rS3 and rS4.
+///
 /// Two ORDER assertions, because presence alone is the weaker half of this and
 /// a guard in the wrong place is exactly the bug:
 ///
-///   * after the history-emptiness check — `historyLen - 1` is evaluated by the
-///     guard itself, and in Rust `historyLen` is a `usize`;
+///   * in Rust, before anything evaluates `historyLen - 1`, which underflows
+///     on an empty history;
 ///   * before the first loop in the body — a guard the loop has already run
 ///     past protects nothing.
 #[test]
@@ -772,13 +812,14 @@ fn every_open_pass_rejects_an_anchor_past_the_history() {
     let helpers = common::make_helpers();
     let enums = load_enums();
 
-    // guard text, the emptiness check it must follow, and the signature marker
-    let specs: [(&str, &str, &str); 5] = [
-        ("C", "if( startIdx > historyLen - 1 )", "if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;"),
-        ("Rust", "if startIdx > endIdx {", ".is_empty()"),
-        ("Java", "if( startIdx > endIdx ) {", "historyLen < 1"),
-        ("C#", "if( startIdx > endIdx ) {", "historyLen < 1"),
-        ("TS", "if (startIdx > endIdx) {", "historyLen < 1"),
+    // guard text, the emptiness check that must not exist, and the arm-level
+    // guard a managed DualMode body relies on instead (C and Rust hoist theirs)
+    let specs: [(&str, &str, &str, Option<&str>); 5] = [
+        ("C", "if( startIdx >= historyLen )", "historyLen < 1", None),
+        ("Rust", "if startIdx >= historyLen {", ".is_empty()", None),
+        ("Java", "if( startIdx >= historyLen ) {", "historyLen < 1", Some("if( startIdx > endIdx ) {")),
+        ("C#", "if( startIdx >= historyLen ) {", "historyLen < 1", Some("if( startIdx > endIdx ) {")),
+        ("TS", "if (startIdx >= historyLen) {", "historyLen < 1", Some("if (startIdx > endIdx) {")),
     ];
     // Per backend: the definition keyword, which is what tells a definition
     // from a call site, and the `_OpenImpl` marker in that backend's own casing
@@ -810,19 +851,24 @@ fn every_open_pass_rejects_an_anchor_past_the_history() {
         ];
 
         for (b, src) in sources.iter().enumerate() {
-            let (lang, guard, empty_check) = specs[b];
+            let (lang, guard, empty_check, arm_guard) = specs[b];
             for body in open_impls(src, shapes[b]) {
                 if body.is_empty() {
                     continue;
                 }
                 let body = &strip_comments(body);
-                let g = body.find(guard).unwrap_or_else(|| {
+                let g = body.find(guard).or_else(|| arm_guard.and_then(|a| body.find(a))).unwrap_or_else(|| {
                     panic!("{lang} {}_OpenImpl: no anchor guard — an anchor past the history would run the body's loop with a negative count", func.name)
                 });
-                if let Some(e) = body.find(empty_check) {
+                assert!(
+                    !body[..g].contains(empty_check),
+                    "{lang} {}_OpenImpl: an emptiness check answers rS7 ahead of the argument checks",
+                    func.name
+                );
+                if let Some(e) = body.find("historyLen - 1").filter(|_| lang == "Rust") {
                     assert!(
-                        e < g,
-                        "{lang} {}_OpenImpl: the anchor guard evaluates the history length, so it must come after the emptiness check",
+                        g < e,
+                        "{lang} {}_OpenImpl: `historyLen - 1` is evaluated before the anchor guard rejects an empty history",
                         func.name
                     );
                 }
@@ -948,10 +994,10 @@ fn csharp_batch_entries_refuse_an_empty_output_behind_the_core_s_own_verdict() {
     assert!(outputs_pinned >= 200, "only {outputs_pinned} outputs pinned");
 }
 
-/// The body of the TS public batch entry, `export function <n>(`.
-fn ts_public_entry(func: &ir::FuncDef, enums: &std::collections::HashMap<String, ir::EnumDef>) -> String {
+/// The body of one TS entry point, `export function <sym>(`.
+fn ts_entry(func: &ir::FuncDef, enums: &std::collections::HashMap<String, ir::EnumDef>, sym: &str) -> String {
     let src = backends::ts::generate(func, enums, make_registry(), common::make_helpers());
-    let entry = format!("export function {}(", backends::ts::ts_names(&func.name).public);
+    let entry = format!("export function {sym}(");
     let at = src.find(&entry).unwrap_or_else(|| panic!("{}: no `{entry}`", func.name));
     body_after(&src, at).to_string()
 }
@@ -1001,7 +1047,9 @@ fn every_declared_input_is_checked_in_every_backend() {
         }
         let out = generate_all(&func, &enums);
         let csharp = backends::csharp::generate(&func, &enums, registry, helpers);
-        let ts = ts_public_entry(&func, &enums);
+        let names = backends::ts::ts_names(&func.name);
+        let ts = ts_entry(&func, &enums, &names.positional);
+        let ts_api = ts_entry(&func, &enums, &names.public);
         scanned += 1;
         let f = &func.name;
 
@@ -1040,8 +1088,24 @@ fn every_declared_input_is_checked_in_every_backend() {
                     format!("RequireLength(\"{f}\", \"{n}\", {n}.Length, guardInLen);"),
                     2,
                 ),
-                // TS has one batch entry point, and `ts` is its body alone.
-                ("ts", &ts, format!("requireLength('{f}', '{n}', {n}, guardInLen);"), 1),
+                // TS has one C-shaped batch entry point, and `ts` is its body alone.
+                (
+                    "ts",
+                    &ts,
+                    format!("requireLength('{f}', '{}', {n}, guardInLen);", backends::ts::input_label(&func, n)),
+                    1,
+                ),
+                // The public function reads a length only after a check that the
+                // series is present and non-empty.
+                (
+                    "ts-pub",
+                    &ts_api,
+                    {
+                        let leg = &backends::ts::api_leg_args(&func, std::slice::from_ref(n))[0];
+                        format!("requireSeries('{f}', '{leg}', {leg});")
+                    },
+                    1,
+                ),
             ] {
                 assert!(
                     src.matches(&needle).count() >= want,
@@ -1076,7 +1140,7 @@ fn every_declared_input_is_checked_in_every_backend() {
         let (func, enums) = load_indicator(indicator);
         let out = generate_all(&func, &enums);
         let csharp = backends::csharp::generate(&func, &enums, registry, helpers);
-        let ts = ts_public_entry(&func, &enums);
+        let ts = ts_entry(&func, &enums, &backends::ts::ts_names(&func.name).positional);
         let f = &func.name;
         // The body proper: everything after the bounds-assert preamble, so the
         // asserts this test just demanded cannot themselves satisfy "is read".
@@ -1120,7 +1184,7 @@ fn every_declared_input_is_checked_in_every_backend() {
                 "csharp: {f}.{leg}"
             );
             assert!(
-                ts.contains(&format!("requireLength('{f}', '{leg}', {leg}, guardInLen);")),
+                ts.contains(&format!("requireLength('{f}', '{}', {leg}, guardInLen);", backends::ts::input_label(&func, leg))),
                 "ts: {f}.{leg}"
             );
         }

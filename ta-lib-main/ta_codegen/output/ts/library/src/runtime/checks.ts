@@ -1,4 +1,4 @@
-/* TA-LIB Copyright (c) 1999-2026, Mario Fortier
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or
@@ -63,10 +63,7 @@ export function failure(funcName: string, retCode: FailureRetCode): TALibError {
     case RetCode.OUT_OF_RANGE_END_INDEX:
       return new TALibError(retCode, where + 'endIdx out of range');
     case RetCode.BAD_PARAM:
-      return new TALibError(
-        retCode,
-        where + 'bad parameter (out-of-range optional parameter, or overlapping arrays)',
-      );
+      return new TALibError(retCode, where + 'bad parameter');
     case RetCode.ALLOC_ERR:
       return new TALibError(retCode, where + 'allocation failed');
     case RetCode.INTERNAL_ERROR:
@@ -86,6 +83,8 @@ export function streamFailure(funcName: string, retCode: FailureRetCode): TALibE
       return new TALibError(retCode, where + 'bad parameter');
     case RetCode.INSUFFICIENT_HISTORY:
       return new TALibError(retCode, where + 'history shorter than lookback + 1');
+    case RetCode.OUT_OF_RANGE_END_INDEX:
+      return new TALibError(retCode, where + 'outRange() has reached Core.INDEX_MAX');
     case RetCode.INTERNAL_ERROR:
       return new TALibError(retCode, where + 'internal error');
     default:
@@ -94,17 +93,23 @@ export function streamFailure(funcName: string, retCode: FailureRetCode): TALibE
 }
 
 /**
- * @internal An integer argument must be an int32 number. `(v | 0) !== v` also
- * rejects NaN, fractions and numeric strings, and keeps the `INTEGER_DEFAULT`
- * sentinel. Run it before every range check, and use the value it returns: a
- * -0 passes the test and must not reach a body, where it would carry its sign
- * into real arithmetic.
+ * @internal An integer argument must be an int32 number. `(v | 0) !== v`
+ * rejects NaN and fractions and keeps the `INTEGER_DEFAULT` sentinel; the
+ * `typeof` test ahead of it rejects strings and BigInts, which `|` would coerce
+ * or throw on. Run it before every range check, and use the value it returns:
+ * a -0 passes the test and must not reach a body, where it would carry its
+ * sign into real arithmetic.
  */
 export function requireInt32(funcName: string, argName: string, v: number): number {
-  if ((v | 0) !== v) {
-    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not an int32, got ${String(v)}`);
+  if (typeof v !== 'number' || (v | 0) !== v) {
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not an int32, got ${show(v)}`);
   }
   return v | 0;
+}
+
+/** @internal A rejected value as a message shows it: a string quoted and a BigInt with its `n`, so neither reads as the number it is not. */
+export function show(v: unknown): string {
+  return typeof v === 'string' ? JSON.stringify(v) : typeof v === 'bigint' ? `${v}n` : String(v);
 }
 
 /**
@@ -113,7 +118,7 @@ export function requireInt32(funcName: string, argName: string, v: number): numb
  */
 export function requireReal(funcName: string, argName: string, v: number): number {
   if (typeof v !== 'number') {
-    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not a number, got ${String(v)}`);
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not a number, got ${show(v)}`);
   }
   return v;
 }
@@ -130,10 +135,16 @@ export function float64(array: ArrayLike<number>): Float64Array {
 /** @internal */
 export function requireIndexRange(funcName: string, startIdx: number, endIdx: number): void {
   if (startIdx < 0 || startIdx > Core.INDEX_MAX) {
-    throw failure(funcName, RetCode.OUT_OF_RANGE_START_INDEX);
+    throw new TALibError(
+      RetCode.OUT_OF_RANGE_START_INDEX,
+      `${funcName}: startIdx must be in 0..${Core.INDEX_MAX}, got ${startIdx}`,
+    );
   }
   if (endIdx < 0 || endIdx > Core.INDEX_MAX || endIdx < startIdx) {
-    throw failure(funcName, RetCode.OUT_OF_RANGE_END_INDEX);
+    throw new TALibError(
+      RetCode.OUT_OF_RANGE_END_INDEX,
+      `${funcName}: endIdx must be in ${startIdx}..${Core.INDEX_MAX}, got ${endIdx}`,
+    );
   }
 }
 
@@ -151,8 +162,28 @@ export function clampedStart(funcName: string, startIdx: number, lookback: numbe
 }
 
 /**
- * @internal An absent, empty or too-short array. `required` is 0 on a range
- * that produces nothing, which leaves only the absent and empty tests.
+ * @internal A series must be array-like: an object with a numeric `length`.
+ * Only a JavaScript caller can pass anything else, and a number, a string or a
+ * plain object would otherwise be read as an empty or all-NaN series and the
+ * call succeed.
+ */
+export function requireArrayLike(funcName: string, argName: string, array: unknown): asserts array is ArrayLike<number> {
+  if (array == null) {
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is absent`);
+  }
+  if (typeof array !== 'object' || !isLength((array as ArrayLike<number>).length)) {
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not an array`);
+  }
+}
+
+/** @internal An array's length: a non-negative integer. NaN or a fraction would pass every later bound. */
+function isLength(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
+}
+
+/**
+ * @internal An absent, non-array, empty or too-short series. `required` is 0 on
+ * a range that produces nothing, which leaves only the other tests.
  */
 export function requireLength(
   funcName: string,
@@ -160,9 +191,7 @@ export function requireLength(
   array: ArrayLike<number> | null | undefined,
   required: number,
 ): void {
-  if (array == null) {
-    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is absent`);
-  }
+  requireArrayLike(funcName, argName, array);
   const actual = array.length;
   if (actual < required) {
     throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} has length ${actual}, needs ${required}`);
@@ -185,28 +214,46 @@ export function requireOutput(
 ): void {
   requireLength(funcName, argName, array, required);
   if (!(array instanceof type)) {
-    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not a ${type.name}`);
-  }
-}
-
-/** @internal An absent argument, checked before anything reads its length. */
-export function requireArgument(funcName: string, argName: string, array: unknown): void {
-  if (array == null) {
-    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is absent`);
+    const article = type === Int32Array ? 'an' : 'a';
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not ${article} ${type.name}`);
   }
 }
 
 /**
- * @internal An opener's history must hold 1 to `INDEX_MAX + 1` bars. Not
- * {@link requireIndexRange} over `[0, historyLen - 1]`, which reports an empty
- * history as the end index rather than the start.
+ * @internal An absent or primitive argument, checked before anything reads a
+ * property of it: a series or a price object.
  */
-export function requireHistory(funcName: string, historyLen: number): void {
-  if (historyLen < 1) {
-    throw failure(funcName, RetCode.OUT_OF_RANGE_START_INDEX);
+export function requireArgument(funcName: string, argName: string, array: unknown): void {
+  if (array == null) {
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is absent`);
+  }
+  if (typeof array !== 'object') {
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is a ${typeof array}, not an array or object`);
+  }
+}
+
+/** @internal A batch input: absent, not an array or empty is `TA_BAD_PARAM` (rB4). */
+export function requireSeries(funcName: string, argName: string, array: ArrayLike<number> | null | undefined): void {
+  requireArrayLike(funcName, argName, array);
+  if (array.length === 0) {
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is empty`);
+  }
+}
+
+/**
+ * @internal An opener's history holds at most `INDEX_MAX + 1` bars (rS2). An
+ * empty one passes: it is a short history (rS7), which the core answers after
+ * every argument check.
+ */
+export function requireHistory(funcName: string, argName: string, historyLen: number): void {
+  if (!isLength(historyLen)) {
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not an array`);
   }
   if (historyLen > Core.INDEX_MAX + 1) {
-    throw failure(funcName, RetCode.OUT_OF_RANGE_END_INDEX);
+    throw new TALibError(
+      RetCode.OUT_OF_RANGE_END_INDEX,
+      `${funcName}: history has length ${historyLen}, at most ${Core.INDEX_MAX + 1}`,
+    );
   }
 }
 
@@ -229,8 +276,42 @@ export function overlapsPartly(out: Float64Array, input: Float64Array): boolean 
   return overlaps(out, input) && (out.byteOffset !== input.byteOffset || out.length !== input.length);
 }
 
+/** @internal Two arguments the call refused to let share memory. */
+export function sharedMemory(funcName: string, a: string, b: string): TALibError {
+  return new TALibError(RetCode.BAD_PARAM, `${funcName}: ${a} and ${b} share memory`);
+}
+
+/**
+ * @internal One parameter as its range check sees it: the options key, the
+ * default sentinel, the inclusive bounds and the accepted values as a message
+ * states them, empty for a parameter no range check covers.
+ */
+export type ParamRange = readonly [key: string, sentinel: number, min: number, max: number, accepted: string];
+
+/**
+ * @internal The rejection of parameters a lookback answered -1 for. `ranges`
+ * must list them in the order the checks run, which every range check precedes:
+ * the first value outside its range is then the reason, and with none outside
+ * only the combination can be, so no range is claimed.
+ */
+export function rejectedParams(funcName: string, ranges: readonly ParamRange[], ...values: number[]): TALibError {
+  for (let k = 0; k < ranges.length; k++) {
+    const [key, sentinel, min, max, accepted] = ranges[k];
+    const v = values[k];
+    if (accepted !== '' && v !== sentinel && !(v >= min && v <= max)) {
+      return new TALibError(RetCode.BAD_PARAM, `${funcName}: ${key} must be ${accepted}, got ${show(v)}`);
+    }
+  }
+  const keys = ranges.map((r) => r[0]);
+  const verdict = keys.length === 1 ? 'is in range but rejected' : 'are each in range but rejected';
+  return new TALibError(RetCode.BAD_PARAM, `${funcName}: ${keys.join(', ')} ${verdict}; see the function's documentation`);
+}
+
 /** @internal Every input of an opener is exactly the history's length. */
 export function requireHistoryLength(funcName: string, argName: string, actual: number, historyLen: number): void {
+  if (!isLength(actual)) {
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not an array`);
+  }
   if (actual !== historyLen) {
     throw new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} has length ${actual}, needs ${historyLen}`);
   }
@@ -266,7 +347,95 @@ export function nonFiniteBar(funcName: string, argName: string): TALibError {
   return new TALibError(RetCode.BAD_PARAM, `${funcName}: ${argName} is not finite`);
 }
 
-/** @internal A multi-output sink that is absent or not the function's own `<N>Out`. */
+/** @internal A multi-output sink given but not an object. */
 export function badSink(funcName: string, className: string): TALibError {
   return new TALibError(RetCode.BAD_PARAM, `${funcName}: out must be a ${className}`);
+}
+
+const NO_OPTIONS = Object.freeze({});
+
+/**
+ * @internal The options object of a public call: an omitted one has every
+ * default. `null`, a primitive or an array is a caller error, not a request for
+ * defaults: a second series passed where the options go would otherwise run
+ * the call with every default and no error.
+ */
+export function optionsOf<T extends object>(funcName: string, options: T | undefined): T {
+  if (options === undefined) {
+    return NO_OPTIONS as T;
+  }
+  if (typeof options !== 'object' || options === null || Array.isArray(options) || ArrayBuffer.isView(options)) {
+    const got = Array.isArray(options) ? 'an array' : ArrayBuffer.isView(options) ? 'a typed array or DataView' : show(options);
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: options must be a plain object, got ${got}`);
+  }
+  return options;
+}
+
+/**
+ * @internal `undefined` only selects `fallback`: a `null` reaches the
+ * positional tier's own check and is rejected there.
+ */
+export function orDefault<T>(value: T | undefined, fallback: T): T {
+  return value === undefined ? fallback : value;
+}
+
+/** @internal An omitted `core` is the default; anything but a `Core` is `TA_BAD_PARAM`. */
+export function coreOf(funcName: string, core: Core | undefined): Core {
+  if (core === undefined) {
+    return Core.DEFAULT;
+  }
+  if (!(core instanceof Core)) {
+    const hint = typeof core === 'object' && core !== null ? '; a Core built by another copy of ta-lib does not count' : '';
+    throw new TALibError(RetCode.BAD_PARAM, `${funcName}: core is not a Core${hint}`);
+  }
+  return core;
+}
+
+function isIndex(v: number): boolean {
+  return (v | 0) === v && v >= 0 && v <= Core.INDEX_MAX;
+}
+
+/**
+ * @internal Elements to allocate for a batch output the caller did not give:
+ * the count the call writes, or 1 for a call whose range or parameters the
+ * positional tier will reject, so no allocation exceeds the inputs' length.
+ * Never 0: an empty output is itself a rejection.
+ */
+export function batchCapacity(
+  startIdx: number,
+  endIdx: number,
+  lookback: number,
+  ...inputs: readonly (ArrayLike<number> | null | undefined)[]
+): number {
+  if (!isIndex(startIdx) || !isIndex(endIdx) || endIdx < startIdx || !isIndex(lookback)) {
+    return 1;
+  }
+  for (const input of inputs) {
+    if (input == null || !(input.length > endIdx)) {
+      return 1;
+    }
+  }
+  const first = startIdx > lookback ? startIdx : lookback;
+  return first > endIdx ? 1 : endIdx - first + 1;
+}
+
+/**
+ * @internal {@link batchCapacity} for an `OpenAndFill`: the history less the
+ * lookback when every input is a history of one valid length, else 1.
+ */
+export function fillCapacity(lookback: number, ...inputs: readonly (ArrayLike<number> | null | undefined)[]): number {
+  const first = inputs[0];
+  if (first == null || !isIndex(lookback)) {
+    return 1;
+  }
+  const historyLen = first.length;
+  if (!((historyLen | 0) === historyLen && historyLen > lookback && historyLen <= Core.INDEX_MAX + 1)) {
+    return 1;
+  }
+  for (const input of inputs) {
+    if (input == null || input.length !== historyLen) {
+      return 1;
+    }
+  }
+  return historyLen - lookback;
 }

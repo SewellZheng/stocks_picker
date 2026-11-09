@@ -20,7 +20,7 @@ use super::ctype::CType;
 use super::fma::{self, FmaVarSets};
 use super::java_stream::{
     build_composed_open_bodies, build_open_body_java, composed_cur_scalars, dual_scalar_union, has_return,
-    localize_state_writes, transform_map_step, value_field_name,
+    localize_state_writes, transform_map_step,
 };
 use super::ts::{self, ts_names, Services, TsCtx};
 use super::ts_doc::{self, StreamMethod};
@@ -60,10 +60,38 @@ fn ts_ty(t: CType) -> &'static str {
     }
 }
 
+/// The bar parameters as the transcribed bodies and the `@internal` tape
+/// frames spell them: C's names (`inReal`, `inHigh`), which the bodies read.
 fn bar_params(func: &FuncDef) -> (String, String) {
     let inputs = streaming::input_array_names(func);
     let sig: Vec<String> = inputs.iter().map(|a| format!("{a}: number")).collect();
     (sig.join(", "), inputs.join(", "))
+}
+
+/// The bar parameters of the public `update` and `peek`: the positional tier's
+/// names (`real`, `high`), as the batch call and the openers spell the same
+/// series. Returns `(signature, forwarding list)`.
+fn public_bar_params(func: &FuncDef) -> (String, String) {
+    let inputs = public_bar_names(func);
+    let sig: Vec<String> = inputs.iter().map(|a| format!("{a}: number")).collect();
+    (sig.join(", "), inputs.join(", "))
+}
+
+fn public_bar_names(func: &FuncDef) -> Vec<String> {
+    streaming::input_array_names(func).iter().map(|a| super::ts::input_param_name(a)).collect()
+}
+
+/// `const inReal = real;` for each bar of a public `peek`: the frame it inlines
+/// reads C's names, and renaming them in the frame is not an option, since
+/// `fma::stream_base` decides what fuses from the names it sees.
+fn bar_aliases(func: &FuncDef, indent: &str) -> String {
+    let mut s = String::new();
+    for (c, p) in streaming::input_array_names(func).iter().zip(public_bar_names(func)) {
+        if *c != p {
+            let _ = writeln!(s, "{indent}const {c} = {p};");
+        }
+    }
+    s
 }
 
 fn opt_sig(func: &FuncDef) -> Vec<String> {
@@ -373,13 +401,13 @@ impl<'a> Em<'a> {
     }
 
     fn lookback(&self) -> String {
-        lookback_call(self.func, &ts_names(&self.func.name).lookback)
+        lookback_call(self.func, &ts_names(&self.func.name).lookback_positional)
     }
 
     /// The function's own lookback where transcribed locals are in scope: a
     /// local of the same name is reached past through a self-import alias.
     fn lookback_in(&self, ctx: &TsCtx) -> String {
-        let sym = ts::note_import(ctx, &self.func.name.to_lowercase(), &ts_names(&self.func.name).lookback);
+        let sym = ts::note_import(ctx, &self.func.name.to_lowercase(), &ts_names(&self.func.name).lookback_positional);
         lookback_call(self.func, &sym)
     }
 
@@ -474,25 +502,48 @@ pub(crate) fn generate_visiting(func: &FuncDef, svc: &Services, visit: Option<Vi
 /// the history is long enough, so a short history answers
 /// `TA_INSUFFICIENT_HISTORY` in every language.
 fn alias_conditions(func: &FuncDef, input: &dyn Fn(&str) -> String) -> Option<(String, String)> {
-    let inputs = streaming::input_array_names(func);
-    let outs: Vec<&str> = func.outputs.iter().map(|out| out.name.as_str()).collect();
-    let mut pairs: Vec<(String, String)> = Vec::new();
-    for out in &outs {
-        for i in &inputs {
-            pairs.push(((*out).to_string(), input(i)));
-        }
-    }
-    for i in 0..outs.len() {
-        for b in &outs[i + 1..] {
-            pairs.push((outs[i].to_string(), (*b).to_string()));
-        }
-    }
+    let pairs = alias_pairs(func, input);
     if pairs.is_empty() {
         return None;
     }
-    let same = pairs.iter().map(|(a, b)| format!("({a}.buffer === {b}.buffer && {a}.byteOffset === {b}.byteOffset)"));
-    let partial = pairs.iter().map(|(a, b)| format!("overlaps({a}, {b})"));
+    let same = pairs.iter().map(|[a, b, ..]| format!("({})", same_start(a, b)));
+    let partial = pairs.iter().map(|[a, b, ..]| format!("overlaps({a}, {b})"));
     Some((same.collect::<Vec<_>>().join(" || "), partial.collect::<Vec<_>>().join(" || ")))
+}
+
+fn same_start(a: &str, b: &str) -> String {
+    format!("{a}.buffer === {b}.buffer && {a}.byteOffset === {b}.byteOffset")
+}
+
+/// [`alias_conditions`]' pairs in its order, each `[a, b, a's label, b's label]`.
+fn alias_pairs(func: &FuncDef, input: &dyn Fn(&str) -> String) -> Vec<[String; 4]> {
+    let inputs = streaming::input_array_names(func);
+    let label = |out: &str| ts::output_label(func, out);
+    let mut pairs = Vec::new();
+    for out in &func.outputs {
+        for i in &inputs {
+            pairs.push([out.name.clone(), input(i), label(&out.name), ts::input_label(func, i)]);
+        }
+    }
+    for (k, a) in func.outputs.iter().enumerate() {
+        for b in &func.outputs[k + 1..] {
+            pairs.push([a.name.clone(), b.name.clone(), label(&a.name), label(&b.name)]);
+        }
+    }
+    pairs
+}
+
+/// The public fill's overlap guards, one throw per pair so the message names
+/// it: one start address, refused ahead of the history check, then any
+/// overlap once the history is long enough to open.
+fn emit_fill_alias_guards(o: &mut String, em: &Em) {
+    let pairs = alias_pairs(em.func, &|i| format!("{i}F64"));
+    let entry = format!("{} openAndFill", em.name());
+    for (head, cond) in [("", same_start as fn(&str, &str) -> String), ("guardOutLen > 0 && ", |a: &str, b: &str| format!("overlaps({a}, {b})"))] {
+        for [a, b, la, lb] in &pairs {
+            let _ = writeln!(o, "  if ({head}{}) {{\n    throw sharedMemory('{entry}', '{la}', '{lb}');\n  }}", cond(a, b));
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -512,7 +563,7 @@ fn emit_loop_shape(o: &mut String, em: &Em, model: &StreamModel, body: &[Stateme
     emit_step(o, em, model, &fields, &step_settings);
     emit_open_body(o, em, model, body, &fields, &step_settings);
     emit_open_and_fill_internal_wrapper(o, em, true);
-    emit_open_wrappers(o, em, true);
+    emit_open_wrappers(o, em, true, model.open_needs_last_bar_only());
     if em.svc.registry.in_tape_set(&em.func.name.to_lowercase()) {
         let tier = TapeTier { models: &[model], dual: None, fields: &fields, step_settings: &step_settings };
         emit_tape_entries(o, em, &tier);
@@ -613,7 +664,7 @@ fn emit_out_class(o: &mut String, em: &Em) {
     let _ = writeln!(o, "export class {} {{", em.out_class());
     for out in &func.outputs {
         o.push_str(&ts_doc::out_field_docs(func, out));
-        let _ = writeln!(o, "  {}: number = 0;", value_field_name(&out.name));
+        let _ = writeln!(o, "  {}: number = NaN;", ts::output_key(&out.name));
     }
     let _ = writeln!(o, "}}");
 }
@@ -622,7 +673,7 @@ fn write_out_stmts(func: &FuncDef, src: &str, indent: &str) -> String {
     let mut o = String::new();
     for out in &func.outputs {
         let rhs = if src.is_empty() { format!("cur_{}", out.name) } else { format!("{src}.cur_{}", out.name) };
-        let _ = writeln!(o, "{indent}out.{} = {rhs};", value_field_name(&out.name));
+        let _ = writeln!(o, "{indent}out.{} = {rhs};", ts::output_key(&out.name));
     }
     o
 }
@@ -638,7 +689,7 @@ fn fresh_value_expr_local(func: &FuncDef) -> String {
 
 fn out_range_ceiling_guard(func: &FuncDef, indent: &str, verb: &str) -> String {
     format!(
-        "{indent}if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {{\n{indent}  throw failure('{} {verb}', RetCode.OUT_OF_RANGE_END_INDEX);\n{indent}}}\n",
+        "{indent}if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {{\n{indent}  throw streamFailure('{} {verb}', RetCode.OUT_OF_RANGE_END_INDEX);\n{indent}}}\n",
         func.name
     )
 }
@@ -646,7 +697,7 @@ fn out_range_ceiling_guard(func: &FuncDef, indent: &str, verb: &str) -> String {
 /// Every bar input finite, before anything is written: a handle keeps its
 /// state, so one non-finite bar would poison every later value.
 fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
-    let bars = streaming::input_array_names(func);
+    let bars = public_bar_names(func);
     if bars.is_empty() {
         return String::new();
     }
@@ -664,39 +715,50 @@ fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
 }
 
 /// A multi-output call's sink check, ahead of the finite-bar check as in Java:
-/// an absent sink must be rejected before the step commits the bar. Not an
-/// `instanceof`: a structurally typed object, or a sink from a second copy of
-/// the package, is a valid sink.
+/// a sink that is not an object must be rejected before the step commits the
+/// bar; an omitted one is allocated after it. Not an `instanceof`: a
+/// structurally typed object, or a sink from a second copy of the package, is
+/// a valid sink.
 fn sink_check(em: &Em, indent: &str, verb: &str) -> String {
     if !has_out_class(em.func) {
         return String::new();
     }
     let cls = em.out_class();
     format!(
-        "{indent}if (typeof out !== 'object' || out === null) {{\n{indent}  throw badSink('{} {verb}', '{cls}');\n{indent}}}\n",
+        "{indent}if (out !== undefined && (typeof out !== 'object' || out === null)) {{\n{indent}  throw badSink('{} {verb}', '{cls}');\n{indent}}}\n",
         em.func.name
     )
 }
 
 fn sink_param(em: &Em) -> String {
     if has_out_class(em.func) {
-        format!(", out: {}", em.out_class())
+        format!(", out?: {}", em.out_class())
     } else {
         String::new()
     }
 }
 
-fn value_type(em: &Em) -> &'static str {
+fn value_type(em: &Em) -> String {
     if has_out_class(em.func) {
-        "void"
+        em.out_class()
     } else {
-        "number"
+        "number".to_string()
     }
+}
+
+/// A multi-output call's tail: the caller's sink, or a new one, filled from
+/// `src`'s outputs and returned.
+fn fill_sink(em: &Em, src: &str, indent: &str) -> String {
+    format!(
+        "{indent}if (out === undefined) {{\n{indent}  out = new {}();\n{indent}}}\n{}{indent}return out;\n",
+        em.out_class(),
+        write_out_stmts(em.func, src, indent)
+    )
 }
 
 fn emit_update_method(o: &mut String, em: &Em) {
     let func = em.func;
-    let (sig_bars, fwd_bars) = bar_params(func);
+    let (sig_bars, fwd_bars) = public_bar_params(func);
     let sep = if sig_bars.is_empty() { "" } else { ", " };
     let _ = write!(o, "\n{}", ts_doc::stream_method_docs(func, StreamMethod::Update));
     let sink = sink_param(em);
@@ -708,7 +770,7 @@ fn emit_update_method(o: &mut String, em: &Em) {
     let _ = writeln!(o, "    {}StepImpl(this{sep}{fwd_bars});", em.base());
     let _ = writeln!(o, "    this.outRangeCount++;");
     if has_out_class(func) {
-        o.push_str(&write_out_stmts(func, "this", "    "));
+        o.push_str(&fill_sink(em, "this", "    "));
     } else {
         let _ = writeln!(o, "    return this.cur_{};", func.outputs[0].name);
     }
@@ -717,7 +779,7 @@ fn emit_update_method(o: &mut String, em: &Em) {
 
 fn emit_peek_method(o: &mut String, em: &Em, frame: Option<&PeekFrame>) {
     let func = em.func;
-    let (sig_bars, _) = bar_params(func);
+    let (sig_bars, _) = public_bar_params(func);
     let sink = sink_param(em);
     let sink = if sig_bars.is_empty() { sink.trim_start_matches(", ").to_string() } else { sink };
     let _ = write!(o, "\n{}", ts_doc::stream_method_docs(func, StreamMethod::Peek));
@@ -726,24 +788,51 @@ fn emit_peek_method(o: &mut String, em: &Em, frame: Option<&PeekFrame>) {
     o.push_str(&finite_bar_check(func, "    ", "peek"));
     let frame = frame.expect("every tier emits a peek frame");
     let _ = writeln!(o, "    const sp = this;");
-    o.push_str(&frame.body);
+    o.push_str(&bar_aliases(func, "    "));
+    let mut body = frame.body.clone();
     if frame.terminal {
         assert!(!has_out_class(func), "a terminal peek frame would skip the caller's sink write");
     } else if has_out_class(func) {
-        o.push_str(&write_out_stmts(func, "", "    "));
+        body.push_str(&fill_sink(em, "", "    "));
     } else {
-        let _ = writeln!(o, "    return {};", fresh_value_expr_local(func));
+        let _ = writeln!(body, "    return {};", fresh_value_expr_local(func));
+    }
+    // A body local named as a bar parameter (`let high` beside `high: number`)
+    // may shadow it inside a block, never beside it; the aliases above read the
+    // parameters, so they stay outside.
+    if public_bar_names(func).iter().any(|n| declares_local(&body, n)) {
+        let _ = writeln!(o, "    {{");
+        for line in body.lines() {
+            if line.is_empty() {
+                o.push('\n');
+            } else {
+                let _ = writeln!(o, "  {line}");
+            }
+        }
+        let _ = writeln!(o, "    }}");
+    } else {
+        o.push_str(&body);
     }
     let _ = writeln!(o, "  }}");
+}
+
+/// Whether `body` declares a `let` or `const` named `name` at some line's start.
+fn declares_local(body: &str, name: &str) -> bool {
+    body.lines().any(|line| {
+        let t = line.trim_start();
+        let rest = t.strip_prefix("let ").or_else(|| t.strip_prefix("const "));
+        rest.and_then(|r| r.strip_prefix(name))
+            .is_some_and(|after| !after.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'))
+    })
 }
 
 fn emit_value_method(o: &mut String, em: &Em) {
     let func = em.func;
     let _ = write!(o, "\n{}", ts_doc::stream_method_docs(func, StreamMethod::Value));
     if has_out_class(func) {
-        let _ = writeln!(o, "  value(out: {}): void {{", em.out_class());
+        let _ = writeln!(o, "  value(out?: {0}): {0} {{", em.out_class());
         o.push_str(&sink_check(em, "    ", "value"));
-        o.push_str(&write_out_stmts(func, "this", "    "));
+        o.push_str(&fill_sink(em, "this", "    "));
     } else {
         let _ = writeln!(o, "  value(): number {{");
         let _ = writeln!(o, "    return this.cur_{};", func.outputs[0].name);
@@ -1121,7 +1210,7 @@ fn emit_open_body_sig(o: &mut String, em: &Em, mode: OutMode) {
 
 fn emit_anchor_guard(o: &mut String) {
     o.push_str(
-        "  if (startIdx > endIdx) {\n    outBegIdx.value = 0;\n    outNBElement.value = 0;\n    return RetCode.INSUFFICIENT_HISTORY;\n  }\n",
+        "  if (startIdx >= historyLen) {\n    outBegIdx.value = 0;\n    outNBElement.value = 0;\n    return RetCode.INSUFFICIENT_HISTORY;\n  }\n",
     );
 }
 
@@ -1152,7 +1241,6 @@ fn emit_open_validation(o: &mut String, em: &Em, mode: OutMode) {
     let func = em.func;
     let inputs = streaming::input_array_names(func);
     let first = &inputs[0];
-    o.push_str("  if (historyLen < 1) {\n    return RetCode.OUT_OF_RANGE_START_INDEX;\n  }\n");
     o.push_str("  if (historyLen > Core.INDEX_MAX + 1) {\n    return RetCode.OUT_OF_RANGE_END_INDEX;\n  }\n");
     let mismatches: Vec<String> = inputs[1..].iter().map(|extra| format!("{extra}.length !== {first}.length")).collect();
     if !mismatches.is_empty() {
@@ -1443,16 +1531,19 @@ fn emit_cur_capture(o: &mut String, outputs: &[String], source: CurSource) {
 // ---------------------------------------------------------------------------
 
 /// Rule rS7 with its counts, then `streamFailure` for every other code.
-fn emit_reject_conversion(o: &mut String, em: &Em, what: &str, anchor: Option<&str>) {
+fn emit_reject_conversion(o: &mut String, em: &Em, what: &str, anchor: Option<&str>, on_success: &str) {
     let n = em.name();
     let history = &streaming::input_array_names(em.func)[0];
     let anchor = anchor.unwrap_or("0");
-    let _ = writeln!(o, "  if (retCode === RetCode.SUCCESS) {{\n    return sp;\n  }}");
+    let _ = writeln!(o, "  if (retCode === RetCode.SUCCESS) {{\n{on_success}    return sp;\n  }}");
     let _ = writeln!(
         o,
         "  if (retCode === RetCode.INSUFFICIENT_HISTORY) {{\n    throw insufficientHistory('{n} {what}', {history}.length, {anchor}, {});\n  }}",
         em.lookback()
     );
+    if let Some(reject) = ts::param_range_rejection(em.func, &format!("{n} {what}")) {
+        let _ = writeln!(o, "  if (retCode === RetCode.BAD_PARAM && {} < 0) {{\n    throw {reject};\n  }}", em.lookback());
+    }
     let _ = writeln!(o, "  throw streamFailure('{n} {what}', retCode);");
 }
 
@@ -1460,7 +1551,7 @@ fn internal_in_sig(func: &FuncDef) -> Vec<String> {
     streaming::input_array_names(func).iter().map(|i| format!("{i}: Float64Array")).collect()
 }
 
-fn emit_open_internal_seam(o: &mut String, em: &Em, merged: bool) {
+fn emit_open_internal_seam(o: &mut String, em: &Em, merged: bool, last_bar_only: bool) {
     let func = em.func;
     let base = em.base();
     let class = em.class();
@@ -1473,8 +1564,14 @@ fn emit_open_internal_seam(o: &mut String, em: &Em, merged: bool) {
     let _ = writeln!(o, "  const sp = {class}.of(core);");
     let mut args: Vec<String> = vec!["sp".to_string()];
     args.extend(in_fwd.iter().cloned());
-    args.push("startIdx".to_string());
+    let history = &in_fwd[0];
+    args.push(if last_bar_only {
+        format!("startIdx + 1 < {history}.length ? {history}.length - 1 : startIdx")
+    } else {
+        "startIdx".to_string()
+    });
     args.extend(opt_fwd(func));
+    let mut on_success = String::new();
     if merged {
         let _ = writeln!(o, "  const outBegIdx = new MInteger();\n  const outNBElement = new MInteger();");
         args.push("outBegIdx".to_string());
@@ -1485,37 +1582,57 @@ fn emit_open_internal_seam(o: &mut String, em: &Em, merged: bool) {
         }
         args.push("0".to_string());
         let _ = writeln!(o, "  const retCode = {base}OpenImpl({});", args.join(", "));
-        let _ = writeln!(o, "  sp.outRangeBegIdx = outBegIdx.value;\n  sp.outRangeCount = outNBElement.value;");
+        if last_bar_only {
+            let _ = writeln!(on_success, "    const begIdx = {};", em.lookback());
+            let _ = writeln!(on_success, "    sp.outRangeBegIdx = begIdx < startIdx ? startIdx : begIdx;");
+            let _ = writeln!(on_success, "    sp.outRangeCount = {history}.length - sp.outRangeBegIdx;");
+        } else {
+            let _ = writeln!(o, "  sp.outRangeBegIdx = outBegIdx.value;\n  sp.outRangeCount = outNBElement.value;");
+        }
     } else {
         let _ = writeln!(o, "  const retCode = {base}OpenImpl({});", args.join(", "));
     }
-    emit_reject_conversion(o, em, "open", Some("startIdx"));
+    emit_reject_conversion(o, em, "open", Some("startIdx"), &on_success);
     let _ = writeln!(o, "}}");
 }
 
 /// The public opener's checks, in Java's order with the type tests first
-/// (D13): rS1/rS2 on the history, rS3 through the fill width, rS5's input
-/// half, then each output's capacity.
+/// (D13): rS2 on the history, rS4 on the other legs, rS3 through the fill
+/// width, rS5's input half, then each output's capacity. An empty history is
+/// rS7, left to the core, which answers it after all of them.
 fn emit_public_open_guards(o: &mut String, em: &Em, verb: &str, with_outputs: bool) {
     let func = em.func;
     let n = em.name();
     let inputs = streaming::input_array_names(func);
     let history = &inputs[0];
-    o.push_str(&ts::require_arg_types(func, &format!("{n} {verb}")));
-    let _ = writeln!(o, "  requireArgument('{n} {verb}', '{history}', {history});");
-    let _ = writeln!(o, "  requireHistory('{n} {verb}', {history}.length);");
+    let entry = format!("{n} {verb}");
+    o.push_str(&ts::require_arg_types(func, &entry));
+    let _ = writeln!(o, "  requireArgument('{entry}', '{}', {history});", ts::input_label(func, history));
+    let _ = writeln!(o, "  requireHistory('{entry}', '{}', {history}.length);", ts::input_label(func, history));
     for input in &inputs[1..] {
-        let _ = writeln!(o, "  requireArgument('{n} {verb}', '{input}', {input});");
+        let _ = writeln!(o, "  requireArgument('{entry}', '{}', {input});", ts::input_label(func, input));
     }
     if with_outputs {
-        let _ = writeln!(o, "  const guardOutLen = openFillCount('{n} {verb}', {history}.length, {});", em.lookback());
+        let lookback = if let Some(reject) = ts::param_range_rejection(func, &entry) {
+            let _ = writeln!(o, "  const guardLookback = {};\n  if (guardLookback < 0) {{\n    throw {reject};\n  }}", em.lookback());
+            "guardLookback".to_string()
+        } else {
+            em.lookback()
+        };
+        let _ = writeln!(o, "  const guardOutLen = openFillCount('{entry}', {history}.length, {lookback});");
     }
     for input in &inputs[1..] {
-        let _ = writeln!(o, "  requireHistoryLength('{n} {verb}', '{input}', {input}.length, {history}.length);");
+        let _ = writeln!(o, "  requireHistoryLength('{entry}', '{}', {input}.length, {history}.length);", ts::input_label(func, input));
     }
     if with_outputs {
         for out in &func.outputs {
-            let _ = writeln!(o, "  requireOutput('{n} {verb}', '{0}', {0}, guardOutLen, {1});", out.name, super::ts::array_ts_type(&out.param_type));
+            let _ = writeln!(
+                o,
+                "  requireOutput('{entry}', '{}', {}, guardOutLen, {});",
+                ts::output_label(func, &out.name),
+                out.name,
+                super::ts::array_ts_type(&out.param_type)
+            );
         }
     }
 }
@@ -1535,33 +1652,28 @@ fn public_sig(func: &FuncDef, with_outputs: bool) -> Vec<String> {
     sig
 }
 
-fn emit_open_wrappers(o: &mut String, em: &Em, merged: bool) {
+fn emit_open_wrappers(o: &mut String, em: &Em, merged: bool, last_bar_only: bool) {
     let func = em.func;
     let base = em.base();
     let class = em.class();
+    let names = ts_names(&func.name);
     let inputs = streaming::input_array_names(func);
-    emit_open_internal_seam(o, em, merged);
+    emit_open_internal_seam(o, em, merged, last_bar_only);
 
-    let _ = write!(o, "\n{}", ts_doc::open_docs(func, em.svc.enums));
-    let _ = writeln!(o, "export function {base}Open(\n  {},\n): {class} {{", public_sig(func, false).join(",\n  "));
+    let _ = writeln!(o, "\n/** @internal */\nexport function {}(\n  {},\n): {class} {{", names.open_positional, public_sig(func, false).join(",\n  "));
     emit_public_open_guards(o, em, "open", false);
     let conv: Vec<String> = inputs.iter().map(|i| format!("float64({i})")).collect();
     let _ = writeln!(o, "  return {base}OpenInternal(core, {}, 0{});", conv.join(", "), comma(&opt_fwd(func)));
     let _ = writeln!(o, "}}");
 
-    let _ = write!(o, "\n{}", ts_doc::open_and_fill_docs(func, em.svc.enums));
-    let _ = writeln!(o, "export function {base}OpenAndFill(\n  {},\n): {class} {{", public_sig(func, true).join(",\n  "));
+    let _ = writeln!(o, "\n/** @internal */\nexport function {}(\n  {},\n): {class} {{", names.open_and_fill_positional, public_sig(func, true).join(",\n  "));
     emit_public_open_guards(o, em, "openAndFill", true);
     for i in &inputs {
         let _ = writeln!(o, "  const {i}F64 = float64({i});");
     }
     let mut args: Vec<String> = inputs.iter().map(|i| format!("{i}F64")).collect();
+    emit_fill_alias_guards(o, em);
     if merged {
-        if let Some((same, partial)) = alias_conditions(func, &|i| format!("{i}F64")) {
-            for cond in [same, format!("guardOutLen > 0 && ({partial})")] {
-                let _ = writeln!(o, "  if ({cond}) {{\n    throw streamFailure('{} openAndFill', RetCode.BAD_PARAM);\n  }}", em.name());
-            }
-        }
         args.push("0".to_string());
         args.extend(opt_fwd(func));
         args.push("new MInteger()".to_string());
@@ -1579,9 +1691,48 @@ fn emit_open_wrappers(o: &mut String, em: &Em, merged: bool) {
         fwd.extend(func.outputs.iter().map(|out| out.name.clone()));
         let _ = writeln!(o, "  const retCode = {base}OpenAndFillImpl({});", fwd.join(", "));
         let _ = writeln!(o, "  sp.outRangeBegIdx = outBegIdx.value;\n  sp.outRangeCount = outNBElement.value;");
-        emit_reject_conversion(o, em, "openAndFill", None);
+        emit_reject_conversion(o, em, "openAndFill", None, "");
     }
     let _ = writeln!(o, "}}");
+    emit_api_openers(o, em);
+}
+
+/// The public openers: inputs, then the batch call's options object.
+fn emit_api_openers(o: &mut String, em: &Em) {
+    let func = em.func;
+    let names = ts_names(&func.name);
+    let class = em.class();
+    let inputs = streaming::input_array_names(func);
+    let legs = ts::api_leg_args(func, &inputs);
+    let mut sig = ts::api_input_sig(func);
+    sig.push(format!("options?: {}", names.options_type));
+    let sig = sig.join(", ");
+    let mut opts: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+    opts.push("core".to_string());
+
+    let _ = write!(o, "\n{}", ts_doc::open_docs(func, em.svc.enums));
+    let _ = writeln!(o, "export function {}({sig}): {class} {{", names.open);
+    o.push_str(&ts::api_prologue(func, &format!("{} open", func.name), false));
+    let mut args = legs.clone();
+    args.extend(opts.iter().cloned());
+    let _ = writeln!(o, "  return {}({});\n}}", names.open_positional, args.join(", "));
+
+    let _ = write!(o, "\n{}", ts_doc::open_and_fill_docs(func, em.svc.enums));
+    let _ = writeln!(o, "export function {}({sig}): {} & {{ stream: {class} }} {{", names.open_and_fill, names.result_type);
+    o.push_str(&ts::api_prologue(func, &format!("{} openAndFill", func.name), false));
+    let mut cap = vec![ts::api_lookback_call(func)];
+    cap.extend(legs.iter().cloned());
+    let _ = writeln!(o, "  const capacity = fillCapacity({});", cap.join(", "));
+    o.push_str(&ts::api_buffers(func));
+    let mut args = legs;
+    args.extend(func.optional_inputs.iter().map(|p| p.name.clone()));
+    args.extend(func.outputs.iter().map(|x| x.name.clone()));
+    args.push("core".to_string());
+    let _ = writeln!(o, "  const stream = {}({});", names.open_and_fill_positional, args.join(", "));
+    o.push_str("  const range = stream.outRange();\n");
+    let mut fields = vec!["stream".to_string(), "begIdx: range.begIdx".to_string()];
+    fields.extend(ts::api_result_fields(func, "range.count"));
+    let _ = writeln!(o, "  return {{ {} }};\n}}", fields.join(", "));
 }
 
 fn emit_open_and_fill_internal_wrapper(o: &mut String, em: &Em, merged: bool) {
@@ -1613,7 +1764,7 @@ fn emit_open_and_fill_internal_wrapper(o: &mut String, em: &Em, merged: bool) {
         let _ = writeln!(o, "  const retCode = {base}OpenAndFillInternalImpl({});", args.join(", "));
     }
     let _ = writeln!(o, "  sp.outRangeBegIdx = outBegIdx.value;\n  sp.outRangeCount = outNBElement.value;");
-    emit_reject_conversion(o, em, "openAndFill", Some("startIdx"));
+    emit_reject_conversion(o, em, "openAndFill", Some("startIdx"), "");
     let _ = writeln!(o, "}}");
 }
 
@@ -1735,7 +1886,7 @@ fn emit_dual_mode(o: &mut String, em: &Em, dmp: &streaming::DualModePlan) {
     o.push_str(&with_core(&s));
     let _ = writeln!(o, "}}");
     emit_open_and_fill_internal_wrapper(o, em, true);
-    emit_open_wrappers(o, em, true);
+    emit_open_wrappers(o, em, true, false);
     if em.svc.registry.in_tape_set(&func.name.to_lowercase()) {
         let tier = TapeTier { models: &[ma, mb], dual: Some(dmp), fields: &fields, step_settings: &step_settings };
         emit_tape_entries(o, em, &tier);
@@ -1751,7 +1902,7 @@ fn callee_names(em: &Em, callee: &str) -> ts::TsNames {
 }
 
 fn callee_value_field(em: &Em, callee: &str, slot: usize) -> String {
-    value_field_name(&em.svc.registry.callee_outputs(callee)[slot])
+    ts::output_key(&em.svc.registry.callee_outputs(callee)[slot])
 }
 
 /// The callee's stream class, imported.
@@ -1824,7 +1975,7 @@ fn emit_dispatch(o: &mut String, em: &Em, dp: &streaming::DispatchPlan) {
         emit_dispatch_open(o, em, dp, mode, &ctx);
     }
 
-    emit_open_wrappers(o, em, false);
+    emit_open_wrappers(o, em, false, false);
     emit_open_and_fill_internal_wrapper(o, em, false);
     if em.svc.registry.in_tape_set(&func.name.to_lowercase()) {
         emit_dispatch_tape(o, em, dp, &mut scratch);
@@ -1898,7 +2049,7 @@ fn dispatch_peek_frame(
         }
         let _ = writeln!(f, "      }}");
     }
-    let _ = writeln!(f, "      default:\n        throw new Error('unreachable: open rejects arms without a sub-stream');\n    }}");
+    let _ = writeln!(f, "      default:\n        throw failure('{} peek', RetCode.INTERNAL_ERROR);\n    }}", em.func.name);
     PeekFrame { body: f, terminal }
 }
 
@@ -2038,11 +2189,11 @@ fn emit_dispatch_open(o: &mut String, em: &Em, dp: &streaming::DispatchPlan, mod
                         fill_outs.join(", ")
                     );
                 } else {
-                    em.svc.import(&arm.callee, &cn.open_and_fill);
+                    em.svc.import(&arm.callee, &cn.open_and_fill_positional);
                     let _ = writeln!(
                         s,
                         "      const sub = {}({bar_args}{}, {}, core);",
-                        cn.open_and_fill,
+                        cn.open_and_fill_positional,
                         comma(&opts),
                         fill_outs.join(", ")
                     );
@@ -2127,7 +2278,7 @@ fn emit_dispatch_tape(o: &mut String, em: &Em, dp: &streaming::DispatchPlan, scr
         let _ = writeln!(o, "    case {IDENTITY_TAG}:\n      return {inp};");
     }
     o.push_str(&peek_cases);
-    let _ = writeln!(o, "    default:\n      throw new Error('unreachable: open rejects arms without a sub-stream');\n  }}\n}}");
+    let _ = writeln!(o, "    default:\n      throw failure('{} peek', RetCode.INTERNAL_ERROR);\n  }}\n}}", func.name);
 
     let _ = writeln!(o, "\n/** @internal */\nexport function {base}TapeDetach(sp: {class}): number {{");
     let _ = writeln!(o, "  switch (sp.arm) {{");
@@ -2165,7 +2316,7 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
     let step_tape = format!("{callee_camel}StepTape");
     let peek_tape = format!("{callee_camel}PeekTape");
     let detach = format!("{callee_camel}TapeDetach");
-    for sym in [&cn.lookback, &cn.open_internal, &step_tape, &peek_tape, &detach] {
+    for sym in [&cn.lookback_positional, &cn.open_internal, &step_tape, &peek_tape, &detach] {
         em.svc.import(callee, sym);
     }
     let callee_args = |per: &str, ty: &str| -> String {
@@ -2191,7 +2342,7 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
     let window_labels = registry.window_labels(&func.name.to_lowercase());
     let windowed = !window_labels.is_empty();
     if windowed {
-        em.svc.import(callee, &cn.public);
+        em.svc.import(callee, &cn.positional);
     }
     let window_gate = |o: &mut String| {
         let _ = writeln!(o, "  let window = {base}WindowMode({matype});");
@@ -2201,7 +2352,7 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
         let _ = writeln!(
             o,
             "      if ({}({}, core) > lookbackTotal) {{\n        window = false;\n        break;\n      }}",
-            cn.lookback,
+            cn.lookback_positional,
             callee_args(&format!("{min} + bankIdx"), matype)
         );
         let _ = writeln!(o, "    }}\n  }}");
@@ -2291,13 +2442,13 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
         // per bar, and nothing they call re-enters this module.
         let _ = writeln!(o, "\nlet {base}Window = new Float64Array(0);\nconst {base}Value = new Float64Array(1);");
         let _ = writeln!(o, "\nfunction {base}EvalWindow(sp: {class}, {price}: number, cp: number): number {{");
-        let _ = writeln!(o, "  const lb = {}({}, sp.core);", cn.lookback, callee_args("cp", &format!("sp.{matype}")));
+        let _ = writeln!(o, "  const lb = {}({}, sp.core);", cn.lookback_positional, callee_args("cp", &format!("sp.{matype}")));
         let _ = writeln!(o, "  if ({base}Window.length < lb + 1) {{\n    {base}Window = new Float64Array(lb + 1);\n  }}");
         let _ = writeln!(o, "  const win = {base}Window;");
         let _ = writeln!(o, "  for (let i = 0; i < lb; i++) {{");
         let _ = writeln!(o, "    win[i] = sp.tape[(sp.tapePos + sp.tapeMask + 2 - lb + i) & sp.tapeMask];\n  }}");
         let _ = writeln!(o, "  win[lb] = {price};");
-        let _ = writeln!(o, "  {}(lb, lb, win, {}, {base}Value, sp.core);", cn.public, callee_args("cp", &format!("sp.{matype}")));
+        let _ = writeln!(o, "  {}(lb, lb, win, {}, {base}Value, sp.core);", cn.positional, callee_args("cp", &format!("sp.{matype}")));
         let _ = writeln!(o, "  return {base}Value[0];\n}}");
     }
 
@@ -2309,7 +2460,7 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
     let _ = writeln!(s, "  if ({min} > {max}) {{\n    return RetCode.BAD_PARAM;\n  }}");
     let _ = writeln!(s, "  if (historyLen < {own_lb} + 1) {{\n    return RetCode.INSUFFICIENT_HISTORY;\n  }}");
     // Every sub seeds at the shared max-period lookback, as batch does.
-    let _ = writeln!(s, "  const lookbackTotal = {}({lb_args}, core);", cn.lookback);
+    let _ = writeln!(s, "  const lookbackTotal = {}({lb_args}, core);", cn.lookback_positional);
     let _ = writeln!(s, "  const subStart = startIdx < lookbackTotal ? lookbackTotal : startIdx;");
     let _ = writeln!(s, "  if (historyLen < subStart + 1) {{\n    return RetCode.INSUFFICIENT_HISTORY;\n  }}");
     let _ = writeln!(s, "  const nBank = {max} - {min} + 1;");
@@ -2320,7 +2471,7 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
         store_window_handle(&mut s);
         let _ = writeln!(s, "    {base}TapeOpen(sp, {price}, historyLen, lookbackTotal);");
         let _ = writeln!(s, "    const out1 = new Float64Array(1);");
-        let _ = writeln!(s, "    {}(historyLen - 1, historyLen - 1, {price}, {}, out1, core);", cn.public, callee_args("cp", matype));
+        let _ = writeln!(s, "    {}(historyLen - 1, historyLen - 1, {price}, {}, out1, core);", cn.positional, callee_args("cp", matype));
         let _ = writeln!(s, "    sp.cur_{out} = out1[0];");
         let _ = writeln!(s, "    sp.outRangeBegIdx = subStart;\n    sp.outRangeCount = historyLen - subStart;");
         let _ = writeln!(s, "    return RetCode.SUCCESS;\n  }}");
@@ -2340,7 +2491,7 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
     let _ = writeln!(s, "  const historyLen = {price}.length;");
     emit_open_validation(&mut s, em, OutMode::Fill);
     let _ = writeln!(s, "  if ({min} > {max}) {{\n    return RetCode.BAD_PARAM;\n  }}");
-    let _ = writeln!(s, "  const lookbackTotal = {}({lb_args}, core);", cn.lookback);
+    let _ = writeln!(s, "  const lookbackTotal = {}({lb_args}, core);", cn.lookback_positional);
     let _ = writeln!(s, "  if (historyLen < lookbackTotal + 1) {{\n    return RetCode.INSUFFICIENT_HISTORY;\n  }}");
     let _ = writeln!(s, "  const nBank = {max} - {min} + 1;");
     if windowed {
@@ -2353,7 +2504,7 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
         let _ = writeln!(s, "      for (t1 = t; t1 + 1 < historyLen; t1++) {{");
         clamp_to(&mut s, "        ", "cp2", &format!("{period}[t1 + 1]"), "");
         let _ = writeln!(s, "        if (cp2 !== cp) {{\n          break;\n        }}\n      }}");
-        let _ = writeln!(s, "      {}(t, t1, {price}, {}, run, core);", cn.public, callee_args("cp", matype));
+        let _ = writeln!(s, "      {}(t, t1, {price}, {}, run, core);", cn.positional, callee_args("cp", matype));
         let _ = writeln!(s, "      {out}.set(run.subarray(0, t1 - t + 1), t - lookbackTotal);");
         let _ = writeln!(s, "    }}");
         store_window_handle(&mut s);
@@ -2378,7 +2529,7 @@ fn emit_period_bank(o: &mut String, em: &Em, plan: &streaming::PeriodBankPlan) {
     o.push_str(&with_core(&s));
     let _ = writeln!(o, "}}");
 
-    emit_open_wrappers(o, em, false);
+    emit_open_wrappers(o, em, false, false);
 }
 
 // ---------------------------------------------------------------------------
@@ -2724,6 +2875,6 @@ fn emit_composed(o: &mut String, em: &Em, cp: &streaming::ComposedPlan) {
     emit_composed_step(o, em, cp, &step_settings, &inputs, &outputs, &fields, false, &mut scratch);
     emit_composed_open(o, em, cp, &step_settings, &outputs);
     emit_open_and_fill_internal_wrapper(o, em, true);
-    emit_open_wrappers(o, em, true);
+    emit_open_wrappers(o, em, true, false);
     emit_scratch_decls(o, &scratch);
 }

@@ -414,7 +414,7 @@ static void TA_EMV_StepImpl( struct TA_EMV_Stream *sp, double inHigh, double inL
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_EMV_OpenImpl( struct TA_EMV_Stream **stream, const double inHigh[], const double inLow[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double optInVolumeDivisor, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_EMV_OpenBody( struct TA_EMV_Stream **stream, const double inHigh[], const double inLow[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double optInVolumeDivisor, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_EMV_Stream *sp;
    double local_rawBuffer[50];
@@ -422,26 +422,6 @@ static TA_RetCode TA_EMV_OpenImpl( struct TA_EMV_Stream **stream, const double i
    int rawBuffer_Idx;
    int maxIdx_rawBuffer;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inHigh || !inLow || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( optInVolumeDivisor == TA_REAL_DEFAULT )
-      optInVolumeDivisor = 10000;
-   else if( !(optInVolumeDivisor >= 1e0 && optInVolumeDivisor <= TA_REAL_MAX) )
-      return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -570,6 +550,46 @@ static TA_RetCode TA_EMV_OpenImpl( struct TA_EMV_Stream **stream, const double i
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_EMV_OpenFillFrame( struct TA_EMV_Stream **stream, const double inHigh[], const double inLow[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double optInVolumeDivisor, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_EMV_OpenBody( stream, inHigh, inLow, inVolume, startIdx, historyLen, optInTimePeriod, optInVolumeDivisor, outBegIdx, outNBElement, outReal, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_EMV_OpenSinkFrame( struct TA_EMV_Stream **stream, const double inHigh[], const double inLow[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double optInVolumeDivisor, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   double sink_outReal = 0;
+   TA_RetCode retCode = TA_EMV_OpenBody( stream, inHigh, inLow, inVolume, startIdx, historyLen, optInTimePeriod, optInVolumeDivisor, outBegIdx, outNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outReal ) *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_EMV_OpenImpl( struct TA_EMV_Stream **stream, const double inHigh[], const double inLow[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double optInVolumeDivisor, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inVolume || !outReal ) return TA_BAD_PARAM;
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( optInVolumeDivisor == TA_REAL_DEFAULT )
+      optInVolumeDivisor = 10000;
+   else if( !(optInVolumeDivisor >= 1e0 && optInVolumeDivisor <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_EMV_OpenFillFrame( stream, inHigh, inLow, inVolume, startIdx, historyLen, optInTimePeriod, optInVolumeDivisor, outBegIdx, outNBElement, outReal ) : TA_EMV_OpenSinkFrame( stream, inHigh, inLow, inVolume, startIdx, historyLen, optInTimePeriod, optInVolumeDivisor, outBegIdx, outNBElement, outReal );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_EMV_OpenInternal( struct TA_EMV_Stream **stream, const double inHigh[], const double inLow[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, double optInVolumeDivisor, double *outReal )
 {
@@ -589,7 +609,6 @@ TA_LIB_API TA_RetCode TA_EMV_Open( TA_EMV_Stream **stream, const double inHigh[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_EMV_OpenInternal( stream, inHigh, inLow, inVolume, 0, historyLen, optInTimePeriod, optInVolumeDivisor, outReal );
@@ -599,7 +618,6 @@ TA_LIB_API TA_RetCode TA_EMV_OpenAndFill( TA_EMV_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inHigh || !inLow || !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;

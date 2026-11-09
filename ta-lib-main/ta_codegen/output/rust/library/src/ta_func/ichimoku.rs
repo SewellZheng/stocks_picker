@@ -317,21 +317,21 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     ///
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
+    /// let high = vec![0.0; 252]; // your data, oldest first
+    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low = vec![0.0; 252]; // your data, oldest first
+    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
     /// let mut tenkan_sen = vec![0.0; 252];
     /// let mut kijun_sen = vec![0.0; 252];
     /// let mut senkou_span_a = vec![0.0; 252];
     /// let mut senkou_span_b = vec![0.0; 252];
     ///
-    /// let out_range = core.ichimoku(
-    ///     0, high.len() - 1, &high, &low, 9, 26, 52,
-    ///     &mut tenkan_sen, &mut kijun_sen, &mut senkou_span_a, &mut senkou_span_b,
-    /// )?;
-    /// assert!(out_range.count > 0);
-    /// assert!(tenkan_sen[..out_range.count].iter().all(|v| v.is_finite()));
+    /// let core = Core::new();
+    /// let range = core.ichimoku(0, high.len() - 1, &high, &low, 9, 26, 52,
+    ///                           &mut tenkan_sen, &mut kijun_sen, &mut senkou_span_a, &mut senkou_span_b)?;
+    /// # assert!(range.count > 0);
+    /// println!("{} values from bar {}; last tenkan_sen = {}", range.count, range.beg_idx, tenkan_sen[range.count - 1]);
+    /// # assert!(tenkan_sen[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -478,9 +478,6 @@ impl Core {
     pub(crate) fn ichimoku_open_impl(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInTenkanPeriod: i32, mut optInKijunPeriod: i32, mut optInSenkouBPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outTenkanSen: &mut [f64], outKijunSen: &mut [f64], outSenkouSpanA: &mut [f64], outSenkouSpanB: &mut [f64], outStride: usize,
     ) -> Result<IchimokuStream, RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -503,13 +500,13 @@ impl Core {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
-        let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        if startIdx > endIdx {
+        if startIdx >= historyLen {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
+        let endIdx: usize = historyLen - 1;
+        let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut owned_sc_outTenkanSen: Vec<f64> =
@@ -638,10 +635,9 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
-    /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
-    /// [`RetCode::BadParam`] when a parameter is out of range or the input
-    /// lengths differ.
+    /// `lookback + 1` bars, an empty one included — the one failure here worth
+    /// retrying, since another bar fixes it. [`RetCode::BadParam`] when a
+    /// parameter is out of range or the input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -712,9 +708,6 @@ impl Core {
     pub fn ichimoku_open_and_fill(
         &self, inHigh: &[f64], inLow: &[f64], mut optInTenkanPeriod: i32, mut optInKijunPeriod: i32, mut optInSenkouBPeriod: i32, outTenkanSen: &mut [f64], outKijunSen: &mut [f64], outSenkouSpanA: &mut [f64], outSenkouSpanB: &mut [f64],
     ) -> Result<(IchimokuStream, OutRange), RetCode> {
-        if inHigh.is_empty() {
-            return Err(RetCode::OutOfRangeStartIndex);
-        }
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }

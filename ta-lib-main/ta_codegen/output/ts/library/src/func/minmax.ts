@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -11,24 +45,14 @@
  *  120906 AC   Creation
  */
 
-import { badSink, clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { badSink, batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 
-/**
- * Number of leading input bars {@link minmax} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Rolling window length (default 30; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function minmaxLookback(optInTimePeriod: number, core: Core = Core.DEFAULT): number {
-  void core;
+/** @internal */
+export function minmaxLookbackPositional(optInTimePeriod: number, _core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -40,22 +64,9 @@ export function minmaxLookback(optInTimePeriod: number, core: Core = Core.DEFAUL
   return optInTimePeriod - 1;
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link minmax}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Rolling window length (default 30; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function minmaxDisplayShift(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (minmaxLookback(optInTimePeriod, core) < 0) {
+/** @internal */
+export function minmaxDisplayShiftPositional(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (minmaxLookbackPositional(optInTimePeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 2) {
@@ -249,56 +260,10 @@ export function minmaxImpl(
   return RetCode.SUCCESS;
 }
 
-/**
- * Returns both the lowest and highest values of the input over a rolling window of
- * the last optInTimePeriod bars. An overlap-study companion to MIN and MAX that
- * computes both extrema in one pass.
- *
- * Formula and more info at
- * [ta-lib.org/functions/minmax](https://ta-lib.org/functions/minmax).
- *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link minmaxLookback} is a success with
- * `count` 0.
- *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inReal - Values scanned for the window min and max.
- * @param optInTimePeriod - Rolling window length (default 30; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outMin - Lowest value in each rolling window. Must hold the values
- *   produced and never be empty; the input length always suffices.
- * @param outMax - Highest value in each rolling window. Must hold the values
- *   produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
- * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
- *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output,
- *   two outputs sharing memory or an output sharing memory with a `Float64Array`
- *   input it is not. Checked before anything is written.
- *
- * @example
- * ```ts
- * import { minmax } from 'ta-lib';
- *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i));
- * const min = new Float64Array(data.length);
- * const max = new Float64Array(data.length);
- * const { begIdx, count } = minmax(0, data.length - 1, data, 30, min, max);
- * // min[k] is the value at bar begIdx + k, for k < count
- * ```
- * @see [`min`](https://ta-lib.org/functions/min)
- * @see [`max`](https://ta-lib.org/functions/max)
- * @see [`minmaxindex`](https://ta-lib.org/functions/minmaxindex)
- * @see [`minindex`](https://ta-lib.org/functions/minindex)
- * @see [`maxindex`](https://ta-lib.org/functions/maxindex)
- */
-export function minmax(
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000']] as const;
+
+/** @internal */
+export function minmaxPositional(
   startIdx: number,
   endIdx: number,
   inReal: ArrayLike<number>,
@@ -309,17 +274,27 @@ export function minmax(
 ): OutRange {
   startIdx = requireInt32('MINMAX', 'startIdx', startIdx);
   endIdx = requireInt32('MINMAX', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('MINMAX', 'optInTimePeriod', optInTimePeriod);
+  optInTimePeriod = requireInt32('MINMAX', 'timePeriod', optInTimePeriod);
   requireIndexRange('MINMAX', startIdx, endIdx);
-  const guardStart = clampedStart('MINMAX', startIdx, minmaxLookback(optInTimePeriod, core));
+  const guardLookback = minmaxLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('MINMAX', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardStart = clampedStart('MINMAX', startIdx, guardLookback);
   const guardInLen = endIdx + 1;
   const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('MINMAX', 'inReal', inReal, guardInLen);
+  requireLength('MINMAX', 'real', inReal, guardInLen);
   requireOutput('MINMAX', 'outMin', outMin, guardOutLen, Float64Array);
   requireOutput('MINMAX', 'outMax', outMax, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
-  if (overlapsPartly(outMin, inRealF64) || overlapsPartly(outMax, inRealF64) || overlaps(outMin, outMax)) {
-    throw failure('MINMAX', RetCode.BAD_PARAM);
+  if (overlapsPartly(outMin, inRealF64)) {
+    throw sharedMemory('MINMAX', 'outMin', 'real');
+  }
+  if (overlapsPartly(outMax, inRealF64)) {
+    throw sharedMemory('MINMAX', 'outMax', 'real');
+  }
+  if (overlaps(outMin, outMax)) {
+    throw sharedMemory('MINMAX', 'outMin', 'outMax');
   }
   const outBegIdx = new MInteger();
   const outNBElement = new MInteger();
@@ -328,6 +303,159 @@ export function minmax(
     throw failure('MINMAX', retCode);
   }
   return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link minmax}, {@link minmaxLookback}, {@link minmaxDisplayShift},
+ * {@link minmaxOpen} and {@link minmaxOpenAndFill}. Every key is optional: an
+ * omitted or `undefined` key takes its default, and a call ignores the keys it has
+ * no use for.
+ */
+export interface MinmaxOptions {
+  /**
+   * Rolling window length (default 30; range 2 to 100000; `Core.INTEGER_DEFAULT`
+   * selects the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `outMin`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outMin?: Float64Array<ArrayBuffer> | undefined;
+  /**
+   * Buffer for `outMax`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outMax?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link minmax} returns, and {@link minmaxOpenAndFill} with its stream. */
+export interface MinmaxResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Lowest value in each rolling window. `outMin[k]` is the value at input bar
+   * `begIdx + k`.
+   */
+  outMin: Float64Array<ArrayBuffer>;
+  /**
+   * Highest value in each rolling window. `outMax[k]` is the value at input bar
+   * `begIdx + k`.
+   */
+  outMax: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link minmax} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link MinmaxOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function minmaxLookback(options?: MinmaxOptions): number {
+  const o = optionsOf('MINMAX lookback', options);
+  return minmaxLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), coreOf('MINMAX lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link minmax}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link MinmaxOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function minmaxDisplayShift(outputIdx: number, options?: MinmaxOptions): number {
+  const o = optionsOf('MINMAX displayShift', options);
+  return minmaxDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('MINMAX displayShift', o.core));
+}
+
+/**
+ * Returns both the lowest and highest values of the input over a rolling window of
+ * the last timePeriod bars. An overlap-study companion to MIN and MAX that
+ * computes both extrema in one pass.
+ *
+ * Formula and more info at
+ * [ta-lib.org/functions/minmax](https://ta-lib.org/functions/minmax).
+ *
+ * `outMin[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link minmaxLookback} is a success with empty outputs.
+ *
+ * @param real - Values scanned for the window min and max.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link MinmaxOptions}.
+ * @returns `begIdx` and the values; see {@link MinmaxResult}. Each output is a
+ *   view of its buffer, the caller's or a new one.
+ * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
+ *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type, two buffers sharing memory or a buffer sharing memory with a
+ *   `Float64Array` input it is not. Checked before anything is written.
+ *
+ * @example
+ * ```ts
+ * import { minmax } from 'ta-lib';
+ *
+ * const series = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, outMin, outMax } = minmax(series, { timePeriod: 30 });
+ * console.log(outMin.length + ' values from bar ' + begIdx + '; last outMin = ' + outMin[outMin.length - 1]);
+ * ```
+ * @see [`min`](https://ta-lib.org/functions/min)
+ * @see [`max`](https://ta-lib.org/functions/max)
+ * @see [`minmaxindex`](https://ta-lib.org/functions/minmaxindex)
+ * @see [`minindex`](https://ta-lib.org/functions/minindex)
+ * @see [`maxindex`](https://ta-lib.org/functions/maxindex)
+ */
+export function minmax(real: ArrayLike<number>, options?: MinmaxOptions): MinmaxResult {
+  const o = optionsOf('MINMAX', options);
+  if (o.endIdx === undefined) {
+    requireSeries('MINMAX', 'real', real);
+  }
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('MINMAX', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? real.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, minmaxLookbackPositional(optInTimePeriod, core), real);
+  const outMin = o.outMin === undefined ? new Float64Array(capacity) : o.outMin;
+  const outMax = o.outMax === undefined ? new Float64Array(capacity) : o.outMax;
+  const range = minmaxPositional(startIdx, endIdx, real, optInTimePeriod, outMin, outMax, core);
+  return { begIdx: range.begIdx, outMin: outMin.subarray(0, range.count), outMax: outMax.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -401,55 +529,62 @@ export class MinmaxStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('MINMAX advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('MINMAX advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
 
   /**
-   * Commits one closed bar, writing the new values into `out`.
+   * Commits one closed bar and returns its outputs.
    *
-   * @param inReal - The bar's `inReal` value: Values scanned for the window min and
-   *   max.
-   * @param out - Receives the bar's outputs.
+   * @param real - The bar's `real` value: Values scanned for the window min and max.
+   * @param out - Receives the outputs and is returned; a new {@link MinmaxOut} when
+   *   omitted.
+   * @returns `out`, or the new sink.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
-   *   finite, before anything moves. `TALibError` with code
-   *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
+   *   finite, or a sink that is not an object, `null` included, before anything moves.
+   *   `TALibError` with code `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached
+   *   bar `Core.INDEX_MAX`.
    */
-  update(inReal: number, out: MinmaxOut): void {
+  update(real: number, out?: MinmaxOut): MinmaxOut {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('MINMAX update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('MINMAX update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (typeof out !== 'object' || out === null) {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('MINMAX update', 'MinmaxOut');
     }
-    if (!Number.isFinite(inReal)) {
-      throw nonFiniteBar('MINMAX update', 'inReal');
+    if (!Number.isFinite(real)) {
+      throw nonFiniteBar('MINMAX update', 'real');
     }
-    minmaxStepImpl(this, inReal);
+    minmaxStepImpl(this, real);
     this.outRangeCount++;
-    out.min = this.cur_outMin;
-    out.max = this.cur_outMax;
+    if (out === undefined) {
+      out = new MinmaxOut();
+    }
+    out.outMin = this.cur_outMin;
+    out.outMax = this.cur_outMax;
+    return out;
   }
 
   /**
-   * Writes into `out` what the next `update` with the same bar would write,
-   * committing nothing.
+   * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inReal - The bar's `inReal` value: Values scanned for the window min and
-   *   max.
-   * @param out - Receives the bar's outputs.
+   * @param real - The bar's `real` value: Values scanned for the window min and max.
+   * @param out - Receives the outputs and is returned; a new {@link MinmaxOut} when
+   *   omitted.
+   * @returns `out`, or the new sink, as `update` would fill it.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
-   *   finite.
+   *   finite, or a sink that is not an object, `null` included.
    */
-  peek(inReal: number, out: MinmaxOut): void {
-    if (typeof out !== 'object' || out === null) {
+  peek(real: number, out?: MinmaxOut): MinmaxOut {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('MINMAX peek', 'MinmaxOut');
     }
-    if (!Number.isFinite(inReal)) {
-      throw nonFiniteBar('MINMAX peek', 'inReal');
+    if (!Number.isFinite(real)) {
+      throw nonFiniteBar('MINMAX peek', 'real');
     }
     const sp = this;
+    const inReal = real;
     let tmpHigh = 0;
     let tmpLow = 0;
     let cur_outMax = 0;
@@ -497,21 +632,33 @@ export class MinmaxStream {
     }
     cur_outMax = highest;
     cur_outMin = lowest;
-    out.min = cur_outMin;
-    out.max = cur_outMax;
+    if (out === undefined) {
+      out = new MinmaxOut();
+    }
+    out.outMin = cur_outMin;
+    out.outMax = cur_outMax;
+    return out;
   }
 
   /**
-   * The value at the last bar this stream counted; `peek` does not change it.
+   * The outputs at the last bar this stream counted; `peek` does not change them.
    *
-   * @param out - Receives the outputs.
+   * @param out - Receives the outputs and is returned; a new {@link MinmaxOut} when
+   *   omitted.
+   * @returns `out`, or the new sink.
+   * @throws `TALibError` with code `TA_BAD_PARAM` for a sink that is not an object,
+   *   `null` included.
    */
-  value(out: MinmaxOut): void {
-    if (typeof out !== 'object' || out === null) {
+  value(out?: MinmaxOut): MinmaxOut {
+    if (out !== undefined && (typeof out !== 'object' || out === null)) {
       throw badSink('MINMAX value', 'MinmaxOut');
     }
-    out.min = this.cur_outMin;
-    out.max = this.cur_outMax;
+    if (out === undefined) {
+      out = new MinmaxOut();
+    }
+    out.outMin = this.cur_outMin;
+    out.outMax = this.cur_outMax;
+    return out;
   }
 
   /**
@@ -541,14 +688,15 @@ export class MinmaxStream {
 }
 
 /**
- * The outputs of one MINMAX bar, written into an object the caller owns and
- * reuses: valid until the next call that writes it.
+ * The outputs of one MINMAX bar, as `update`, `peek` and `value` return them.
+ * Passed back to one of them, it is filled and returned again, with no allocation;
+ * it holds its values until the next call that writes it. A new one holds `NaN`.
  */
 export class MinmaxOut {
   /** Lowest value in each rolling window. */
-  min: number = 0;
+  outMin: number = NaN;
   /** Highest value in each rolling window. */
-  max: number = 0;
+  outMax: number = NaN;
 }
 
 function minmaxStepImpl(sp: MinmaxStream, inReal: number): void {
@@ -617,9 +765,6 @@ function minmaxOpenImpl(
   let lowestIdx = 0;
   const historyLen = inReal.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -628,7 +773,7 @@ function minmaxOpenImpl(
   } else if (optInTimePeriod < 2 || optInTimePeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -768,7 +913,10 @@ export function minmaxOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('MINMAX openAndFill', inReal.length, startIdx, minmaxLookback(optInTimePeriod, core));
+    throw insufficientHistory('MINMAX openAndFill', inReal.length, startIdx, minmaxLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && minmaxLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('MINMAX openAndFill', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('MINMAX openAndFill', retCode);
 }
@@ -792,106 +940,136 @@ export function minmaxOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('MINMAX open', inReal.length, startIdx, minmaxLookback(optInTimePeriod, core));
+    throw insufficientHistory('MINMAX open', inReal.length, startIdx, minmaxLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && minmaxLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('MINMAX open', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('MINMAX open', retCode);
 }
 
-/**
- * Opens a live MINMAX stream over the warm-up history: `value()` starts at the
- * last history bar, bit-identical to {@link minmax} there.
- *
- * @param inReal - Warm-up history. Values scanned for the window min and max.
- * @param optInTimePeriod - Rolling window length (default 30; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
- * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `minmaxLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32 or a
- *   parameter outside its range.
- *
- * @example
- * ```ts
- * import { MinmaxOut, minmaxOpen } from 'ta-lib';
- *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i));
- * const stream = minmaxOpen(data, 30);
- * const peeked = new MinmaxOut();
- * const updated = new MinmaxOut();
- * stream.peek(100.9, peeked); // a forming bar: commits nothing
- * stream.update(100.9, updated); // the bar closes
- * ```
- */
-export function minmaxOpen(
+/** @internal */
+export function minmaxOpenPositional(
   inReal: ArrayLike<number>,
   optInTimePeriod: number,
   core: Core = Core.DEFAULT,
 ): MinmaxStream {
-  optInTimePeriod = requireInt32('MINMAX open', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('MINMAX open', 'inReal', inReal);
-  requireHistory('MINMAX open', inReal.length);
+  optInTimePeriod = requireInt32('MINMAX open', 'timePeriod', optInTimePeriod);
+  requireArgument('MINMAX open', 'real', inReal);
+  requireHistory('MINMAX open', 'real', inReal.length);
   return minmaxOpenInternal(core, float64(inReal), 0, optInTimePeriod);
 }
 
-/**
- * {@link minmaxOpen} that also fills the outputs over the whole history in the
- * same pass, bit-identically to {@link minmax}. The range written is the stream's
- * `outRange()`.
- *
- * @param inReal - Warm-up history. Values scanned for the window min and max.
- * @param optInTimePeriod - Rolling window length (default 30; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outMin - Lowest value in each rolling window. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param outMax - Highest value in each rolling window. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
- * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `minmaxLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or an output too short or starting where another
- *   output or a `Float64Array` input starts, or, on a history long enough to open,
- *   one sharing memory with another output or a `Float64Array` input.
- *
- * @example
- * ```ts
- * import { minmaxOpenAndFill } from 'ta-lib';
- *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i));
- * const min = new Float64Array(data.length);
- * const max = new Float64Array(data.length);
- * const stream = minmaxOpenAndFill(data, 30, min, max);
- * const { begIdx, count } = stream.outRange();
- * // min[k] is the value at bar begIdx + k, for k < count
- * ```
- */
-export function minmaxOpenAndFill(
+/** @internal */
+export function minmaxOpenAndFillPositional(
   inReal: ArrayLike<number>,
   optInTimePeriod: number,
   outMin: Float64Array,
   outMax: Float64Array,
   core: Core = Core.DEFAULT,
 ): MinmaxStream {
-  optInTimePeriod = requireInt32('MINMAX openAndFill', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('MINMAX openAndFill', 'inReal', inReal);
-  requireHistory('MINMAX openAndFill', inReal.length);
-  const guardOutLen = openFillCount('MINMAX openAndFill', inReal.length, minmaxLookback(optInTimePeriod, core));
+  optInTimePeriod = requireInt32('MINMAX openAndFill', 'timePeriod', optInTimePeriod);
+  requireArgument('MINMAX openAndFill', 'real', inReal);
+  requireHistory('MINMAX openAndFill', 'real', inReal.length);
+  const guardLookback = minmaxLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('MINMAX openAndFill', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardOutLen = openFillCount('MINMAX openAndFill', inReal.length, guardLookback);
   requireOutput('MINMAX openAndFill', 'outMin', outMin, guardOutLen, Float64Array);
   requireOutput('MINMAX openAndFill', 'outMax', outMax, guardOutLen, Float64Array);
   const inRealF64 = float64(inReal);
-  if ((outMin.buffer === inRealF64.buffer && outMin.byteOffset === inRealF64.byteOffset) || (outMax.buffer === inRealF64.buffer && outMax.byteOffset === inRealF64.byteOffset) || (outMin.buffer === outMax.buffer && outMin.byteOffset === outMax.byteOffset)) {
-    throw streamFailure('MINMAX openAndFill', RetCode.BAD_PARAM);
+  if (outMin.buffer === inRealF64.buffer && outMin.byteOffset === inRealF64.byteOffset) {
+    throw sharedMemory('MINMAX openAndFill', 'outMin', 'real');
   }
-  if (guardOutLen > 0 && (overlaps(outMin, inRealF64) || overlaps(outMax, inRealF64) || overlaps(outMin, outMax))) {
-    throw streamFailure('MINMAX openAndFill', RetCode.BAD_PARAM);
+  if (outMax.buffer === inRealF64.buffer && outMax.byteOffset === inRealF64.byteOffset) {
+    throw sharedMemory('MINMAX openAndFill', 'outMax', 'real');
+  }
+  if (outMin.buffer === outMax.buffer && outMin.byteOffset === outMax.byteOffset) {
+    throw sharedMemory('MINMAX openAndFill', 'outMin', 'outMax');
+  }
+  if (guardOutLen > 0 && overlaps(outMin, inRealF64)) {
+    throw sharedMemory('MINMAX openAndFill', 'outMin', 'real');
+  }
+  if (guardOutLen > 0 && overlaps(outMax, inRealF64)) {
+    throw sharedMemory('MINMAX openAndFill', 'outMax', 'real');
+  }
+  if (guardOutLen > 0 && overlaps(outMin, outMax)) {
+    throw sharedMemory('MINMAX openAndFill', 'outMin', 'outMax');
   }
   return minmaxOpenAndFillInternal(core, inRealF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outMin, outMax);
+}
+
+/**
+ * Opens a live MINMAX stream over the warm-up history: `value()` starts at the
+ * last history bar, bit-identical to {@link minmax} there.
+ *
+ * @param real - Warm-up history. Values scanned for the window min and max.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link MinmaxOptions}.
+ * @returns The stream, positioned on the last history bar.
+ * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
+ *   than `minmaxLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32 or a parameter outside its
+ *   range.
+ *
+ * @example
+ * ```ts
+ * import { minmaxOpen } from 'ta-lib';
+ *
+ * const series = Float64Array.from({ length: 252 }, (_, i) =>
+ *   100 + 10 * Math.sin(0.1 * i));
+ * const stream = minmaxOpen(series, { timePeriod: 30 });
+ * const peeked = stream.peek(100.9); // a forming bar: commits nothing
+ * const updated = stream.update(100.9); // the bar closes
+ * ```
+ */
+export function minmaxOpen(real: ArrayLike<number>, options?: MinmaxOptions): MinmaxStream {
+  const o = optionsOf('MINMAX open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('MINMAX open', o.core);
+  return minmaxOpenPositional(real, optInTimePeriod, core);
+}
+
+/**
+ * {@link minmaxOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link minmax}.
+ *
+ * @param real - Warm-up history. Values scanned for the window min and max.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link MinmaxOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link minmax} returns them; the range is the
+ *   stream's `outRange()`.
+ * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
+ *   than `minmaxLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM`
+ *   for options that are not an object, a `core` that is not a `Core`, an absent
+ *   input, an integer parameter that is not an int32, a parameter outside its range
+ *   or a buffer too short, of the wrong type or starting where another buffer or a
+ *   `Float64Array` input starts, or, on a history long enough to open, one sharing
+ *   memory with another buffer or a `Float64Array` input.
+ *
+ * @example
+ * ```ts
+ * import { minmaxOpenAndFill } from 'ta-lib';
+ *
+ * const series = Float64Array.from({ length: 252 }, (_, i) =>
+ *   100 + 10 * Math.sin(0.1 * i));
+ * const { stream, begIdx, outMin, outMax } = minmaxOpenAndFill(series, {
+ *   timePeriod: 30,
+ * });
+ * // outMin[k] is the value at bar begIdx + k
+ * ```
+ */
+export function minmaxOpenAndFill(real: ArrayLike<number>, options?: MinmaxOptions): MinmaxResult & { stream: MinmaxStream } {
+  const o = optionsOf('MINMAX openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('MINMAX openAndFill', o.core);
+  const capacity = fillCapacity(minmaxLookbackPositional(optInTimePeriod, core), real);
+  const outMin = o.outMin === undefined ? new Float64Array(capacity) : o.outMin;
+  const outMax = o.outMax === undefined ? new Float64Array(capacity) : o.outMax;
+  const stream = minmaxOpenAndFillPositional(real, optInTimePeriod, outMin, outMax, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, outMin: outMin.subarray(0, range.count), outMax: outMax.subarray(0, range.count) };
 }

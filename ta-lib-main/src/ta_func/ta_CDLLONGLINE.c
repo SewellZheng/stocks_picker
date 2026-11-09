@@ -59,6 +59,10 @@
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  */
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("no-split-paths")
+#endif
+
 TA_LIB_API int TA_CDLLONGLINE_Lookback( void )
 {
    int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
@@ -133,6 +137,52 @@ TA_LIB_API TA_RetCode TA_CDLLONGLINE( int    startIdx,
       *outNBElement= 0;
       return TA_SUCCESS;
    }
+   if( BodyLong_rangeType == TA_RangeType_RealBody && ShadowShort_rangeType == TA_RangeType_Shadows )
+   {
+   /* Do the calculation using tight loops. */
+   /* Add-up the initial period, except for the last value. */
+   BodyPeriodTotal = 0;
+   BodyTrailingIdx = startIdx - BodyLong_avgPeriod;
+   ShadowPeriodTotal = 0;
+   ShadowTrailingIdx = startIdx - ShadowShort_avgPeriod;
+   i = BodyTrailingIdx;
+   while( i < startIdx )
+   {
+      BodyPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      i += 1;
+   }
+   i = ShadowTrailingIdx;
+   while( i < startIdx )
+   {
+      ShadowPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+      i += 1;
+   }
+   /* Proceed with the calculation for the requested range.
+    * Must have:
+    * - long real body
+    * - short upper and lower shadow
+    * The meaning of "long" and "short" is specified with TA_SetCandleSettings
+    */
+   outIdx = 0;
+   do
+   {
+      outInteger[outIdx++] = ((((inClose[i] >= inOpen[i]) ? 1 : -1) * 100) & -(int)(((fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i)) & ((inHigh[i] - TA_COLOR_MAX(inClose[i], inOpen[i])) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)) & ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)))));
+      /* add the current range and subtract the first range: this is done after the pattern recognition
+       * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+       */
+      BodyPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyTrailingIdx);
+      ShadowPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_Shadows,i) - TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowTrailingIdx);
+      i += 1;
+      BodyTrailingIdx += 1;
+      ShadowTrailingIdx += 1;
+   } while( i <= endIdx );
+   /* All done. Indicate the output limits and return. */
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else
+   {
    /* Do the calculation using tight loops. */
    /* Add-up the initial period, except for the last value. */
    BodyPeriodTotal = 0;
@@ -160,7 +210,7 @@ TA_LIB_API TA_RetCode TA_CDLLONGLINE( int    startIdx,
    outIdx = 0;
    do
    {
-      outInteger[outIdx++] = ((((inClose[i] >= inOpen[i]) ? 1 : -1) * 100) & -(int)(((fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i)) & ((inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)) & ((((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)))));
+      outInteger[outIdx++] = ((((inClose[i] >= inOpen[i]) ? 1 : -1) * 100) & -(int)(((fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i)) & ((inHigh[i] - TA_COLOR_MAX(inClose[i], inOpen[i])) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)) & ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)))));
       /* add the current range and subtract the first range: this is done after the pattern recognition
        * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
        */
@@ -174,6 +224,7 @@ TA_LIB_API TA_RetCode TA_CDLLONGLINE( int    startIdx,
    *outNBElement= outIdx;
    *outBegIdx= startIdx;
    return TA_SUCCESS;
+   }
 }
 
 TA_RetCode TA_S_CDLLONGLINE( int    startIdx,
@@ -229,6 +280,40 @@ TA_RetCode TA_S_CDLLONGLINE( int    startIdx,
       *outNBElement= 0;
       return TA_SUCCESS;
    }
+   if( BodyLong_rangeType == TA_RangeType_RealBody && ShadowShort_rangeType == TA_RangeType_Shadows )
+   {
+   BodyPeriodTotal = 0;
+   BodyTrailingIdx = startIdx - BodyLong_avgPeriod;
+   ShadowPeriodTotal = 0;
+   ShadowTrailingIdx = startIdx - ShadowShort_avgPeriod;
+   i = BodyTrailingIdx;
+   while( i < startIdx )
+   {
+      BodyPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+      i += 1;
+   }
+   i = ShadowTrailingIdx;
+   while( i < startIdx )
+   {
+      ShadowPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+      i += 1;
+   }
+   outIdx = 0;
+   do
+   {
+      outInteger[outIdx++] = (((((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) * 100) & -(int)(((fabs((double)inClose[i] - (double)inOpen[i]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i)) & (((double)inHigh[i] - TA_COLOR_MAX((double)inClose[i], (double)inOpen[i])) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)) & ((TA_COLOR_MIN((double)inClose[i], (double)inOpen[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)))));
+      BodyPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyTrailingIdx);
+      ShadowPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_Shadows,i) - TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowTrailingIdx);
+      i += 1;
+      BodyTrailingIdx += 1;
+      ShadowTrailingIdx += 1;
+   } while( i <= endIdx );
+   *outNBElement= outIdx;
+   *outBegIdx= startIdx;
+   return TA_SUCCESS;
+   }
+   else
+   {
    BodyPeriodTotal = 0;
    BodyTrailingIdx = startIdx - BodyLong_avgPeriod;
    ShadowPeriodTotal = 0;
@@ -248,7 +333,7 @@ TA_RetCode TA_S_CDLLONGLINE( int    startIdx,
    outIdx = 0;
    do
    {
-      outInteger[outIdx++] = (((((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) * 100) & -(int)(((fabs((double)inClose[i] - (double)inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i)) & (((double)inHigh[i] - (((double)inClose[i] >= (double)inOpen[i]) ? (double)inClose[i] : (double)inOpen[i])) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)) & (((((double)inClose[i] >= (double)inOpen[i]) ? (double)inOpen[i] : (double)inClose[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)))));
+      outInteger[outIdx++] = (((((double)inClose[i] >= (double)inOpen[i]) ? 1 : -1) * 100) & -(int)(((fabs((double)inClose[i] - (double)inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i)) & (((double)inHigh[i] - TA_COLOR_MAX((double)inClose[i], (double)inOpen[i])) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)) & ((TA_COLOR_MIN((double)inClose[i], (double)inOpen[i]) - (double)inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)))));
       BodyPeriodTotal += TA_CANDLERANGE_OF(BodyLong_rangeType,i) - TA_CANDLERANGE_OF(BodyLong_rangeType,BodyTrailingIdx);
       ShadowPeriodTotal += TA_CANDLERANGE_OF(ShadowShort_rangeType,i) - TA_CANDLERANGE_OF(ShadowShort_rangeType,ShadowTrailingIdx);
       i += 1;
@@ -258,6 +343,7 @@ TA_RetCode TA_S_CDLLONGLINE( int    startIdx,
    *outNBElement= outIdx;
    *outBegIdx= startIdx;
    return TA_SUCCESS;
+   }
 }
 
 /**** Streaming API *****/
@@ -298,7 +384,7 @@ static void TA_CDLLONGLINE_StepImpl( struct TA_CDLLONGLINE_Stream *sp, double in
    {
       sp->ring_ShadowTrailingIdx_derived[0] = TA_STREAM_CANDLERANGE(ShadowShort,inOpen,inHigh,inLow,inClose);
    }
-   if( fabs(inClose - inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyPeriodTotal,inOpen,inHigh,inLow,inClose) && (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) && (((inClose >= inOpen) ? inOpen : inClose) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) )
+   if( fabs(inClose - inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyPeriodTotal,inOpen,inHigh,inLow,inClose) && (inHigh - TA_COLOR_MAX(inClose, inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) && (TA_COLOR_MIN(inClose, inOpen) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) )
    {
       *outInteger= ((inClose >= inOpen) ? 1 : -1) * 100;
    } else 
@@ -325,22 +411,10 @@ static void TA_CDLLONGLINE_StepImpl( struct TA_CDLLONGLINE_Stream *sp, double in
    }
 }
 
-static TA_RetCode TA_CDLLONGLINE_OpenImpl( struct TA_CDLLONGLINE_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_CDLLONGLINE_OpenBody( struct TA_CDLLONGLINE_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_CDLLONGLINE_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -376,6 +450,85 @@ static TA_RetCode TA_CDLLONGLINE_OpenImpl( struct TA_CDLLONGLINE_Stream **stream
          *outNBElement= 0;
          return TA_INSUFFICIENT_HISTORY;
       }
+      if( BodyLong_rangeType == TA_RangeType_RealBody && ShadowShort_rangeType == TA_RangeType_Shadows )
+      {
+      /* Do the calculation using tight loops. */
+      /* Add-up the initial period, except for the last value. */
+      BodyPeriodTotal = 0;
+      BodyTrailingIdx = startIdx - BodyLong_avgPeriod;
+      ShadowPeriodTotal = 0;
+      ShadowTrailingIdx = startIdx - ShadowShort_avgPeriod;
+      i = BodyTrailingIdx;
+      while( i < startIdx )
+      {
+         BodyPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i);
+         i += 1;
+      }
+      i = ShadowTrailingIdx;
+      while( i < startIdx )
+      {
+         ShadowPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_Shadows,i);
+         i += 1;
+      }
+      /* Proceed with the calculation for the requested range.
+       * Must have:
+       * - long real body
+       * - short upper and lower shadow
+       * The meaning of "long" and "short" is specified with TA_SetCandleSettings
+       */
+      outIdx = 0;
+      do
+      {
+         outInteger[outIdx++ * outStride] = ((((inClose[i] >= inOpen[i]) ? 1 : -1) * 100) & -(int)(((fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(TA_RangeType_RealBody,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i)) & ((inHigh[i] - TA_COLOR_MAX(inClose[i], inOpen[i])) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)) & ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(TA_RangeType_Shadows,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)))));
+         /* add the current range and subtract the first range: this is done after the pattern recognition
+          * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+          */
+         BodyPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_RealBody,i) - TA_CANDLERANGE_OF(TA_RangeType_RealBody,BodyTrailingIdx);
+         ShadowPeriodTotal += TA_CANDLERANGE_OF(TA_RangeType_Shadows,i) - TA_CANDLERANGE_OF(TA_RangeType_Shadows,ShadowTrailingIdx);
+         i += 1;
+         BodyTrailingIdx += 1;
+         ShadowTrailingIdx += 1;
+      } while( i <= endIdx );
+      /* All done. Indicate the output limits and return. */
+      *outNBElement= outIdx;
+      *outBegIdx= startIdx;
+
+      /* Capture the live batch state into the handle. */
+      sp = (struct TA_CDLLONGLINE_Stream *)TA_Malloc( sizeof(*sp) );
+      if( !sp ) { return TA_ALLOC_ERR; }
+      memset( sp, 0, sizeof(*sp) );
+      sp->BodyPeriodTotal = BodyPeriodTotal;
+      sp->ShadowPeriodTotal = ShadowPeriodTotal;
+      sp->ringCap_BodyTrailingIdx = (int)(i - BodyTrailingIdx);
+      if( sp->ringCap_BodyTrailingIdx < 0 || sp->ringCap_BodyTrailingIdx > historyLen ) { TA_CDLLONGLINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(269); }
+      { size_t allocN = (size_t)(sp->ringCap_BodyTrailingIdx > 0 ? sp->ringCap_BodyTrailingIdx : 1);
+        sp->ring_BodyTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_BodyTrailingIdx_derived ) { TA_CDLLONGLINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        { int fillJ;
+          for( fillJ = historyLen - sp->ringCap_BodyTrailingIdx; fillJ < historyLen; fillJ++ )
+             sp->ring_BodyTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_BodyTrailingIdx)] = TA_STREAM_CANDLERANGE(BodyLong,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+        }
+      }
+      sp->ringPos_BodyTrailingIdx = 0;
+      sp->ringCap_ShadowTrailingIdx = (int)(i - ShadowTrailingIdx);
+      if( sp->ringCap_ShadowTrailingIdx < 0 || sp->ringCap_ShadowTrailingIdx > historyLen ) { TA_CDLLONGLINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(270); }
+      { size_t allocN = (size_t)(sp->ringCap_ShadowTrailingIdx > 0 ? sp->ringCap_ShadowTrailingIdx : 1);
+        sp->ring_ShadowTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_ShadowTrailingIdx_derived ) { TA_CDLLONGLINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+        { int fillJ;
+          for( fillJ = historyLen - sp->ringCap_ShadowTrailingIdx; fillJ < historyLen; fillJ++ )
+             sp->ring_ShadowTrailingIdx_derived[fillJ - (historyLen - sp->ringCap_ShadowTrailingIdx)] = TA_STREAM_CANDLERANGE(ShadowShort,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
+        }
+      }
+      sp->ringPos_ShadowTrailingIdx = 0;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
+      sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
+      *stream = sp;
+      return TA_SUCCESS;
+      }
+      else
+      {
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
       BodyPeriodTotal = 0;
@@ -403,13 +556,7 @@ static TA_RetCode TA_CDLLONGLINE_OpenImpl( struct TA_CDLLONGLINE_Stream **stream
       outIdx = 0;
       do
       {
-         if( fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i) && (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i) && (((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i) )
-         {
-            outInteger[outIdx++ * outStride] = ((inClose[i] >= inOpen[i]) ? 1 : -1) * 100;
-         } else 
-         {
-            outInteger[outIdx++ * outStride] = 0;
-         }
+         outInteger[outIdx++ * outStride] = ((((inClose[i] >= inOpen[i]) ? 1 : -1) * 100) & -(int)(((fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal,i)) & ((inHigh[i] - TA_COLOR_MAX(inClose[i], inOpen[i])) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)) & ((TA_COLOR_MIN(inClose[i], inOpen[i]) - inLow[i]) < TA_CANDLEAVERAGE_OF(ShadowShort_rangeType,ShadowShort_avgPeriod,ShadowShort_factor,ShadowPeriodTotal,i)))));
          /* add the current range and subtract the first range: this is done after the pattern recognition
           * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
           */
@@ -456,7 +603,40 @@ static TA_RetCode TA_CDLLONGLINE_OpenImpl( struct TA_CDLLONGLINE_Stream **stream
       sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
+      }
    }
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDLLONGLINE_OpenFillFrame( struct TA_CDLLONGLINE_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   return TA_CDLLONGLINE_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDLLONGLINE_OpenSinkFrame( struct TA_CDLLONGLINE_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   int sink_outInteger = 0;
+   TA_RetCode retCode = TA_CDLLONGLINE_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, &sink_outInteger, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outInteger ) *outInteger = sink_outInteger;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_CDLLONGLINE_OpenImpl( struct TA_CDLLONGLINE_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_CDLLONGLINE_OpenFillFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger ) : TA_CDLLONGLINE_OpenSinkFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger );
 }
 
 /* Private function, not in public API. */
@@ -478,7 +658,6 @@ TA_LIB_API TA_RetCode TA_CDLLONGLINE_Open( TA_CDLLONGLINE_Stream **stream, const
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLLONGLINE_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
@@ -488,7 +667,6 @@ TA_LIB_API TA_RetCode TA_CDLLONGLINE_OpenAndFill( TA_CDLLONGLINE_Stream **stream
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
@@ -519,7 +697,7 @@ TA_LIB_API TA_RetCode TA_CDLLONGLINE_Peek( const TA_CDLLONGLINE_Stream *stream, 
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   if( fabs(inClose - inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyPeriodTotal,inOpen,inHigh,inLow,inClose) && (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) && (((inClose >= inOpen) ? inOpen : inClose) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) )
+   if( fabs(inClose - inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyPeriodTotal,inOpen,inHigh,inLow,inClose) && (inHigh - TA_COLOR_MAX(inClose, inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) && (TA_COLOR_MIN(inClose, inOpen) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) )
    {
       *outInteger= ((inClose >= inOpen) ? 1 : -1) * 100;
    } else 

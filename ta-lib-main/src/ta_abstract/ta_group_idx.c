@@ -49,6 +49,7 @@ extern const TA_FuncDef TA_DEF_ADOSC;
 extern const TA_FuncDef TA_DEF_ADR;
 extern const TA_FuncDef TA_DEF_ADX;
 extern const TA_FuncDef TA_DEF_ADXR;
+extern const TA_FuncDef TA_DEF_ALLIGATOR;
 extern const TA_FuncDef TA_DEF_ALMA;
 extern const TA_FuncDef TA_DEF_AO;
 extern const TA_FuncDef TA_DEF_APO;
@@ -235,12 +236,14 @@ extern const TA_FuncDef TA_DEF_RVIR;
 extern const TA_FuncDef TA_DEF_RVOL;
 extern const TA_FuncDef TA_DEF_SAR;
 extern const TA_FuncDef TA_DEF_SAREXT;
+extern const TA_FuncDef TA_DEF_SHARPE;
 extern const TA_FuncDef TA_DEF_SI;
 extern const TA_FuncDef TA_DEF_SIN;
 extern const TA_FuncDef TA_DEF_SINH;
 extern const TA_FuncDef TA_DEF_SKEW;
 extern const TA_FuncDef TA_DEF_SMA;
 extern const TA_FuncDef TA_DEF_SMI;
+extern const TA_FuncDef TA_DEF_SORTINO;
 extern const TA_FuncDef TA_DEF_SQRT;
 extern const TA_FuncDef TA_DEF_SQZMOM;
 extern const TA_FuncDef TA_DEF_STC;
@@ -318,6 +321,7 @@ NULL };
 
 const TA_FuncDef *TA_PerGroupFunc_2[] = {
 &TA_DEF_ACCBANDS,
+&TA_DEF_ALLIGATOR,
 &TA_DEF_ALMA,
 &TA_DEF_BBANDS,
 &TA_DEF_CE,
@@ -544,7 +548,9 @@ const TA_FuncDef *TA_PerGroupFunc_8[] = {
 &TA_DEF_MEDIAN,
 &TA_DEF_PERCENTILE,
 &TA_DEF_PERCENTRANK,
+&TA_DEF_SHARPE,
 &TA_DEF_SKEW,
+&TA_DEF_SORTINO,
 &TA_DEF_STDDEV,
 &TA_DEF_TSF,
 &TA_DEF_VAR,

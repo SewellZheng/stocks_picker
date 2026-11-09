@@ -341,26 +341,10 @@ static void TA_SI_StepImpl( struct TA_SI_Stream *sp, double inOpen, double inHig
    sp->cur_outReal = *outReal;
 }
 
-static TA_RetCode TA_SI_OpenImpl( struct TA_SI_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInLimitMove, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_SI_OpenBody( struct TA_SI_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInLimitMove, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_SI_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( optInLimitMove == TA_REAL_DEFAULT )
-      optInLimitMove = 3;
-   else if( !(optInLimitMove >= 1e-8 && optInLimitMove <= TA_REAL_MAX) )
-      return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -448,6 +432,42 @@ static TA_RetCode TA_SI_OpenImpl( struct TA_SI_Stream **stream, const double inO
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_SI_OpenFillFrame( struct TA_SI_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInLimitMove, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   return TA_SI_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInLimitMove, outBegIdx, outNBElement, outReal, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_SI_OpenSinkFrame( struct TA_SI_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInLimitMove, int *outBegIdx, int *outNBElement, double outReal[] )
+{
+   double sink_outReal = 0;
+   TA_RetCode retCode = TA_SI_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInLimitMove, outBegIdx, outNBElement, &sink_outReal, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outReal ) *outReal = sink_outReal;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_SI_OpenImpl( struct TA_SI_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInLimitMove, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( optInLimitMove == TA_REAL_DEFAULT )
+      optInLimitMove = 3;
+   else if( !(optInLimitMove >= 1e-8 && optInLimitMove <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_SI_OpenFillFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInLimitMove, outBegIdx, outNBElement, outReal ) : TA_SI_OpenSinkFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInLimitMove, outBegIdx, outNBElement, outReal );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_SI_OpenInternal( struct TA_SI_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInLimitMove, double *outReal )
 {
@@ -467,7 +487,6 @@ TA_LIB_API TA_RetCode TA_SI_Open( TA_SI_Stream **stream, const double inOpen[], 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_SI_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInLimitMove, outReal );
@@ -477,7 +496,6 @@ TA_LIB_API TA_RetCode TA_SI_OpenAndFill( TA_SI_Stream **stream, const double inO
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inOpen || (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;

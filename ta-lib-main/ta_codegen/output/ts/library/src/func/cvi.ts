@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -12,29 +46,17 @@
  *  090426 MF,CC  First version (issue #358).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireHistoryLength, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { fma } from '../runtime/fma.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
-import { emaLookback } from './ema.ts';
-import { rocpLookback } from './rocp.ts';
+import { emaLookbackPositional } from './ema.ts';
+import { rocpLookbackPositional } from './rocp.ts';
 
-/**
- * Number of leading input bars {@link cvi} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Number of bars in the exponential average of the
- *   high-low spread (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT` selects
- *   the default).
- * @param optInROCPeriod - How many bars back the percent change reaches (default
- *   10; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function cviLookback(optInTimePeriod: number, optInROCPeriod: number, core: Core = Core.DEFAULT): number {
+/** @internal */
+export function cviLookbackPositional(optInTimePeriod: number, optInROCPeriod: number, core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -51,28 +73,12 @@ export function cviLookback(optInTimePeriod: number, optInROCPeriod: number, cor
   } else if (optInROCPeriod < 1 || optInROCPeriod > 100000) {
     return -1;
   }
-  return emaLookback(optInTimePeriod, core) + rocpLookback(optInROCPeriod, core);
+  return emaLookbackPositional(optInTimePeriod, core) + rocpLookbackPositional(optInROCPeriod, core);
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link cvi}.
- *
- * Every output of this function is drawn at its own bar, so the answer is 0.
- *
- * @param optInTimePeriod - Number of bars in the exponential average of the
- *   high-low spread (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT` selects
- *   the default).
- * @param optInROCPeriod - How many bars back the percent change reaches (default
- *   10; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function cviDisplayShift(optInTimePeriod: number, optInROCPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (cviLookback(optInTimePeriod, optInROCPeriod, core) < 0) {
+/** @internal */
+export function cviDisplayShiftPositional(optInTimePeriod: number, optInROCPeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (cviLookbackPositional(optInTimePeriod, optInROCPeriod, core) < 0) {
     return -2147483648;
   }
   if ((outputIdx | 0) !== outputIdx || outputIdx < 0 || outputIdx >= 1) {
@@ -137,7 +143,7 @@ export function cviImpl(
    */
   outBegIdx.value = 0;
   outNBElement.value = 0;
-  lookbackTotal = emaLookback(optInTimePeriod, core) + rocpLookback(optInROCPeriod, core);
+  lookbackTotal = emaLookbackPositional(optInTimePeriod, core) + rocpLookbackPositional(optInROCPeriod, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -208,6 +214,139 @@ export function cviImpl(
   return RetCode.SUCCESS;
 }
 
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000'], ['rocPeriod', Core.INTEGER_DEFAULT, 1, 100000, 'in 1..100000']] as const;
+
+/** @internal */
+export function cviPositional(
+  startIdx: number,
+  endIdx: number,
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  optInTimePeriod: number,
+  optInROCPeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): OutRange {
+  startIdx = requireInt32('CVI', 'startIdx', startIdx);
+  endIdx = requireInt32('CVI', 'endIdx', endIdx);
+  optInTimePeriod = requireInt32('CVI', 'timePeriod', optInTimePeriod);
+  optInROCPeriod = requireInt32('CVI', 'rocPeriod', optInROCPeriod);
+  requireIndexRange('CVI', startIdx, endIdx);
+  const guardLookback = cviLookbackPositional(optInTimePeriod, optInROCPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CVI', PARAM_RANGES, optInTimePeriod, optInROCPeriod);
+  }
+  const guardStart = clampedStart('CVI', startIdx, guardLookback);
+  const guardInLen = endIdx + 1;
+  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+  requireLength('CVI', 'prices.high', inHigh, guardInLen);
+  requireLength('CVI', 'prices.low', inLow, guardInLen);
+  requireOutput('CVI', 'outReal', outReal, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  if (overlapsPartly(outReal, inHighF64)) {
+    throw sharedMemory('CVI', 'outReal', 'prices.high');
+  }
+  if (overlapsPartly(outReal, inLowF64)) {
+    throw sharedMemory('CVI', 'outReal', 'prices.low');
+  }
+  const outBegIdx = new MInteger();
+  const outNBElement = new MInteger();
+  const retCode = cviImpl(core, startIdx, endIdx, inHighF64, inLowF64, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal);
+  if (retCode !== RetCode.SUCCESS) {
+    throw failure('CVI', retCode);
+  }
+  return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link cvi}, {@link cviLookback}, {@link cviDisplayShift},
+ * {@link cviOpen} and {@link cviOpenAndFill}. Every key is optional: an omitted or
+ * `undefined` key takes its default, and a call ignores the keys it has no use
+ * for.
+ */
+export interface CviOptions {
+  /**
+   * Number of bars in the exponential average of the high-low spread (default 10;
+   * range 2 to 100000; `Core.INTEGER_DEFAULT` selects the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * How many bars back the percent change reaches (default 10; range 1 to 100000;
+   * `Core.INTEGER_DEFAULT` selects the default).
+   */
+  rocPeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link cvi} returns, and {@link cviOpenAndFill} with its stream. */
+export interface CviResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Percent change of the smoothed high-low spread. `values[k]` is the value at
+   * input bar `begIdx + k`.
+   */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link cvi} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CviOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function cviLookback(options?: CviOptions): number {
+  const o = optionsOf('CVI lookback', options);
+  return cviLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), orDefault(o.rocPeriod, Core.INTEGER_DEFAULT), coreOf('CVI lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link cvi}.
+ *
+ * Every output of this function is drawn at its own bar, so the answer is 0.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CviOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function cviDisplayShift(outputIdx: number, options?: CviOptions): number {
+  const o = optionsOf('CVI displayShift', options);
+  return cviDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), orDefault(o.rocPeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('CVI displayShift', o.core));
+}
+
 /**
  * Chaikin's Volatility: Marc Chaikin's reading of how fast a market's daily
  * trading range is widening or narrowing. The high-low spread is smoothed by an
@@ -236,49 +375,45 @@ export function cviImpl(
  *   average at zero. CVI reports 0 there. Tulip Indicators and pandas-ta-classic
  *   leave the division unguarded and emit NaN; trading-signals returns 0, as here.
  * - Implementations disagree on how the inner EMA is seeded. TA-Lib uses its own
- *   EMA convention, the simple average of the first `optInTimePeriod` spreads,
- *   where Tulip Indicators and trading-signals seed from a single raw spread and
+ *   EMA convention, the simple average of the first `timePeriod` spreads, where
+ *   Tulip Indicators and trading-signals seed from a single raw spread and
  *   converge to these values only after many bars.
  * - CVI inherits EMA's unstable period rather than owning one:
- *   `TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)` moves CVI's first output too.
+ *   `CoreBuilder.unstablePeriod(FuncUnstId.EMA, ...)` moves CVI's first output
+ *   too.
  *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link cviLookback} is a success with
- * `count` 0.
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link cviLookback} is a success with empty outputs.
  *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inHigh - High price.
- * @param inLow - Low price.
- * @param optInTimePeriod - Number of bars in the exponential average of the
- *   high-low spread (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT` selects
- *   the default).
- * @param optInROCPeriod - How many bars back the percent change reaches (default
- *   10; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - Percent change of the smoothed high-low spread. Must hold the
- *   values produced and never be empty; the input length always suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
+ * @param prices - One series per price component this function reads, all of one
+ *   length; other components may be present and are ignored. `high`: High price.
+ *   `low`: Low price.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link CviOptions}.
+ * @returns `begIdx` and the values; see {@link CviResult}. Each output is a view
+ *   of its buffer, the caller's or a new one.
  * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
  *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output
- *   or an output sharing memory with a `Float64Array` input it is not. Checked
- *   before anything is written.
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
  *
  * @example
  * ```ts
  * import { cvi } from 'ta-lib';
  *
- * const high = Float64Array.from({ length: 252 }, (_, i) =>
- *   101 + 10 * Math.sin(0.1 * i));
- * const low = Float64Array.from({ length: 252 }, (_, i) =>
- *   99 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(high.length);
- * const { begIdx, count } = cvi(0, high.length - 1, high, low, 10, 10, out);
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const high = new Float64Array(252); // your data, oldest first
+ * const low = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = cvi({ high, low }, {
+ *   timePeriod: 10,
+ *   rocPeriod: 10,
+ * });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
  * ```
  * @see [`atr`](https://ta-lib.org/functions/atr)
  * @see [`natr`](https://ta-lib.org/functions/natr)
@@ -286,39 +421,22 @@ export function cviImpl(
  * @see [`ema`](https://ta-lib.org/functions/ema)
  * @see [`rocp`](https://ta-lib.org/functions/rocp)
  */
-export function cvi(
-  startIdx: number,
-  endIdx: number,
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  optInTimePeriod: number,
-  optInROCPeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): OutRange {
-  startIdx = requireInt32('CVI', 'startIdx', startIdx);
-  endIdx = requireInt32('CVI', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('CVI', 'optInTimePeriod', optInTimePeriod);
-  optInROCPeriod = requireInt32('CVI', 'optInROCPeriod', optInROCPeriod);
-  requireIndexRange('CVI', startIdx, endIdx);
-  const guardStart = clampedStart('CVI', startIdx, cviLookback(optInTimePeriod, optInROCPeriod, core));
-  const guardInLen = endIdx + 1;
-  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('CVI', 'inHigh', inHigh, guardInLen);
-  requireLength('CVI', 'inLow', inLow, guardInLen);
-  requireOutput('CVI', 'outReal', outReal, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  if (overlapsPartly(outReal, inHighF64) || overlapsPartly(outReal, inLowF64)) {
-    throw failure('CVI', RetCode.BAD_PARAM);
+export function cvi(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CviOptions): CviResult {
+  requireArgument('CVI', 'prices', prices);
+  const o = optionsOf('CVI', options);
+  if (o.endIdx === undefined) {
+    requireSeries('CVI', 'prices.high', prices.high);
+    requireSeries('CVI', 'prices.low', prices.low);
   }
-  const outBegIdx = new MInteger();
-  const outNBElement = new MInteger();
-  const retCode = cviImpl(core, startIdx, endIdx, inHighF64, inLowF64, optInTimePeriod, optInROCPeriod, outBegIdx, outNBElement, outReal);
-  if (retCode !== RetCode.SUCCESS) {
-    throw failure('CVI', retCode);
-  }
-  return new OutRange(outBegIdx.value, outNBElement.value);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInROCPeriod = orDefault(o.rocPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CVI', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? prices.high.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, cviLookbackPositional(optInTimePeriod, optInROCPeriod, core), prices.high, prices.low);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = cviPositional(startIdx, endIdx, prices.high, prices.low, optInTimePeriod, optInROCPeriod, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -386,7 +504,7 @@ export class CviStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CVI advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CVI advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -394,21 +512,21 @@ export class CviStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inHigh - The bar's `inHigh` value: High price.
-   * @param inLow - The bar's `inLow` value: Low price.
+   * @param high - The bar's `high` value: High price.
+   * @param low - The bar's `low` value: Low price.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inHigh: number, inLow: number): number {
+  update(high: number, low: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('CVI update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('CVI update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow)) {
-      throw nonFiniteBar('CVI update', !Number.isFinite(inHigh) ? 'inHigh' : 'inLow');
+    if (!Number.isFinite(high) || !Number.isFinite(low)) {
+      throw nonFiniteBar('CVI update', !Number.isFinite(high) ? 'high' : 'low');
     }
-    cviStepImpl(this, inHigh, inLow);
+    cviStepImpl(this, high, low);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -416,17 +534,19 @@ export class CviStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inHigh - The bar's `inHigh` value: High price.
-   * @param inLow - The bar's `inLow` value: Low price.
+   * @param high - The bar's `high` value: High price.
+   * @param low - The bar's `low` value: Low price.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inHigh: number, inLow: number): number {
-    if (!Number.isFinite(inHigh) || !Number.isFinite(inLow)) {
-      throw nonFiniteBar('CVI peek', !Number.isFinite(inHigh) ? 'inHigh' : 'inLow');
+  peek(high: number, low: number): number {
+    if (!Number.isFinite(high) || !Number.isFinite(low)) {
+      throw nonFiniteBar('CVI peek', !Number.isFinite(high) ? 'high' : 'low');
     }
     const sp = this;
+    const inHigh = high;
+    const inLow = low;
     let laggedEMA = 0;
     let tempReal = 0;
     let cur_outReal = 0;
@@ -521,9 +641,6 @@ function cviOpenImpl(
   let maxIdx_emaRing = (32) - 1;
   const historyLen = inHigh.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -540,7 +657,7 @@ function cviOpenImpl(
   } else if (optInROCPeriod < 1 || optInROCPeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -560,7 +677,7 @@ function cviOpenImpl(
    */
   outBegIdx.value = 0;
   outNBElement.value = 0;
-  lookbackTotal = emaLookback(optInTimePeriod, core) + rocpLookback(optInROCPeriod, core);
+  lookbackTotal = emaLookbackPositional(optInTimePeriod, core) + rocpLookbackPositional(optInROCPeriod, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -665,7 +782,10 @@ export function cviOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CVI openAndFill', inHigh.length, startIdx, cviLookback(optInTimePeriod, optInROCPeriod, core));
+    throw insufficientHistory('CVI openAndFill', inHigh.length, startIdx, cviLookbackPositional(optInTimePeriod, optInROCPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && cviLookbackPositional(optInTimePeriod, optInROCPeriod, core) < 0) {
+    throw rejectedParams('CVI openAndFill', PARAM_RANGES, optInTimePeriod, optInROCPeriod);
   }
   throw streamFailure('CVI openAndFill', retCode);
 }
@@ -690,29 +810,84 @@ export function cviOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('CVI open', inHigh.length, startIdx, cviLookback(optInTimePeriod, optInROCPeriod, core));
+    throw insufficientHistory('CVI open', inHigh.length, startIdx, cviLookbackPositional(optInTimePeriod, optInROCPeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && cviLookbackPositional(optInTimePeriod, optInROCPeriod, core) < 0) {
+    throw rejectedParams('CVI open', PARAM_RANGES, optInTimePeriod, optInROCPeriod);
   }
   throw streamFailure('CVI open', retCode);
+}
+
+/** @internal */
+export function cviOpenPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  optInTimePeriod: number,
+  optInROCPeriod: number,
+  core: Core = Core.DEFAULT,
+): CviStream {
+  optInTimePeriod = requireInt32('CVI open', 'timePeriod', optInTimePeriod);
+  optInROCPeriod = requireInt32('CVI open', 'rocPeriod', optInROCPeriod);
+  requireArgument('CVI open', 'prices.high', inHigh);
+  requireHistory('CVI open', 'prices.high', inHigh.length);
+  requireArgument('CVI open', 'prices.low', inLow);
+  requireHistoryLength('CVI open', 'prices.low', inLow.length, inHigh.length);
+  return cviOpenInternal(core, float64(inHigh), float64(inLow), 0, optInTimePeriod, optInROCPeriod);
+}
+
+/** @internal */
+export function cviOpenAndFillPositional(
+  inHigh: ArrayLike<number>,
+  inLow: ArrayLike<number>,
+  optInTimePeriod: number,
+  optInROCPeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): CviStream {
+  optInTimePeriod = requireInt32('CVI openAndFill', 'timePeriod', optInTimePeriod);
+  optInROCPeriod = requireInt32('CVI openAndFill', 'rocPeriod', optInROCPeriod);
+  requireArgument('CVI openAndFill', 'prices.high', inHigh);
+  requireHistory('CVI openAndFill', 'prices.high', inHigh.length);
+  requireArgument('CVI openAndFill', 'prices.low', inLow);
+  const guardLookback = cviLookbackPositional(optInTimePeriod, optInROCPeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('CVI openAndFill', PARAM_RANGES, optInTimePeriod, optInROCPeriod);
+  }
+  const guardOutLen = openFillCount('CVI openAndFill', inHigh.length, guardLookback);
+  requireHistoryLength('CVI openAndFill', 'prices.low', inLow.length, inHigh.length);
+  requireOutput('CVI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
+  const inHighF64 = float64(inHigh);
+  const inLowF64 = float64(inLow);
+  if (outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) {
+    throw sharedMemory('CVI openAndFill', 'outReal', 'prices.high');
+  }
+  if (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset) {
+    throw sharedMemory('CVI openAndFill', 'outReal', 'prices.low');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inHighF64)) {
+    throw sharedMemory('CVI openAndFill', 'outReal', 'prices.high');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inLowF64)) {
+    throw sharedMemory('CVI openAndFill', 'outReal', 'prices.low');
+  }
+  return cviOpenAndFillInternal(core, inHighF64, inLowF64, 0, optInTimePeriod, optInROCPeriod, new MInteger(), new MInteger(), outReal);
 }
 
 /**
  * Opens a live CVI stream over the warm-up history: `value()` starts at the last
  * history bar, bit-identical to {@link cvi} there.
  *
- * @param inHigh - Warm-up history. High price. Every history has the same length.
- * @param inLow - Warm-up history. Low price. Every history has the same length.
- * @param optInTimePeriod - Number of bars in the exponential average of the
- *   high-low spread (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT` selects
- *   the default).
- * @param optInROCPeriod - How many bars back the percent change reaches (default
- *   10; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price. `low`: Low price.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link CviOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `cviLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or histories of different lengths.
+ *   than `cviLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a parameter outside its range or
+ *   histories of different lengths.
  *
  * @example
  * ```ts
@@ -722,52 +897,40 @@ export function cviOpenInternal(
  *   101 + 10 * Math.sin(0.1 * i));
  * const low = Float64Array.from({ length: 252 }, (_, i) =>
  *   99 + 10 * Math.sin(0.1 * i));
- * const stream = cviOpen(high, low, 10, 10);
+ * const stream = cviOpen({ high, low }, { timePeriod: 10, rocPeriod: 10 });
  * const peeked = stream.peek(101.4, 99.1); // a forming bar: commits nothing
  * const updated = stream.update(101.4, 99.1); // the bar closes
  * ```
  */
-export function cviOpen(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  optInTimePeriod: number,
-  optInROCPeriod: number,
-  core: Core = Core.DEFAULT,
-): CviStream {
-  optInTimePeriod = requireInt32('CVI open', 'optInTimePeriod', optInTimePeriod);
-  optInROCPeriod = requireInt32('CVI open', 'optInROCPeriod', optInROCPeriod);
-  requireArgument('CVI open', 'inHigh', inHigh);
-  requireHistory('CVI open', inHigh.length);
-  requireArgument('CVI open', 'inLow', inLow);
-  requireHistoryLength('CVI open', 'inLow', inLow.length, inHigh.length);
-  return cviOpenInternal(core, float64(inHigh), float64(inLow), 0, optInTimePeriod, optInROCPeriod);
+export function cviOpen(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CviOptions): CviStream {
+  requireArgument('CVI open', 'prices', prices);
+  const o = optionsOf('CVI open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInROCPeriod = orDefault(o.rocPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CVI open', o.core);
+  return cviOpenPositional(prices.high, prices.low, optInTimePeriod, optInROCPeriod, core);
 }
 
 /**
- * {@link cviOpen} that also fills the outputs over the whole history in the same
- * pass, bit-identically to {@link cvi}. The range written is the stream's
- * `outRange()`.
+ * {@link cviOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link cvi}.
  *
- * @param inHigh - Warm-up history. High price. Every history has the same length.
- * @param inLow - Warm-up history. Low price. Every history has the same length.
- * @param optInTimePeriod - Number of bars in the exponential average of the
- *   high-low spread (default 10; range 2 to 100000; `Core.INTEGER_DEFAULT` selects
- *   the default).
- * @param optInROCPeriod - How many bars back the percent change reaches (default
- *   10; range 1 to 100000; `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - Percent change of the smoothed high-low spread. Must hold
- *   `historyLen - lookback` values and share no memory with an input or another
- *   output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param prices - Warm-up history. One series per price component this function
+ *   reads, all of one length; other components may be present and are ignored.
+ *   `high`: High price. `low`: Low price.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link CviOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link cvi} returns them; the range is the stream's
+ *   `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `cviLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range, histories of different lengths or an output too
- *   short or starting where another output or a `Float64Array` input starts, or, on
- *   a history long enough to open, one sharing memory with another output or a
- *   `Float64Array` input.
+ *   than `cviLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a parameter outside its range,
+ *   histories of different lengths or a buffer too short, of the wrong type or
+ *   starting where another buffer or a `Float64Array` input starts, or, on a history
+ *   long enough to open, one sharing memory with another buffer or a `Float64Array`
+ *   input.
  *
  * @example
  * ```ts
@@ -777,35 +940,22 @@ export function cviOpen(
  *   101 + 10 * Math.sin(0.1 * i));
  * const low = Float64Array.from({ length: 252 }, (_, i) =>
  *   99 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(high.length);
- * const stream = cviOpenAndFill(high, low, 10, 10, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = cviOpenAndFill({ high, low }, {
+ *   timePeriod: 10,
+ *   rocPeriod: 10,
+ * });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function cviOpenAndFill(
-  inHigh: ArrayLike<number>,
-  inLow: ArrayLike<number>,
-  optInTimePeriod: number,
-  optInROCPeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): CviStream {
-  optInTimePeriod = requireInt32('CVI openAndFill', 'optInTimePeriod', optInTimePeriod);
-  optInROCPeriod = requireInt32('CVI openAndFill', 'optInROCPeriod', optInROCPeriod);
-  requireArgument('CVI openAndFill', 'inHigh', inHigh);
-  requireHistory('CVI openAndFill', inHigh.length);
-  requireArgument('CVI openAndFill', 'inLow', inLow);
-  const guardOutLen = openFillCount('CVI openAndFill', inHigh.length, cviLookback(optInTimePeriod, optInROCPeriod, core));
-  requireHistoryLength('CVI openAndFill', 'inLow', inLow.length, inHigh.length);
-  requireOutput('CVI openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
-  const inHighF64 = float64(inHigh);
-  const inLowF64 = float64(inLow);
-  if ((outReal.buffer === inHighF64.buffer && outReal.byteOffset === inHighF64.byteOffset) || (outReal.buffer === inLowF64.buffer && outReal.byteOffset === inLowF64.byteOffset)) {
-    throw streamFailure('CVI openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outReal, inHighF64) || overlaps(outReal, inLowF64))) {
-    throw streamFailure('CVI openAndFill', RetCode.BAD_PARAM);
-  }
-  return cviOpenAndFillInternal(core, inHighF64, inLowF64, 0, optInTimePeriod, optInROCPeriod, new MInteger(), new MInteger(), outReal);
+export function cviOpenAndFill(prices: { open?: ArrayLike<number> | undefined; high: ArrayLike<number>; low: ArrayLike<number>; close?: ArrayLike<number> | undefined; volume?: ArrayLike<number> | undefined; openInterest?: ArrayLike<number> | undefined }, options?: CviOptions): CviResult & { stream: CviStream } {
+  requireArgument('CVI openAndFill', 'prices', prices);
+  const o = optionsOf('CVI openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const optInROCPeriod = orDefault(o.rocPeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('CVI openAndFill', o.core);
+  const capacity = fillCapacity(cviLookbackPositional(optInTimePeriod, optInROCPeriod, core), prices.high, prices.low);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = cviOpenAndFillPositional(prices.high, prices.low, optInTimePeriod, optInROCPeriod, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }

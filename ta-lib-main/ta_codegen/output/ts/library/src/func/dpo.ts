@@ -1,3 +1,37 @@
+/*! TA-LIB Copyright (c) 1999-2026, Mario Fortier
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or
+ * without modification, are permitted provided that the following
+ * conditions are met:
+ *
+ * - Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ *
+ * - Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ *
+ * - Neither name of author nor the names of its contributors
+ *   may be used to endorse or promote products derived from this
+ *   software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ * OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 /* List of contributors:
  *
  *  Initial  Name/description
@@ -13,25 +47,14 @@
  *  100126 MF,CC  Display shift (#489).
  */
 
-import { clampedStart, failure, float64, insufficientHistory, nonFiniteBar, openFillCount, overlaps, overlapsPartly, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, streamFailure } from '../runtime/checks.ts';
+import { batchCapacity, clampedStart, coreOf, failure, fillCapacity, float64, insufficientHistory, nonFiniteBar, openFillCount, optionsOf, orDefault, overlaps, overlapsPartly, rejectedParams, requireArgument, requireHistory, requireIndexRange, requireInt32, requireLength, requireOutput, requireSeries, sharedMemory, streamFailure } from '../runtime/checks.ts';
 import { Core } from '../runtime/core.ts';
 import { RetCode } from '../runtime/errors.ts';
 import { MInteger } from '../runtime/mInteger.ts';
 import { OutRange } from '../runtime/outRange.ts';
 
-/**
- * Number of leading input bars {@link dpo} consumes before its first value: the
- * index of the first bar with a value when the whole series is requested.
- *
- * @param optInTimePeriod - Number of bars spanned by the moving average being
- *   removed; the displacement is derived from it (default 20; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The lookback, or -1 if a parameter is out of range.
- */
-export function dpoLookback(optInTimePeriod: number, core: Core = Core.DEFAULT): number {
-  void core;
+/** @internal */
+export function dpoLookbackPositional(optInTimePeriod: number, _core: Core = Core.DEFAULT): number {
   if ((optInTimePeriod | 0) !== optInTimePeriod) {
     return -1;
   }
@@ -48,23 +71,9 @@ export function dpoLookback(optInTimePeriod: number, core: Core = Core.DEFAULT):
   return ((optInTimePeriod - 1) > (((optInTimePeriod / 2) | 0) + 1) ? (optInTimePeriod - 1) : (((optInTimePeriod / 2) | 0) + 1));
 }
 
-/**
- * How many bars ahead (positive) or behind (negative) of the bar that computed it
- * a chart draws one output of {@link dpo}.
- *
- * The values are never shifted: this describes the drawing only.
- *
- * @param optInTimePeriod - Number of bars spanned by the moving average being
- *   removed; the displacement is derived from it (default 20; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outputIdx - Position of the output in the batch signature, from 0.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The display shift, or -2147483648 if a parameter is out of range or the
- *   index names no output.
- */
-export function dpoDisplayShift(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
-  if (dpoLookback(optInTimePeriod, core) < 0) {
+/** @internal */
+export function dpoDisplayShiftPositional(optInTimePeriod: number, outputIdx: number, core: Core = Core.DEFAULT): number {
+  if (dpoLookbackPositional(optInTimePeriod, core) < 0) {
     return -2147483648;
   }
   if (optInTimePeriod === Core.INTEGER_DEFAULT) {
@@ -118,7 +127,7 @@ export function dpoImpl(
    * argument, and it is lost by dividing once into a reciprocal or by
    * reordering the add/snapshot/subtract.
    */
-  lookbackTotal = dpoLookback(optInTimePeriod, core);
+  lookbackTotal = dpoLookbackPositional(optInTimePeriod, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -159,6 +168,127 @@ export function dpoImpl(
   return RetCode.SUCCESS;
 }
 
+const PARAM_RANGES = [['timePeriod', Core.INTEGER_DEFAULT, 2, 100000, 'in 2..100000']] as const;
+
+/** @internal */
+export function dpoPositional(
+  startIdx: number,
+  endIdx: number,
+  inReal: ArrayLike<number>,
+  optInTimePeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): OutRange {
+  startIdx = requireInt32('DPO', 'startIdx', startIdx);
+  endIdx = requireInt32('DPO', 'endIdx', endIdx);
+  optInTimePeriod = requireInt32('DPO', 'timePeriod', optInTimePeriod);
+  requireIndexRange('DPO', startIdx, endIdx);
+  const guardLookback = dpoLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('DPO', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardStart = clampedStart('DPO', startIdx, guardLookback);
+  const guardInLen = endIdx + 1;
+  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+  requireLength('DPO', 'real', inReal, guardInLen);
+  requireOutput('DPO', 'outReal', outReal, guardOutLen, Float64Array);
+  const inRealF64 = float64(inReal);
+  if (overlapsPartly(outReal, inRealF64)) {
+    throw sharedMemory('DPO', 'outReal', 'real');
+  }
+  const outBegIdx = new MInteger();
+  const outNBElement = new MInteger();
+  const retCode = dpoImpl(core, startIdx, endIdx, inRealF64, optInTimePeriod, outBegIdx, outNBElement, outReal);
+  if (retCode !== RetCode.SUCCESS) {
+    throw failure('DPO', retCode);
+  }
+  return new OutRange(outBegIdx.value, outNBElement.value);
+}
+
+/**
+ * Options of {@link dpo}, {@link dpoLookback}, {@link dpoDisplayShift},
+ * {@link dpoOpen} and {@link dpoOpenAndFill}. Every key is optional: an omitted or
+ * `undefined` key takes its default, and a call ignores the keys it has no use
+ * for.
+ */
+export interface DpoOptions {
+  /**
+   * Number of bars spanned by the moving average being removed; the displacement is
+   * derived from it (default 20; range 2 to 100000; `Core.INTEGER_DEFAULT` selects
+   * the default).
+   */
+  timePeriod?: number | undefined;
+  /**
+   * First bar of the requested range (default 0). Bars before it are still read as
+   * warm-up. Batch calls only.
+   */
+  startIdx?: number | undefined;
+  /**
+   * Last bar of the requested range, inclusive (default the last bar of the first
+   * input). Batch calls only.
+   */
+  endIdx?: number | undefined;
+  /**
+   * Unstable periods and candle settings to compute with; `Core.DEFAULT` when
+   * omitted.
+   */
+  core?: Core | undefined;
+  /**
+   * Buffer for `values`, written from index 0 and allocated when omitted. It must
+   * hold the values produced (for a batch call the input length always suffices, for
+   * an `OpenAndFill` `historyLen - lookback`), and share no memory with another
+   * buffer or with an input; a batch call may compute in place over a `Float64Array`
+   * input of the same length.
+   */
+  outReal?: Float64Array<ArrayBuffer> | undefined;
+}
+
+/** What {@link dpo} returns, and {@link dpoOpenAndFill} with its stream. */
+export interface DpoResult {
+  /** Input bar of the first value; 0 when there is none. */
+  begIdx: number;
+  /**
+   * Detrended Price Oscillator value, in the units of the input. `values[k]` is the
+   * value at input bar `begIdx + k`.
+   */
+  values: Float64Array<ArrayBuffer>;
+}
+
+/**
+ * Number of leading input bars {@link dpo} consumes before its first value: the
+ * index of the first bar with a value when the whole series is requested.
+ *
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link DpoOptions}.
+ * @returns The lookback, or `Core.LOOKBACK_INVALID` (-1) if a parameter is out of
+ *   range.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function dpoLookback(options?: DpoOptions): number {
+  const o = optionsOf('DPO lookback', options);
+  return dpoLookbackPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), coreOf('DPO lookback', o.core));
+}
+
+/**
+ * How many bars ahead (positive) or behind (negative) of the bar that computed it
+ * a chart draws one output of {@link dpo}.
+ *
+ * The values are never shifted: this describes the drawing only.
+ *
+ * @param outputIdx - Position of the output among the result's outputs, from 0.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link DpoOptions}.
+ * @returns The display shift, or `Core.DISPLAY_SHIFT_INVALID` (-2147483648) if a
+ *   parameter is out of range or the index names no output.
+ * @throws `TALibError` with code `TA_BAD_PARAM` when `options` is not an object or
+ *   `core` is not a `Core`.
+ */
+export function dpoDisplayShift(outputIdx: number, options?: DpoOptions): number {
+  const o = optionsOf('DPO displayShift', options);
+  return dpoDisplayShiftPositional(orDefault(o.timePeriod, Core.INTEGER_DEFAULT), outputIdx, coreOf('DPO displayShift', o.core));
+}
+
 /**
  * Detrended Price Oscillator: the price a half-cycle back, less the moving average
  * that spans the cycle. Removing the average removes the trend, leaving the
@@ -176,76 +306,54 @@ export function dpoImpl(
  *   packages usually draw it `t` bars to the left instead, which is a plotting
  *   convention rather than a different series; a caller wanting that view shifts
  *   `outReal` itself, by the display shift the function reports, `-t`.
- * - A causal variant, `P[i] - SMA(P, optInTimePeriod)[i - t]`, displaces the
- *   average instead of the price. It is a genuinely different series, not a
- *   re-indexing of this one, and is not implemented here.
+ * - A causal variant, `P[i] - SMA(P, timePeriod)[i - t]`, displaces the average
+ *   instead of the price. It is a genuinely different series, not a re-indexing of
+ *   this one, and is not implemented here.
  *
- * Output `k` holds the value at input bar `begIdx + k`, for `k < count`; nothing
- * is padded. A range that ends before {@link dpoLookback} is a success with
- * `count` 0.
+ * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
+ * long as the number of values written, and nothing is padded. A range that ends
+ * before {@link dpoLookback} is a success with empty outputs.
  *
- * @param startIdx - First bar of the requested range (inclusive).
- * @param endIdx - Last bar of the requested range (inclusive).
- * @param inReal - Source price/value series, canonically the close.
- * @param optInTimePeriod - Number of bars spanned by the moving average being
- *   removed; the displacement is derived from it (default 20; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - Detrended Price Oscillator value, in the units of the input.
- *   Must hold the values produced and never be empty; the input length always
- *   suffices.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The range written: `begIdx` is the first bar with a value, `count` how
- *   many were written.
+ * @param real - Source price/value series, canonically the close.
+ * @param options - Parameters, the range `startIdx` to `endIdx` (inclusive),
+ *   `core` and output buffers, each optional; see {@link DpoOptions}.
+ * @returns `begIdx` and the values; see {@link DpoResult}. Each output is a view
+ *   of its buffer, the caller's or a new one.
  * @throws `TALibError` with code `TA_OUT_OF_RANGE_START_INDEX` or
  *   `TA_OUT_OF_RANGE_END_INDEX` for a range outside `0..Core.INDEX_MAX` or ending
- *   before it starts, and `TA_BAD_PARAM` for an argument that is not an int32, a
- *   parameter outside its range, an array too short for the range, an empty output
- *   or an output sharing memory with a `Float64Array` input it is not. Checked
- *   before anything is written.
+ *   before it starts, and `TA_BAD_PARAM` for options that are not an object, a
+ *   `core` that is not a `Core`, an absent input, a range bound that is not an
+ *   int32, an integer parameter that is not an int32, a parameter outside its range,
+ *   an input too short for the range, a buffer that is empty, too short or of the
+ *   wrong type or a buffer sharing memory with a `Float64Array` input it is not.
+ *   Checked before anything is written.
  *
  * @example
  * ```ts
  * import { dpo } from 'ta-lib';
  *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
- *   100 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(data.length);
- * const { begIdx, count } = dpo(0, data.length - 1, data, 20, out);
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const series = new Float64Array(252); // your data, oldest first
+ *
+ * const { begIdx, values } = dpo(series, { timePeriod: 20 });
+ * console.log(values.length + ' values from bar ' + begIdx + '; last values = ' + values[values.length - 1]);
  * ```
  * @see [`sma`](https://ta-lib.org/functions/sma)
  * @see [`mom`](https://ta-lib.org/functions/mom)
  * @see [`apo`](https://ta-lib.org/functions/apo)
  */
-export function dpo(
-  startIdx: number,
-  endIdx: number,
-  inReal: ArrayLike<number>,
-  optInTimePeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): OutRange {
-  startIdx = requireInt32('DPO', 'startIdx', startIdx);
-  endIdx = requireInt32('DPO', 'endIdx', endIdx);
-  optInTimePeriod = requireInt32('DPO', 'optInTimePeriod', optInTimePeriod);
-  requireIndexRange('DPO', startIdx, endIdx);
-  const guardStart = clampedStart('DPO', startIdx, dpoLookback(optInTimePeriod, core));
-  const guardInLen = endIdx + 1;
-  const guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
-  requireLength('DPO', 'inReal', inReal, guardInLen);
-  requireOutput('DPO', 'outReal', outReal, guardOutLen, Float64Array);
-  const inRealF64 = float64(inReal);
-  if (overlapsPartly(outReal, inRealF64)) {
-    throw failure('DPO', RetCode.BAD_PARAM);
+export function dpo(real: ArrayLike<number>, options?: DpoOptions): DpoResult {
+  const o = optionsOf('DPO', options);
+  if (o.endIdx === undefined) {
+    requireSeries('DPO', 'real', real);
   }
-  const outBegIdx = new MInteger();
-  const outNBElement = new MInteger();
-  const retCode = dpoImpl(core, startIdx, endIdx, inRealF64, optInTimePeriod, outBegIdx, outNBElement, outReal);
-  if (retCode !== RetCode.SUCCESS) {
-    throw failure('DPO', retCode);
-  }
-  return new OutRange(outBegIdx.value, outNBElement.value);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('DPO', o.core);
+  const startIdx = orDefault(o.startIdx, 0);
+  const endIdx = o.endIdx === undefined ? real.length - 1 : o.endIdx;
+  const capacity = batchCapacity(startIdx, endIdx, dpoLookbackPositional(optInTimePeriod, core), real);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const range = dpoPositional(startIdx, endIdx, real, optInTimePeriod, outReal, core);
+  return { begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }
 
 /**** Streaming API *****/
@@ -311,7 +419,7 @@ export class DpoStream {
    */
   advance(): void {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('DPO advance', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('DPO advance', RetCode.OUT_OF_RANGE_END_INDEX);
     }
     this.outRangeCount++;
   }
@@ -319,21 +427,21 @@ export class DpoStream {
   /**
    * Commits one closed bar and returns the new value.
    *
-   * @param inReal - The bar's `inReal` value: Source price/value series, canonically
-   *   the close.
+   * @param real - The bar's `real` value: Source price/value series, canonically the
+   *   close.
    * @returns The new value.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite, before anything moves. `TALibError` with code
    *   `TA_OUT_OF_RANGE_END_INDEX` once `outRange()` has reached bar `Core.INDEX_MAX`.
    */
-  update(inReal: number): number {
+  update(real: number): number {
     if (this.outRangeBegIdx + this.outRangeCount > Core.INDEX_MAX) {
-      throw failure('DPO update', RetCode.OUT_OF_RANGE_END_INDEX);
+      throw streamFailure('DPO update', RetCode.OUT_OF_RANGE_END_INDEX);
     }
-    if (!Number.isFinite(inReal)) {
-      throw nonFiniteBar('DPO update', 'inReal');
+    if (!Number.isFinite(real)) {
+      throw nonFiniteBar('DPO update', 'real');
     }
-    dpoStepImpl(this, inReal);
+    dpoStepImpl(this, real);
     this.outRangeCount++;
     return this.cur_outReal;
   }
@@ -341,17 +449,18 @@ export class DpoStream {
   /**
    * What the next `update` with the same bar would return, committing nothing.
    *
-   * @param inReal - The bar's `inReal` value: Source price/value series, canonically
-   *   the close.
+   * @param real - The bar's `real` value: Source price/value series, canonically the
+   *   close.
    * @returns The value `update` would return.
    * @throws `TALibError` with code `TA_BAD_PARAM` for a bar value that is not
    *   finite.
    */
-  peek(inReal: number): number {
-    if (!Number.isFinite(inReal)) {
-      throw nonFiniteBar('DPO peek', 'inReal');
+  peek(real: number): number {
+    if (!Number.isFinite(real)) {
+      throw nonFiniteBar('DPO peek', 'real');
     }
     const sp = this;
+    const inReal = real;
     let tempReal = 0;
     let dispVal = 0;
     let cur_outReal = 0;
@@ -449,9 +558,6 @@ function dpoOpenImpl(
   let lookbackTotal = 0;
   const historyLen = inReal.length;
   let endIdx = historyLen - 1;
-  if (historyLen < 1) {
-    return RetCode.OUT_OF_RANGE_START_INDEX;
-  }
   if (historyLen > Core.INDEX_MAX + 1) {
     return RetCode.OUT_OF_RANGE_END_INDEX;
   }
@@ -460,7 +566,7 @@ function dpoOpenImpl(
   } else if (optInTimePeriod < 2 || optInTimePeriod > 100000) {
     return RetCode.BAD_PARAM;
   }
-  if (startIdx > endIdx) {
+  if (startIdx >= historyLen) {
     outBegIdx.value = 0;
     outNBElement.value = 0;
     return RetCode.INSUFFICIENT_HISTORY;
@@ -472,7 +578,7 @@ function dpoOpenImpl(
    * argument, and it is lost by dividing once into a reciprocal or by
    * reordering the add/snapshot/subtract.
    */
-  lookbackTotal = dpoLookback(optInTimePeriod, core);
+  lookbackTotal = dpoLookbackPositional(optInTimePeriod, core);
   if (startIdx < lookbackTotal) {
     startIdx = lookbackTotal;
   }
@@ -554,7 +660,10 @@ export function dpoOpenAndFillInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('DPO openAndFill', inReal.length, startIdx, dpoLookback(optInTimePeriod, core));
+    throw insufficientHistory('DPO openAndFill', inReal.length, startIdx, dpoLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && dpoLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('DPO openAndFill', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('DPO openAndFill', retCode);
 }
@@ -577,102 +686,118 @@ export function dpoOpenInternal(
     return sp;
   }
   if (retCode === RetCode.INSUFFICIENT_HISTORY) {
-    throw insufficientHistory('DPO open', inReal.length, startIdx, dpoLookback(optInTimePeriod, core));
+    throw insufficientHistory('DPO open', inReal.length, startIdx, dpoLookbackPositional(optInTimePeriod, core));
+  }
+  if (retCode === RetCode.BAD_PARAM && dpoLookbackPositional(optInTimePeriod, core) < 0) {
+    throw rejectedParams('DPO open', PARAM_RANGES, optInTimePeriod);
   }
   throw streamFailure('DPO open', retCode);
+}
+
+/** @internal */
+export function dpoOpenPositional(
+  inReal: ArrayLike<number>,
+  optInTimePeriod: number,
+  core: Core = Core.DEFAULT,
+): DpoStream {
+  optInTimePeriod = requireInt32('DPO open', 'timePeriod', optInTimePeriod);
+  requireArgument('DPO open', 'real', inReal);
+  requireHistory('DPO open', 'real', inReal.length);
+  return dpoOpenInternal(core, float64(inReal), 0, optInTimePeriod);
+}
+
+/** @internal */
+export function dpoOpenAndFillPositional(
+  inReal: ArrayLike<number>,
+  optInTimePeriod: number,
+  outReal: Float64Array,
+  core: Core = Core.DEFAULT,
+): DpoStream {
+  optInTimePeriod = requireInt32('DPO openAndFill', 'timePeriod', optInTimePeriod);
+  requireArgument('DPO openAndFill', 'real', inReal);
+  requireHistory('DPO openAndFill', 'real', inReal.length);
+  const guardLookback = dpoLookbackPositional(optInTimePeriod, core);
+  if (guardLookback < 0) {
+    throw rejectedParams('DPO openAndFill', PARAM_RANGES, optInTimePeriod);
+  }
+  const guardOutLen = openFillCount('DPO openAndFill', inReal.length, guardLookback);
+  requireOutput('DPO openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
+  const inRealF64 = float64(inReal);
+  if (outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset) {
+    throw sharedMemory('DPO openAndFill', 'outReal', 'real');
+  }
+  if (guardOutLen > 0 && overlaps(outReal, inRealF64)) {
+    throw sharedMemory('DPO openAndFill', 'outReal', 'real');
+  }
+  return dpoOpenAndFillInternal(core, inRealF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
 }
 
 /**
  * Opens a live DPO stream over the warm-up history: `value()` starts at the last
  * history bar, bit-identical to {@link dpo} there.
  *
- * @param inReal - Warm-up history. Source price/value series, canonically the
- *   close.
- * @param optInTimePeriod - Number of bars spanned by the moving average being
- *   removed; the displacement is derived from it (default 20; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
+ * @param real - Warm-up history. Source price/value series, canonically the close.
+ * @param options - The parameters and `core`; other keys are ignored. See
+ *   {@link DpoOptions}.
  * @returns The stream, positioned on the last history bar.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `dpoLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32 or a
- *   parameter outside its range.
+ *   than `dpoLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32 or a parameter outside its range.
  *
  * @example
  * ```ts
  * import { dpoOpen } from 'ta-lib';
  *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
+ * const series = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i));
- * const stream = dpoOpen(data, 20);
+ * const stream = dpoOpen(series, { timePeriod: 20 });
  * const peeked = stream.peek(100.9); // a forming bar: commits nothing
  * const updated = stream.update(100.9); // the bar closes
  * ```
  */
-export function dpoOpen(
-  inReal: ArrayLike<number>,
-  optInTimePeriod: number,
-  core: Core = Core.DEFAULT,
-): DpoStream {
-  optInTimePeriod = requireInt32('DPO open', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('DPO open', 'inReal', inReal);
-  requireHistory('DPO open', inReal.length);
-  return dpoOpenInternal(core, float64(inReal), 0, optInTimePeriod);
+export function dpoOpen(real: ArrayLike<number>, options?: DpoOptions): DpoStream {
+  const o = optionsOf('DPO open', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('DPO open', o.core);
+  return dpoOpenPositional(real, optInTimePeriod, core);
 }
 
 /**
- * {@link dpoOpen} that also fills the outputs over the whole history in the same
- * pass, bit-identically to {@link dpo}. The range written is the stream's
- * `outRange()`.
+ * {@link dpoOpen} that also computes the outputs over the whole history in the
+ * same pass, bit-identically to {@link dpo}.
  *
- * @param inReal - Warm-up history. Source price/value series, canonically the
- *   close.
- * @param optInTimePeriod - Number of bars spanned by the moving average being
- *   removed; the displacement is derived from it (default 20; range 2 to 100000;
- *   `Core.INTEGER_DEFAULT` selects the default).
- * @param outReal - Detrended Price Oscillator value, in the units of the input.
- *   Must hold `historyLen - lookback` values and share no memory with an input or
- *   another output.
- * @param core - Unstable periods and candle settings to compute with;
- *   `Core.DEFAULT` when omitted.
- * @returns The stream, positioned on the last history bar.
+ * @param real - Warm-up history. Source price/value series, canonically the close.
+ * @param options - The parameters, `core` and output buffers; other keys are
+ *   ignored. See {@link DpoOptions}.
+ * @returns The stream, positioned on the last history bar, with `begIdx` and the
+ *   values over the history as {@link dpo} returns them; the range is the stream's
+ *   `outRange()`.
  * @throws `TALibError` with code `TA_INSUFFICIENT_HISTORY` for a history shorter
- *   than `dpoLookback(...) + 1` bars, `TA_OUT_OF_RANGE_START_INDEX` for an empty
- *   one, and `TA_BAD_PARAM` for an integer parameter that is not an int32, a
- *   parameter outside its range or an output too short or starting where another
- *   output or a `Float64Array` input starts, or, on a history long enough to open,
- *   one sharing memory with another output or a `Float64Array` input.
+ *   than `dpoLookback(...) + 1` bars, an empty one included, and `TA_BAD_PARAM` for
+ *   options that are not an object, a `core` that is not a `Core`, an absent input,
+ *   an integer parameter that is not an int32, a parameter outside its range or a
+ *   buffer too short, of the wrong type or starting where another buffer or a
+ *   `Float64Array` input starts, or, on a history long enough to open, one sharing
+ *   memory with another buffer or a `Float64Array` input.
  *
  * @example
  * ```ts
  * import { dpoOpenAndFill } from 'ta-lib';
  *
- * const data = Float64Array.from({ length: 252 }, (_, i) =>
+ * const series = Float64Array.from({ length: 252 }, (_, i) =>
  *   100 + 10 * Math.sin(0.1 * i));
- * const out = new Float64Array(data.length);
- * const stream = dpoOpenAndFill(data, 20, out);
- * const { begIdx, count } = stream.outRange();
- * // out[k] is the value at bar begIdx + k, for k < count
+ * const { stream, begIdx, values } = dpoOpenAndFill(series, { timePeriod: 20 });
+ * // values[k] is the value at bar begIdx + k
  * ```
  */
-export function dpoOpenAndFill(
-  inReal: ArrayLike<number>,
-  optInTimePeriod: number,
-  outReal: Float64Array,
-  core: Core = Core.DEFAULT,
-): DpoStream {
-  optInTimePeriod = requireInt32('DPO openAndFill', 'optInTimePeriod', optInTimePeriod);
-  requireArgument('DPO openAndFill', 'inReal', inReal);
-  requireHistory('DPO openAndFill', inReal.length);
-  const guardOutLen = openFillCount('DPO openAndFill', inReal.length, dpoLookback(optInTimePeriod, core));
-  requireOutput('DPO openAndFill', 'outReal', outReal, guardOutLen, Float64Array);
-  const inRealF64 = float64(inReal);
-  if ((outReal.buffer === inRealF64.buffer && outReal.byteOffset === inRealF64.byteOffset)) {
-    throw streamFailure('DPO openAndFill', RetCode.BAD_PARAM);
-  }
-  if (guardOutLen > 0 && (overlaps(outReal, inRealF64))) {
-    throw streamFailure('DPO openAndFill', RetCode.BAD_PARAM);
-  }
-  return dpoOpenAndFillInternal(core, inRealF64, 0, optInTimePeriod, new MInteger(), new MInteger(), outReal);
+export function dpoOpenAndFill(real: ArrayLike<number>, options?: DpoOptions): DpoResult & { stream: DpoStream } {
+  const o = optionsOf('DPO openAndFill', options);
+  const optInTimePeriod = orDefault(o.timePeriod, Core.INTEGER_DEFAULT);
+  const core = coreOf('DPO openAndFill', o.core);
+  const capacity = fillCapacity(dpoLookbackPositional(optInTimePeriod, core), real);
+  const outReal = o.outReal === undefined ? new Float64Array(capacity) : o.outReal;
+  const stream = dpoOpenAndFillPositional(real, optInTimePeriod, outReal, core);
+  const range = stream.outRange();
+  return { stream, begIdx: range.begIdx, values: outReal.subarray(0, range.count) };
 }

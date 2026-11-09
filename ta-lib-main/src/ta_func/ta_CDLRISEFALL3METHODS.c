@@ -58,6 +58,8 @@
  *  020605 AC     Creation
  *  100426 MF,CC  Remove the outInteger comment, which misstated the values
  *  103126 MF,CC  Nest the cheap, selective pre-check conjuncts in an outer if
+ *  110526 MF,CC  Carry the ranges of the previous bars instead of recomputing them
+ *  110626 MF,CC  Opt out of the range-type copy, which slows this body
  */
 
 TA_LIB_API int TA_CDLRISEFALL3METHODS_Lookback( void )
@@ -85,9 +87,14 @@ TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS( int    startIdx,
                                               int        outInteger[] )
 {
    double BodyPeriodTotal[5];
+   double BodyPeriodTotalRange1;
+   double BodyPeriodTotalTrailRange1;
+   double BodyPeriodTotalRange2;
+   double BodyPeriodTotalTrailRange2;
+   double BodyPeriodTotalRange3;
+   double BodyPeriodTotalTrailRange3;
    int i;
    int outIdx;
-   int totIdx;
    int BodyShortTrailingIdx;
    int BodyLongTrailingIdx;
    int lookbackTotal;
@@ -170,6 +177,10 @@ TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS( int    startIdx,
     * are considered
     */
    outIdx = 0;
+   BodyPeriodTotalRange2 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 2);
+   BodyPeriodTotalTrailRange2 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 2);
+   BodyPeriodTotalRange3 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 3);
+   BodyPeriodTotalTrailRange3 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 3);
    do
    {
       if( ((((inClose[i - 4] >= inOpen[i - 4]) != (inClose[i - 3] >= inOpen[i - 3])) + /* white, 3 black, white  ||  black, 3 white, black */
@@ -189,10 +200,15 @@ TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS( int    startIdx,
        * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
        */
       BodyPeriodTotal[4] = BodyPeriodTotal[4] + (TA_CANDLERANGE_OF(BodyLong_rangeType,i - 4) - TA_CANDLERANGE_OF(BodyLong_rangeType,BodyLongTrailingIdx - 4));
-      for( totIdx = 3; totIdx >= 1; totIdx -= 1 )
-      {
-         BodyPeriodTotal[totIdx] = BodyPeriodTotal[totIdx] + (TA_CANDLERANGE_OF(BodyShort_rangeType,i - totIdx) - TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - totIdx));
-      }
+      BodyPeriodTotalRange1 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 1);
+      BodyPeriodTotalTrailRange1 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 1);
+      BodyPeriodTotal[3] = BodyPeriodTotal[3] + (BodyPeriodTotalRange3 - BodyPeriodTotalTrailRange3);
+      BodyPeriodTotal[2] = BodyPeriodTotal[2] + (BodyPeriodTotalRange2 - BodyPeriodTotalTrailRange2);
+      BodyPeriodTotal[1] = BodyPeriodTotal[1] + (BodyPeriodTotalRange1 - BodyPeriodTotalTrailRange1);
+      BodyPeriodTotalRange3 = BodyPeriodTotalRange2;
+      BodyPeriodTotalTrailRange3 = BodyPeriodTotalTrailRange2;
+      BodyPeriodTotalRange2 = BodyPeriodTotalRange1;
+      BodyPeriodTotalTrailRange2 = BodyPeriodTotalTrailRange1;
       BodyPeriodTotal[0] = BodyPeriodTotal[0] + (TA_CANDLERANGE_OF(BodyLong_rangeType,i) - TA_CANDLERANGE_OF(BodyLong_rangeType,BodyLongTrailingIdx));
       i += 1;
       BodyShortTrailingIdx += 1;
@@ -215,9 +231,14 @@ TA_RetCode TA_S_CDLRISEFALL3METHODS( int    startIdx,
                                      int        outInteger[] )
 {
    double BodyPeriodTotal[5];
+   double BodyPeriodTotalRange1;
+   double BodyPeriodTotalTrailRange1;
+   double BodyPeriodTotalRange2;
+   double BodyPeriodTotalTrailRange2;
+   double BodyPeriodTotalRange3;
+   double BodyPeriodTotalTrailRange3;
    int i;
    int outIdx;
-   int totIdx;
    int BodyShortTrailingIdx;
    int BodyLongTrailingIdx;
    int lookbackTotal;
@@ -281,6 +302,10 @@ TA_RetCode TA_S_CDLRISEFALL3METHODS( int    startIdx,
    }
    i = startIdx;
    outIdx = 0;
+   BodyPeriodTotalRange2 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 2);
+   BodyPeriodTotalTrailRange2 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 2);
+   BodyPeriodTotalRange3 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 3);
+   BodyPeriodTotalTrailRange3 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 3);
    do
    {
       if( (((((double)inClose[i - 4] >= (double)inOpen[i - 4]) != ((double)inClose[i - 3] >= (double)inOpen[i - 3])) + (((double)inClose[i - 3] >= (double)inOpen[i - 3]) == ((double)inClose[i - 2] >= (double)inOpen[i - 2])) + (((double)inClose[i - 2] >= (double)inOpen[i - 2]) == ((double)inClose[i - 1] >= (double)inOpen[i - 1]))) == 3) )
@@ -291,10 +316,15 @@ TA_RetCode TA_S_CDLRISEFALL3METHODS( int    startIdx,
          outInteger[outIdx++] = 0;
       }
       BodyPeriodTotal[4] = BodyPeriodTotal[4] + (TA_CANDLERANGE_OF(BodyLong_rangeType,i - 4) - TA_CANDLERANGE_OF(BodyLong_rangeType,BodyLongTrailingIdx - 4));
-      for( totIdx = 3; totIdx >= 1; totIdx -= 1 )
-      {
-         BodyPeriodTotal[totIdx] = BodyPeriodTotal[totIdx] + (TA_CANDLERANGE_OF(BodyShort_rangeType,i - totIdx) - TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - totIdx));
-      }
+      BodyPeriodTotalRange1 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 1);
+      BodyPeriodTotalTrailRange1 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 1);
+      BodyPeriodTotal[3] = BodyPeriodTotal[3] + (BodyPeriodTotalRange3 - BodyPeriodTotalTrailRange3);
+      BodyPeriodTotal[2] = BodyPeriodTotal[2] + (BodyPeriodTotalRange2 - BodyPeriodTotalTrailRange2);
+      BodyPeriodTotal[1] = BodyPeriodTotal[1] + (BodyPeriodTotalRange1 - BodyPeriodTotalTrailRange1);
+      BodyPeriodTotalRange3 = BodyPeriodTotalRange2;
+      BodyPeriodTotalTrailRange3 = BodyPeriodTotalTrailRange2;
+      BodyPeriodTotalRange2 = BodyPeriodTotalRange1;
+      BodyPeriodTotalTrailRange2 = BodyPeriodTotalTrailRange1;
       BodyPeriodTotal[0] = BodyPeriodTotal[0] + (TA_CANDLERANGE_OF(BodyLong_rangeType,i) - TA_CANDLERANGE_OF(BodyLong_rangeType,BodyLongTrailingIdx));
       i += 1;
       BodyShortTrailingIdx += 1;
@@ -314,6 +344,10 @@ struct TA_CDLRISEFALL3METHODS_Stream {
    /* The value(s) at the last bar the stream counted (see TA_CDLRISEFALL3METHODS_Value). */
    int cur_outInteger;
    double BodyPeriodTotal[5];
+   double BodyPeriodTotalRange2;
+   double BodyPeriodTotalTrailRange2;
+   double BodyPeriodTotalRange3;
+   double BodyPeriodTotalTrailRange3;
    double lag1_inOpen;
    double lag2_inOpen;
    double lag3_inOpen;
@@ -352,7 +386,8 @@ static void TA_CDLRISEFALL3METHODS_ReleaseImpl( struct TA_CDLRISEFALL3METHODS_St
 /* Private function, not in public API. */
 static void TA_CDLRISEFALL3METHODS_StepImpl( struct TA_CDLRISEFALL3METHODS_Stream *sp, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   int totIdx;
+   double BodyPeriodTotalRange1;
+   double BodyPeriodTotalTrailRange1;
 
    sp->ring_BodyLongTrailingIdx_derived[sp->ringPos_BodyLongTrailingIdx] = TA_STREAM_CANDLERANGE(BodyLong,inOpen,inHigh,inLow,inClose);
    sp->ring_BodyShortTrailingIdx_derived[sp->ringPos_BodyShortTrailingIdx] = TA_STREAM_CANDLERANGE(BodyShort,inOpen,inHigh,inLow,inClose);
@@ -390,10 +425,15 @@ static void TA_CDLRISEFALL3METHODS_StepImpl( struct TA_CDLRISEFALL3METHODS_Strea
     * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
     */
    sp->BodyPeriodTotal[4] = sp->BodyPeriodTotal[4] + (TA_STREAM_CANDLERANGE(BodyLong,sp->lag4_inOpen,sp->lag4_inHigh,sp->lag4_inLow,sp->lag4_inClose) - sp->ring_BodyLongTrailingIdx_derived[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 4) % sp->ringCap_BodyLongTrailingIdx]);
-   for( totIdx = 3; totIdx >= 1; totIdx -= 1 )
-   {
-      sp->BodyPeriodTotal[totIdx] = sp->BodyPeriodTotal[totIdx] + (sp->ring_BodyShortTrailingIdx_derived[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - totIdx >= sp->ringCap_BodyShortTrailingIdx) ? sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - totIdx - sp->ringCap_BodyShortTrailingIdx : sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - totIdx] - sp->ring_BodyShortTrailingIdx_derived[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - totIdx) % sp->ringCap_BodyShortTrailingIdx]);
-   }
+   BodyPeriodTotalRange1 = TA_STREAM_CANDLERANGE(BodyShort,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose);
+   BodyPeriodTotalTrailRange1 = sp->ring_BodyShortTrailingIdx_derived[(sp->ringPos_BodyShortTrailingIdx + sp->ringCap_BodyShortTrailingIdx - sp->ringLag_BodyShortTrailingIdx - 1) % sp->ringCap_BodyShortTrailingIdx];
+   sp->BodyPeriodTotal[3] = sp->BodyPeriodTotal[3] + (sp->BodyPeriodTotalRange3 - sp->BodyPeriodTotalTrailRange3);
+   sp->BodyPeriodTotal[2] = sp->BodyPeriodTotal[2] + (sp->BodyPeriodTotalRange2 - sp->BodyPeriodTotalTrailRange2);
+   sp->BodyPeriodTotal[1] = sp->BodyPeriodTotal[1] + (BodyPeriodTotalRange1 - BodyPeriodTotalTrailRange1);
+   sp->BodyPeriodTotalRange3 = sp->BodyPeriodTotalRange2;
+   sp->BodyPeriodTotalTrailRange3 = sp->BodyPeriodTotalTrailRange2;
+   sp->BodyPeriodTotalRange2 = BodyPeriodTotalRange1;
+   sp->BodyPeriodTotalTrailRange2 = BodyPeriodTotalTrailRange1;
    sp->BodyPeriodTotal[0] = sp->BodyPeriodTotal[0] + (TA_STREAM_CANDLERANGE(BodyLong,inOpen,inHigh,inLow,inClose) - sp->ring_BodyLongTrailingIdx_derived[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx) % sp->ringCap_BodyLongTrailingIdx]);
    sp->cur_outInteger = *outInteger;
    sp->lag4_inOpen = sp->lag3_inOpen;
@@ -424,22 +464,10 @@ static void TA_CDLRISEFALL3METHODS_StepImpl( struct TA_CDLRISEFALL3METHODS_Strea
    }
 }
 
-static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_OPEN_INLINE TA_RetCode TA_CDLRISEFALL3METHODS_OpenBody( struct TA_CDLRISEFALL3METHODS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_CDLRISEFALL3METHODS_Stream *sp;
    int endIdx;
-
-   if( !stream ) return TA_BAD_PARAM;
-   *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
-   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( startIdx > historyLen - 1 )
-   {
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return TA_INSUFFICIENT_HISTORY;
-   }
 
    endIdx = historyLen - 1;
 
@@ -451,9 +479,14 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
       int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
       double BodyShort_factor = TA_Globals->candleSettings[TA_BodyShort].factor;
       double BodyPeriodTotal[5] = {0};
+      double BodyPeriodTotalRange1;
+      double BodyPeriodTotalTrailRange1;
+      double BodyPeriodTotalRange2 = 0.0;
+      double BodyPeriodTotalTrailRange2 = 0.0;
+      double BodyPeriodTotalRange3 = 0.0;
+      double BodyPeriodTotalTrailRange3 = 0.0;
       int i;
       int outIdx;
-      int totIdx;
       int BodyShortTrailingIdx;
       int BodyLongTrailingIdx;
       int lookbackTotal;
@@ -511,34 +544,21 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
        * are considered
        */
       outIdx = 0;
+      BodyPeriodTotalRange2 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 2);
+      BodyPeriodTotalTrailRange2 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 2);
+      BodyPeriodTotalRange3 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 3);
+      BodyPeriodTotalTrailRange3 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 3);
       do
       {
-         if( ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) == -((inClose[i - 3] >= inOpen[i - 3]) ? 1 : -1) && /* white, 3 black, white  ||  black, 3 white, black */
-             ((inClose[i - 3] >= inOpen[i - 3]) ? 1 : -1) == ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) &&
-             ((inClose[i - 2] >= inOpen[i - 2]) ? 1 : -1) == ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) )
+         if( ((((inClose[i - 4] >= inOpen[i - 4]) != (inClose[i - 3] >= inOpen[i - 3])) + /* white, 3 black, white  ||  black, 3 white, black */
+             ((inClose[i - 3] >= inOpen[i - 3]) == (inClose[i - 2] >= inOpen[i - 2])) + ((inClose[i - 2] >= inOpen[i - 2]) == (inClose[i - 1] >= inOpen[i - 1]))) == 3) )
          {
-            if( ((inClose[i - 1] >= inOpen[i - 1]) ? 1 : -1) == -((inClose[i] >= inOpen[i]) ? 1 : -1) &&
-                min(inOpen[i - 3],inClose[i - 3]) < inHigh[i - 4] && /* 2nd to 4th hold within 1st: a part of the real body must be within 1st range */
-                max(inOpen[i - 3],inClose[i - 3]) > inLow[i - 4] &&
-                min(inOpen[i - 2],inClose[i - 2]) < inHigh[i - 4] &&
-                max(inOpen[i - 2],inClose[i - 2]) > inLow[i - 4] &&
-                min(inOpen[i - 1],inClose[i - 1]) < inHigh[i - 4] &&
-                max(inOpen[i - 1],inClose[i - 1]) > inLow[i - 4] &&
-                inClose[i - 2] * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) < inClose[i - 3] * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) && /* 2nd to 4th are falling (rising) */
-                inClose[i - 1] * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) < inClose[i - 2] * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) &&
-                inOpen[i] * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) > inClose[i - 1] * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) && /* 5th opens above (below) the prior close */
-                inClose[i] * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) > inClose[i - 4] * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1) && /* 5th closes above (below) the 1st close */
-                fabs(inClose[i - 4] - inOpen[i - 4]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal[4],i - 4) && /* 1st long, then 3 small, 5th long */
-                fabs(inClose[i - 3] - inOpen[i - 3]) < TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyPeriodTotal[3],i - 3) &&
-                fabs(inClose[i - 2] - inOpen[i - 2]) < TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyPeriodTotal[2],i - 2) &&
-                fabs(inClose[i - 1] - inOpen[i - 1]) < TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyPeriodTotal[1],i - 1) &&
-                fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal[0],i) )
-            {
-               outInteger[outIdx++ * outStride] = 100 * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1);
-            } else 
-            {
-               outInteger[outIdx++ * outStride] = 0;
-            }
+            outInteger[outIdx++ * outStride] = ((100 * ((inClose[i - 4] >= inOpen[i - 4]) ? 1 : -1)) & -(int)((((inClose[i - 1] >= inOpen[i - 1]) != (inClose[i] >= inOpen[i])) & ((inOpen[i - 3] < inHigh[i - 4]) | (inClose[i - 3] < inHigh[i - 4])) & /* 2nd to 4th hold within 1st: a part of the real body must be within 1st range */
+                ((inOpen[i - 3] > inLow[i - 4]) | (inClose[i - 3] > inLow[i - 4])) & ((inOpen[i - 2] < inHigh[i - 4]) | (inClose[i - 2] < inHigh[i - 4])) & ((inOpen[i - 2] > inLow[i - 4]) | (inClose[i - 2] > inLow[i - 4])) & ((inOpen[i - 1] < inHigh[i - 4]) | (inClose[i - 1] < inHigh[i - 4])) & ((inOpen[i - 1] > inLow[i - 4]) | (inClose[i - 1] > inLow[i - 4])) & (((inClose[i - 4] >= inOpen[i - 4]) & (inClose[i - 2] < inClose[i - 3])) | ((!(inClose[i - 4] >= inOpen[i - 4])) & (inClose[i - 3] < inClose[i - 2]))) & /* 2nd to 4th are falling (rising) */
+                (((inClose[i - 4] >= inOpen[i - 4]) & (inClose[i - 1] < inClose[i - 2])) | ((!(inClose[i - 4] >= inOpen[i - 4])) & (inClose[i - 2] < inClose[i - 1]))) & (((inClose[i - 4] >= inOpen[i - 4]) & (inOpen[i] > inClose[i - 1])) | ((!(inClose[i - 4] >= inOpen[i - 4])) & (inClose[i - 1] > inOpen[i]))) & /* 5th opens above (below) the prior close */
+                (((inClose[i - 4] >= inOpen[i - 4]) & (inClose[i] > inClose[i - 4])) | ((!(inClose[i - 4] >= inOpen[i - 4])) & (inClose[i - 4] > inClose[i]))) & /* 5th closes above (below) the 1st close */
+                (fabs(inClose[i - 4] - inOpen[i - 4]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal[4],i - 4)) & /* 1st long, then 3 small, 5th long */
+                (fabs(inClose[i - 3] - inOpen[i - 3]) < TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyPeriodTotal[3],i - 3)) & (fabs(inClose[i - 2] - inOpen[i - 2]) < TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyPeriodTotal[2],i - 2)) & (fabs(inClose[i - 1] - inOpen[i - 1]) < TA_CANDLEAVERAGE_OF(BodyShort_rangeType,BodyShort_avgPeriod,BodyShort_factor,BodyPeriodTotal[1],i - 1)) & (fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE_OF(BodyLong_rangeType,BodyLong_avgPeriod,BodyLong_factor,BodyPeriodTotal[0],i)))));
          } else 
          {
             outInteger[outIdx++ * outStride] = 0;
@@ -547,10 +567,15 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
           * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
           */
          BodyPeriodTotal[4] = BodyPeriodTotal[4] + (TA_CANDLERANGE_OF(BodyLong_rangeType,i - 4) - TA_CANDLERANGE_OF(BodyLong_rangeType,BodyLongTrailingIdx - 4));
-         for( totIdx = 3; totIdx >= 1; totIdx -= 1 )
-         {
-            BodyPeriodTotal[totIdx] = BodyPeriodTotal[totIdx] + (TA_CANDLERANGE_OF(BodyShort_rangeType,i - totIdx) - TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - totIdx));
-         }
+         BodyPeriodTotalRange1 = TA_CANDLERANGE_OF(BodyShort_rangeType,i - 1);
+         BodyPeriodTotalTrailRange1 = TA_CANDLERANGE_OF(BodyShort_rangeType,BodyShortTrailingIdx - 1);
+         BodyPeriodTotal[3] = BodyPeriodTotal[3] + (BodyPeriodTotalRange3 - BodyPeriodTotalTrailRange3);
+         BodyPeriodTotal[2] = BodyPeriodTotal[2] + (BodyPeriodTotalRange2 - BodyPeriodTotalTrailRange2);
+         BodyPeriodTotal[1] = BodyPeriodTotal[1] + (BodyPeriodTotalRange1 - BodyPeriodTotalTrailRange1);
+         BodyPeriodTotalRange3 = BodyPeriodTotalRange2;
+         BodyPeriodTotalTrailRange3 = BodyPeriodTotalTrailRange2;
+         BodyPeriodTotalRange2 = BodyPeriodTotalRange1;
+         BodyPeriodTotalTrailRange2 = BodyPeriodTotalTrailRange1;
          BodyPeriodTotal[0] = BodyPeriodTotal[0] + (TA_CANDLERANGE_OF(BodyLong_rangeType,i) - TA_CANDLERANGE_OF(BodyLong_rangeType,BodyLongTrailingIdx));
          i += 1;
          BodyShortTrailingIdx += 1;
@@ -565,6 +590,10 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       memcpy( sp->BodyPeriodTotal, BodyPeriodTotal, sizeof( sp->BodyPeriodTotal ) );
+      sp->BodyPeriodTotalRange2 = BodyPeriodTotalRange2;
+      sp->BodyPeriodTotalTrailRange2 = BodyPeriodTotalTrailRange2;
+      sp->BodyPeriodTotalRange3 = BodyPeriodTotalRange3;
+      sp->BodyPeriodTotalTrailRange3 = BodyPeriodTotalTrailRange3;
       sp->ringLag_BodyLongTrailingIdx = (int)(i - BodyLongTrailingIdx);
       sp->ringCap_BodyLongTrailingIdx = sp->ringLag_BodyLongTrailingIdx + 5;
       if( sp->ringLag_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLRISEFALL3METHODS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(287); }
@@ -578,7 +607,7 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
       }
       sp->ringPos_BodyLongTrailingIdx = historyLen % sp->ringCap_BodyLongTrailingIdx;
       sp->ringLag_BodyShortTrailingIdx = (int)(i - BodyShortTrailingIdx);
-      sp->ringCap_BodyShortTrailingIdx = sp->ringLag_BodyShortTrailingIdx + 4;
+      sp->ringCap_BodyShortTrailingIdx = sp->ringLag_BodyShortTrailingIdx + 2;
       if( sp->ringLag_BodyShortTrailingIdx < 0 || sp->ringCap_BodyShortTrailingIdx > historyLen ) { TA_CDLRISEFALL3METHODS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(288); }
       { size_t allocN = (size_t)(sp->ringCap_BodyShortTrailingIdx > 0 ? sp->ringCap_BodyShortTrailingIdx : 1);
         sp->ring_BodyShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
@@ -613,6 +642,38 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
    }
 }
 
+static TA_OPEN_BODY TA_RetCode TA_CDLRISEFALL3METHODS_OpenFillFrame( struct TA_CDLRISEFALL3METHODS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   return TA_CDLRISEFALL3METHODS_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+}
+
+static TA_OPEN_BODY TA_RetCode TA_CDLRISEFALL3METHODS_OpenSinkFrame( struct TA_CDLRISEFALL3METHODS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
+{
+   int sink_outInteger = 0;
+   TA_RetCode retCode = TA_CDLRISEFALL3METHODS_OpenBody( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, &sink_outInteger, 0 );
+   if( retCode == TA_SUCCESS )
+   {
+      if( outInteger ) *outInteger = sink_outInteger;
+   }
+   return retCode;
+}
+
+static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( startIdx >= historyLen )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
+
+   return outStride ? TA_CDLRISEFALL3METHODS_OpenFillFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger ) : TA_CDLRISEFALL3METHODS_OpenSinkFrame( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger );
+}
+
 /* Private function, not in public API. */
 TA_RetCode TA_CDLRISEFALL3METHODS_OpenInternal( struct TA_CDLRISEFALL3METHODS_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outInteger )
 {
@@ -632,7 +693,6 @@ TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS_Open( TA_CDLRISEFALL3METHODS_Stream
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLRISEFALL3METHODS_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
@@ -642,7 +702,6 @@ TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS_OpenAndFill( TA_CDLRISEFALL3METHODS
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_INDEX_MAX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;

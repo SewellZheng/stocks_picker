@@ -146,6 +146,17 @@ unsigned int TA_ADXR_FramePPLB( const TA_ParamHolderPriv *params )
 int TA_ADXR_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
+TA_RetCode TA_ALLIGATOR_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_ALLIGATOR_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_ALLIGATOR_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
 TA_RetCode TA_ALMA_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -2192,6 +2203,17 @@ unsigned int TA_SAREXT_FramePPLB( const TA_ParamHolderPriv *params )
 int TA_SAREXT_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
+TA_RetCode TA_SHARPE_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_SHARPE_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_SHARPE_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
 TA_RetCode TA_SI_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -2256,6 +2278,17 @@ TA_RetCode TA_SMI_FramePP( const TA_ParamHolderPriv *params,
 unsigned int TA_SMI_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 int TA_SMI_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
+;
+
+TA_RetCode TA_SORTINO_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_SORTINO_FramePPLB( const TA_ParamHolderPriv *params )
+;
+int TA_SORTINO_FramePPDS( const TA_ParamHolderPriv *params, int outputIdx )
 ;
 
 TA_RetCode TA_SQRT_FramePP( const TA_ParamHolderPriv *params,

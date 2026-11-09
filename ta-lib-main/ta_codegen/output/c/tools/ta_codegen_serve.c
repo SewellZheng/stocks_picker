@@ -29,6 +29,7 @@
 #include "ta_func/ta_ADR.c"
 #include "ta_func/ta_ADX.c"
 #include "ta_func/ta_ADXR.c"
+#include "ta_func/ta_ALLIGATOR.c"
 #include "ta_func/ta_ALMA.c"
 #include "ta_func/ta_AO.c"
 #include "ta_func/ta_APO.c"
@@ -214,12 +215,14 @@
 #include "ta_func/ta_RVOL.c"
 #include "ta_func/ta_SAR.c"
 #include "ta_func/ta_SAREXT.c"
+#include "ta_func/ta_SHARPE.c"
 #include "ta_func/ta_SI.c"
 #include "ta_func/ta_SIN.c"
 #include "ta_func/ta_SINH.c"
 #include "ta_func/ta_SKEW.c"
 #include "ta_func/ta_SMA.c"
 #include "ta_func/ta_SMI.c"
+#include "ta_func/ta_SORTINO.c"
 #include "ta_func/ta_SQRT.c"
 #include "ta_func/ta_SQZMOM.c"
 #include "ta_func/ta_STC.c"
@@ -602,6 +605,7 @@ static int sv_steq_TA_ADOSC( const struct TA_ADOSC_Stream *a, const struct TA_AD
 static int sv_steq_TA_ADR( const struct TA_ADR_Stream *a, const struct TA_ADR_Stream *b, const char **w, int *z );
 static int sv_steq_TA_ADX( const struct TA_ADX_Stream *a, const struct TA_ADX_Stream *b, const char **w, int *z );
 static int sv_steq_TA_ADXR( const struct TA_ADXR_Stream *a, const struct TA_ADXR_Stream *b, const char **w, int *z );
+static int sv_steq_TA_ALLIGATOR( const struct TA_ALLIGATOR_Stream *a, const struct TA_ALLIGATOR_Stream *b, const char **w, int *z );
 static int sv_steq_TA_ALMA( const struct TA_ALMA_Stream *a, const struct TA_ALMA_Stream *b, const char **w, int *z );
 static int sv_steq_TA_AO( const struct TA_AO_Stream *a, const struct TA_AO_Stream *b, const char **w, int *z );
 static int sv_steq_TA_APO( const struct TA_APO_Stream *a, const struct TA_APO_Stream *b, const char **w, int *z );
@@ -788,12 +792,14 @@ static int sv_steq_TA_RVIR( const struct TA_RVIR_Stream *a, const struct TA_RVIR
 static int sv_steq_TA_RVOL( const struct TA_RVOL_Stream *a, const struct TA_RVOL_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SAR( const struct TA_SAR_Stream *a, const struct TA_SAR_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SAREXT( const struct TA_SAREXT_Stream *a, const struct TA_SAREXT_Stream *b, const char **w, int *z );
+static int sv_steq_TA_SHARPE( const struct TA_SHARPE_Stream *a, const struct TA_SHARPE_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SI( const struct TA_SI_Stream *a, const struct TA_SI_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SIN( const struct TA_SIN_Stream *a, const struct TA_SIN_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SINH( const struct TA_SINH_Stream *a, const struct TA_SINH_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SKEW( const struct TA_SKEW_Stream *a, const struct TA_SKEW_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SMA( const struct TA_SMA_Stream *a, const struct TA_SMA_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SMI( const struct TA_SMI_Stream *a, const struct TA_SMI_Stream *b, const char **w, int *z );
+static int sv_steq_TA_SORTINO( const struct TA_SORTINO_Stream *a, const struct TA_SORTINO_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SQRT( const struct TA_SQRT_Stream *a, const struct TA_SQRT_Stream *b, const char **w, int *z );
 static int sv_steq_TA_SQZMOM( const struct TA_SQZMOM_Stream *a, const struct TA_SQZMOM_Stream *b, const char **w, int *z );
 static int sv_steq_TA_STC( const struct TA_STC_Stream *a, const struct TA_STC_Stream *b, const char **w, int *z );
@@ -1016,6 +1022,32 @@ static int sv_steq_TA_ADXR( const struct TA_ADXR_Stream *a, const struct TA_ADXR
       ib = (b->lagRingPos_adx + k) % b->lagRingCap_adx;
       if( sv_xtier_ne(a->lagRing_adx[ia], b->lagRing_adx[ib], z) ) { *w = "lagRing_adx"; return 1; }
    }
+   return 0;
+}
+
+static int sv_steq_TA_ALLIGATOR( const struct TA_ALLIGATOR_Stream *a, const struct TA_ALLIGATOR_Stream *b, const char **w, int *z )
+{
+   int k = 0, ix = 0, ia = 0, ib = 0;
+   (void)k; (void)ix; (void)ia; (void)ib;
+   if( a->outRangeBegIdx != b->outRangeBegIdx ) { *w = "outRangeBegIdx"; return 1; }
+   if( a->outRangeCount != b->outRangeCount ) { *w = "outRangeCount"; return 1; }
+   if( sv_xtier_ne(a->cur_outJaw, b->cur_outJaw, z) ) { *w = "cur_outJaw"; return 1; }
+   if( sv_xtier_ne(a->cur_outTeeth, b->cur_outTeeth, z) ) { *w = "cur_outTeeth"; return 1; }
+   if( sv_xtier_ne(a->cur_outLips, b->cur_outLips, z) ) { *w = "cur_outLips"; return 1; }
+   if( a->optInJawPeriod != b->optInJawPeriod ) { *w = "optInJawPeriod"; return 1; }
+   if( a->optInJawShift != b->optInJawShift ) { *w = "optInJawShift"; return 1; }
+   if( a->optInTeethPeriod != b->optInTeethPeriod ) { *w = "optInTeethPeriod"; return 1; }
+   if( a->optInTeethShift != b->optInTeethShift ) { *w = "optInTeethShift"; return 1; }
+   if( a->optInLipsPeriod != b->optInLipsPeriod ) { *w = "optInLipsPeriod"; return 1; }
+   if( a->optInLipsShift != b->optInLipsShift ) { *w = "optInLipsShift"; return 1; }
+   if( (a->sub0 == NULL) != (b->sub0 == NULL) ) { *w = "sub0"; return 1; }
+   if( a->sub0 && sv_steq_TA_MEDPRICE( a->sub0, b->sub0, w, z ) ) return 1;
+   if( (a->sub1 == NULL) != (b->sub1 == NULL) ) { *w = "sub1"; return 1; }
+   if( a->sub1 && sv_steq_TA_RMA( a->sub1, b->sub1, w, z ) ) return 1;
+   if( (a->sub2 == NULL) != (b->sub2 == NULL) ) { *w = "sub2"; return 1; }
+   if( a->sub2 && sv_steq_TA_RMA( a->sub2, b->sub2, w, z ) ) return 1;
+   if( (a->sub3 == NULL) != (b->sub3 == NULL) ) { *w = "sub3"; return 1; }
+   if( a->sub3 && sv_steq_TA_RMA( a->sub3, b->sub3, w, z ) ) return 1;
    return 0;
 }
 
@@ -1388,6 +1420,10 @@ static int sv_steq_TA_CDL3BLACKCROWS( const struct TA_CDL3BLACKCROWS_Stream *a, 
    if( a->outRangeCount != b->outRangeCount ) { *w = "outRangeCount"; return 1; }
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->ShadowVeryShortPeriodTotal[k], b->ShadowVeryShortPeriodTotal[k], z) ) { *w = "ShadowVeryShortPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->range1, b->range1, z) ) { *w = "range1"; return 1; }
+   if( sv_xtier_ne(a->range2, b->range2, z) ) { *w = "range2"; return 1; }
+   if( sv_xtier_ne(a->trailRange1, b->trailRange1, z) ) { *w = "trailRange1"; return 1; }
+   if( sv_xtier_ne(a->trailRange2, b->trailRange2, z) ) { *w = "trailRange2"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag3_inOpen, b->lag3_inOpen, z) ) { *w = "lag3_inOpen"; return 1; }
@@ -1400,7 +1436,6 @@ static int sv_steq_TA_CDL3BLACKCROWS( const struct TA_CDL3BLACKCROWS_Stream *a, 
    if( sv_xtier_ne(a->lag2_inClose, b->lag2_inClose, z) ) { *w = "lag2_inClose"; return 1; }
    if( sv_xtier_ne(a->lag3_inClose, b->lag3_inClose, z) ) { *w = "lag3_inClose"; return 1; }
    if( a->ringCap_ShadowVeryShortTrailingIdx != b->ringCap_ShadowVeryShortTrailingIdx ) { *w = "ringCap_ShadowVeryShortTrailingIdx"; return 1; }
-   if( a->ringLag_ShadowVeryShortTrailingIdx != b->ringLag_ShadowVeryShortTrailingIdx ) { *w = "ringLag_ShadowVeryShortTrailingIdx"; return 1; }
    if( (a->ring_ShadowVeryShortTrailingIdx_derived == NULL) != (b->ring_ShadowVeryShortTrailingIdx_derived == NULL) ) { *w = "ring_ShadowVeryShortTrailingIdx_derived"; return 1; }
    if( a->ring_ShadowVeryShortTrailingIdx_derived ) for( k = 0; k < a->ringCap_ShadowVeryShortTrailingIdx; k++ )
    {
@@ -1455,6 +1490,8 @@ static int sv_steq_TA_CDL3LINESTRIKE( const struct TA_CDL3LINESTRIKE_Stream *a, 
    if( a->outRangeCount != b->outRangeCount ) { *w = "outRangeCount"; return 1; }
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    for( k = 0; k < 4; k++ ) if( sv_xtier_ne(a->NearPeriodTotal[k], b->NearPeriodTotal[k], z) ) { *w = "NearPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->NearPeriodTotalRange3, b->NearPeriodTotalRange3, z) ) { *w = "NearPeriodTotalRange3"; return 1; }
+   if( sv_xtier_ne(a->NearPeriodTotalTrailRange3, b->NearPeriodTotalTrailRange3, z) ) { *w = "NearPeriodTotalTrailRange3"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag3_inOpen, b->lag3_inOpen, z) ) { *w = "lag3_inOpen"; return 1; }
@@ -1504,6 +1541,8 @@ static int sv_steq_TA_CDL3STARSINSOUTH( const struct TA_CDL3STARSINSOUTH_Stream 
    if( sv_xtier_ne(a->BodyShortPeriodTotal, b->BodyShortPeriodTotal, z) ) { *w = "BodyShortPeriodTotal"; return 1; }
    if( sv_xtier_ne(a->ShadowLongPeriodTotal, b->ShadowLongPeriodTotal, z) ) { *w = "ShadowLongPeriodTotal"; return 1; }
    for( k = 0; k < 2; k++ ) if( sv_xtier_ne(a->ShadowVeryShortPeriodTotal[k], b->ShadowVeryShortPeriodTotal[k], z) ) { *w = "ShadowVeryShortPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange1, b->ShadowVeryShortPeriodTotalRange1, z) ) { *w = "ShadowVeryShortPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange1, b->ShadowVeryShortPeriodTotalTrailRange1, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange1"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag1_inHigh, b->lag1_inHigh, z) ) { *w = "lag1_inHigh"; return 1; }
@@ -1539,7 +1578,6 @@ static int sv_steq_TA_CDL3STARSINSOUTH( const struct TA_CDL3STARSINSOUTH_Stream 
       if( sv_xtier_ne(a->ring_ShadowLongTrailingIdx_derived[ia], b->ring_ShadowLongTrailingIdx_derived[ib], z) ) { *w = "ring_ShadowLongTrailingIdx_derived"; return 1; }
    }
    if( a->ringCap_ShadowVeryShortTrailingIdx != b->ringCap_ShadowVeryShortTrailingIdx ) { *w = "ringCap_ShadowVeryShortTrailingIdx"; return 1; }
-   if( a->ringLag_ShadowVeryShortTrailingIdx != b->ringLag_ShadowVeryShortTrailingIdx ) { *w = "ringLag_ShadowVeryShortTrailingIdx"; return 1; }
    if( (a->ring_ShadowVeryShortTrailingIdx_derived == NULL) != (b->ring_ShadowVeryShortTrailingIdx_derived == NULL) ) { *w = "ring_ShadowVeryShortTrailingIdx_derived"; return 1; }
    if( a->ring_ShadowVeryShortTrailingIdx_derived ) for( k = 0; k < a->ringCap_ShadowVeryShortTrailingIdx; k++ )
    {
@@ -1560,6 +1598,14 @@ static int sv_steq_TA_CDL3WHITESOLDIERS( const struct TA_CDL3WHITESOLDIERS_Strea
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->ShadowVeryShortPeriodTotal[k], b->ShadowVeryShortPeriodTotal[k], z) ) { *w = "ShadowVeryShortPeriodTotal"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->NearPeriodTotal[k], b->NearPeriodTotal[k], z) ) { *w = "NearPeriodTotal"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->FarPeriodTotal[k], b->FarPeriodTotal[k], z) ) { *w = "FarPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange1, b->ShadowVeryShortPeriodTotalRange1, z) ) { *w = "ShadowVeryShortPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange1, b->ShadowVeryShortPeriodTotalTrailRange1, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange2, b->ShadowVeryShortPeriodTotalRange2, z) ) { *w = "ShadowVeryShortPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange2, b->ShadowVeryShortPeriodTotalTrailRange2, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->FarPeriodTotalRange2, b->FarPeriodTotalRange2, z) ) { *w = "FarPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->FarPeriodTotalTrailRange2, b->FarPeriodTotalTrailRange2, z) ) { *w = "FarPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->NearPeriodTotalRange2, b->NearPeriodTotalRange2, z) ) { *w = "NearPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->NearPeriodTotalTrailRange2, b->NearPeriodTotalTrailRange2, z) ) { *w = "NearPeriodTotalTrailRange2"; return 1; }
    if( sv_xtier_ne(a->BodyShortPeriodTotal, b->BodyShortPeriodTotal, z) ) { *w = "BodyShortPeriodTotal"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
@@ -1596,7 +1642,6 @@ static int sv_steq_TA_CDL3WHITESOLDIERS( const struct TA_CDL3WHITESOLDIERS_Strea
       if( sv_xtier_ne(a->ring_NearTrailingIdx_derived[ia], b->ring_NearTrailingIdx_derived[ib], z) ) { *w = "ring_NearTrailingIdx_derived"; return 1; }
    }
    if( a->ringCap_ShadowVeryShortTrailingIdx != b->ringCap_ShadowVeryShortTrailingIdx ) { *w = "ringCap_ShadowVeryShortTrailingIdx"; return 1; }
-   if( a->ringLag_ShadowVeryShortTrailingIdx != b->ringLag_ShadowVeryShortTrailingIdx ) { *w = "ringLag_ShadowVeryShortTrailingIdx"; return 1; }
    if( (a->ring_ShadowVeryShortTrailingIdx_derived == NULL) != (b->ring_ShadowVeryShortTrailingIdx_derived == NULL) ) { *w = "ring_ShadowVeryShortTrailingIdx_derived"; return 1; }
    if( a->ring_ShadowVeryShortTrailingIdx_derived ) for( k = 0; k < a->ringCap_ShadowVeryShortTrailingIdx; k++ )
    {
@@ -1664,6 +1709,16 @@ static int sv_steq_TA_CDLADVANCEBLOCK( const struct TA_CDLADVANCEBLOCK_Stream *a
    for( k = 0; k < 2; k++ ) if( sv_xtier_ne(a->ShadowLongPeriodTotal[k], b->ShadowLongPeriodTotal[k], z) ) { *w = "ShadowLongPeriodTotal"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->NearPeriodTotal[k], b->NearPeriodTotal[k], z) ) { *w = "NearPeriodTotal"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->FarPeriodTotal[k], b->FarPeriodTotal[k], z) ) { *w = "FarPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->ShadowShortPeriodTotalRange1, b->ShadowShortPeriodTotalRange1, z) ) { *w = "ShadowShortPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowShortPeriodTotalTrailRange1, b->ShadowShortPeriodTotalTrailRange1, z) ) { *w = "ShadowShortPeriodTotalTrailRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowShortPeriodTotalRange2, b->ShadowShortPeriodTotalRange2, z) ) { *w = "ShadowShortPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->ShadowShortPeriodTotalTrailRange2, b->ShadowShortPeriodTotalTrailRange2, z) ) { *w = "ShadowShortPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->ShadowLongPeriodTotalRange1, b->ShadowLongPeriodTotalRange1, z) ) { *w = "ShadowLongPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowLongPeriodTotalTrailRange1, b->ShadowLongPeriodTotalTrailRange1, z) ) { *w = "ShadowLongPeriodTotalTrailRange1"; return 1; }
+   if( sv_xtier_ne(a->FarPeriodTotalRange2, b->FarPeriodTotalRange2, z) ) { *w = "FarPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->FarPeriodTotalTrailRange2, b->FarPeriodTotalTrailRange2, z) ) { *w = "FarPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->NearPeriodTotalRange2, b->NearPeriodTotalRange2, z) ) { *w = "NearPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->NearPeriodTotalTrailRange2, b->NearPeriodTotalTrailRange2, z) ) { *w = "NearPeriodTotalTrailRange2"; return 1; }
    if( sv_xtier_ne(a->BodyLongPeriodTotal, b->BodyLongPeriodTotal, z) ) { *w = "BodyLongPeriodTotal"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
@@ -1701,7 +1756,6 @@ static int sv_steq_TA_CDLADVANCEBLOCK( const struct TA_CDLADVANCEBLOCK_Stream *a
       if( sv_xtier_ne(a->ring_NearTrailingIdx_derived[ia], b->ring_NearTrailingIdx_derived[ib], z) ) { *w = "ring_NearTrailingIdx_derived"; return 1; }
    }
    if( a->ringCap_ShadowLongTrailingIdx != b->ringCap_ShadowLongTrailingIdx ) { *w = "ringCap_ShadowLongTrailingIdx"; return 1; }
-   if( a->ringLag_ShadowLongTrailingIdx != b->ringLag_ShadowLongTrailingIdx ) { *w = "ringLag_ShadowLongTrailingIdx"; return 1; }
    if( (a->ring_ShadowLongTrailingIdx_derived == NULL) != (b->ring_ShadowLongTrailingIdx_derived == NULL) ) { *w = "ring_ShadowLongTrailingIdx_derived"; return 1; }
    if( a->ring_ShadowLongTrailingIdx_derived ) for( k = 0; k < a->ringCap_ShadowLongTrailingIdx; k++ )
    {
@@ -1710,7 +1764,6 @@ static int sv_steq_TA_CDLADVANCEBLOCK( const struct TA_CDLADVANCEBLOCK_Stream *a
       if( sv_xtier_ne(a->ring_ShadowLongTrailingIdx_derived[ia], b->ring_ShadowLongTrailingIdx_derived[ib], z) ) { *w = "ring_ShadowLongTrailingIdx_derived"; return 1; }
    }
    if( a->ringCap_ShadowShortTrailingIdx != b->ringCap_ShadowShortTrailingIdx ) { *w = "ringCap_ShadowShortTrailingIdx"; return 1; }
-   if( a->ringLag_ShadowShortTrailingIdx != b->ringLag_ShadowShortTrailingIdx ) { *w = "ringLag_ShadowShortTrailingIdx"; return 1; }
    if( (a->ring_ShadowShortTrailingIdx_derived == NULL) != (b->ring_ShadowShortTrailingIdx_derived == NULL) ) { *w = "ring_ShadowShortTrailingIdx_derived"; return 1; }
    if( a->ring_ShadowShortTrailingIdx_derived ) for( k = 0; k < a->ringCap_ShadowShortTrailingIdx; k++ )
    {
@@ -1821,6 +1874,10 @@ static int sv_steq_TA_CDLCONCEALBABYSWALL( const struct TA_CDLCONCEALBABYSWALL_S
    if( a->outRangeCount != b->outRangeCount ) { *w = "outRangeCount"; return 1; }
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    for( k = 0; k < 4; k++ ) if( sv_xtier_ne(a->ShadowVeryShortPeriodTotal[k], b->ShadowVeryShortPeriodTotal[k], z) ) { *w = "ShadowVeryShortPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange2, b->ShadowVeryShortPeriodTotalRange2, z) ) { *w = "ShadowVeryShortPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange2, b->ShadowVeryShortPeriodTotalTrailRange2, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange3, b->ShadowVeryShortPeriodTotalRange3, z) ) { *w = "ShadowVeryShortPeriodTotalRange3"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange3, b->ShadowVeryShortPeriodTotalTrailRange3, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange3"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag3_inOpen, b->lag3_inOpen, z) ) { *w = "lag3_inOpen"; return 1; }
@@ -1854,12 +1911,13 @@ static int sv_steq_TA_CDLCOUNTERATTACK( const struct TA_CDLCOUNTERATTACK_Stream 
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    if( sv_xtier_ne(a->EqualPeriodTotal, b->EqualPeriodTotal, z) ) { *w = "EqualPeriodTotal"; return 1; }
    for( k = 0; k < 2; k++ ) if( sv_xtier_ne(a->BodyLongPeriodTotal[k], b->BodyLongPeriodTotal[k], z) ) { *w = "BodyLongPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->BodyLongPeriodTotalRange1, b->BodyLongPeriodTotalRange1, z) ) { *w = "BodyLongPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->BodyLongPeriodTotalTrailRange1, b->BodyLongPeriodTotalTrailRange1, z) ) { *w = "BodyLongPeriodTotalTrailRange1"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag1_inHigh, b->lag1_inHigh, z) ) { *w = "lag1_inHigh"; return 1; }
    if( sv_xtier_ne(a->lag1_inLow, b->lag1_inLow, z) ) { *w = "lag1_inLow"; return 1; }
    if( sv_xtier_ne(a->lag1_inClose, b->lag1_inClose, z) ) { *w = "lag1_inClose"; return 1; }
    if( a->ringCap_BodyLongTrailingIdx != b->ringCap_BodyLongTrailingIdx ) { *w = "ringCap_BodyLongTrailingIdx"; return 1; }
-   if( a->ringLag_BodyLongTrailingIdx != b->ringLag_BodyLongTrailingIdx ) { *w = "ringLag_BodyLongTrailingIdx"; return 1; }
    if( (a->ring_BodyLongTrailingIdx_derived == NULL) != (b->ring_BodyLongTrailingIdx_derived == NULL) ) { *w = "ring_BodyLongTrailingIdx_derived"; return 1; }
    if( a->ring_BodyLongTrailingIdx_derived ) for( k = 0; k < a->ringCap_BodyLongTrailingIdx; k++ )
    {
@@ -2430,6 +2488,12 @@ static int sv_steq_TA_CDLIDENTICAL3CROWS( const struct TA_CDLIDENTICAL3CROWS_Str
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->ShadowVeryShortPeriodTotal[k], b->ShadowVeryShortPeriodTotal[k], z) ) { *w = "ShadowVeryShortPeriodTotal"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->EqualPeriodTotal[k], b->EqualPeriodTotal[k], z) ) { *w = "EqualPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange1, b->ShadowVeryShortPeriodTotalRange1, z) ) { *w = "ShadowVeryShortPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange1, b->ShadowVeryShortPeriodTotalTrailRange1, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange2, b->ShadowVeryShortPeriodTotalRange2, z) ) { *w = "ShadowVeryShortPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange2, b->ShadowVeryShortPeriodTotalTrailRange2, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->EqualPeriodTotalRange2, b->EqualPeriodTotalRange2, z) ) { *w = "EqualPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->EqualPeriodTotalTrailRange2, b->EqualPeriodTotalTrailRange2, z) ) { *w = "EqualPeriodTotalTrailRange2"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag1_inHigh, b->lag1_inHigh, z) ) { *w = "lag1_inHigh"; return 1; }
@@ -2448,7 +2512,6 @@ static int sv_steq_TA_CDLIDENTICAL3CROWS( const struct TA_CDLIDENTICAL3CROWS_Str
       if( sv_xtier_ne(a->ring_EqualTrailingIdx_derived[ia], b->ring_EqualTrailingIdx_derived[ib], z) ) { *w = "ring_EqualTrailingIdx_derived"; return 1; }
    }
    if( a->ringCap_ShadowVeryShortTrailingIdx != b->ringCap_ShadowVeryShortTrailingIdx ) { *w = "ringCap_ShadowVeryShortTrailingIdx"; return 1; }
-   if( a->ringLag_ShadowVeryShortTrailingIdx != b->ringLag_ShadowVeryShortTrailingIdx ) { *w = "ringLag_ShadowVeryShortTrailingIdx"; return 1; }
    if( (a->ring_ShadowVeryShortTrailingIdx_derived == NULL) != (b->ring_ShadowVeryShortTrailingIdx_derived == NULL) ) { *w = "ring_ShadowVeryShortTrailingIdx_derived"; return 1; }
    if( a->ring_ShadowVeryShortTrailingIdx_derived ) for( k = 0; k < a->ringCap_ShadowVeryShortTrailingIdx; k++ )
    {
@@ -2541,12 +2604,15 @@ static int sv_steq_TA_CDLKICKING( const struct TA_CDLKICKING_Stream *a, const st
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    for( k = 0; k < 2; k++ ) if( sv_xtier_ne(a->ShadowVeryShortPeriodTotal[k], b->ShadowVeryShortPeriodTotal[k], z) ) { *w = "ShadowVeryShortPeriodTotal"; return 1; }
    for( k = 0; k < 2; k++ ) if( sv_xtier_ne(a->BodyLongPeriodTotal[k], b->BodyLongPeriodTotal[k], z) ) { *w = "BodyLongPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->BodyLongPeriodTotalRange1, b->BodyLongPeriodTotalRange1, z) ) { *w = "BodyLongPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->BodyLongPeriodTotalTrailRange1, b->BodyLongPeriodTotalTrailRange1, z) ) { *w = "BodyLongPeriodTotalTrailRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange1, b->ShadowVeryShortPeriodTotalRange1, z) ) { *w = "ShadowVeryShortPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange1, b->ShadowVeryShortPeriodTotalTrailRange1, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange1"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag1_inHigh, b->lag1_inHigh, z) ) { *w = "lag1_inHigh"; return 1; }
    if( sv_xtier_ne(a->lag1_inLow, b->lag1_inLow, z) ) { *w = "lag1_inLow"; return 1; }
    if( sv_xtier_ne(a->lag1_inClose, b->lag1_inClose, z) ) { *w = "lag1_inClose"; return 1; }
    if( a->ringCap_BodyLongTrailingIdx != b->ringCap_BodyLongTrailingIdx ) { *w = "ringCap_BodyLongTrailingIdx"; return 1; }
-   if( a->ringLag_BodyLongTrailingIdx != b->ringLag_BodyLongTrailingIdx ) { *w = "ringLag_BodyLongTrailingIdx"; return 1; }
    if( (a->ring_BodyLongTrailingIdx_derived == NULL) != (b->ring_BodyLongTrailingIdx_derived == NULL) ) { *w = "ring_BodyLongTrailingIdx_derived"; return 1; }
    if( a->ring_BodyLongTrailingIdx_derived ) for( k = 0; k < a->ringCap_BodyLongTrailingIdx; k++ )
    {
@@ -2555,7 +2621,6 @@ static int sv_steq_TA_CDLKICKING( const struct TA_CDLKICKING_Stream *a, const st
       if( sv_xtier_ne(a->ring_BodyLongTrailingIdx_derived[ia], b->ring_BodyLongTrailingIdx_derived[ib], z) ) { *w = "ring_BodyLongTrailingIdx_derived"; return 1; }
    }
    if( a->ringCap_ShadowVeryShortTrailingIdx != b->ringCap_ShadowVeryShortTrailingIdx ) { *w = "ringCap_ShadowVeryShortTrailingIdx"; return 1; }
-   if( a->ringLag_ShadowVeryShortTrailingIdx != b->ringLag_ShadowVeryShortTrailingIdx ) { *w = "ringLag_ShadowVeryShortTrailingIdx"; return 1; }
    if( (a->ring_ShadowVeryShortTrailingIdx_derived == NULL) != (b->ring_ShadowVeryShortTrailingIdx_derived == NULL) ) { *w = "ring_ShadowVeryShortTrailingIdx_derived"; return 1; }
    if( a->ring_ShadowVeryShortTrailingIdx_derived ) for( k = 0; k < a->ringCap_ShadowVeryShortTrailingIdx; k++ )
    {
@@ -2575,12 +2640,15 @@ static int sv_steq_TA_CDLKICKINGBYLENGTH( const struct TA_CDLKICKINGBYLENGTH_Str
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    for( k = 0; k < 2; k++ ) if( sv_xtier_ne(a->ShadowVeryShortPeriodTotal[k], b->ShadowVeryShortPeriodTotal[k], z) ) { *w = "ShadowVeryShortPeriodTotal"; return 1; }
    for( k = 0; k < 2; k++ ) if( sv_xtier_ne(a->BodyLongPeriodTotal[k], b->BodyLongPeriodTotal[k], z) ) { *w = "BodyLongPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->BodyLongPeriodTotalRange1, b->BodyLongPeriodTotalRange1, z) ) { *w = "BodyLongPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->BodyLongPeriodTotalTrailRange1, b->BodyLongPeriodTotalTrailRange1, z) ) { *w = "BodyLongPeriodTotalTrailRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalRange1, b->ShadowVeryShortPeriodTotalRange1, z) ) { *w = "ShadowVeryShortPeriodTotalRange1"; return 1; }
+   if( sv_xtier_ne(a->ShadowVeryShortPeriodTotalTrailRange1, b->ShadowVeryShortPeriodTotalTrailRange1, z) ) { *w = "ShadowVeryShortPeriodTotalTrailRange1"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag1_inHigh, b->lag1_inHigh, z) ) { *w = "lag1_inHigh"; return 1; }
    if( sv_xtier_ne(a->lag1_inLow, b->lag1_inLow, z) ) { *w = "lag1_inLow"; return 1; }
    if( sv_xtier_ne(a->lag1_inClose, b->lag1_inClose, z) ) { *w = "lag1_inClose"; return 1; }
    if( a->ringCap_BodyLongTrailingIdx != b->ringCap_BodyLongTrailingIdx ) { *w = "ringCap_BodyLongTrailingIdx"; return 1; }
-   if( a->ringLag_BodyLongTrailingIdx != b->ringLag_BodyLongTrailingIdx ) { *w = "ringLag_BodyLongTrailingIdx"; return 1; }
    if( (a->ring_BodyLongTrailingIdx_derived == NULL) != (b->ring_BodyLongTrailingIdx_derived == NULL) ) { *w = "ring_BodyLongTrailingIdx_derived"; return 1; }
    if( a->ring_BodyLongTrailingIdx_derived ) for( k = 0; k < a->ringCap_BodyLongTrailingIdx; k++ )
    {
@@ -2589,7 +2657,6 @@ static int sv_steq_TA_CDLKICKINGBYLENGTH( const struct TA_CDLKICKINGBYLENGTH_Str
       if( sv_xtier_ne(a->ring_BodyLongTrailingIdx_derived[ia], b->ring_BodyLongTrailingIdx_derived[ib], z) ) { *w = "ring_BodyLongTrailingIdx_derived"; return 1; }
    }
    if( a->ringCap_ShadowVeryShortTrailingIdx != b->ringCap_ShadowVeryShortTrailingIdx ) { *w = "ringCap_ShadowVeryShortTrailingIdx"; return 1; }
-   if( a->ringLag_ShadowVeryShortTrailingIdx != b->ringLag_ShadowVeryShortTrailingIdx ) { *w = "ringLag_ShadowVeryShortTrailingIdx"; return 1; }
    if( (a->ring_ShadowVeryShortTrailingIdx_derived == NULL) != (b->ring_ShadowVeryShortTrailingIdx_derived == NULL) ) { *w = "ring_ShadowVeryShortTrailingIdx_derived"; return 1; }
    if( a->ring_ShadowVeryShortTrailingIdx_derived ) for( k = 0; k < a->ringCap_ShadowVeryShortTrailingIdx; k++ )
    {
@@ -2747,6 +2814,10 @@ static int sv_steq_TA_CDLMATHOLD( const struct TA_CDLMATHOLD_Stream *a, const st
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    if( sv_xtier_ne(a->optInPenetration, b->optInPenetration, z) ) { *w = "optInPenetration"; return 1; }
    for( k = 0; k < 5; k++ ) if( sv_xtier_ne(a->BodyPeriodTotal[k], b->BodyPeriodTotal[k], z) ) { *w = "BodyPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->BodyPeriodTotalRange2, b->BodyPeriodTotalRange2, z) ) { *w = "BodyPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->BodyPeriodTotalTrailRange2, b->BodyPeriodTotalTrailRange2, z) ) { *w = "BodyPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->BodyPeriodTotalRange3, b->BodyPeriodTotalRange3, z) ) { *w = "BodyPeriodTotalRange3"; return 1; }
+   if( sv_xtier_ne(a->BodyPeriodTotalTrailRange3, b->BodyPeriodTotalTrailRange3, z) ) { *w = "BodyPeriodTotalTrailRange3"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag3_inOpen, b->lag3_inOpen, z) ) { *w = "lag3_inOpen"; return 1; }
@@ -2972,6 +3043,10 @@ static int sv_steq_TA_CDLRISEFALL3METHODS( const struct TA_CDLRISEFALL3METHODS_S
    if( a->outRangeCount != b->outRangeCount ) { *w = "outRangeCount"; return 1; }
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    for( k = 0; k < 5; k++ ) if( sv_xtier_ne(a->BodyPeriodTotal[k], b->BodyPeriodTotal[k], z) ) { *w = "BodyPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->BodyPeriodTotalRange2, b->BodyPeriodTotalRange2, z) ) { *w = "BodyPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->BodyPeriodTotalTrailRange2, b->BodyPeriodTotalTrailRange2, z) ) { *w = "BodyPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->BodyPeriodTotalRange3, b->BodyPeriodTotalRange3, z) ) { *w = "BodyPeriodTotalRange3"; return 1; }
+   if( sv_xtier_ne(a->BodyPeriodTotalTrailRange3, b->BodyPeriodTotalTrailRange3, z) ) { *w = "BodyPeriodTotalTrailRange3"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag2_inOpen, b->lag2_inOpen, z) ) { *w = "lag2_inOpen"; return 1; }
    if( sv_xtier_ne(a->lag3_inOpen, b->lag3_inOpen, z) ) { *w = "lag3_inOpen"; return 1; }
@@ -3146,6 +3221,10 @@ static int sv_steq_TA_CDLSTALLEDPATTERN( const struct TA_CDLSTALLEDPATTERN_Strea
    if( a->cur_outInteger != b->cur_outInteger ) { *w = "cur_outInteger"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->BodyLongPeriodTotal[k], b->BodyLongPeriodTotal[k], z) ) { *w = "BodyLongPeriodTotal"; return 1; }
    for( k = 0; k < 3; k++ ) if( sv_xtier_ne(a->NearPeriodTotal[k], b->NearPeriodTotal[k], z) ) { *w = "NearPeriodTotal"; return 1; }
+   if( sv_xtier_ne(a->BodyLongPeriodTotalRange2, b->BodyLongPeriodTotalRange2, z) ) { *w = "BodyLongPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->BodyLongPeriodTotalTrailRange2, b->BodyLongPeriodTotalTrailRange2, z) ) { *w = "BodyLongPeriodTotalTrailRange2"; return 1; }
+   if( sv_xtier_ne(a->NearPeriodTotalRange2, b->NearPeriodTotalRange2, z) ) { *w = "NearPeriodTotalRange2"; return 1; }
+   if( sv_xtier_ne(a->NearPeriodTotalTrailRange2, b->NearPeriodTotalTrailRange2, z) ) { *w = "NearPeriodTotalTrailRange2"; return 1; }
    if( sv_xtier_ne(a->BodyShortPeriodTotal, b->BodyShortPeriodTotal, z) ) { *w = "BodyShortPeriodTotal"; return 1; }
    if( sv_xtier_ne(a->ShadowVeryShortPeriodTotal, b->ShadowVeryShortPeriodTotal, z) ) { *w = "ShadowVeryShortPeriodTotal"; return 1; }
    if( sv_xtier_ne(a->lag1_inOpen, b->lag1_inOpen, z) ) { *w = "lag1_inOpen"; return 1; }
@@ -6350,6 +6429,41 @@ static int sv_steq_TA_SAREXT( const struct TA_SAREXT_Stream *a, const struct TA_
    return 0;
 }
 
+static int sv_steq_TA_SHARPE( const struct TA_SHARPE_Stream *a, const struct TA_SHARPE_Stream *b, const char **w, int *z )
+{
+   int k = 0, ix = 0, ia = 0, ib = 0;
+   (void)ia; (void)ib;
+   if( a->outRangeBegIdx != b->outRangeBegIdx ) { *w = "outRangeBegIdx"; return 1; }
+   if( a->outRangeCount != b->outRangeCount ) { *w = "outRangeCount"; return 1; }
+   if( sv_xtier_ne(a->cur_outReal, b->cur_outReal, z) ) { *w = "cur_outReal"; return 1; }
+   if( a->optInTimePeriod != b->optInTimePeriod ) { *w = "optInTimePeriod"; return 1; }
+   if( sv_xtier_ne(a->optInRiskFreeRate, b->optInRiskFreeRate, z) ) { *w = "optInRiskFreeRate"; return 1; }
+   if( sv_xtier_ne(a->optInAnnualization, b->optInAnnualization, z) ) { *w = "optInAnnualization"; return 1; }
+   if( sv_xtier_ne(a->shift, b->shift, z) ) { *w = "shift"; return 1; }
+   if( sv_xtier_ne(a->periodTotal1, b->periodTotal1, z) ) { *w = "periodTotal1"; return 1; }
+   if( sv_xtier_ne(a->periodTotal2, b->periodTotal2, z) ) { *w = "periodTotal2"; return 1; }
+   if( sv_xtier_ne(a->peakTotal2, b->peakTotal2, z) ) { *w = "peakTotal2"; return 1; }
+   if( sv_xtier_ne(a->prevPrice, b->prevPrice, z) ) { *w = "prevPrice"; return 1; }
+   if( sv_xtier_ne(a->dPeriod, b->dPeriod, z) ) { *w = "dPeriod"; return 1; }
+   if( sv_xtier_ne(a->invPeriod, b->invPeriod, z) ) { *w = "invPeriod"; return 1; }
+   if( sv_xtier_ne(a->sqrtAnnual, b->sqrtAnnual, z) ) { *w = "sqrtAnnual"; return 1; }
+   if( a->trailingIdx != b->trailingIdx ) { *w = "trailingIdx"; return 1; }
+   if( a->barsSinceReseed != b->barsSinceReseed ) { *w = "barsSinceReseed"; return 1; }
+   if( a->j != b->j ) { *w = "j"; return 1; }
+   if( a->windowStart != b->windowStart ) { *w = "windowStart"; return 1; }
+   if( a->i != b->i ) { *w = "i"; return 1; }
+   if( a->xCap != b->xCap ) { *w = "xCap"; return 1; }
+   if( a->xPhys != b->xPhys ) { *w = "xPhys"; return 1; }
+   if( a->xMask != b->xMask ) { *w = "xMask"; return 1; }
+   if( (a->x_inReal == NULL) != (b->x_inReal == NULL) ) { *w = "x_inReal"; return 1; }
+   if( a->x_inReal ) for( k = 0; k < a->xCap; k++ )
+   {
+      ix = (a->trailingIdx - 1 + a->xPhys + k) & a->xMask;
+      if( sv_xtier_ne(a->x_inReal[ix], b->x_inReal[ix], z) ) { *w = "x_inReal"; return 1; }
+   }
+   return 0;
+}
+
 static int sv_steq_TA_SI( const struct TA_SI_Stream *a, const struct TA_SI_Stream *b, const char **w, int *z )
 {
    int k = 0, ix = 0, ia = 0, ib = 0;
@@ -6487,6 +6601,43 @@ static int sv_steq_TA_SMI( const struct TA_SMI_Stream *a, const struct TA_SMI_St
    {
       ix = (a->trailingIdx - 1 + a->xPhys + k) & a->xMask;
       if( sv_xtier_ne(a->x_inClose[ix], b->x_inClose[ix], z) ) { *w = "x_inClose"; return 1; }
+   }
+   return 0;
+}
+
+static int sv_steq_TA_SORTINO( const struct TA_SORTINO_Stream *a, const struct TA_SORTINO_Stream *b, const char **w, int *z )
+{
+   int k = 0, ix = 0, ia = 0, ib = 0;
+   (void)ia; (void)ib;
+   if( a->outRangeBegIdx != b->outRangeBegIdx ) { *w = "outRangeBegIdx"; return 1; }
+   if( a->outRangeCount != b->outRangeCount ) { *w = "outRangeCount"; return 1; }
+   if( sv_xtier_ne(a->cur_outReal, b->cur_outReal, z) ) { *w = "cur_outReal"; return 1; }
+   if( a->optInTimePeriod != b->optInTimePeriod ) { *w = "optInTimePeriod"; return 1; }
+   if( sv_xtier_ne(a->optInMAR, b->optInMAR, z) ) { *w = "optInMAR"; return 1; }
+   if( sv_xtier_ne(a->optInAnnualization, b->optInAnnualization, z) ) { *w = "optInAnnualization"; return 1; }
+   if( sv_xtier_ne(a->periodTotal, b->periodTotal, z) ) { *w = "periodTotal"; return 1; }
+   if( sv_xtier_ne(a->downTotal, b->downTotal, z) ) { *w = "downTotal"; return 1; }
+   if( sv_xtier_ne(a->absTotal, b->absTotal, z) ) { *w = "absTotal"; return 1; }
+   if( sv_xtier_ne(a->peakDown, b->peakDown, z) ) { *w = "peakDown"; return 1; }
+   if( sv_xtier_ne(a->peakAbs, b->peakAbs, z) ) { *w = "peakAbs"; return 1; }
+   if( sv_xtier_ne(a->prevPrice, b->prevPrice, z) ) { *w = "prevPrice"; return 1; }
+   if( sv_xtier_ne(a->invPeriod, b->invPeriod, z) ) { *w = "invPeriod"; return 1; }
+   if( sv_xtier_ne(a->sqrtAnnual, b->sqrtAnnual, z) ) { *w = "sqrtAnnual"; return 1; }
+   if( a->trailingIdx != b->trailingIdx ) { *w = "trailingIdx"; return 1; }
+   if( a->barsSinceReseed != b->barsSinceReseed ) { *w = "barsSinceReseed"; return 1; }
+   if( a->nbBelow != b->nbBelow ) { *w = "nbBelow"; return 1; }
+   if( a->nbAbove != b->nbAbove ) { *w = "nbAbove"; return 1; }
+   if( a->j != b->j ) { *w = "j"; return 1; }
+   if( a->windowStart != b->windowStart ) { *w = "windowStart"; return 1; }
+   if( a->i != b->i ) { *w = "i"; return 1; }
+   if( a->xCap != b->xCap ) { *w = "xCap"; return 1; }
+   if( a->xPhys != b->xPhys ) { *w = "xPhys"; return 1; }
+   if( a->xMask != b->xMask ) { *w = "xMask"; return 1; }
+   if( (a->x_inReal == NULL) != (b->x_inReal == NULL) ) { *w = "x_inReal"; return 1; }
+   if( a->x_inReal ) for( k = 0; k < a->xCap; k++ )
+   {
+      ix = (a->trailingIdx - 1 + a->xPhys + k) & a->xMask;
+      if( sv_xtier_ne(a->x_inReal[ix], b->x_inReal[ix], z) ) { *w = "x_inReal"; return 1; }
    }
    return 0;
 }
@@ -9861,6 +10012,329 @@ static SV_NOINLINE void sv_verify_ADXR(const char *json, char *resp, int resp_si
     }
     if( shortHistChecked && !shortHistOk ) allOk = 0;
     TA_SetUnstablePeriod(0, 0);
+    if( fillChecked && !fillOk ) allOk = 0;
+    if( stateChecked && !stateOk ) allOk = 0;
+    if( cloneChecked && !cloneOk ) allOk = 0;
+    if( valueChecked && !valueOk ) allOk = 0;
+    pos = json_appendf(resp, resp_size, pos, ",\"state_checked\":%d,\"state_legs\":%d,\"state_ok\":%d,\"state_bad\":\"%s\"", stateChecked, stateLegs, stateOk, stateWhat);
+    if( rangeChecked && !rangeOk ) allOk = 0;
+    pos = json_appendf(resp, resp_size, pos, ",\"range_checked\":%d,\"range_legs\":%d,\"range_sites\":%d,\"range_sites_all\":31,\"range_ok\":%d", rangeChecked, rangeLegs, rangeSites, rangeOk);
+    pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"fill_bars\":%d,\"ok\":%d,\"peek_checked\":%d,\"peek_ok\":%d,\"peek_reps\":%d,\"peek_rep_ok\":%d,\"peek_rejects\":%d,\"short_history_checked\":%d,\"short_history_ok\":%d,\"short_history_bad\":\"%s\",\"clone_checked\":%d,\"clone_legs\":%d,\"clone_ok\":%d,\"clone_bad\":\"%s\",\"value_checked\":%d,\"value_legs\":%d,\"value_ok\":%d,\"value_bad\":\"%s\",\"benign\":%d,\"vmath\":%d}", fillChecked, fillOk, fillBars, allOk, peekChecked, peekAll, peekReps, peekRepAll, peekRejects, shortHistChecked, shortHistOk, shortHistBad, cloneChecked, cloneLegs, cloneOk, cloneBad, valueChecked, valueLegs, valueOk, valueBad, svZsign, g_svVmath);
+}
+
+static SV_NOINLINE void sv_verify_ALLIGATOR(const char *json, char *resp, int resp_size, int svN, int svK, int svCandle) {
+    (void)svCandle;
+    int optInJawPeriod = json_find_int(json, "optInJawPeriod");
+    int optInJawShift = json_find_int(json, "optInJawShift");
+    int optInTeethPeriod = json_find_int(json, "optInTeethPeriod");
+    int optInTeethShift = json_find_int(json, "optInTeethShift");
+    int optInLipsPeriod = json_find_int(json, "optInLipsPeriod");
+    int optInLipsShift = json_find_int(json, "optInLipsShift");
+    TA_RetCode rc;
+    int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+    int peekChecked = 0;
+    int peekReps = 0, peekRepAll = 1;
+    int peekRejects = 0;
+    TA_RetCode pkRc = TA_SUCCESS;
+    int cloneChecked = 0, cloneOk = 1, cloneLegs = 0;
+    int valueChecked = 0, valueOk = 1, valueLegs = 0;
+    const char *valueBad = "-";
+    const char *cloneBad = "-";
+    int shortHistChecked = 0, shortHistOk = 1;
+    const char *shortHistBad = "-";
+    const char *peekBad = "-";
+    int fillOk = 1, fillChecked = 0, fillBars = 0;
+    int stateChecked = 0, stateOk = 1, stateLegs = 0;
+    const char *stateWhat = "-";
+    TA_ALLIGATOR_Stream *stEq = NULL;
+    int rangeChecked = 0, rangeOk = 1, rangeLegs = 0, rangeSites = 0;
+    int rB = 0, rN = 0;
+    int svZsign = 0;
+    int pref[4]; int pc[4];
+    TA_SetUnstablePeriod(24, (unsigned int)svK);
+    rc = TA_ALLIGATOR(0, svN - 1, sv_h, sv_l, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &svBeg, &svNb, sv_b0, sv_b1, sv_b2);
+    lb = TA_ALLIGATOR_Lookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
+    if( rc != TA_SUCCESS || svNb <= 0 ) {
+        int openRejects = 0;
+        { TA_ALLIGATOR_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; double v2 = 0.0; TA_RetCode orc = TA_ALLIGATOR_Open(&st, sv_h, sv_l, svN, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &v0, &v1, &v2);
+          if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_ALLIGATOR_Close(st); }
+        TA_SetUnstablePeriod(24, 0);
+        snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1,\"vmath\":%d}", (int)rc, svNb, openRejects, openRejects, g_svVmath);
+        return;
+    }
+    {
+        int fBeg = 0, fNb = 0, ft;
+        TA_ALLIGATOR_Stream *stf = NULL;
+        TA_RetCode frc;
+        for( ft = 0; ft < SV_MAXN; ft++ ) {
+           sv_f0[ft] = SV_FILL_CANARY;
+           sv_f1[ft] = SV_FILL_CANARY;
+           sv_f2[ft] = SV_FILL_CANARY;
+        }
+        frc = TA_ALLIGATOR_OpenAndFill(&stf, sv_h, sv_l, svN, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+        fillChecked = 1;
+        if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+        if( fillOk && stf )
+        {
+           double vq0 = 0.0; double vq1 = 0.0; double vq2 = 0.0;
+           valueChecked = 1; valueLegs++;
+           if( TA_ALLIGATOR_Value( stf, &vq0, &vq1, &vq2 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after OpenAndFill is not the last filled bar: Value rejected a live stream"; }
+           if( sv_bitne(vq0, sv_f0[svNb - 1]) ) { valueOk = 0; valueBad = "Value after OpenAndFill is not the last filled bar"; }
+           if( sv_bitne(vq1, sv_f1[svNb - 1]) ) { valueOk = 0; valueBad = "Value after OpenAndFill is not the last filled bar"; }
+           if( sv_bitne(vq2, sv_f2[svNb - 1]) ) { valueOk = 0; valueBad = "Value after OpenAndFill is not the last filled bar"; }
+        }
+        for( ft = 0; fillOk && ft < svNb; ft++ ) {
+            if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
+            if( sv_xtier_ne(sv_f2[ft], sv_b2[ft], &svZsign) ) fillOk = 0;
+            fillBars++;
+        }
+        if( frc == TA_SUCCESS )
+           for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+              if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+              if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+              if( sv_f2[ft] != SV_FILL_CANARY ) fillOk = 0;
+           }
+        if( frc == TA_SUCCESS && stf )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 1;
+            rB = -1; rN = -1;
+            if( TA_ALLIGATOR_OutRange( stf, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb ) rangeOk = 0;
+        }
+        if( stf ) TA_ALLIGATOR_Close(stf);
+    }
+    {
+        int alB = 0, alN = 0;
+        TA_ALLIGATOR_Stream *sal = NULL;
+        TA_RetCode alrc = TA_ALLIGATOR_OpenAndFill(&sal, sv_h, sv_l, svN, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &alB, &alN, sv_h, sv_f1, sv_f2);
+        if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+        if( sal ) TA_ALLIGATOR_Close(sal);
+    }
+    {
+        int aaB = 0, aaN = 0;
+        TA_ALLIGATOR_Stream *saa = NULL;
+        TA_RetCode aarc = TA_ALLIGATOR_OpenAndFill(&saa, sv_h, sv_l, svN, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &aaB, &aaN, sv_f0, sv_f0, sv_f2);
+        if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+        if( saa ) TA_ALLIGATOR_Close(saa);
+    }
+    npref = 0;
+    pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+    for( li = 0; li < 4; li++ ) {
+        int P = pc[li]; int seen = 0, k;
+        if( P < lb + 1 ) P = lb + 1;
+        if( P > svN - 1 ) P = svN - 1;
+        if( P < 1 ) continue;
+        for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+        if( !seen ) pref[npref++] = P;
+    }
+    {
+        double e0 = 0.0; double e1 = 0.0; double e2 = 0.0;
+        if( TA_ALLIGATOR_Open( &stEq, sv_h, sv_l, svN, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &e0, &e1, &e2 ) != TA_SUCCESS ) stEq = NULL;
+    }
+    pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+    for( li = 0; li < npref; li++ ) {
+        int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+        double bv = 0.0, sv = 0.0;
+        TA_ALLIGATOR_Stream *st = NULL;
+        double v0 = 0.0, pk0 = 0.0, rp0 = 0.0;
+        double v1 = 0.0, pk1 = 0.0, rp1 = 0.0;
+        double v2 = 0.0, pk2 = 0.0, rp2 = 0.0;
+        rc = TA_ALLIGATOR_Open(&st, sv_h, sv_l, P, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &v0, &v1, &v2);
+        if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+        if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+        if( ok && sv_xtier_ne(v1, sv_b1[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 1; bv = sv_b1[(P - 1) - svBeg]; sv = v1; }
+        if( ok && sv_xtier_ne(v2, sv_b2[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 2; bv = sv_b2[(P - 1) - svBeg]; sv = v2; }
+        if( ok && st )
+        {
+           double vq0 = 0.0; double vq1 = 0.0; double vq2 = 0.0;
+           valueChecked = 1; valueLegs++;
+           if( TA_ALLIGATOR_Value( st, &vq0, &vq1, &vq2 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after Open is not the last history bar: Value rejected a live stream"; }
+           if( sv_bitne(vq0, v0) ) { valueOk = 0; valueBad = "Value after Open is not the last history bar"; }
+           if( sv_bitne(vq1, v1) ) { valueOk = 0; valueBad = "Value after Open is not the last history bar"; }
+           if( sv_bitne(vq2, v2) ) { valueOk = 0; valueBad = "Value after Open is not the last history bar"; }
+        }
+        for( t = P; ok && t < svN; t++ ) {
+            pkRc = TA_ALLIGATOR_Peek(st, sv_h[t], sv_l[t], &pk0, &pk1, &pk2);
+            if( pkRc != TA_SUCCESS ) peekRejects++;
+            if( (t % SV_PEEK_EVERY) == 0 )
+            {
+               if( TA_ALLIGATOR_Peek(st, sv_h[t - 1], sv_l[t - 1], &rp0, &rp1, &rp2) != TA_SUCCESS ) peekRejects++;
+               if( pkRc == TA_SUCCESS && TA_ALLIGATOR_Peek(st, sv_h[t], sv_l[t], &rp0, &rp1, &rp2) == TA_SUCCESS )
+               {
+                  peekReps++;
+                  if( sv_bitne(rp0, pk0) || sv_bitne(rp1, pk1) || sv_bitne(rp2, pk2) ) peekRepAll = 0;
+               }
+               else peekRejects++;
+            }
+            TA_ALLIGATOR_Update(st, sv_h[t], sv_l[t], &v0, &v1, &v2);
+            if( pkRc == TA_SUCCESS && (sv_bitne(pk0, v0) || sv_bitne(pk1, v1) || sv_bitne(pk2, v2)) ) pkOk = 0;
+            if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            if(  sv_xtier_ne(v1, sv_b1[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 1; bv = sv_b1[t - svBeg]; sv = v1; }
+            if(  sv_xtier_ne(v2, sv_b2[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 2; bv = sv_b2[t - svBeg]; sv = v2; }
+            if( ok )
+            {
+               double vq0 = 0.0; double vq1 = 0.0; double vq2 = 0.0;
+               valueChecked = 1; valueLegs++;
+               if( TA_ALLIGATOR_Value( st, &vq0, &vq1, &vq2 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after Update is not the bar just committed: Value rejected a live stream"; }
+               if( sv_bitne(vq0, v0) ) { valueOk = 0; valueBad = "Value after Update is not the bar just committed"; }
+               if( sv_bitne(vq1, v1) ) { valueOk = 0; valueBad = "Value after Update is not the bar just committed"; }
+               if( sv_bitne(vq2, v2) ) { valueOk = 0; valueBad = "Value after Update is not the bar just committed"; }
+            }
+        }
+        if( ok && st && stEq )
+        {
+            stateChecked = 1; stateLegs++;
+            if( sv_steq_TA_ALLIGATOR( st, stEq, &stateWhat, &svZsign ) ) stateOk = 0;
+        }
+        if( ok && st )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 2;
+            rB = -1; rN = -1;
+            if( TA_ALLIGATOR_OutRange( st, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb ) rangeOk = 0;
+        }
+        if( ok && st && TA_ALLIGATOR_Advance( st ) != TA_SUCCESS ) rangeOk = 0;
+        if( ok && st )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 16;
+            rB = -1; rN = -1;
+            if( TA_ALLIGATOR_OutRange( st, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb + 1 ) rangeOk = 0;
+        }
+        if( st ) TA_ALLIGATOR_Close(st);
+        pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+        if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+        if( !pkOk ) peekAll = 0;
+    }
+    if( stEq )
+    {
+        TA_ALLIGATOR_Stream *stPk = NULL; double q0 = 0.0; double q1 = 0.0; double q2 = 0.0;
+        if( TA_ALLIGATOR_Open( &stPk, sv_h, sv_l, svN, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &q0, &q1, &q2 ) == TA_SUCCESS && stPk )
+        {
+            int pi;
+            for( pi = svBeg; pi < svN; pi += SV_PEEK_EVERY )
+            {
+                if( TA_ALLIGATOR_Peek(stPk, sv_h[pi], sv_l[pi], &q0, &q1, &q2) == TA_SUCCESS ) peekChecked++;
+                else peekRejects++;
+            }
+            {
+                const char *pkWhat = "-";
+                if( sv_steq_TA_ALLIGATOR( stPk, stEq, &pkWhat, &svZsign ) ) { peekAll = 0; peekBad = pkWhat; }
+            }
+        }
+        if( stPk ) TA_ALLIGATOR_Close(stPk);
+    }
+    {
+        TA_ALLIGATOR_Stream *cA = NULL, *cB = NULL;
+        double ca0 = 0.0; double ca1 = 0.0; double ca2 = 0.0; double cb0 = 0.0; double cb1 = 0.0; double cb2 = 0.0; double cv0 = 0.0; double cv1 = 0.0; double cv2 = 0.0;
+        int cp0 = lb + 1, cmid, t, cOk = 1, cfBeg = 0, cfNb = 0;
+        double *fk0 = NULL;
+        double *fk1 = NULL;
+        double *fk2 = NULL;
+        if( cp0 <= svN - 1 )
+        {
+            if( TA_ALLIGATOR_OpenAndFill(&cA, sv_h, sv_l, cp0, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &cfBeg, &cfNb, &ca0, &ca1, &ca2) != TA_SUCCESS || !cA ) { cOk = 0; cloneBad = "OpenAndFill rejected the fork leg's prefix"; }
+            cmid = (cp0 + svN) / 2;
+            for( t = cp0; cOk && t < cmid; t++ )
+            {
+                TA_ALLIGATOR_Update(cA, sv_h[t], sv_l[t], &ca0, &ca1, &ca2);
+                if( sv_xtier_ne(ca0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the filled handle left batch before the fork"; }
+                if( sv_xtier_ne(ca1, sv_b1[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the filled handle left batch before the fork"; }
+                if( sv_xtier_ne(ca2, sv_b2[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the filled handle left batch before the fork"; }
+            }
+            if( cOk )
+            {
+                if( TA_ALLIGATOR_Clone(cA, &cB) != TA_SUCCESS || !cB ) { cOk = 0; cloneBad = "clone rejected"; }
+                else if( cB == cA ) { cOk = 0; cloneBad = "clone returned the original"; }
+            }
+            if( cOk )
+            {
+                if( TA_ALLIGATOR_Value(cB, &cv0, &cv1, &cv2) != TA_SUCCESS ) { cOk = 0; cloneBad = "Value rejected the fork"; }
+                if( cOk && (sv_bitne(cv0, ca0)) ) { cOk = 0; cloneBad = "the fork's Value is not the bar it forked at"; }
+                if( cOk && (sv_bitne(cv1, ca1)) ) { cOk = 0; cloneBad = "the fork's Value is not the bar it forked at"; }
+                if( cOk && (sv_bitne(cv2, ca2)) ) { cOk = 0; cloneBad = "the fork's Value is not the bar it forked at"; }
+            }
+            if( cOk && TA_ALLIGATOR_Advance(cB) != TA_SUCCESS ) { cOk = 0; cloneBad = "Advance rejected the fork"; }
+            if( cOk && TA_ALLIGATOR_Advance(cB) != TA_SUCCESS ) { cOk = 0; cloneBad = "Advance rejected the fork"; }
+            if( cOk && !(fk0 = (double *)malloc( sizeof(double) * (size_t)svN )) ) { cOk = 0; cloneBad = "no memory for the fork's outputs"; }
+            if( cOk && !(fk1 = (double *)malloc( sizeof(double) * (size_t)svN )) ) { cOk = 0; cloneBad = "no memory for the fork's outputs"; }
+            if( cOk && !(fk2 = (double *)malloc( sizeof(double) * (size_t)svN )) ) { cOk = 0; cloneBad = "no memory for the fork's outputs"; }
+            for( t = cmid; cOk && t < svN; t++ )
+            {
+                TA_ALLIGATOR_Update(cB, sv_h[t], sv_l[t], &cb0, &cb1, &cb2);
+                fk0[t] = cb0;
+                if( sv_xtier_ne(cb0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the fork left batch"; }
+                fk1[t] = cb1;
+                if( sv_xtier_ne(cb1, sv_b1[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the fork left batch"; }
+                fk2[t] = cb2;
+                if( sv_xtier_ne(cb2, sv_b2[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the fork left batch"; }
+            }
+            for( t = cmid; cOk && t < svN; t++ )
+            {
+                TA_ALLIGATOR_Update(cA, sv_h[t], sv_l[t], &ca0, &ca1, &ca2);
+                if( sv_bitne(ca0, fk0[t]) ) { cOk = 0; cloneBad = "the fork and the original disagree"; }
+                if( sv_xtier_ne(ca0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the original left batch after the fork"; }
+                if( sv_bitne(ca1, fk1[t]) ) { cOk = 0; cloneBad = "the fork and the original disagree"; }
+                if( sv_xtier_ne(ca1, sv_b1[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the original left batch after the fork"; }
+                if( sv_bitne(ca2, fk2[t]) ) { cOk = 0; cloneBad = "the fork and the original disagree"; }
+                if( sv_xtier_ne(ca2, sv_b2[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the original left batch after the fork"; }
+            }
+            free( fk0 );
+            free( fk1 );
+            free( fk2 );
+            cloneChecked = 1; cloneLegs++;
+            if( !cOk ) cloneOk = 0;
+            if( cOk )
+            {
+                int rbA = -1, rnA = -1, rbB = -1, rnB = -1;
+                rangeChecked = 1; rangeLegs++; rangeSites |= 8;
+                if( TA_ALLIGATOR_OutRange( cA, &rbA, &rnA ) != TA_SUCCESS || rbA != svBeg || rnA != svNb ) { rangeOk = 0; cloneBad = "the original's range moved"; }
+                if( TA_ALLIGATOR_OutRange( cB, &rbB, &rnB ) != TA_SUCCESS || rbB != svBeg || rnB != svNb + 2 ) { rangeOk = 0; cloneBad = "the fork's range is not the batch range plus the two bars it counted"; }
+            }
+            if( cA ) TA_ALLIGATOR_Close(cA);
+            if( cB ) TA_ALLIGATOR_Close(cB);
+        }
+    }
+    if( stEq ) { TA_ALLIGATOR_Close(stEq); stEq = NULL; }
+    {
+        int Sidx = lb + (svN - lb) / 3;
+        if( Sidx > lb && Sidx < svN - 1 ) {
+            int svBegS = 0, svNbS = 0;
+            rc = TA_ALLIGATOR(Sidx, svN - 1, sv_h, sv_l, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &svBegS, &svNbS, sv_b0, sv_b1, sv_b2);
+            if( rc == TA_SUCCESS && svNbS > 0 ) {
+                int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                double v0 = 0.0;
+                double v1 = 0.0;
+                double v2 = 0.0;
+                TA_ALLIGATOR_Stream *stA = NULL;
+                TA_RetCode arc = TA_ALLIGATOR_OpenInternal(&stA, sv_h, sv_l, Sidx, svN, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &v0, &v1, &v2);
+                if( arc != TA_SUCCESS || !stA ) ok = 0;
+                if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                if( ok && sv_xtier_ne(v1, sv_b1[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                if( ok && sv_xtier_ne(v2, sv_b2[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 2; bv = sv_b2[(svN - 1) - svBegS]; sv = v2; }
+                if( ok && stA )
+                {
+                    rangeChecked = 1; rangeLegs++; rangeSites |= 4;
+                    rB = -1; rN = -1;
+                    if( TA_ALLIGATOR_OutRange( stA, &rB, &rN ) != TA_SUCCESS || rB != svBegS || rN != svNbS ) rangeOk = 0;
+                }
+                if( stA ) TA_ALLIGATOR_Close(stA);
+                if( !ok ) allOk = 0;
+                (void)badBar; (void)badOut; (void)bv; (void)sv;
+            }
+        }
+    }
+    if( lb >= 1 && lb < svN ) {
+        shortHistChecked = 1;
+        { TA_ALLIGATOR_Stream *stSH = NULL; double sh0 = 0.0; double sh1 = 0.0; double sh2 = 0.0; TA_RetCode shrc = TA_ALLIGATOR_Open(&stSH, sv_h, sv_l, lb, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &sh0, &sh1, &sh2);
+          if( shrc == TA_SUCCESS ) { shortHistOk = 0; shortHistBad = "open accepted a history shorter than one output"; TA_ALLIGATOR_Close(stSH); }
+          else if( shrc != TA_INSUFFICIENT_HISTORY ) { shortHistOk = 0; shortHistBad = "open rejected with the wrong retCode"; }
+          }
+        { TA_ALLIGATOR_Stream *stSF = NULL; int sfB = 0, sfN = 0; TA_RetCode sfrc = TA_ALLIGATOR_OpenAndFill(&stSF, sv_h, sv_l, lb, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &sfB, &sfN, sv_f0, sv_f1, sv_f2);
+          if( sfrc == TA_SUCCESS ) { shortHistOk = 0; shortHistBad = "openAndFill accepted a history shorter than one output"; TA_ALLIGATOR_Close(stSF); }
+          else if( sfrc != TA_INSUFFICIENT_HISTORY ) { shortHistOk = 0; shortHistBad = "openAndFill rejected with the wrong retCode"; }
+          }
+    }
+    if( shortHistChecked && !shortHistOk ) allOk = 0;
+    TA_SetUnstablePeriod(24, 0);
     if( fillChecked && !fillOk ) allOk = 0;
     if( stateChecked && !stateOk ) allOk = 0;
     if( cloneChecked && !cloneOk ) allOk = 0;
@@ -61175,6 +61649,277 @@ static SV_NOINLINE void sv_verify_SAREXT(const char *json, char *resp, int resp_
     pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"fill_bars\":%d,\"ok\":%d,\"peek_checked\":%d,\"peek_ok\":%d,\"peek_reps\":%d,\"peek_rep_ok\":%d,\"peek_rejects\":%d,\"short_history_checked\":%d,\"short_history_ok\":%d,\"short_history_bad\":\"%s\",\"clone_checked\":%d,\"clone_legs\":%d,\"clone_ok\":%d,\"clone_bad\":\"%s\",\"value_checked\":%d,\"value_legs\":%d,\"value_ok\":%d,\"value_bad\":\"%s\",\"benign\":%d,\"vmath\":%d}", fillChecked, fillOk, fillBars, allOk, peekChecked, peekAll, peekReps, peekRepAll, peekRejects, shortHistChecked, shortHistOk, shortHistBad, cloneChecked, cloneLegs, cloneOk, cloneBad, valueChecked, valueLegs, valueOk, valueBad, svZsign, g_svVmath);
 }
 
+static SV_NOINLINE void sv_verify_SHARPE(const char *json, char *resp, int resp_size, int svN, int svK, int svCandle) {
+    (void)svK;
+    (void)svCandle;
+    int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+    double optInRiskFreeRate = json_find_double(json, "optInRiskFreeRate");
+    double optInAnnualization = json_find_double(json, "optInAnnualization");
+    TA_RetCode rc;
+    int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+    int peekChecked = 0;
+    int peekReps = 0, peekRepAll = 1;
+    int peekRejects = 0;
+    TA_RetCode pkRc = TA_SUCCESS;
+    int cloneChecked = 0, cloneOk = 1, cloneLegs = 0;
+    int valueChecked = 0, valueOk = 1, valueLegs = 0;
+    const char *valueBad = "-";
+    const char *cloneBad = "-";
+    int shortHistChecked = 0, shortHistOk = 1;
+    const char *shortHistBad = "-";
+    const char *peekBad = "-";
+    int fillOk = 1, fillChecked = 0, fillBars = 0;
+    int stateChecked = 0, stateOk = 1, stateLegs = 0;
+    const char *stateWhat = "-";
+    TA_SHARPE_Stream *stEq = NULL;
+    int rangeChecked = 0, rangeOk = 1, rangeLegs = 0, rangeSites = 0;
+    int rB = 0, rN = 0;
+    int svZsign = 0;
+    int pref[4]; int pc[4];
+    rc = TA_SHARPE(0, svN - 1, sv_c, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &svBeg, &svNb, sv_b0);
+    lb = TA_SHARPE_Lookback(optInTimePeriod, optInRiskFreeRate, optInAnnualization);
+    if( rc != TA_SUCCESS || svNb <= 0 ) {
+        int openRejects = 0;
+        { TA_SHARPE_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_SHARPE_Open(&st, sv_c, svN, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &v0);
+          if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_SHARPE_Close(st); }
+        snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1,\"vmath\":%d}", (int)rc, svNb, openRejects, openRejects, g_svVmath);
+        return;
+    }
+    {
+        int fBeg = 0, fNb = 0, ft;
+        TA_SHARPE_Stream *stf = NULL;
+        TA_RetCode frc;
+        for( ft = 0; ft < SV_MAXN; ft++ ) {
+           sv_f0[ft] = SV_FILL_CANARY;
+        }
+        frc = TA_SHARPE_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &fBeg, &fNb, sv_f0);
+        fillChecked = 1;
+        if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+        if( fillOk && stf )
+        {
+           double vq0 = 0.0;
+           valueChecked = 1; valueLegs++;
+           if( TA_SHARPE_Value( stf, &vq0 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after OpenAndFill is not the last filled bar: Value rejected a live stream"; }
+           if( sv_bitne(vq0, sv_f0[svNb - 1]) ) { valueOk = 0; valueBad = "Value after OpenAndFill is not the last filled bar"; }
+        }
+        for( ft = 0; fillOk && ft < svNb; ft++ ) {
+            if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            fillBars++;
+        }
+        if( frc == TA_SUCCESS )
+           for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+              if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+           }
+        if( frc == TA_SUCCESS && stf )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 1;
+            rB = -1; rN = -1;
+            if( TA_SHARPE_OutRange( stf, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb ) rangeOk = 0;
+        }
+        if( stf ) TA_SHARPE_Close(stf);
+    }
+    {
+        int alB = 0, alN = 0;
+        TA_SHARPE_Stream *sal = NULL;
+        TA_RetCode alrc = TA_SHARPE_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &alB, &alN, sv_c);
+        if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+        if( sal ) TA_SHARPE_Close(sal);
+    }
+    npref = 0;
+    pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+    for( li = 0; li < 4; li++ ) {
+        int P = pc[li]; int seen = 0, k;
+        if( P < lb + 1 ) P = lb + 1;
+        if( P > svN - 1 ) P = svN - 1;
+        if( P < 1 ) continue;
+        for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+        if( !seen ) pref[npref++] = P;
+    }
+    {
+        double e0 = 0.0;
+        if( TA_SHARPE_Open( &stEq, sv_c, svN, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &e0 ) != TA_SUCCESS ) stEq = NULL;
+    }
+    pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+    for( li = 0; li < npref; li++ ) {
+        int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+        double bv = 0.0, sv = 0.0;
+        TA_SHARPE_Stream *st = NULL;
+        double v0 = 0.0, pk0 = 0.0, rp0 = 0.0;
+        rc = TA_SHARPE_Open(&st, sv_c, P, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &v0);
+        if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+        if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+        if( ok && st )
+        {
+           double vq0 = 0.0;
+           valueChecked = 1; valueLegs++;
+           if( TA_SHARPE_Value( st, &vq0 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after Open is not the last history bar: Value rejected a live stream"; }
+           if( sv_bitne(vq0, v0) ) { valueOk = 0; valueBad = "Value after Open is not the last history bar"; }
+        }
+        for( t = P; ok && t < svN; t++ ) {
+            pkRc = TA_SHARPE_Peek(st, sv_c[t], &pk0);
+            if( pkRc != TA_SUCCESS ) peekRejects++;
+            if( (t % SV_PEEK_EVERY) == 0 )
+            {
+               if( TA_SHARPE_Peek(st, sv_c[t - 1], &rp0) != TA_SUCCESS ) peekRejects++;
+               if( pkRc == TA_SUCCESS && TA_SHARPE_Peek(st, sv_c[t], &rp0) == TA_SUCCESS )
+               {
+                  peekReps++;
+                  if( sv_bitne(rp0, pk0) ) peekRepAll = 0;
+               }
+               else peekRejects++;
+            }
+            TA_SHARPE_Update(st, sv_c[t], &v0);
+            if( pkRc == TA_SUCCESS && (sv_bitne(pk0, v0)) ) pkOk = 0;
+            if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            if( ok )
+            {
+               double vq0 = 0.0;
+               valueChecked = 1; valueLegs++;
+               if( TA_SHARPE_Value( st, &vq0 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after Update is not the bar just committed: Value rejected a live stream"; }
+               if( sv_bitne(vq0, v0) ) { valueOk = 0; valueBad = "Value after Update is not the bar just committed"; }
+            }
+        }
+        if( ok && st && stEq )
+        {
+            stateChecked = 1; stateLegs++;
+            if( sv_steq_TA_SHARPE( st, stEq, &stateWhat, &svZsign ) ) stateOk = 0;
+        }
+        if( ok && st )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 2;
+            rB = -1; rN = -1;
+            if( TA_SHARPE_OutRange( st, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb ) rangeOk = 0;
+        }
+        if( ok && st && TA_SHARPE_Advance( st ) != TA_SUCCESS ) rangeOk = 0;
+        if( ok && st )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 16;
+            rB = -1; rN = -1;
+            if( TA_SHARPE_OutRange( st, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb + 1 ) rangeOk = 0;
+        }
+        if( st ) TA_SHARPE_Close(st);
+        pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+        if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+        if( !pkOk ) peekAll = 0;
+    }
+    if( stEq )
+    {
+        TA_SHARPE_Stream *stPk = NULL; double q0 = 0.0;
+        if( TA_SHARPE_Open( &stPk, sv_c, svN, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &q0 ) == TA_SUCCESS && stPk )
+        {
+            int pi;
+            for( pi = svBeg; pi < svN; pi += SV_PEEK_EVERY )
+            {
+                if( TA_SHARPE_Peek(stPk, sv_c[pi], &q0) == TA_SUCCESS ) peekChecked++;
+                else peekRejects++;
+            }
+            {
+                const char *pkWhat = "-";
+                if( sv_steq_TA_SHARPE( stPk, stEq, &pkWhat, &svZsign ) ) { peekAll = 0; peekBad = pkWhat; }
+            }
+        }
+        if( stPk ) TA_SHARPE_Close(stPk);
+    }
+    {
+        TA_SHARPE_Stream *cA = NULL, *cB = NULL;
+        double ca0 = 0.0; double cb0 = 0.0; double cv0 = 0.0;
+        int cp0 = lb + 1, cmid, t, cOk = 1, cfBeg = 0, cfNb = 0;
+        double *fk0 = NULL;
+        if( cp0 <= svN - 1 )
+        {
+            if( TA_SHARPE_OpenAndFill(&cA, sv_c, cp0, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &cfBeg, &cfNb, &ca0) != TA_SUCCESS || !cA ) { cOk = 0; cloneBad = "OpenAndFill rejected the fork leg's prefix"; }
+            cmid = (cp0 + svN) / 2;
+            for( t = cp0; cOk && t < cmid; t++ )
+            {
+                TA_SHARPE_Update(cA, sv_c[t], &ca0);
+                if( sv_xtier_ne(ca0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the filled handle left batch before the fork"; }
+            }
+            if( cOk )
+            {
+                if( TA_SHARPE_Clone(cA, &cB) != TA_SUCCESS || !cB ) { cOk = 0; cloneBad = "clone rejected"; }
+                else if( cB == cA ) { cOk = 0; cloneBad = "clone returned the original"; }
+            }
+            if( cOk )
+            {
+                if( TA_SHARPE_Value(cB, &cv0) != TA_SUCCESS ) { cOk = 0; cloneBad = "Value rejected the fork"; }
+                if( cOk && (sv_bitne(cv0, ca0)) ) { cOk = 0; cloneBad = "the fork's Value is not the bar it forked at"; }
+            }
+            if( cOk && TA_SHARPE_Advance(cB) != TA_SUCCESS ) { cOk = 0; cloneBad = "Advance rejected the fork"; }
+            if( cOk && TA_SHARPE_Advance(cB) != TA_SUCCESS ) { cOk = 0; cloneBad = "Advance rejected the fork"; }
+            if( cOk && !(fk0 = (double *)malloc( sizeof(double) * (size_t)svN )) ) { cOk = 0; cloneBad = "no memory for the fork's outputs"; }
+            for( t = cmid; cOk && t < svN; t++ )
+            {
+                TA_SHARPE_Update(cB, sv_c[t], &cb0);
+                fk0[t] = cb0;
+                if( sv_xtier_ne(cb0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the fork left batch"; }
+            }
+            for( t = cmid; cOk && t < svN; t++ )
+            {
+                TA_SHARPE_Update(cA, sv_c[t], &ca0);
+                if( sv_bitne(ca0, fk0[t]) ) { cOk = 0; cloneBad = "the fork and the original disagree"; }
+                if( sv_xtier_ne(ca0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the original left batch after the fork"; }
+            }
+            free( fk0 );
+            cloneChecked = 1; cloneLegs++;
+            if( !cOk ) cloneOk = 0;
+            if( cOk )
+            {
+                int rbA = -1, rnA = -1, rbB = -1, rnB = -1;
+                rangeChecked = 1; rangeLegs++; rangeSites |= 8;
+                if( TA_SHARPE_OutRange( cA, &rbA, &rnA ) != TA_SUCCESS || rbA != svBeg || rnA != svNb ) { rangeOk = 0; cloneBad = "the original's range moved"; }
+                if( TA_SHARPE_OutRange( cB, &rbB, &rnB ) != TA_SUCCESS || rbB != svBeg || rnB != svNb + 2 ) { rangeOk = 0; cloneBad = "the fork's range is not the batch range plus the two bars it counted"; }
+            }
+            if( cA ) TA_SHARPE_Close(cA);
+            if( cB ) TA_SHARPE_Close(cB);
+        }
+    }
+    if( stEq ) { TA_SHARPE_Close(stEq); stEq = NULL; }
+    {
+        int Sidx = lb + (svN - lb) / 3;
+        if( Sidx > lb && Sidx < svN - 1 ) {
+            int svBegS = 0, svNbS = 0;
+            rc = TA_SHARPE(Sidx, svN - 1, sv_c, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &svBegS, &svNbS, sv_b0);
+            if( rc == TA_SUCCESS && svNbS > 0 ) {
+                int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                double v0 = 0.0;
+                TA_SHARPE_Stream *stA = NULL;
+                TA_RetCode arc = TA_SHARPE_OpenInternal(&stA, sv_c, Sidx, svN, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &v0);
+                if( arc != TA_SUCCESS || !stA ) ok = 0;
+                if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                if( ok && stA )
+                {
+                    rangeChecked = 1; rangeLegs++; rangeSites |= 4;
+                    rB = -1; rN = -1;
+                    if( TA_SHARPE_OutRange( stA, &rB, &rN ) != TA_SUCCESS || rB != svBegS || rN != svNbS ) rangeOk = 0;
+                }
+                if( stA ) TA_SHARPE_Close(stA);
+                if( !ok ) allOk = 0;
+                (void)badBar; (void)badOut; (void)bv; (void)sv;
+            }
+        }
+    }
+    if( lb >= 1 && lb < svN ) {
+        shortHistChecked = 1;
+        { TA_SHARPE_Stream *stSH = NULL; double sh0 = 0.0; TA_RetCode shrc = TA_SHARPE_Open(&stSH, sv_c, lb, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &sh0);
+          if( shrc == TA_SUCCESS ) { shortHistOk = 0; shortHistBad = "open accepted a history shorter than one output"; TA_SHARPE_Close(stSH); }
+          else if( shrc != TA_INSUFFICIENT_HISTORY ) { shortHistOk = 0; shortHistBad = "open rejected with the wrong retCode"; }
+          }
+        { TA_SHARPE_Stream *stSF = NULL; int sfB = 0, sfN = 0; TA_RetCode sfrc = TA_SHARPE_OpenAndFill(&stSF, sv_c, lb, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &sfB, &sfN, sv_f0);
+          if( sfrc == TA_SUCCESS ) { shortHistOk = 0; shortHistBad = "openAndFill accepted a history shorter than one output"; TA_SHARPE_Close(stSF); }
+          else if( sfrc != TA_INSUFFICIENT_HISTORY ) { shortHistOk = 0; shortHistBad = "openAndFill rejected with the wrong retCode"; }
+          }
+    }
+    if( shortHistChecked && !shortHistOk ) allOk = 0;
+    if( fillChecked && !fillOk ) allOk = 0;
+    if( stateChecked && !stateOk ) allOk = 0;
+    if( cloneChecked && !cloneOk ) allOk = 0;
+    if( valueChecked && !valueOk ) allOk = 0;
+    pos = json_appendf(resp, resp_size, pos, ",\"state_checked\":%d,\"state_legs\":%d,\"state_ok\":%d,\"state_bad\":\"%s\"", stateChecked, stateLegs, stateOk, stateWhat);
+    if( rangeChecked && !rangeOk ) allOk = 0;
+    pos = json_appendf(resp, resp_size, pos, ",\"range_checked\":%d,\"range_legs\":%d,\"range_sites\":%d,\"range_sites_all\":31,\"range_ok\":%d", rangeChecked, rangeLegs, rangeSites, rangeOk);
+    pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"fill_bars\":%d,\"ok\":%d,\"peek_checked\":%d,\"peek_ok\":%d,\"peek_reps\":%d,\"peek_rep_ok\":%d,\"peek_rejects\":%d,\"short_history_checked\":%d,\"short_history_ok\":%d,\"short_history_bad\":\"%s\",\"clone_checked\":%d,\"clone_legs\":%d,\"clone_ok\":%d,\"clone_bad\":\"%s\",\"value_checked\":%d,\"value_legs\":%d,\"value_ok\":%d,\"value_bad\":\"%s\",\"benign\":%d,\"vmath\":%d}", fillChecked, fillOk, fillBars, allOk, peekChecked, peekAll, peekReps, peekRepAll, peekRejects, shortHistChecked, shortHistOk, shortHistBad, cloneChecked, cloneLegs, cloneOk, cloneBad, valueChecked, valueLegs, valueOk, valueBad, svZsign, g_svVmath);
+}
+
 static SV_NOINLINE void sv_verify_SI(const char *json, char *resp, int resp_size, int svN, int svK, int svCandle) {
     (void)svK;
     (void)svCandle;
@@ -62813,6 +63558,277 @@ static SV_NOINLINE void sv_verify_SMI(const char *json, char *resp, int resp_siz
     }
     if( shortHistChecked && !shortHistOk ) allOk = 0;
     TA_SetUnstablePeriod(5, 0);
+    if( fillChecked && !fillOk ) allOk = 0;
+    if( stateChecked && !stateOk ) allOk = 0;
+    if( cloneChecked && !cloneOk ) allOk = 0;
+    if( valueChecked && !valueOk ) allOk = 0;
+    pos = json_appendf(resp, resp_size, pos, ",\"state_checked\":%d,\"state_legs\":%d,\"state_ok\":%d,\"state_bad\":\"%s\"", stateChecked, stateLegs, stateOk, stateWhat);
+    if( rangeChecked && !rangeOk ) allOk = 0;
+    pos = json_appendf(resp, resp_size, pos, ",\"range_checked\":%d,\"range_legs\":%d,\"range_sites\":%d,\"range_sites_all\":31,\"range_ok\":%d", rangeChecked, rangeLegs, rangeSites, rangeOk);
+    pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"fill_bars\":%d,\"ok\":%d,\"peek_checked\":%d,\"peek_ok\":%d,\"peek_reps\":%d,\"peek_rep_ok\":%d,\"peek_rejects\":%d,\"short_history_checked\":%d,\"short_history_ok\":%d,\"short_history_bad\":\"%s\",\"clone_checked\":%d,\"clone_legs\":%d,\"clone_ok\":%d,\"clone_bad\":\"%s\",\"value_checked\":%d,\"value_legs\":%d,\"value_ok\":%d,\"value_bad\":\"%s\",\"benign\":%d,\"vmath\":%d}", fillChecked, fillOk, fillBars, allOk, peekChecked, peekAll, peekReps, peekRepAll, peekRejects, shortHistChecked, shortHistOk, shortHistBad, cloneChecked, cloneLegs, cloneOk, cloneBad, valueChecked, valueLegs, valueOk, valueBad, svZsign, g_svVmath);
+}
+
+static SV_NOINLINE void sv_verify_SORTINO(const char *json, char *resp, int resp_size, int svN, int svK, int svCandle) {
+    (void)svK;
+    (void)svCandle;
+    int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+    double optInMAR = json_find_double(json, "optInMAR");
+    double optInAnnualization = json_find_double(json, "optInAnnualization");
+    TA_RetCode rc;
+    int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+    int peekChecked = 0;
+    int peekReps = 0, peekRepAll = 1;
+    int peekRejects = 0;
+    TA_RetCode pkRc = TA_SUCCESS;
+    int cloneChecked = 0, cloneOk = 1, cloneLegs = 0;
+    int valueChecked = 0, valueOk = 1, valueLegs = 0;
+    const char *valueBad = "-";
+    const char *cloneBad = "-";
+    int shortHistChecked = 0, shortHistOk = 1;
+    const char *shortHistBad = "-";
+    const char *peekBad = "-";
+    int fillOk = 1, fillChecked = 0, fillBars = 0;
+    int stateChecked = 0, stateOk = 1, stateLegs = 0;
+    const char *stateWhat = "-";
+    TA_SORTINO_Stream *stEq = NULL;
+    int rangeChecked = 0, rangeOk = 1, rangeLegs = 0, rangeSites = 0;
+    int rB = 0, rN = 0;
+    int svZsign = 0;
+    int pref[4]; int pc[4];
+    rc = TA_SORTINO(0, svN - 1, sv_c, optInTimePeriod, optInMAR, optInAnnualization, &svBeg, &svNb, sv_b0);
+    lb = TA_SORTINO_Lookback(optInTimePeriod, optInMAR, optInAnnualization);
+    if( rc != TA_SUCCESS || svNb <= 0 ) {
+        int openRejects = 0;
+        { TA_SORTINO_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_SORTINO_Open(&st, sv_c, svN, optInTimePeriod, optInMAR, optInAnnualization, &v0);
+          if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_SORTINO_Close(st); }
+        snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1,\"vmath\":%d}", (int)rc, svNb, openRejects, openRejects, g_svVmath);
+        return;
+    }
+    {
+        int fBeg = 0, fNb = 0, ft;
+        TA_SORTINO_Stream *stf = NULL;
+        TA_RetCode frc;
+        for( ft = 0; ft < SV_MAXN; ft++ ) {
+           sv_f0[ft] = SV_FILL_CANARY;
+        }
+        frc = TA_SORTINO_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInMAR, optInAnnualization, &fBeg, &fNb, sv_f0);
+        fillChecked = 1;
+        if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+        if( fillOk && stf )
+        {
+           double vq0 = 0.0;
+           valueChecked = 1; valueLegs++;
+           if( TA_SORTINO_Value( stf, &vq0 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after OpenAndFill is not the last filled bar: Value rejected a live stream"; }
+           if( sv_bitne(vq0, sv_f0[svNb - 1]) ) { valueOk = 0; valueBad = "Value after OpenAndFill is not the last filled bar"; }
+        }
+        for( ft = 0; fillOk && ft < svNb; ft++ ) {
+            if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            fillBars++;
+        }
+        if( frc == TA_SUCCESS )
+           for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+              if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+           }
+        if( frc == TA_SUCCESS && stf )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 1;
+            rB = -1; rN = -1;
+            if( TA_SORTINO_OutRange( stf, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb ) rangeOk = 0;
+        }
+        if( stf ) TA_SORTINO_Close(stf);
+    }
+    {
+        int alB = 0, alN = 0;
+        TA_SORTINO_Stream *sal = NULL;
+        TA_RetCode alrc = TA_SORTINO_OpenAndFill(&sal, sv_c, svN, optInTimePeriod, optInMAR, optInAnnualization, &alB, &alN, sv_c);
+        if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+        if( sal ) TA_SORTINO_Close(sal);
+    }
+    npref = 0;
+    pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+    for( li = 0; li < 4; li++ ) {
+        int P = pc[li]; int seen = 0, k;
+        if( P < lb + 1 ) P = lb + 1;
+        if( P > svN - 1 ) P = svN - 1;
+        if( P < 1 ) continue;
+        for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+        if( !seen ) pref[npref++] = P;
+    }
+    {
+        double e0 = 0.0;
+        if( TA_SORTINO_Open( &stEq, sv_c, svN, optInTimePeriod, optInMAR, optInAnnualization, &e0 ) != TA_SUCCESS ) stEq = NULL;
+    }
+    pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+    for( li = 0; li < npref; li++ ) {
+        int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+        double bv = 0.0, sv = 0.0;
+        TA_SORTINO_Stream *st = NULL;
+        double v0 = 0.0, pk0 = 0.0, rp0 = 0.0;
+        rc = TA_SORTINO_Open(&st, sv_c, P, optInTimePeriod, optInMAR, optInAnnualization, &v0);
+        if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+        if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+        if( ok && st )
+        {
+           double vq0 = 0.0;
+           valueChecked = 1; valueLegs++;
+           if( TA_SORTINO_Value( st, &vq0 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after Open is not the last history bar: Value rejected a live stream"; }
+           if( sv_bitne(vq0, v0) ) { valueOk = 0; valueBad = "Value after Open is not the last history bar"; }
+        }
+        for( t = P; ok && t < svN; t++ ) {
+            pkRc = TA_SORTINO_Peek(st, sv_c[t], &pk0);
+            if( pkRc != TA_SUCCESS ) peekRejects++;
+            if( (t % SV_PEEK_EVERY) == 0 )
+            {
+               if( TA_SORTINO_Peek(st, sv_c[t - 1], &rp0) != TA_SUCCESS ) peekRejects++;
+               if( pkRc == TA_SUCCESS && TA_SORTINO_Peek(st, sv_c[t], &rp0) == TA_SUCCESS )
+               {
+                  peekReps++;
+                  if( sv_bitne(rp0, pk0) ) peekRepAll = 0;
+               }
+               else peekRejects++;
+            }
+            TA_SORTINO_Update(st, sv_c[t], &v0);
+            if( pkRc == TA_SUCCESS && (sv_bitne(pk0, v0)) ) pkOk = 0;
+            if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            if( ok )
+            {
+               double vq0 = 0.0;
+               valueChecked = 1; valueLegs++;
+               if( TA_SORTINO_Value( st, &vq0 ) != TA_SUCCESS ) { valueOk = 0; valueBad = "Value after Update is not the bar just committed: Value rejected a live stream"; }
+               if( sv_bitne(vq0, v0) ) { valueOk = 0; valueBad = "Value after Update is not the bar just committed"; }
+            }
+        }
+        if( ok && st && stEq )
+        {
+            stateChecked = 1; stateLegs++;
+            if( sv_steq_TA_SORTINO( st, stEq, &stateWhat, &svZsign ) ) stateOk = 0;
+        }
+        if( ok && st )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 2;
+            rB = -1; rN = -1;
+            if( TA_SORTINO_OutRange( st, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb ) rangeOk = 0;
+        }
+        if( ok && st && TA_SORTINO_Advance( st ) != TA_SUCCESS ) rangeOk = 0;
+        if( ok && st )
+        {
+            rangeChecked = 1; rangeLegs++; rangeSites |= 16;
+            rB = -1; rN = -1;
+            if( TA_SORTINO_OutRange( st, &rB, &rN ) != TA_SUCCESS || rB != svBeg || rN != svNb + 1 ) rangeOk = 0;
+        }
+        if( st ) TA_SORTINO_Close(st);
+        pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+        if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+        if( !pkOk ) peekAll = 0;
+    }
+    if( stEq )
+    {
+        TA_SORTINO_Stream *stPk = NULL; double q0 = 0.0;
+        if( TA_SORTINO_Open( &stPk, sv_c, svN, optInTimePeriod, optInMAR, optInAnnualization, &q0 ) == TA_SUCCESS && stPk )
+        {
+            int pi;
+            for( pi = svBeg; pi < svN; pi += SV_PEEK_EVERY )
+            {
+                if( TA_SORTINO_Peek(stPk, sv_c[pi], &q0) == TA_SUCCESS ) peekChecked++;
+                else peekRejects++;
+            }
+            {
+                const char *pkWhat = "-";
+                if( sv_steq_TA_SORTINO( stPk, stEq, &pkWhat, &svZsign ) ) { peekAll = 0; peekBad = pkWhat; }
+            }
+        }
+        if( stPk ) TA_SORTINO_Close(stPk);
+    }
+    {
+        TA_SORTINO_Stream *cA = NULL, *cB = NULL;
+        double ca0 = 0.0; double cb0 = 0.0; double cv0 = 0.0;
+        int cp0 = lb + 1, cmid, t, cOk = 1, cfBeg = 0, cfNb = 0;
+        double *fk0 = NULL;
+        if( cp0 <= svN - 1 )
+        {
+            if( TA_SORTINO_OpenAndFill(&cA, sv_c, cp0, optInTimePeriod, optInMAR, optInAnnualization, &cfBeg, &cfNb, &ca0) != TA_SUCCESS || !cA ) { cOk = 0; cloneBad = "OpenAndFill rejected the fork leg's prefix"; }
+            cmid = (cp0 + svN) / 2;
+            for( t = cp0; cOk && t < cmid; t++ )
+            {
+                TA_SORTINO_Update(cA, sv_c[t], &ca0);
+                if( sv_xtier_ne(ca0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the filled handle left batch before the fork"; }
+            }
+            if( cOk )
+            {
+                if( TA_SORTINO_Clone(cA, &cB) != TA_SUCCESS || !cB ) { cOk = 0; cloneBad = "clone rejected"; }
+                else if( cB == cA ) { cOk = 0; cloneBad = "clone returned the original"; }
+            }
+            if( cOk )
+            {
+                if( TA_SORTINO_Value(cB, &cv0) != TA_SUCCESS ) { cOk = 0; cloneBad = "Value rejected the fork"; }
+                if( cOk && (sv_bitne(cv0, ca0)) ) { cOk = 0; cloneBad = "the fork's Value is not the bar it forked at"; }
+            }
+            if( cOk && TA_SORTINO_Advance(cB) != TA_SUCCESS ) { cOk = 0; cloneBad = "Advance rejected the fork"; }
+            if( cOk && TA_SORTINO_Advance(cB) != TA_SUCCESS ) { cOk = 0; cloneBad = "Advance rejected the fork"; }
+            if( cOk && !(fk0 = (double *)malloc( sizeof(double) * (size_t)svN )) ) { cOk = 0; cloneBad = "no memory for the fork's outputs"; }
+            for( t = cmid; cOk && t < svN; t++ )
+            {
+                TA_SORTINO_Update(cB, sv_c[t], &cb0);
+                fk0[t] = cb0;
+                if( sv_xtier_ne(cb0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the fork left batch"; }
+            }
+            for( t = cmid; cOk && t < svN; t++ )
+            {
+                TA_SORTINO_Update(cA, sv_c[t], &ca0);
+                if( sv_bitne(ca0, fk0[t]) ) { cOk = 0; cloneBad = "the fork and the original disagree"; }
+                if( sv_xtier_ne(ca0, sv_b0[t - svBeg], &svZsign) ) { cOk = 0; cloneBad = "the original left batch after the fork"; }
+            }
+            free( fk0 );
+            cloneChecked = 1; cloneLegs++;
+            if( !cOk ) cloneOk = 0;
+            if( cOk )
+            {
+                int rbA = -1, rnA = -1, rbB = -1, rnB = -1;
+                rangeChecked = 1; rangeLegs++; rangeSites |= 8;
+                if( TA_SORTINO_OutRange( cA, &rbA, &rnA ) != TA_SUCCESS || rbA != svBeg || rnA != svNb ) { rangeOk = 0; cloneBad = "the original's range moved"; }
+                if( TA_SORTINO_OutRange( cB, &rbB, &rnB ) != TA_SUCCESS || rbB != svBeg || rnB != svNb + 2 ) { rangeOk = 0; cloneBad = "the fork's range is not the batch range plus the two bars it counted"; }
+            }
+            if( cA ) TA_SORTINO_Close(cA);
+            if( cB ) TA_SORTINO_Close(cB);
+        }
+    }
+    if( stEq ) { TA_SORTINO_Close(stEq); stEq = NULL; }
+    {
+        int Sidx = lb + (svN - lb) / 3;
+        if( Sidx > lb && Sidx < svN - 1 ) {
+            int svBegS = 0, svNbS = 0;
+            rc = TA_SORTINO(Sidx, svN - 1, sv_c, optInTimePeriod, optInMAR, optInAnnualization, &svBegS, &svNbS, sv_b0);
+            if( rc == TA_SUCCESS && svNbS > 0 ) {
+                int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                double v0 = 0.0;
+                TA_SORTINO_Stream *stA = NULL;
+                TA_RetCode arc = TA_SORTINO_OpenInternal(&stA, sv_c, Sidx, svN, optInTimePeriod, optInMAR, optInAnnualization, &v0);
+                if( arc != TA_SUCCESS || !stA ) ok = 0;
+                if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                if( ok && stA )
+                {
+                    rangeChecked = 1; rangeLegs++; rangeSites |= 4;
+                    rB = -1; rN = -1;
+                    if( TA_SORTINO_OutRange( stA, &rB, &rN ) != TA_SUCCESS || rB != svBegS || rN != svNbS ) rangeOk = 0;
+                }
+                if( stA ) TA_SORTINO_Close(stA);
+                if( !ok ) allOk = 0;
+                (void)badBar; (void)badOut; (void)bv; (void)sv;
+            }
+        }
+    }
+    if( lb >= 1 && lb < svN ) {
+        shortHistChecked = 1;
+        { TA_SORTINO_Stream *stSH = NULL; double sh0 = 0.0; TA_RetCode shrc = TA_SORTINO_Open(&stSH, sv_c, lb, optInTimePeriod, optInMAR, optInAnnualization, &sh0);
+          if( shrc == TA_SUCCESS ) { shortHistOk = 0; shortHistBad = "open accepted a history shorter than one output"; TA_SORTINO_Close(stSH); }
+          else if( shrc != TA_INSUFFICIENT_HISTORY ) { shortHistOk = 0; shortHistBad = "open rejected with the wrong retCode"; }
+          }
+        { TA_SORTINO_Stream *stSF = NULL; int sfB = 0, sfN = 0; TA_RetCode sfrc = TA_SORTINO_OpenAndFill(&stSF, sv_c, lb, optInTimePeriod, optInMAR, optInAnnualization, &sfB, &sfN, sv_f0);
+          if( sfrc == TA_SUCCESS ) { shortHistOk = 0; shortHistBad = "openAndFill accepted a history shorter than one output"; TA_SORTINO_Close(stSF); }
+          else if( sfrc != TA_INSUFFICIENT_HISTORY ) { shortHistOk = 0; shortHistBad = "openAndFill rejected with the wrong retCode"; }
+          }
+    }
+    if( shortHistChecked && !shortHistOk ) allOk = 0;
     if( fillChecked && !fillOk ) allOk = 0;
     if( stateChecked && !stateOk ) allOk = 0;
     if( cloneChecked && !cloneOk ) allOk = 0;
@@ -73666,6 +74682,7 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
     if( fnLen == 6 && strncmp(fn, "TA_ADR", 6) == 0 ) { sv_verify_ADR(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 6 && strncmp(fn, "TA_ADX", 6) == 0 ) { sv_verify_ADX(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 7 && strncmp(fn, "TA_ADXR", 7) == 0 ) { sv_verify_ADXR(json, resp, resp_size, svN, svK, svCandle); return; }
+    if( fnLen == 12 && strncmp(fn, "TA_ALLIGATOR", 12) == 0 ) { sv_verify_ALLIGATOR(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 7 && strncmp(fn, "TA_ALMA", 7) == 0 ) { sv_verify_ALMA(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 5 && strncmp(fn, "TA_AO", 5) == 0 ) { sv_verify_AO(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 6 && strncmp(fn, "TA_APO", 6) == 0 ) { sv_verify_APO(json, resp, resp_size, svN, svK, svCandle); return; }
@@ -73852,12 +74869,14 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
     if( fnLen == 7 && strncmp(fn, "TA_RVOL", 7) == 0 ) { sv_verify_RVOL(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 6 && strncmp(fn, "TA_SAR", 6) == 0 ) { sv_verify_SAR(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 9 && strncmp(fn, "TA_SAREXT", 9) == 0 ) { sv_verify_SAREXT(json, resp, resp_size, svN, svK, svCandle); return; }
+    if( fnLen == 9 && strncmp(fn, "TA_SHARPE", 9) == 0 ) { sv_verify_SHARPE(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 5 && strncmp(fn, "TA_SI", 5) == 0 ) { sv_verify_SI(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 6 && strncmp(fn, "TA_SIN", 6) == 0 ) { sv_verify_SIN(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 7 && strncmp(fn, "TA_SINH", 7) == 0 ) { sv_verify_SINH(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 7 && strncmp(fn, "TA_SKEW", 7) == 0 ) { sv_verify_SKEW(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 6 && strncmp(fn, "TA_SMA", 6) == 0 ) { sv_verify_SMA(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 6 && strncmp(fn, "TA_SMI", 6) == 0 ) { sv_verify_SMI(json, resp, resp_size, svN, svK, svCandle); return; }
+    if( fnLen == 10 && strncmp(fn, "TA_SORTINO", 10) == 0 ) { sv_verify_SORTINO(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 7 && strncmp(fn, "TA_SQRT", 7) == 0 ) { sv_verify_SQRT(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 9 && strncmp(fn, "TA_SQZMOM", 9) == 0 ) { sv_verify_SQZMOM(json, resp, resp_size, svN, svK, svCandle); return; }
     if( fnLen == 6 && strncmp(fn, "TA_STC", 6) == 0 ) { sv_verify_STC(json, resp, resp_size, svN, svK, svCandle); return; }
@@ -75143,6 +76162,148 @@ static void sr_ADXR( const char *json, int endIdx, int optInTimePeriod, char *re
             }
         }
         if( srH2 ) TA_ADXR_Close( srH2 );
+    }
+
+    if( srOk )
+    {
+        g_srKeyUsed[srSlot] = 1;
+        g_srKey[srSlot] = srKey;
+        g_srOpenBars[srSlot] = srOpenBars;
+        g_srFillBars[srSlot] = srFillBars;
+    }
+
+sr_out:
+    *pos = json_appendf(resp, resp_size, *pos,
+        ",\"ride_ok\":%d,\"ride_skip\":%d,\"ride_dedup\":%d,\"ride_open_bars\":%d,\"ride_fill_bars\":%d,\"ride_benign\":%d,\"ride_m\":%d,\"ride_lb\":%d"
+        ",\"ride_rej\":%d,\"ride_rc_batch\":%d,\"ride_rc_open\":%d,\"ride_rc_fill\":%d",
+        srOk, srSkip, srDedup, srOpenBars, srFillBars, srBenign, srM, srLb,
+        srRej, (int)srRcB, (int)srRcO, (int)srRcF);
+    if( !srOk )
+        *pos = json_appendf(resp, resp_size, *pos,
+            ",\"ride_leg\":%d,\"ride_bar\":%d,\"ride_out\":%d,\"ride_batch\":\"%016llx\",\"ride_stream\":\"%016llx\"",
+            srLeg, srBar, srOut, sr_bits(srA), sr_bits(srB));
+}
+
+static void sr_ALLIGATOR( const char *json, int endIdx, int optInJawPeriod, int optInJawShift, int optInTeethPeriod, int optInTeethShift, int optInLipsPeriod, int optInLipsShift, char *resp, int resp_size, int *pos )
+{
+    int srLb = -1, srM = 0, srAvail, srT, srK, srCmp;
+    int srSkip = 0, srDedup = 0, srOk = 1, srBenign = 0;
+    int srOpenBars = 0, srFillBars = 0;
+    int srLeg = 0, srBar = -1, srOut = -1;
+    double srA = 0.0, srB = 0.0;
+    int srBeg = 0, srNb = 0, srSlot = 0, srRej = 0;
+    unsigned long long srKey;
+    TA_RetCode srRc, srRcB = TA_SUCCESS, srRcO = TA_SUCCESS, srRcF = TA_SUCCESS;
+
+    if( !sr_gate(json) ) return;
+
+    srLb = TA_ALLIGATOR_Lookback( optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift );
+    srAvail = json_find_int(json, "use_preloaded") && g_refN > 0 ? g_refN : endIdx + 1;
+    { int _c = sr_count_array(json, "inHigh"); if( _c >= 0 && _c < srAvail ) srAvail = _c; }
+    { int _c = sr_count_array(json, "inLow"); if( _c >= 0 && _c < srAvail ) srAvail = _c; }
+    srM = srLb >= 0 ? 2 * srLb + 10 : srAvail;
+    if( srM > srAvail ) srM = srAvail;
+    if( srM > SR_MAX_BARS ) { srSkip = 1; goto sr_out; }
+    if( srM < 1 ) { srSkip = 2; goto sr_out; }
+    if( srLb >= 0 && srM < srLb + 2 ) { srSkip = 3; goto sr_out; }
+    if( !sr_finite(g_inBuf0, srM) || !sr_finite(g_inBuf1, srM) || 0 ) { srSkip = 4; goto sr_out; }
+
+    srKey = sr_ambient(fuzz_hash_init());
+    srKey = fuzz_hash_bytes(srKey, "TA_ALLIGATOR", 12);
+    srKey = fuzz_hash_bytes(srKey, &srM, sizeof(srM));
+    srKey = fuzz_hash_bytes(srKey, &optInJawPeriod, sizeof(optInJawPeriod));
+    srKey = fuzz_hash_bytes(srKey, &optInJawShift, sizeof(optInJawShift));
+    srKey = fuzz_hash_bytes(srKey, &optInTeethPeriod, sizeof(optInTeethPeriod));
+    srKey = fuzz_hash_bytes(srKey, &optInTeethShift, sizeof(optInTeethShift));
+    srKey = fuzz_hash_bytes(srKey, &optInLipsPeriod, sizeof(optInLipsPeriod));
+    srKey = fuzz_hash_bytes(srKey, &optInLipsShift, sizeof(optInLipsShift));
+    srKey = fuzz_hash_bytes(srKey, g_inBuf0, (unsigned long)srM * sizeof(double));
+    srKey = fuzz_hash_bytes(srKey, g_inBuf1, (unsigned long)srM * sizeof(double));
+    srKey = fuzz_hash_fin(srKey);
+    srSlot = (int)(srKey % (unsigned long long)SR_SEEN_N);
+    if( g_srKeyUsed[srSlot] && g_srKey[srSlot] == srKey )
+    {
+        srDedup = 1;
+        srOpenBars = g_srOpenBars[srSlot];
+        srFillBars = g_srFillBars[srSlot];
+        goto sr_out;
+    }
+
+    srRc = TA_ALLIGATOR( 0, srM - 1, g_inBuf0, g_inBuf1, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &srBeg, &srNb, sr_b0, sr_b1, sr_b2 );
+    if( srRc != TA_SUCCESS )
+    {
+        TA_ALLIGATOR_Stream *srHR = NULL;
+        double srO0 = 0.0;
+        double srO1 = 0.0;
+        double srO2 = 0.0;
+        int srRBeg = 0, srRNb = 0;
+        srRcB = srRc;
+        srRcO = TA_ALLIGATOR_Open( &srHR, g_inBuf0, g_inBuf1, srM, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &srO0, &srO1, &srO2 );
+        if( srHR ) TA_ALLIGATOR_Close( srHR );
+        srHR = NULL;
+        srRcF = TA_ALLIGATOR_OpenAndFill( &srHR, g_inBuf0, g_inBuf1, srM, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &srRBeg, &srRNb, sr_f0, sr_f1, sr_f2 );
+        if( srHR ) TA_ALLIGATOR_Close( srHR );
+        srCmp = srRcO == srRcB;
+        if( srCmp ) srRej++;
+        if( !srCmp ) { srOk = 0; srLeg = 3; }
+        srCmp = srRcF == srRcB;
+        if( srCmp ) srRej++;
+        if( !srCmp ) { srOk = 0; srLeg = 3; }
+        goto sr_out;
+    }
+    if( srLb < 0 ) { srSkip = 7; goto sr_out; }
+    if( srNb <= 0 ) { srSkip = 5; goto sr_out; }
+    if( srBeg != srLb ) { srSkip = 6; goto sr_out; }
+
+    {
+        TA_ALLIGATOR_Stream *srH = NULL;
+        double srO0 = 0.0;
+        double srO1 = 0.0;
+        double srO2 = 0.0;
+        srRc = TA_ALLIGATOR_Open( &srH, g_inBuf0, g_inBuf1, srLb + 1, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &srO0, &srO1, &srO2 );
+        if( srRc != TA_SUCCESS || !srH ) { srOk = 0; srLeg = 1; srBar = srLb; }
+        if( srOk )
+        {
+            srCmp = 1;
+            if( srCmp && sv_xtier_ne(sr_b0[srLb - srBeg], srO0, &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srLb - srBeg]; srB = srO0; }
+            if( srCmp && sv_xtier_ne(sr_b1[srLb - srBeg], srO1, &srBenign) ) { srCmp = 0; srOut = 1; srA = sr_b1[srLb - srBeg]; srB = srO1; }
+            if( srCmp && sv_xtier_ne(sr_b2[srLb - srBeg], srO2, &srBenign) ) { srCmp = 0; srOut = 2; srA = sr_b2[srLb - srBeg]; srB = srO2; }
+            if( srCmp ) srOpenBars++;
+            if( !srCmp ) { srOk = 0; srLeg = 1; srBar = srLb; }
+            for( srT = srLb + 1; srOk && srT < srM; srT++ )
+            {
+                srRc = TA_ALLIGATOR_Update( srH, g_inBuf0[srT], g_inBuf1[srT], &srO0, &srO1, &srO2 );
+                if( srRc != TA_SUCCESS ) { srOk = 0; srLeg = 1; srBar = srT; break; }
+                srCmp = 1;
+                if( srCmp && sv_xtier_ne(sr_b0[srT - srBeg], srO0, &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srT - srBeg]; srB = srO0; }
+                if( srCmp && sv_xtier_ne(sr_b1[srT - srBeg], srO1, &srBenign) ) { srCmp = 0; srOut = 1; srA = sr_b1[srT - srBeg]; srB = srO1; }
+                if( srCmp && sv_xtier_ne(sr_b2[srT - srBeg], srO2, &srBenign) ) { srCmp = 0; srOut = 2; srA = sr_b2[srT - srBeg]; srB = srO2; }
+                if( srCmp ) srOpenBars++;
+                if( !srCmp ) { srOk = 0; srLeg = 1; srBar = srT; }
+            }
+        }
+        if( srH ) TA_ALLIGATOR_Close( srH );
+    }
+
+    if( srOk )
+    {
+        TA_ALLIGATOR_Stream *srH2 = NULL;
+        int srFBeg = 0, srFNb = 0;
+        srRc = TA_ALLIGATOR_OpenAndFill( &srH2, g_inBuf0, g_inBuf1, srM, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &srFBeg, &srFNb, sr_f0, sr_f1, sr_f2 );
+        if( srRc != TA_SUCCESS || !srH2 || srFBeg != srBeg || srFNb != srNb ) { srOk = 0; srLeg = 2; srBar = -1; }
+        if( srOk )
+        {
+            for( srK = 0; srOk && srK < srNb; srK++ )
+            {
+                srCmp = 1;
+                if( srCmp && sv_xtier_ne(sr_b0[srK], sr_f0[srK], &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srK]; srB = sr_f0[srK]; }
+                if( srCmp && sv_xtier_ne(sr_b1[srK], sr_f1[srK], &srBenign) ) { srCmp = 0; srOut = 1; srA = sr_b1[srK]; srB = sr_f1[srK]; }
+                if( srCmp && sv_xtier_ne(sr_b2[srK], sr_f2[srK], &srBenign) ) { srCmp = 0; srOut = 2; srA = sr_b2[srK]; srB = sr_f2[srK]; }
+                if( srCmp ) srFillBars++;
+                if( !srCmp ) { srOk = 0; srLeg = 2; srBar = srBeg + srK; }
+            }
+        }
+        if( srH2 ) TA_ALLIGATOR_Close( srH2 );
     }
 
     if( srOk )
@@ -99143,6 +100304,133 @@ sr_out:
             srLeg, srBar, srOut, sr_bits(srA), sr_bits(srB));
 }
 
+static void sr_SHARPE( const char *json, int endIdx, int optInTimePeriod, double optInRiskFreeRate, double optInAnnualization, char *resp, int resp_size, int *pos )
+{
+    int srLb = -1, srM = 0, srAvail, srT, srK, srCmp;
+    int srSkip = 0, srDedup = 0, srOk = 1, srBenign = 0;
+    int srOpenBars = 0, srFillBars = 0;
+    int srLeg = 0, srBar = -1, srOut = -1;
+    double srA = 0.0, srB = 0.0;
+    int srBeg = 0, srNb = 0, srSlot = 0, srRej = 0;
+    unsigned long long srKey;
+    TA_RetCode srRc, srRcB = TA_SUCCESS, srRcO = TA_SUCCESS, srRcF = TA_SUCCESS;
+
+    if( !sr_gate(json) ) return;
+
+    srLb = TA_SHARPE_Lookback( optInTimePeriod, optInRiskFreeRate, optInAnnualization );
+    srAvail = json_find_int(json, "use_preloaded") && g_refN > 0 ? g_refN : endIdx + 1;
+    { int _c = sr_count_array(json, "inReal"); if( _c >= 0 && _c < srAvail ) srAvail = _c; }
+    srM = srLb >= 0 ? 2 * srLb + 10 : srAvail;
+    if( srM > srAvail ) srM = srAvail;
+    if( srM > SR_MAX_BARS ) { srSkip = 1; goto sr_out; }
+    if( srM < 1 ) { srSkip = 2; goto sr_out; }
+    if( srLb >= 0 && srM < srLb + 2 ) { srSkip = 3; goto sr_out; }
+    if( !sr_finite(g_inBuf0, srM) || 0 ) { srSkip = 4; goto sr_out; }
+
+    srKey = sr_ambient(fuzz_hash_init());
+    srKey = fuzz_hash_bytes(srKey, "TA_SHARPE", 9);
+    srKey = fuzz_hash_bytes(srKey, &srM, sizeof(srM));
+    srKey = fuzz_hash_bytes(srKey, &optInTimePeriod, sizeof(optInTimePeriod));
+    srKey = fuzz_hash_bytes(srKey, &optInRiskFreeRate, sizeof(optInRiskFreeRate));
+    srKey = fuzz_hash_bytes(srKey, &optInAnnualization, sizeof(optInAnnualization));
+    srKey = fuzz_hash_bytes(srKey, g_inBuf0, (unsigned long)srM * sizeof(double));
+    srKey = fuzz_hash_fin(srKey);
+    srSlot = (int)(srKey % (unsigned long long)SR_SEEN_N);
+    if( g_srKeyUsed[srSlot] && g_srKey[srSlot] == srKey )
+    {
+        srDedup = 1;
+        srOpenBars = g_srOpenBars[srSlot];
+        srFillBars = g_srFillBars[srSlot];
+        goto sr_out;
+    }
+
+    srRc = TA_SHARPE( 0, srM - 1, g_inBuf0, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &srBeg, &srNb, sr_b0 );
+    if( srRc != TA_SUCCESS )
+    {
+        TA_SHARPE_Stream *srHR = NULL;
+        double srO0 = 0.0;
+        int srRBeg = 0, srRNb = 0;
+        srRcB = srRc;
+        srRcO = TA_SHARPE_Open( &srHR, g_inBuf0, srM, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &srO0 );
+        if( srHR ) TA_SHARPE_Close( srHR );
+        srHR = NULL;
+        srRcF = TA_SHARPE_OpenAndFill( &srHR, g_inBuf0, srM, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &srRBeg, &srRNb, sr_f0 );
+        if( srHR ) TA_SHARPE_Close( srHR );
+        srCmp = srRcO == srRcB;
+        if( srCmp ) srRej++;
+        if( !srCmp ) { srOk = 0; srLeg = 3; }
+        srCmp = srRcF == srRcB;
+        if( srCmp ) srRej++;
+        if( !srCmp ) { srOk = 0; srLeg = 3; }
+        goto sr_out;
+    }
+    if( srLb < 0 ) { srSkip = 7; goto sr_out; }
+    if( srNb <= 0 ) { srSkip = 5; goto sr_out; }
+    if( srBeg != srLb ) { srSkip = 6; goto sr_out; }
+
+    {
+        TA_SHARPE_Stream *srH = NULL;
+        double srO0 = 0.0;
+        srRc = TA_SHARPE_Open( &srH, g_inBuf0, srLb + 1, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &srO0 );
+        if( srRc != TA_SUCCESS || !srH ) { srOk = 0; srLeg = 1; srBar = srLb; }
+        if( srOk )
+        {
+            srCmp = 1;
+            if( srCmp && sv_xtier_ne(sr_b0[srLb - srBeg], srO0, &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srLb - srBeg]; srB = srO0; }
+            if( srCmp ) srOpenBars++;
+            if( !srCmp ) { srOk = 0; srLeg = 1; srBar = srLb; }
+            for( srT = srLb + 1; srOk && srT < srM; srT++ )
+            {
+                srRc = TA_SHARPE_Update( srH, g_inBuf0[srT], &srO0 );
+                if( srRc != TA_SUCCESS ) { srOk = 0; srLeg = 1; srBar = srT; break; }
+                srCmp = 1;
+                if( srCmp && sv_xtier_ne(sr_b0[srT - srBeg], srO0, &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srT - srBeg]; srB = srO0; }
+                if( srCmp ) srOpenBars++;
+                if( !srCmp ) { srOk = 0; srLeg = 1; srBar = srT; }
+            }
+        }
+        if( srH ) TA_SHARPE_Close( srH );
+    }
+
+    if( srOk )
+    {
+        TA_SHARPE_Stream *srH2 = NULL;
+        int srFBeg = 0, srFNb = 0;
+        srRc = TA_SHARPE_OpenAndFill( &srH2, g_inBuf0, srM, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &srFBeg, &srFNb, sr_f0 );
+        if( srRc != TA_SUCCESS || !srH2 || srFBeg != srBeg || srFNb != srNb ) { srOk = 0; srLeg = 2; srBar = -1; }
+        if( srOk )
+        {
+            for( srK = 0; srOk && srK < srNb; srK++ )
+            {
+                srCmp = 1;
+                if( srCmp && sv_xtier_ne(sr_b0[srK], sr_f0[srK], &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srK]; srB = sr_f0[srK]; }
+                if( srCmp ) srFillBars++;
+                if( !srCmp ) { srOk = 0; srLeg = 2; srBar = srBeg + srK; }
+            }
+        }
+        if( srH2 ) TA_SHARPE_Close( srH2 );
+    }
+
+    if( srOk )
+    {
+        g_srKeyUsed[srSlot] = 1;
+        g_srKey[srSlot] = srKey;
+        g_srOpenBars[srSlot] = srOpenBars;
+        g_srFillBars[srSlot] = srFillBars;
+    }
+
+sr_out:
+    *pos = json_appendf(resp, resp_size, *pos,
+        ",\"ride_ok\":%d,\"ride_skip\":%d,\"ride_dedup\":%d,\"ride_open_bars\":%d,\"ride_fill_bars\":%d,\"ride_benign\":%d,\"ride_m\":%d,\"ride_lb\":%d"
+        ",\"ride_rej\":%d,\"ride_rc_batch\":%d,\"ride_rc_open\":%d,\"ride_rc_fill\":%d",
+        srOk, srSkip, srDedup, srOpenBars, srFillBars, srBenign, srM, srLb,
+        srRej, (int)srRcB, (int)srRcO, (int)srRcF);
+    if( !srOk )
+        *pos = json_appendf(resp, resp_size, *pos,
+            ",\"ride_leg\":%d,\"ride_bar\":%d,\"ride_out\":%d,\"ride_batch\":\"%016llx\",\"ride_stream\":\"%016llx\"",
+            srLeg, srBar, srOut, sr_bits(srA), sr_bits(srB));
+}
+
 static void sr_SI( const char *json, int endIdx, double optInLimitMove, char *resp, int resp_size, int *pos )
 {
     int srLb = -1, srM = 0, srAvail, srT, srK, srCmp;
@@ -99887,6 +101175,133 @@ static void sr_SMI( const char *json, int endIdx, int optInTimePeriod, int optIn
             }
         }
         if( srH2 ) TA_SMI_Close( srH2 );
+    }
+
+    if( srOk )
+    {
+        g_srKeyUsed[srSlot] = 1;
+        g_srKey[srSlot] = srKey;
+        g_srOpenBars[srSlot] = srOpenBars;
+        g_srFillBars[srSlot] = srFillBars;
+    }
+
+sr_out:
+    *pos = json_appendf(resp, resp_size, *pos,
+        ",\"ride_ok\":%d,\"ride_skip\":%d,\"ride_dedup\":%d,\"ride_open_bars\":%d,\"ride_fill_bars\":%d,\"ride_benign\":%d,\"ride_m\":%d,\"ride_lb\":%d"
+        ",\"ride_rej\":%d,\"ride_rc_batch\":%d,\"ride_rc_open\":%d,\"ride_rc_fill\":%d",
+        srOk, srSkip, srDedup, srOpenBars, srFillBars, srBenign, srM, srLb,
+        srRej, (int)srRcB, (int)srRcO, (int)srRcF);
+    if( !srOk )
+        *pos = json_appendf(resp, resp_size, *pos,
+            ",\"ride_leg\":%d,\"ride_bar\":%d,\"ride_out\":%d,\"ride_batch\":\"%016llx\",\"ride_stream\":\"%016llx\"",
+            srLeg, srBar, srOut, sr_bits(srA), sr_bits(srB));
+}
+
+static void sr_SORTINO( const char *json, int endIdx, int optInTimePeriod, double optInMAR, double optInAnnualization, char *resp, int resp_size, int *pos )
+{
+    int srLb = -1, srM = 0, srAvail, srT, srK, srCmp;
+    int srSkip = 0, srDedup = 0, srOk = 1, srBenign = 0;
+    int srOpenBars = 0, srFillBars = 0;
+    int srLeg = 0, srBar = -1, srOut = -1;
+    double srA = 0.0, srB = 0.0;
+    int srBeg = 0, srNb = 0, srSlot = 0, srRej = 0;
+    unsigned long long srKey;
+    TA_RetCode srRc, srRcB = TA_SUCCESS, srRcO = TA_SUCCESS, srRcF = TA_SUCCESS;
+
+    if( !sr_gate(json) ) return;
+
+    srLb = TA_SORTINO_Lookback( optInTimePeriod, optInMAR, optInAnnualization );
+    srAvail = json_find_int(json, "use_preloaded") && g_refN > 0 ? g_refN : endIdx + 1;
+    { int _c = sr_count_array(json, "inReal"); if( _c >= 0 && _c < srAvail ) srAvail = _c; }
+    srM = srLb >= 0 ? 2 * srLb + 10 : srAvail;
+    if( srM > srAvail ) srM = srAvail;
+    if( srM > SR_MAX_BARS ) { srSkip = 1; goto sr_out; }
+    if( srM < 1 ) { srSkip = 2; goto sr_out; }
+    if( srLb >= 0 && srM < srLb + 2 ) { srSkip = 3; goto sr_out; }
+    if( !sr_finite(g_inBuf0, srM) || 0 ) { srSkip = 4; goto sr_out; }
+
+    srKey = sr_ambient(fuzz_hash_init());
+    srKey = fuzz_hash_bytes(srKey, "TA_SORTINO", 10);
+    srKey = fuzz_hash_bytes(srKey, &srM, sizeof(srM));
+    srKey = fuzz_hash_bytes(srKey, &optInTimePeriod, sizeof(optInTimePeriod));
+    srKey = fuzz_hash_bytes(srKey, &optInMAR, sizeof(optInMAR));
+    srKey = fuzz_hash_bytes(srKey, &optInAnnualization, sizeof(optInAnnualization));
+    srKey = fuzz_hash_bytes(srKey, g_inBuf0, (unsigned long)srM * sizeof(double));
+    srKey = fuzz_hash_fin(srKey);
+    srSlot = (int)(srKey % (unsigned long long)SR_SEEN_N);
+    if( g_srKeyUsed[srSlot] && g_srKey[srSlot] == srKey )
+    {
+        srDedup = 1;
+        srOpenBars = g_srOpenBars[srSlot];
+        srFillBars = g_srFillBars[srSlot];
+        goto sr_out;
+    }
+
+    srRc = TA_SORTINO( 0, srM - 1, g_inBuf0, optInTimePeriod, optInMAR, optInAnnualization, &srBeg, &srNb, sr_b0 );
+    if( srRc != TA_SUCCESS )
+    {
+        TA_SORTINO_Stream *srHR = NULL;
+        double srO0 = 0.0;
+        int srRBeg = 0, srRNb = 0;
+        srRcB = srRc;
+        srRcO = TA_SORTINO_Open( &srHR, g_inBuf0, srM, optInTimePeriod, optInMAR, optInAnnualization, &srO0 );
+        if( srHR ) TA_SORTINO_Close( srHR );
+        srHR = NULL;
+        srRcF = TA_SORTINO_OpenAndFill( &srHR, g_inBuf0, srM, optInTimePeriod, optInMAR, optInAnnualization, &srRBeg, &srRNb, sr_f0 );
+        if( srHR ) TA_SORTINO_Close( srHR );
+        srCmp = srRcO == srRcB;
+        if( srCmp ) srRej++;
+        if( !srCmp ) { srOk = 0; srLeg = 3; }
+        srCmp = srRcF == srRcB;
+        if( srCmp ) srRej++;
+        if( !srCmp ) { srOk = 0; srLeg = 3; }
+        goto sr_out;
+    }
+    if( srLb < 0 ) { srSkip = 7; goto sr_out; }
+    if( srNb <= 0 ) { srSkip = 5; goto sr_out; }
+    if( srBeg != srLb ) { srSkip = 6; goto sr_out; }
+
+    {
+        TA_SORTINO_Stream *srH = NULL;
+        double srO0 = 0.0;
+        srRc = TA_SORTINO_Open( &srH, g_inBuf0, srLb + 1, optInTimePeriod, optInMAR, optInAnnualization, &srO0 );
+        if( srRc != TA_SUCCESS || !srH ) { srOk = 0; srLeg = 1; srBar = srLb; }
+        if( srOk )
+        {
+            srCmp = 1;
+            if( srCmp && sv_xtier_ne(sr_b0[srLb - srBeg], srO0, &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srLb - srBeg]; srB = srO0; }
+            if( srCmp ) srOpenBars++;
+            if( !srCmp ) { srOk = 0; srLeg = 1; srBar = srLb; }
+            for( srT = srLb + 1; srOk && srT < srM; srT++ )
+            {
+                srRc = TA_SORTINO_Update( srH, g_inBuf0[srT], &srO0 );
+                if( srRc != TA_SUCCESS ) { srOk = 0; srLeg = 1; srBar = srT; break; }
+                srCmp = 1;
+                if( srCmp && sv_xtier_ne(sr_b0[srT - srBeg], srO0, &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srT - srBeg]; srB = srO0; }
+                if( srCmp ) srOpenBars++;
+                if( !srCmp ) { srOk = 0; srLeg = 1; srBar = srT; }
+            }
+        }
+        if( srH ) TA_SORTINO_Close( srH );
+    }
+
+    if( srOk )
+    {
+        TA_SORTINO_Stream *srH2 = NULL;
+        int srFBeg = 0, srFNb = 0;
+        srRc = TA_SORTINO_OpenAndFill( &srH2, g_inBuf0, srM, optInTimePeriod, optInMAR, optInAnnualization, &srFBeg, &srFNb, sr_f0 );
+        if( srRc != TA_SUCCESS || !srH2 || srFBeg != srBeg || srFNb != srNb ) { srOk = 0; srLeg = 2; srBar = -1; }
+        if( srOk )
+        {
+            for( srK = 0; srOk && srK < srNb; srK++ )
+            {
+                srCmp = 1;
+                if( srCmp && sv_xtier_ne(sr_b0[srK], sr_f0[srK], &srBenign) ) { srCmp = 0; srOut = 0; srA = sr_b0[srK]; srB = sr_f0[srK]; }
+                if( srCmp ) srFillBars++;
+                if( !srCmp ) { srOk = 0; srLeg = 2; srBar = srBeg + srK; }
+            }
+        }
+        if( srH2 ) TA_SORTINO_Close( srH2 );
     }
 
     if( srOk )
@@ -105779,6 +107194,119 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d", usedFloat);
 #ifndef TA_REF_SERVE
         sr_ADXR( json, endIdx, optInTimePeriod, resp, resp_size, &pos );
+#endif /* TA_REF_SERVE */
+        pos = json_appendf(resp, resp_size, pos, "}");
+    }
+    else if ( methodLen == 12 && strncmp(method, "TA_ALLIGATOR", 12) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(2, 1);
+        } else {
+            json_find_double_array(json, "inHigh", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inLow", g_inBuf1, MAX_ARRAY_SIZE);
+        }
+        int optInJawPeriod = json_find_int(json, "optInJawPeriod");
+        int optInJawShift = json_find_int(json, "optInJawShift");
+        int optInTeethPeriod = json_find_int(json, "optInTeethPeriod");
+        int optInTeethShift = json_find_int(json, "optInTeethShift");
+        int optInLipsPeriod = json_find_int(json, "optInLipsPeriod");
+        int optInLipsShift = json_find_int(json, "optInLipsShift");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(2, 1);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_ALLIGATOR(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            optInJawPeriod,
+            optInJawShift,
+            optInTeethPeriod,
+            optInTeethShift,
+            optInLipsPeriod,
+            optInLipsShift,
+            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_ALLIGATOR_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            double _openOut2 = 0;
+            rc = TA_ALLIGATOR_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &_openOut0, &_openOut1, &_openOut2 );
+            if( _h ) TA_ALLIGATOR_Close( _h );
+        }
+        else {
+            TA_ALLIGATOR_Stream *_h = NULL;
+            rc = TA_ALLIGATOR_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2 );
+            if( _h ) TA_ALLIGATOR_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+                _oh = fuzz_hash_bytes(_oh, g_outBuf1, (unsigned long)outNBElement * sizeof(double));
+                _oh = fuzz_hash_bytes(_oh, g_outBuf2, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            int _hp = json_appendf(resp, resp_size, 0, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"", (int)rc, outBegIdx, outNBElement, _oh);
+#ifndef TA_REF_SERVE
+            sr_ALLIGATOR( json, endIdx, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, resp, resp_size, &_hp );
+#endif /* TA_REF_SERVE */
+            json_appendf(resp, resp_size, _hp, "}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            rc = TA_S_ALLIGATOR(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                optInJawPeriod,
+                optInJawShift,
+                optInTeethPeriod,
+                optInTeethShift,
+                optInLipsPeriod,
+                optInLipsShift,
+                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal2\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf2, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d", usedFloat);
+#ifndef TA_REF_SERVE
+        sr_ALLIGATOR( json, endIdx, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, resp, resp_size, &pos );
 #endif /* TA_REF_SERVE */
         pos = json_appendf(resp, resp_size, pos, "}");
     }
@@ -123046,6 +124574,98 @@ static void handle_request(const char *json, char *resp, int resp_size) {
 #endif /* TA_REF_SERVE */
         pos = json_appendf(resp, resp_size, pos, "}");
     }
+    else if ( methodLen == 9 && strncmp(method, "TA_SHARPE", 9) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(1, 0);
+        } else {
+            json_find_double_array(json, "inReal", g_inBuf0, MAX_ARRAY_SIZE);
+        }
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        double optInRiskFreeRate = json_find_double(json, "optInRiskFreeRate");
+        double optInAnnualization = json_find_double(json, "optInAnnualization");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(1, 0);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_SHARPE(
+            startIdx, endIdx,
+            g_inBuf0,
+            optInTimePeriod,
+            optInRiskFreeRate,
+            optInAnnualization,
+            &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SHARPE_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SHARPE_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &_openOut0 );
+            if( _h ) TA_SHARPE_Close( _h );
+        }
+        else {
+            TA_SHARPE_Stream *_h = NULL;
+            rc = TA_SHARPE_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInRiskFreeRate, optInAnnualization, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SHARPE_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            int _hp = json_appendf(resp, resp_size, 0, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"", (int)rc, outBegIdx, outNBElement, _oh);
+#ifndef TA_REF_SERVE
+            sr_SHARPE( json, endIdx, optInTimePeriod, optInRiskFreeRate, optInAnnualization, resp, resp_size, &_hp );
+#endif /* TA_REF_SERVE */
+            json_appendf(resp, resp_size, _hp, "}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            rc = TA_S_SHARPE(
+                startIdx, endIdx,
+                g_sinBuf0,
+                optInTimePeriod,
+                optInRiskFreeRate,
+                optInAnnualization,
+                &outBegIdx, &outNBElement, g_outBuf0);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d", usedFloat);
+#ifndef TA_REF_SERVE
+        sr_SHARPE( json, endIdx, optInTimePeriod, optInRiskFreeRate, optInAnnualization, resp, resp_size, &pos );
+#endif /* TA_REF_SERVE */
+        pos = json_appendf(resp, resp_size, pos, "}");
+    }
     else if ( methodLen == 5 && strncmp(method, "TA_SI", 5) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
         int endIdx = json_find_int(json, "endIdx");
@@ -123586,6 +125206,98 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d", usedFloat);
 #ifndef TA_REF_SERVE
         sr_SMI( json, endIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, resp, resp_size, &pos );
+#endif /* TA_REF_SERVE */
+        pos = json_appendf(resp, resp_size, pos, "}");
+    }
+    else if ( methodLen == 10 && strncmp(method, "TA_SORTINO", 10) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(1, 0);
+        } else {
+            json_find_double_array(json, "inReal", g_inBuf0, MAX_ARRAY_SIZE);
+        }
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        double optInMAR = json_find_double(json, "optInMAR");
+        double optInAnnualization = json_find_double(json, "optInAnnualization");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(1, 0);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_SORTINO(
+            startIdx, endIdx,
+            g_inBuf0,
+            optInTimePeriod,
+            optInMAR,
+            optInAnnualization,
+            &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SORTINO_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_SORTINO_Open( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInMAR, optInAnnualization, &_openOut0 );
+            if( _h ) TA_SORTINO_Close( _h );
+        }
+        else {
+            TA_SORTINO_Stream *_h = NULL;
+            rc = TA_SORTINO_OpenAndFill( &_h, g_inBuf0, endIdx + 1, optInTimePeriod, optInMAR, optInAnnualization, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_SORTINO_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            int _hp = json_appendf(resp, resp_size, 0, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"", (int)rc, outBegIdx, outNBElement, _oh);
+#ifndef TA_REF_SERVE
+            sr_SORTINO( json, endIdx, optInTimePeriod, optInMAR, optInAnnualization, resp, resp_size, &_hp );
+#endif /* TA_REF_SERVE */
+            json_appendf(resp, resp_size, _hp, "}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            rc = TA_S_SORTINO(
+                startIdx, endIdx,
+                g_sinBuf0,
+                optInTimePeriod,
+                optInMAR,
+                optInAnnualization,
+                &outBegIdx, &outNBElement, g_outBuf0);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d", usedFloat);
+#ifndef TA_REF_SERVE
+        sr_SORTINO( json, endIdx, optInTimePeriod, optInMAR, optInAnnualization, resp, resp_size, &pos );
 #endif /* TA_REF_SERVE */
         pos = json_appendf(resp, resp_size, pos, "}");
     }
@@ -127218,6 +128930,17 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
+    else if ( methodLen == 21 && strncmp(method, "TA_ALLIGATOR_Lookback", 21) == 0 ) {
+        int optInJawPeriod = json_find_int(json, "optInJawPeriod");
+        int optInJawShift = json_find_int(json, "optInJawShift");
+        int optInTeethPeriod = json_find_int(json, "optInTeethPeriod");
+        int optInTeethShift = json_find_int(json, "optInTeethShift");
+        int optInLipsPeriod = json_find_int(json, "optInLipsPeriod");
+        int optInLipsShift = json_find_int(json, "optInLipsShift");
+        int lookback = TA_ALLIGATOR_Lookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
     else if ( methodLen == 16 && strncmp(method, "TA_ALMA_Lookback", 16) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         double optInSigma = json_find_double(json, "optInSigma");
@@ -128338,6 +130061,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
+    else if ( methodLen == 18 && strncmp(method, "TA_SHARPE_Lookback", 18) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        double optInRiskFreeRate = json_find_double(json, "optInRiskFreeRate");
+        double optInAnnualization = json_find_double(json, "optInAnnualization");
+        int lookback = TA_SHARPE_Lookback(optInTimePeriod, optInRiskFreeRate, optInAnnualization);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
     else if ( methodLen == 14 && strncmp(method, "TA_SI_Lookback", 14) == 0 ) {
         double optInLimitMove = json_find_double(json, "optInLimitMove");
         int lookback = TA_SI_Lookback(optInLimitMove);
@@ -128372,6 +130103,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
         int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
         int lookback = TA_SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
+    else if ( methodLen == 19 && strncmp(method, "TA_SORTINO_Lookback", 19) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        double optInMAR = json_find_double(json, "optInMAR");
+        double optInAnnualization = json_find_double(json, "optInAnnualization");
+        int lookback = TA_SORTINO_Lookback(optInTimePeriod, optInMAR, optInAnnualization);
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
@@ -128639,6 +130378,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ADR\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ADX\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ADXR\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_ALLIGATOR\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ALMA\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_AO\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_APO\"");
@@ -128825,12 +130565,14 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"TA_RVOL\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SAR\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SAREXT\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_SHARPE\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SI\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SIN\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SINH\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SKEW\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SMA\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SMI\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_SORTINO\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SQRT\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SQZMOM\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_STC\"");
@@ -128943,6 +130685,11 @@ static void handle_request(const char *json, char *resp, int resp_size) {
     else if ( methodLen == 14 && strncmp(method, "TA_GetFuncInfo", 14) == 0 ) {
         handle_TA_GetFuncInfo(json, resp, resp_size);
     }
+#ifndef TA_REF_SERVE
+    else if ( methodLen == 20 && strncmp(method, "TA_GetFuncAttributes", 20) == 0 ) {
+        handle_TA_GetFuncAttributes(json, resp, resp_size);
+    }
+#endif /* TA_REF_SERVE */
     else if ( methodLen == 24 && strncmp(method, "TA_GetInputParameterInfo", 24) == 0 ) {
         handle_TA_GetInputParameterInfo(json, resp, resp_size);
     }

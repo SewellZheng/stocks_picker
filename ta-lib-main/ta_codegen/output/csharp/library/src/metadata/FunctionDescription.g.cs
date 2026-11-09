@@ -120,6 +120,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Histogram</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -212,6 +215,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -251,6 +256,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -281,6 +289,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -347,6 +358,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -392,6 +406,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -407,6 +423,7 @@ public static class FunctionDescription
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[25]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -442,6 +459,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -456,6 +475,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[25]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -491,6 +511,137 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- ALLIGATOR -->
+	<FinancialFunction>
+		<Abbreviation>ALLIGATOR</Abbreviation>
+		<ShortDescription>Williams Alligator</ShortDescription>
+		<GroupId>Overlap Studies</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+			<Flag>Display Shift</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Jaw Period</Name>
+				<ShortDescription>Time period for the jaw line</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>13</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Jaw Shift</Name>
+				<ShortDescription>Bars ahead the jaw line is drawn</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>0</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>0</SuggestedStart>
+					<SuggestedEnd>30</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>8</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Teeth Period</Name>
+				<ShortDescription>Time period for the teeth line</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>8</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Teeth Shift</Name>
+				<ShortDescription>Bars ahead the teeth line is drawn</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>0</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>0</SuggestedStart>
+					<SuggestedEnd>30</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>5</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Lips Period</Name>
+				<ShortDescription>Time period for the lips line</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>1</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>1</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>5</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Lips Shift</Name>
+				<ShortDescription>Bars ahead the lips line is drawn</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>0</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>0</SuggestedStart>
+					<SuggestedEnd>30</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>3</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outJaw</Name>
+				<Flags>
+					<Flag>Line</Flag>
+					<Flag>Display Shift</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outTeeth</Name>
+				<Flags>
+					<Flag>Line</Flag>
+					<Flag>Display Shift</Flag>
+				</Flags>
+			</OutputArgument>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outLips</Name>
+				<Flags>
+					<Flag>Line</Flag>
+					<Flag>Display Shift</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -621,6 +772,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Histogram</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -681,6 +835,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -695,6 +852,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outAroonUp"":{""levels"":[30,70]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -726,6 +884,8 @@ public static class FunctionDescription
 				<Name>outAroonDown</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -733,6 +893,8 @@ public static class FunctionDescription
 				<Name>outAroonUp</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -778,6 +940,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -833,6 +998,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -861,6 +1029,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -888,6 +1059,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -938,6 +1112,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -950,7 +1126,6 @@ public static class FunctionDescription
 		<ShortDescription>Average Deviation</ShortDescription>
 		<GroupId>Price Transform</GroupId>
 		<Flags>
-			<Flag>Overlap</Flag>
 			<Flag>Streaming</Flag>
 		</Flags>
 		<RequiredInputArguments>
@@ -1185,6 +1360,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1230,6 +1408,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1268,6 +1449,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -1282,6 +1466,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[-100,100]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -1317,6 +1502,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4117,6 +4305,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4159,6 +4350,7 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Negative</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4174,6 +4366,7 @@ public static class FunctionDescription
 			<Flag>Streaming</Flag>
 			<Flag>Uses Transcendental</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[38.2,61.8]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -4209,6 +4402,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4259,6 +4454,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4396,6 +4593,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4411,6 +4611,7 @@ public static class FunctionDescription
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[-50,50]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4438,6 +4639,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4479,6 +4683,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4547,6 +4754,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4592,6 +4802,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4619,6 +4832,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4647,6 +4862,7 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4661,6 +4877,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[10,90]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -4714,6 +4931,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4755,6 +4974,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4782,6 +5004,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4840,6 +5065,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -4914,6 +5142,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5054,6 +5285,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Histogram</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5096,6 +5330,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 					<Flag>Display Shift</Flag>
 				</Flags>
 			</OutputArgument>
@@ -5147,6 +5384,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5192,6 +5431,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5299,6 +5541,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5340,6 +5585,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5389,6 +5636,9 @@ public static class FunctionDescription
 				<Name>outBullPower</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -5396,6 +5646,9 @@ public static class FunctionDescription
 				<Name>outBearPower</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5424,6 +5677,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5471,6 +5726,9 @@ public static class FunctionDescription
 				<Name>outFisher</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -5478,6 +5736,9 @@ public static class FunctionDescription
 				<Name>outTrigger</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5504,6 +5765,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5546,6 +5810,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5802,6 +6069,7 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5830,6 +6098,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5858,6 +6128,9 @@ public static class FunctionDescription
 				<Name>outInPhase</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -5865,6 +6138,9 @@ public static class FunctionDescription
 				<Name>outQuadrature</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5893,6 +6169,8 @@ public static class FunctionDescription
 				<Name>outSine</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -5900,6 +6178,8 @@ public static class FunctionDescription
 				<Name>outLeadSine</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -5971,6 +6251,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[0.2,0.8]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -5991,6 +6272,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -6101,6 +6384,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[30,70]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Open</Type>
@@ -6132,6 +6416,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -6281,6 +6567,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outK"":{""levels"":[20,80]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -6354,13 +6641,19 @@ public static class FunctionDescription
 				<Name>outK</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
 				<Type>Double Array</Type>
 				<Name>outD</Name>
 				<Flags>
-					<Flag>Line</Flag>
+					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -6368,6 +6661,9 @@ public static class FunctionDescription
 				<Name>outJ</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -6514,6 +6810,9 @@ public static class FunctionDescription
 				<Name>outKST</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -6521,6 +6820,9 @@ public static class FunctionDescription
 				<Name>outKSTSignal</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -6679,6 +6981,9 @@ public static class FunctionDescription
 				<Name>outKST</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -6686,6 +6991,9 @@ public static class FunctionDescription
 				<Name>outKSTSignal</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -6728,6 +7036,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -6807,6 +7118,9 @@ public static class FunctionDescription
 				<Name>outKVO</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -6814,6 +7128,9 @@ public static class FunctionDescription
 				<Name>outKVOSignal</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -6898,6 +7215,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -6981,6 +7301,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7010,6 +7333,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7039,6 +7365,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7155,6 +7484,9 @@ public static class FunctionDescription
 				<Name>outMACD</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -7162,6 +7494,9 @@ public static class FunctionDescription
 				<Name>outMACDSignal</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -7169,6 +7504,9 @@ public static class FunctionDescription
 				<Name>outMACDHist</Name>
 				<Flags>
 					<Flag>Histogram</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7254,6 +7592,9 @@ public static class FunctionDescription
 				<Name>outMACD</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -7261,6 +7602,9 @@ public static class FunctionDescription
 				<Name>outMACDSignal</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -7268,6 +7612,9 @@ public static class FunctionDescription
 				<Name>outMACDHist</Name>
 				<Flags>
 					<Flag>Histogram</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7309,6 +7656,9 @@ public static class FunctionDescription
 				<Name>outMACD</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -7316,6 +7666,9 @@ public static class FunctionDescription
 				<Name>outMACDSignal</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -7323,6 +7676,9 @@ public static class FunctionDescription
 				<Name>outMACDHist</Name>
 				<Flags>
 					<Flag>Histogram</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7337,6 +7693,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outMACDV"":{""levels"":[-150,-50,50,150]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -7398,6 +7755,9 @@ public static class FunctionDescription
 				<Name>outMACDV</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -7405,6 +7765,9 @@ public static class FunctionDescription
 				<Name>outMACDVSignal</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -7412,6 +7775,9 @@ public static class FunctionDescription
 				<Name>outMACDVHist</Name>
 				<Flags>
 					<Flag>Histogram</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7512,6 +7878,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7526,6 +7894,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[26.5,27]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -7570,6 +7939,7 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7718,6 +8088,7 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Bar Index</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -7849,6 +8220,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[20,80]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -7888,6 +8260,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8059,6 +8433,7 @@ public static class FunctionDescription
 				<Name>outInteger</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Bar Index</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8149,6 +8524,7 @@ public static class FunctionDescription
 				<Name>outMinIdx</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Bar Index</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -8156,6 +8532,7 @@ public static class FunctionDescription
 				<Name>outMaxIdx</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Bar Index</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8206,6 +8583,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8252,6 +8631,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8293,6 +8674,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8323,6 +8707,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8374,6 +8761,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8406,6 +8795,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8437,6 +8828,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8451,6 +8845,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[0,1]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -8512,6 +8907,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8612,6 +9010,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8662,6 +9062,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8708,6 +9110,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8769,6 +9173,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8784,6 +9191,7 @@ public static class FunctionDescription
 			<Flag>Streaming</Flag>
 			<Flag>Uses Transcendental</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[-0.9,-0.2,0.2,0.9]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -8832,6 +9240,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8864,6 +9275,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8924,6 +9337,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -8956,6 +9372,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9001,6 +9420,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9087,6 +9509,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9129,6 +9554,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9171,6 +9599,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9213,6 +9643,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9282,6 +9714,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9297,6 +9731,7 @@ public static class FunctionDescription
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[30,70]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -9324,6 +9759,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9379,6 +9816,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9437,6 +9876,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9479,6 +9920,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9540,7 +9983,7 @@ public static class FunctionDescription
 				<Type>Double Array</Type>
 				<Name>outReal</Name>
 				<Flags>
-					<Flag>Line</Flag>
+					<Flag>Dots</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9686,7 +10129,80 @@ public static class FunctionDescription
 				<Type>Double Array</Type>
 				<Name>outReal</Name>
 				<Flags>
+					<Flag>Dots</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- SHARPE -->
+	<FinancialFunction>
+		<Abbreviation>SHARPE</Abbreviation>
+		<ShortDescription>Rolling Sharpe Ratio</ShortDescription>
+		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Number of returns in the window</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Risk-Free Rate per Bar</Name>
+				<ShortDescription>Risk-free return per bar</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>-3.000000e+37</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>8</Precision>
+					<SuggestedStart>0.000000e+0</SuggestedStart>
+					<SuggestedEnd>1.000000e-3</SuggestedEnd>
+					<SuggestedIncrement>1.000000e-4</SuggestedIncrement>
+				</Range>
+				<DefaultValue>0.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Annualization</Name>
+				<ShortDescription>Bars per year</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>1.000000e+0</SuggestedStart>
+					<SuggestedEnd>3.650000e+2</SuggestedEnd>
+					<SuggestedIncrement>1.000000e+0</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2.520000e+2</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9741,6 +10257,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9768,6 +10287,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9796,6 +10318,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9837,6 +10362,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -9894,6 +10422,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outSMI"":{""levels"":[-40,40]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -9968,6 +10497,9 @@ public static class FunctionDescription
 				<Name>outSMI</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -9975,6 +10507,82 @@ public static class FunctionDescription
 				<Name>outSMISignal</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
+	<!-- SORTINO -->
+	<FinancialFunction>
+		<Abbreviation>SORTINO</Abbreviation>
+		<ShortDescription>Rolling Sortino Ratio</ShortDescription>
+		<GroupId>Statistic Functions</GroupId>
+		<Flags>
+			<Flag>Streaming</Flag>
+			<Flag>Can Output NaN or +/-Inf</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>Double Array</Type>
+				<Name>inReal</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OptionalInputArguments>
+			<OptionalInputArgument>
+				<Name>Time Period</Name>
+				<ShortDescription>Number of returns in the window</ShortDescription>
+				<Type>Integer</Type>
+				<Range>
+					<Minimum>2</Minimum>
+					<Maximum>100000</Maximum>
+					<SuggestedStart>4</SuggestedStart>
+					<SuggestedEnd>200</SuggestedEnd>
+					<SuggestedIncrement>1</SuggestedIncrement>
+				</Range>
+				<DefaultValue>20</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Minimum Acceptable Return per Bar</Name>
+				<ShortDescription>Minimum acceptable return per bar</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>-3.000000e+37</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>8</Precision>
+					<SuggestedStart>0.000000e+0</SuggestedStart>
+					<SuggestedEnd>1.000000e-3</SuggestedEnd>
+					<SuggestedIncrement>1.000000e-4</SuggestedIncrement>
+				</Range>
+				<DefaultValue>0.000000e+0</DefaultValue>
+			</OptionalInputArgument>
+			<OptionalInputArgument>
+				<Name>Annualization</Name>
+				<ShortDescription>Bars per year</ShortDescription>
+				<Type>Double</Type>
+				<Range>
+					<Minimum>0.000000e+0</Minimum>
+					<Maximum>3.000000e+37</Maximum>
+					<Precision>2</Precision>
+					<SuggestedStart>1.000000e+0</SuggestedStart>
+					<SuggestedEnd>3.650000e+2</SuggestedEnd>
+					<SuggestedIncrement>1.000000e+0</SuggestedIncrement>
+				</Range>
+				<DefaultValue>2.520000e+2</DefaultValue>
+			</OptionalInputArgument>
+		</OptionalInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10003,6 +10611,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10121,6 +10731,9 @@ public static class FunctionDescription
 				<Name>outMomentum</Name>
 				<Flags>
 					<Flag>Histogram</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -10143,6 +10756,7 @@ public static class FunctionDescription
 			<Flag>Unstable Period</Flag>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[25,75]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -10196,6 +10810,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10251,6 +10867,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10265,6 +10884,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outSlowK"":{""levels"":[20,80]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -10337,7 +10957,10 @@ public static class FunctionDescription
 				<Type>Double Array</Type>
 				<Name>outSlowK</Name>
 				<Flags>
-					<Flag>Dashed Line</Flag>
+					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -10345,6 +10968,9 @@ public static class FunctionDescription
 				<Name>outSlowD</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10359,6 +10985,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outFastK"":{""levels"":[20,80]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -10413,13 +11040,18 @@ public static class FunctionDescription
 				<Name>outFastK</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
 				<Type>Double Array</Type>
 				<Name>outFastD</Name>
 				<Flags>
-					<Flag>Line</Flag>
+					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10434,6 +11066,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outFastK"":{""levels"":[20,80]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>Double Array</Type>
@@ -10493,13 +11126,18 @@ public static class FunctionDescription
 				<Name>outFastK</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
 				<Type>Double Array</Type>
 				<Name>outFastD</Name>
 				<Flags>
-					<Flag>Line</Flag>
+					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10530,6 +11168,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10571,6 +11212,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10636,6 +11280,7 @@ public static class FunctionDescription
 				<Name>outSupertrend</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Segmented</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -10643,6 +11288,8 @@ public static class FunctionDescription
 				<Name>outTrend</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10686,6 +11333,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10743,6 +11393,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10874,6 +11527,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10959,6 +11615,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -10986,6 +11645,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11063,6 +11725,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11148,6 +11812,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11244,6 +11911,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11293,6 +11963,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[30,70]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -11354,6 +12025,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11409,6 +12083,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11450,6 +12126,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11556,6 +12234,9 @@ public static class FunctionDescription
 				<Name>outPlusVI</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -11563,6 +12244,9 @@ public static class FunctionDescription
 				<Name>outMinusVI</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11686,6 +12370,9 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11700,6 +12387,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outWT1"":{""levels"":[-60,-53,53,60]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -11761,6 +12449,9 @@ public static class FunctionDescription
 				<Name>outWT1</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -11768,6 +12459,9 @@ public static class FunctionDescription
 				<Name>outWT2</Name>
 				<Flags>
 					<Flag>Dashed Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11817,6 +12511,7 @@ public static class FunctionDescription
 		<Flags>
 			<Flag>Streaming</Flag>
 		</Flags>
+		<Attributes><![CDATA[{""outputs"":{""outReal"":{""levels"":[-80,-20]}}}]]></Attributes>
 		<RequiredInputArguments>
 			<RequiredInputArgument>
 				<Type>High</Type>
@@ -11852,6 +12547,8 @@ public static class FunctionDescription
 				<Name>outReal</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Negative</Flag>
+					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -11967,6 +12664,8 @@ public static class FunctionDescription
 				<Name>outTrend</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Positive</Flag>
+					<Flag>Negative</Flag>
 				</Flags>
 			</OutputArgument>
 			<OutputArgument>
@@ -11974,6 +12673,7 @@ public static class FunctionDescription
 				<Name>outPivotIdx</Name>
 				<Flags>
 					<Flag>Line</Flag>
+					<Flag>Bar Index</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>

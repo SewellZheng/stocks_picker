@@ -93,9 +93,9 @@ jobs:
   # is not Java", and running anything needs the nightly's toolchain anyway.
   #
   # Three units, because they fail independently and a PR can break exactly one:
-  # the shipped library, the hand-written suites under it (NOT generated — the
-  # generator preserves them, so an API change has to be carried into them by
-  # hand, which is what #326 missed), and the server, whose Java comes from a
+  # the shipped library, the suites under it (hand-written except ExamplesTest,
+  # which ta_codegen writes; the generator preserves the rest, so an API change
+  # has to be carried into them by hand, which is what #326 missed), and the server, whose Java comes from a
   # different emitter (server_gen.rs) than the library's (java_stream.rs).
   # Nothing else compares those two emitters' idea of the same API.
   #
@@ -118,9 +118,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install JDK
-        uses: ./.github/actions/apt-install
-        with:
-          packages: openjdk-21-jdk
+        uses: ./.github/actions/image-jdk
 
       # The committed sources, not a fresh `generate`: regen-check already
       # proves those are the same tree, and this job then needs no cargo at all.
@@ -149,7 +147,7 @@ jobs:
           cd ta_codegen/output/java
           if ! javac --release 17 -nowarn -cp /tmp/ta-java-main -d /tmp/ta-java-test \
                $(find library/src/test -name '*.java'); then
-            echo "::error::The hand-written Java suites no longer compile against the generated library. These are NOT generated (ta_codegen/output/java/library/src/test/) — an API change has to be carried into them by hand."
+            echo "::error::The Java suites no longer compile against the generated library. Except ExamplesTest.java (ta_codegen: java_examples.rs), they are NOT generated (ta_codegen/output/java/library/src/test/): an API change has to be carried into them by hand."
             exit 1
           fi
 
@@ -203,7 +201,7 @@ jobs:
         run: |
           if ! dotnet build ta_codegen/output/csharp/library/test/TALib.Test.csproj \
                -c Release --nologo; then
-            echo "::error::The hand-written C# suites no longer compile against the generated library. These are NOT generated (ta_codegen/output/csharp/library/test/) — an API change has to be carried into them by hand."
+            echo "::error::The C# suites no longer compile against the generated library. Except ExamplesTest.g.cs (ta_codegen: csharp_examples.rs), they are NOT generated (ta_codegen/output/csharp/library/test/): an API change has to be carried into them by hand."
             exit 1
           fi
 
@@ -245,6 +243,19 @@ jobs:
             exit 1
           fi
 
+      # The three tsc steps never run the emitted JavaScript. This loads both entry
+      # points through CommonJS, which proves require(esm) (no top-level await) and
+      # evaluates every module, so an initializer that throws or a declaration read
+      # before its module ran fails here rather than in the nightly's tarball run.
+      - name: Load the compiled package through CommonJS
+        shell: bash
+        working-directory: ta_codegen/output/ts
+        run: |
+          if ! node -e "require('./library/dist/index.js'); require('./library/dist/metadata/index.js')"; then
+            echo "::error::The compiled TypeScript package does not load through require(): a top-level await, a module-evaluation error or a broken emitted import. Fix the emitter or src/runtime/, never dist/."
+            exit 1
+          fi
+
       - name: Type-check the hand-written tests against it
         shell: bash
         working-directory: ta_codegen/output/ts
@@ -282,7 +293,7 @@ jobs:
   #
   # CMake + gcc, both preinstalled. Release is what ships; the tools build with
   # the library, so ta_regtest and ta_bench are covered too. RUNNING them stays
-  # in the nightly.
+  # in the nightly; ta_refdata is the exception, at about a second.
   c-compiles:
     name: Generated C compiles
     runs-on: ubuntu-latest
@@ -300,6 +311,11 @@ jobs:
             echo "::error::The generated C does not compile. Fix the emitter (ta_codegen/generator/src/backends/c*.rs), never the generated file. 'assignment of member ... in read-only object' inside a TA_<N>_Peek means the peek frame writes a state field the emitter failed to localize."
             exit 1
           fi
+
+      # A change to a function's numerics must come with its page's reference
+      # CSV; the nightly keeps the same check for direct pushes to dev.
+      - name: Check the function pages' reference data
+        run: python3 scripts/build.py refdata --check
 
       # The SONAME is the only thing telling a loader that one build can stand in
       # for another, and nothing enforces it -- a removed symbol fails loudly at

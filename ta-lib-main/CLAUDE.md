@@ -83,10 +83,11 @@ the last word:
 Do not hand-edit **generated** files under `ta_codegen/output/` — they are
 overwritten on the next `generate`. The converse trap: some hand-written source
 lives under `output/` too (the Java shared types, `Core.java` outside the GENCODE
-markers, the test suites, the C# `TALib.csproj`, `pom.xml`, the TypeScript
-`library/src/runtime/`, `library/README.md` and tooling `package.json`); the
-generator preserves those and never overwrites them. Of `pom.xml` and
-`TALib.csproj` only the version is written for you, by `scripts/sync.py`.
+markers, the test suites except the generated `ExamplesTest`, the C#
+`TALib.csproj`, `pom.xml`, the TypeScript `library/src/runtime/`,
+`library/README.md` and tooling `package.json`); the generator preserves those
+and never overwrites them. Of `pom.xml` and `TALib.csproj` only the version is
+written for you, by `scripts/sync.py`.
 
 ### API tiers and entry points
 
@@ -95,7 +96,12 @@ validates array lengths and throws on a rejection, and `<N>_Impl` — the
 transcribed numerics, package-private in Java, `internal` in C#, and in
 TypeScript exported from its module, tagged `@internal` and left out of the
 package barrel, keeping C's `RetCode` + out-param shape. There is no third,
-catch-and-convert tier.
+catch-and-convert tier. TypeScript's public tier has two signatures: the exported
+function maps its options object onto `<n>Positional` (`@internal`), which holds
+the checks in C's argument order and is what the metadata API and cross-calls
+call. TypeScript adds that one word to the vocabulary below: there, each public
+entry point is its `Positional` function behind that wrapper, so the aliasing
+guard sits in `<n>OpenAndFillPositional`.
 
 **Two suffixes, one meaning each:**
 
@@ -127,8 +133,8 @@ PRV  <N>_OpenImpl(sp, in, sIdx, params, outBeg, outNb, outs, outStride)
 ```
 
 A fused `_OpenImpl` (C, Rust) runs in a private frame compiled for hardware
-FMA or in a plain one, picked per call on the running CPU. Kept on one path: C
-candlesticks; Rust stateless maps and `HT_TRENDMODE`. In C the public
+FMA or in a plain one, picked per call on the running CPU. Kept on one path: Rust
+stateless maps and `HT_TRENDMODE`. In C the public
 `Open` has an FMA frame of its own that declares the sinks: a sink a frame is
 handed is stored on every bar, with everything that feeds it, where a local one
 is computed once. Both seams still call the shared frame, one per stride; drop

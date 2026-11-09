@@ -459,16 +459,13 @@ public partial class Core
       int i = 0;
       int historyLen = inHigh.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 ) {
-         return RetCode.OutOfRangeStartIndex;
-      }
       if( historyLen > IndexMax + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
       if( inLow.Length != inHigh.Length ) {
          return RetCode.BadParam;
       }
-      if( startIdx > endIdx ) {
+      if( startIdx >= historyLen ) {
          outBegIdx = 0;
          outNBElement = 0;
          return RetCode.InsufficientHistory;
@@ -511,10 +508,10 @@ public partial class Core
    {
       MedpriceStream sp = new MedpriceStream(this);
       double[] sink_outReal = new double[1];
-      RetCode retCode = MedpriceOpenImpl(sp, inHigh, inLow, startIdx, out int outBegIdx, out int outNBElement, sink_outReal, 0);
-      sp.outRangeBegIdx = outBegIdx;
-      sp.outRangeCount = outNBElement;
+      RetCode retCode = MedpriceOpenImpl(sp, inHigh, inLow, startIdx + 1 < inHigh.Length ? inHigh.Length - 1 : startIdx, out int outBegIdx, out int outNBElement, sink_outReal, 0);
       if( retCode == RetCode.Success ) {
+         sp.outRangeBegIdx = Math.Max(startIdx, MedpriceLookback());
+         sp.outRangeCount = inHigh.Length - sp.outRangeBegIdx;
          return sp;
       }
       if( retCode == RetCode.InsufficientHistory ) {
@@ -534,16 +531,18 @@ public partial class Core
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
    /// <returns>The open stream handle.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MedpriceLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MedpriceLookback(...) + 1</c> bars, an
+   /// empty one included — which is what a null array becomes, since a span
+   /// cannot be null.</exception>
    /// <exception cref="System.ArgumentException">The input series have different lengths.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public MedpriceStream MedpriceOpen( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow )
    {
-      if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MEDPRICE open: history is empty", RetCode.OutOfRangeStartIndex);
       if( inHigh.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MEDPRICE open: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
-      if( inLow.IsEmpty ) throw new TALibArgumentException("MEDPRICE open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( !inHigh.IsEmpty ) {
+         if( inLow.IsEmpty ) throw new TALibArgumentException("MEDPRICE open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      }
       RequireHistoryLength("MEDPRICE", "open", "inLow", inLow.Length, inHigh.Length);
       return MedpriceOpenInternal(inHigh, inLow, 0);
    }
@@ -567,18 +566,20 @@ public partial class Core
    /// <param name="outReal">Midpoint of each bar's high and low. Must hold at least <c>historyLen -
    /// MedpriceLookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
-   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MedpriceLookback(...) + 1</c> bars.</exception>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MedpriceLookback(...) + 1</c> bars, an
+   /// empty one included — which is what a null array becomes, since a span
+   /// cannot be null.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
    /// have different lengths, an output is shorter than the values the fill
    /// writes, or an output array aliases an input or another output.</exception>
-   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
-   /// cannot be null — or it is longer than <see cref="Core.IndexMax"/> + 1, the
-   /// two index faults an opener can have (rules rS1 and rS2).</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is longer than <see cref="Core.IndexMax"/> + 1, the one index
+   /// fault an opener can have (rule rS2).</exception>
    public MedpriceStream MedpriceOpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, Span<double> outReal )
    {
-      if( inHigh.IsEmpty ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MEDPRICE openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
       if( inHigh.Length > IndexMax + 1 ) throw new TALibArgumentOutOfRangeException(nameof(inHigh), "MEDPRICE openAndFill: history is longer than IndexMax + 1", RetCode.OutOfRangeEndIndex);
-      if( inLow.IsEmpty ) throw new TALibArgumentException("MEDPRICE openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( !inHigh.IsEmpty ) {
+         if( inLow.IsEmpty ) throw new TALibArgumentException("MEDPRICE openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      }
       int guardOutLen = OpenFillCount("MEDPRICE", "openAndFill", inHigh.Length, MedpriceLookback());
       RequireHistoryLength("MEDPRICE", "openAndFill", "inLow", inLow.Length, inHigh.Length);
       RequireFillLength("MEDPRICE", "openAndFill", "outReal", outReal.Length, guardOutLen);

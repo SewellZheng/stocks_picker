@@ -82,6 +82,8 @@ verbatim (batch) or idiomatically recast (streaming, #278).
 | `name` | string | yes | Parameter name (e.g., `inReal`, `inReal0`) |
 | `type` | string | yes | Data type (see [Input Types](#input-types)) |
 | `price_components` | list | for `price` | OHLCV components for a `price`-type input (e.g., `[high, low, close]`) |
+| `series` | `price` \| `ramp` \| `sine` | no | `real` only, default `price`: what every example, doctest and reference-data run feeds the input. `price` is the reference price column for the reference data (the close; high and low for `inReal0`/`inReal1`) and the price-scale sine for the examples and doctests; `ramp` is a straight line from `lo` to `hi` over the bars; `sine` is the examples' default sine mapped into `[lo, hi]`. `ramp` and `sine` need `domain` |
+| `domain` | [lo, hi] | with `ramp`/`sine` | The range a `ramp` or `sine` series spans, on the scale the function is defined on (ACOS: `[-1, 1]`; the price-scale sine is `[90, 110]`) |
 
 ### Optional input parameters
 
@@ -103,6 +105,7 @@ verbatim (batch) or idiomatically recast (streaming, #278).
 | `name` | string | yes | Parameter name (e.g., `outReal`) |
 | `type` | string | yes | Data type: `real` or `integer` |
 | `flags` | list | no | Display/value hints (see [Output Flags](#output-flags)) |
+| `levels` | [number, ...] | no | `real` only: reference levels, author-published or common practice (RSI: `[30, 70]`), drawn as horizontal rules; not bounds. Finite and strictly ascending. Published as an [attribute](https://ta-lib.org/spec/abstract/#attributes) |
 
 ## Types
 
@@ -247,6 +250,7 @@ An unrecognised flag string in any of the three lists fails `generate`.
 | `dash_line` | Dashed line | `TA_OUT_DASH_LINE` |
 | `dot` | Individual dots | `TA_OUT_DOT` |
 | `histogram` | Bar chart / histogram | `TA_OUT_HISTO` |
+| `segmented` | A line that restarts wherever the function's one integer output changes value: never connect across a change. Real outputs only, and the function must have exactly one integer output | `TA_OUT_SEGMENTED` |
 
 **Values** (what the values mean: spec rule rW7, `website/src/spec/inputs-outputs/README.md`):
 
@@ -259,9 +263,11 @@ An unrecognised flag string in any of the three lists fails `generate`.
 | `pattern_bull_bear` | Pattern output whose sign is a call | `TA_OUT_PATTERN_BULL_BEAR` |
 | `pattern_weak` | Level 80 occurs too | `TA_OUT_PATTERN_WEAK` |
 | `pattern_confirm` | Level 200 occurs too | `TA_OUT_PATTERN_CONFIRM` |
+| `bar_index` | The value is an absolute index into the input arrays. Integer outputs only | `TA_OUT_BAR_INDEX` |
 
 An output that sets any of `positive`, `negative`, `zero` lists every sign it
-writes. A pattern output takes one of three shapes, and `generate` rejects
+writes; on a real output, for some valid parameter values over well-formed bars,
+not counting a running sum's rounding a few units in the last place past zero. A pattern output takes one of three shapes, and `generate` rejects
 anything else:
 
 - `pattern_bool, zero, positive`;
